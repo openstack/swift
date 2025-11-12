@@ -16,11 +16,12 @@ import base64
 import binascii
 import hmac
 import json
+import time
 import urllib
-from collections import namedtuple
 
 from swift.common import swob, constraints
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
+from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
 from swift.common.middleware.symlink import ALLOW_RESERVED_NAMES
@@ -31,18 +32,21 @@ from swift.common.storage_policy import POLICIES
 from swift.common.utils import drain_and_close, \
     config_positive_int_value, reiterate, parse_content_type, \
     decode_timestamps, split_path, quote, param_str_from_dict, \
-    param_str_to_dict
+    param_str_to_dict, MD5_OF_EMPTY_STRING, StreamingPile, friendly_close, \
+    get_logger, Timestamp, md5, public
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
-    HTTPServiceUnavailable, quote_etag, HTTPAccepted, HTTPCreated
-from swift.common.utils import get_logger, Timestamp, md5, public
+    HTTPServiceUnavailable, quote_etag, HTTPAccepted, HTTPCreated, \
+    HTTPMethodNotAllowed, HTTPLengthRequired, HTTPRequestEntityTooLarge, \
+    Response
 from swift.common.registry import register_swift_info
 from swift.common.request_helpers import get_reserved_name, \
     get_valid_part_num, is_reserved_name, is_user_meta, \
     update_etag_override_header, update_etag_is_at_header, \
     validate_part_number, update_content_type, is_sys_meta, \
-    get_container_update_override_key, update_systags
+    get_container_update_override_key, update_systags, \
+    get_heartbeat_response_body, SegmentedIterable, update_ignore_range_header
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
 
@@ -52,9 +56,11 @@ MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
 
 MPU_OBJECT_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
+MPU_SYSMETA_MANIFEST_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'manifest'
 MPU_SYSMETA_UPLOAD_ID_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'upload-id'
 MPU_SYSMETA_HISTORY_ID_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'history-id'
 MPU_SYSMETA_ETAG_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'etag'
+MPU_SYSMETA_SIZE_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'size'
 MPU_SYSMETA_PARTS_COUNT_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'parts-count'
 MPU_SYSMETA_MAX_MANIFEST_PART_KEY = \
     MPU_OBJECT_SYSMETA_PREFIX + 'max-manifest-part'
@@ -143,10 +149,6 @@ def calculate_max_name_length():
     return constraints.MAX_OBJECT_NAME_LENGTH - len(ref.serialize())
 
 
-MPUParsedManifest = namedtuple('MPUParsedManifest',
-                               ['manifest', 'mpu_etag', 'max_manifest_part'])
-
-
 class MPUEtagHasher:
     def __init__(self):
         self.hasher = md5(usedforsecurity=False)
@@ -159,6 +161,144 @@ class MPUEtagHasher:
     @property
     def etag(self):
         return '%s-%d' % (self.hasher.hexdigest(), self.part_count)
+
+
+class MPUManifestException(Exception):
+    def __init__(self, errors):
+        super().__init__()
+        self.errors = errors
+
+
+class BaseMPUManifest:
+    def __init__(self, parts):
+        self.parts = tuple(parts)
+        hasher = MPUEtagHasher()
+        for part in self.parts:
+            hasher.update(part['etag'])
+        self.mpu_etag = hasher.etag
+
+    @property
+    def num_parts(self):
+        return len(self.parts)
+
+    @property
+    def max_manifest_part(self):
+        return self.parts[-1]['part_number']
+
+    def serialize(self):
+        return json.dumps(self.parts)
+
+    @classmethod
+    def _deserialize(cls, data):
+        try:
+            parts = json.loads(data)
+        except json.JSONDecodeError:
+            raise MPUManifestException(errors=['Manifest must be valid JSON.'])
+
+        if not isinstance(parts, list):
+            raise MPUManifestException(errors=["Manifest must be a list."])
+
+        return parts
+
+    @staticmethod
+    def _parse_part_number(part_dict, previous_part):
+        try:
+            part_number = part_dict['part_number']
+            if part_number <= 0:
+                raise ValueError(
+                    "part_number %s must be greater than zero" % part_number)
+            if part_number <= previous_part:
+                raise ValueError(
+                    "part_number %s must be greater than previous %s"
+                    % (part_number, previous_part))
+        except KeyError:
+            raise ValueError("expected keys to include part_number")
+        return part_number
+
+    @staticmethod
+    def _parse_etag(part_dict):
+        try:
+            etag = part_dict['etag']
+            etag = normalize_etag(etag)
+            if (etag is None or len(etag) != 32 or
+                    any(c not in '0123456789abcdef' for c in etag)):
+                raise ValueError("etag %s is invalid" % etag)
+        except KeyError:
+            raise ValueError("expected keys to include etag")
+        return etag
+
+
+class MPUUserManifest(BaseMPUManifest):
+    """
+    A user manifest is a list of dicts, each dict having keys 'etag' and
+    'part_number' and 'path'.
+    """
+    @classmethod
+    def parse(cls, manifest_body, part_base, mw):
+        user_manifest = cls._deserialize(manifest_body)
+        manifest_parts = []
+        errors = []
+        previous_part = 0
+
+        for part_index, part_dict in enumerate(user_manifest):
+            manifest_part_dict = {}
+            if not isinstance(part_dict, dict):
+                errors.append("Index %d: not a JSON object." % part_index)
+                continue
+            try:
+                part_number = cls._parse_part_number(part_dict, previous_part)
+                if part_number > mw.max_part_number:
+                    raise ValueError(
+                        'part_number must be at most %s' % mw.max_part_number)
+                previous_part = part_number
+                manifest_part_dict['part_number'] = part_number
+                part_tail = normalize_part_number(part_number)
+                manifest_part_dict['path'] = make_relative_path(
+                    part_base, part_tail)
+            except ValueError as err:
+                errors.append("Index %d: %s." % (part_index, err))
+            try:
+                etag = cls._parse_etag(part_dict)
+                manifest_part_dict['etag'] = etag
+            except ValueError as err:
+                errors.append("Index %d: %s." % (part_index, str(err)))
+            # append part even if invalid; we don't return if there are errors
+            manifest_parts.append(manifest_part_dict)
+
+        if not manifest_parts and not errors:
+            errors.append('Manifest must have at least one part.')
+
+        if len(manifest_parts) > mw.max_part_number:
+            errors.append('Manifest must have at most %s parts.'
+                          % mw.max_part_number)
+
+        if errors:
+            raise MPUManifestException(errors)
+
+        return cls(manifest_parts)
+
+
+class MPUInternalManifest(BaseMPUManifest):
+    """
+    An internal manifest is a list of dicts, each dict having keys 'etag',
+    'part_number', 'path', 'size' and 'timestamp'.
+    """
+    @property
+    def mpu_size(self):
+        return sum(v['size'] for v in self.parts)
+
+    def get_byte_range(self, part_number):
+        if part_number == 0 or part_number > self.num_parts:
+            raise ValueError('Invalid part number')
+        start = sum(part['size'] for part in self.parts[:part_number - 1])
+        end = start + self.parts[part_number - 1]['size'] - 1
+        return start, end
+
+    @classmethod
+    def parse(cls, manifest_body):
+        manifest_parts = cls._deserialize(manifest_body)
+        # TODO: validate internal manifests
+        return cls(manifest_parts)
 
 
 class MPUItem:
@@ -333,7 +473,7 @@ class MPUSession(MPUItem):
         headers returned with a backend session HEAD request.
 
         :param name: the unique name of the session
-        :param headers: a dict of headers
+        :param backend_headers: a dict of headers
         """
         timestamp = Timestamp(backend_headers.get('X-Timestamp', 0))
         data_timestamp = Timestamp(
@@ -396,6 +536,8 @@ class MPUSession(MPUItem):
             if key_lower.startswith(MPU_SYSMETA_USER_PREFIX):
                 headers[key[len(MPU_SYSMETA_USER_PREFIX):]] = val
             elif key_lower == MPU_SYSMETA_USER_CONTENT_TYPE_KEY:
+                # TODO: make manifest content-type be application/json, move
+                #  user content-type to sysmeta
                 headers['Content-Type'] = val
             elif key_lower.startswith(MPU_OBJECT_SYSMETA_PREFIX):
                 # filter out mpu session sysmeta
@@ -415,15 +557,16 @@ class BaseMPUHandler:
         self.app = mw.app
         self.logger = mw.logger
         self.req = req
+        self.orig_environ = dict(req.environ)
         # native strings (unquoted utf8)
         try:
             path_parts = req.split_path(4, 4, True)
-            self.account, self.container, self.obj = (
-                wsgi_to_str(path_part) for path_part in path_parts[1:])
+            self.api_version, self.account, self.container, self.obj = (
+                wsgi_to_str(path_part) for path_part in path_parts)
         except ValueError:
             path_parts = req.split_path(3, 3, False)
-            self.account, self.container = (
-                wsgi_to_str(path_part) for path_part in path_parts[1:])
+            self.api_version, self.account, self.container = (
+                wsgi_to_str(path_part) for path_part in path_parts)
             self.obj = None
 
         self.sessions_container = get_reserved_name('mpu_sessions',
@@ -457,7 +600,7 @@ class BaseMPUHandler:
         if not is_success(info['status']):
             resp = cont_req.get_response(self.app)
             drain_and_close(resp)
-            if not resp.is_success or resp.status_int == HTTP_CONFLICT:
+            if not (resp.is_success or resp.status_int == HTTP_CONFLICT):
                 raise HTTPInternalServerError(
                     'Error creating MPU resource container', request=self.req)
 
@@ -556,6 +699,7 @@ class MPUSessionsHandler(BaseMPUHandler):
 
     def _extract_list_uploads_marker(self):
         marker_name = self.req.params.get('marker')
+        # TODO: return early/ignore id marker if marker is absent
         upload_id_marker = self.req.params.get('upload-id-marker')
         if upload_id_marker:
             try:
@@ -624,6 +768,7 @@ class MPUSessionsHandler(BaseMPUHandler):
             else:
                 return sub_resp
 
+        # TODO: handle limit==0 case - make a backend request anyway?
         sub_resp.body = json.dumps(listing).encode('ascii')
         return sub_resp
 
@@ -644,7 +789,7 @@ class MPUSessionsHandler(BaseMPUHandler):
                 headers=headers)
             resp = cont_req.get_response(self.app)
             drain_and_close(resp)
-            if not resp.is_success or resp.status_int == HTTP_CONFLICT:
+            if not resp.is_success:
                 raise HTTPInternalServerError(
                     'Error writing MPU resource metadata', request=self.req)
 
@@ -672,10 +817,10 @@ class MPUSessionsHandler(BaseMPUHandler):
         lifeline_resp = lifeline_req.get_response(self.app)
         drain_and_close(lifeline_resp)
         if lifeline_resp.is_success:
-            self.logger.debug('created mpu lifeline %s' % lifeline_path)
+            self.logger.debug('created mpu lifeline %s', lifeline_path)
         else:
-            self.logger.warning('failed to create mpu lifeline %s: %s'
-                                % (lifeline_path, lifeline_resp.status_int))
+            self.logger.warning('failed to create mpu lifeline %s: %s',
+                                lifeline_path, lifeline_resp.status_int)
 
     @public
     def create_upload(self):
@@ -737,33 +882,6 @@ class MPUSessionsHandler(BaseMPUHandler):
         return resp
 
 
-class MPUSloCallbackHandler:
-    ERROR_MSG = 'Upload part too small'
-
-    def __init__(self, mw):
-        self.total_bytes = 0
-        self.mw = mw
-        self.too_small_message = (
-            self.ERROR_MSG + ': part must be at least %d bytes'
-            % self.mw.min_part_size)
-
-    def __call__(self, slo_manifest):
-        # Check the size of each segment except the last and make sure
-        # they are all more than the minimum upload chunk size.
-        # Note that we need to use the *internal* keys, since we're
-        # looking at the manifest that's about to be written.
-        errors = []
-        for index, item in enumerate(slo_manifest):
-            if not item:
-                continue
-            self.total_bytes += item['bytes']
-            if (index < len(slo_manifest) - 1 and
-                    item['bytes'] < self.mw.min_part_size):
-                # TODO: add tests coverage
-                errors.append((item['name'], self.too_small_message))
-        return errors
-
-
 class MPUSessionHandler(BaseMPUHandler):
     """
     Handles the following APIs:
@@ -789,8 +907,8 @@ class MPUSessionHandler(BaseMPUHandler):
     def _load_session(self):
         req = self.make_subrequest(method='HEAD', path=self.session_path)
         resp = req.get_response(self.app)
-        self.logger.debug('loading mpu session %s %s'
-                          % (self.session_path, resp.status_int))
+        self.logger.debug('loading mpu session %s %s',
+                          self.session_path, resp.status_int)
         if resp.status_int == 404:
             raise HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
         elif not resp.is_success:
@@ -955,93 +1073,30 @@ class MPUSessionHandler(BaseMPUHandler):
             resp = self.translate_error_response(sess_resp)
         return resp
 
-    def _parse_part_number(self, part_dict, previous_part):
+    def _parse_user_manifest(self, req):
+        # TODO: add test coverage for too large *chunked* transfer request
+        manifest_body = req.body_file.read(self.mw.max_manifest_size + 1)
+        if len(manifest_body) > self.mw.max_manifest_size:
+            raise HTTPRequestEntityTooLarge(
+                'MultipartComplete body > %d bytes.\n'
+                % self.mw.max_manifest_size,
+                headers={"Content-Type": "text/plain"})
+
+        # TODO: make manifest briefer by not repeating path to every part
+        part_base = make_relative_path(
+            self.account, self.parts_container, self.obj, self.upload_id)
         try:
-            part_number = part_dict['part_number']
-            if part_number <= 0:
-                raise ValueError(
-                    "part_number %s must be greater than zero" % part_number)
-            if part_number <= previous_part:
-                raise ValueError(
-                    "part_number %s must be greater than previous %s"
-                    % (part_number, previous_part))
-        except KeyError:
-            raise ValueError("expected keys to include part_number")
-        return part_number
-
-    def _parse_etag(self, part_dict):
-        try:
-            etag = part_dict['etag']
-            etag = normalize_etag(etag)
-            if (etag is None or len(etag) != 32 or
-                    any(c not in '0123456789abcdef' for c in etag)):
-                raise ValueError("etag %s is invalid" % etag)
-        except KeyError:
-            raise ValueError("expected keys to include etag")
-        return etag
-
-    def _parse_user_manifest(self, body):
-        try:
-            user_manifest = json.loads(body)
-        except ValueError:
-            raise HTTPBadRequest("Manifest must be valid JSON.\n")
-
-        if not isinstance(user_manifest, list):
-            raise HTTPBadRequest("Manifest must be a list.\n")
-
-        errors = []
-        manifest = []
-        mpu_etag_hasher = MPUEtagHasher()
-        previous_part = 0
-        part_number = 0
-        part_base = '%s/%s/' % (self.obj, self.upload_id)
-
-        for part_index, part_dict in enumerate(user_manifest):
-            manifest_part_dict = {}
-            if not isinstance(part_dict, dict):
-                errors.append("Index %d: not a JSON object." % part_index)
-                continue
-            try:
-                part_number = self._parse_part_number(part_dict, previous_part)
-                part_tail = normalize_part_number(part_number)
-                manifest_part_dict['path'] = make_relative_path(
-                    self.parts_container, part_base + part_tail
-                )
-            except ValueError as err:
-                errors.append("Index %d: %s." % (part_index, err))
-            try:
-                etag = self._parse_etag(part_dict)
-                manifest_part_dict['etag'] = etag
-                mpu_etag_hasher.update(etag)
-            except ValueError as err:
-                errors.append("Index %d: %s." % (part_index, str(err)))
-            if not errors:
-                manifest.append(manifest_part_dict)
-
-        if not manifest and not errors:
-            errors.append('Manifest must have at least one part.')
-
-        if len(manifest) > self.mw.max_part_number:
-            errors.append('Manifest must have at most %s parts.'
-                          % self.mw.max_part_number)
-
-        if errors:
-            error_message = b"".join(e.encode('utf8') + b"\n" for e in errors)
+            user_manifest = MPUUserManifest.parse(
+                manifest_body, part_base, self.mw)
+        except MPUManifestException as err:
+            error_message = b"".join(e.encode('utf8') + b"\n"
+                                     for e in err.errors)
             raise HTTPBadRequest(error_message,
                                  headers={"Content-Type": "text/plain"})
-        return MPUParsedManifest(
-            manifest, mpu_etag_hasher.etag, part_number)
 
-    def _parse_slo_errors(self, slo_resp_dict):
-        resp_dict = {'Response Status': '400 Bad Request'}
-        errors = []
-        for path, reason in slo_resp_dict.get('Errors', []):
-            part_number = path.rsplit('/')[-1]
-            errors.append([part_number, reason])
-        resp_dict['Errors'] = errors
-        return resp_dict
+        return user_manifest
 
-    def _put_manifest(self, session, parsed_manifest):
+    def _put_manifest(self, session, internal_manifest):
         # create manifest in user container
         offset = self.req.timestamp.raw - session.data_timestamp.raw
         offset += session.data_timestamp.offset
@@ -1051,21 +1106,26 @@ class MPUSessionHandler(BaseMPUHandler):
         # note: setting x-timestamp here causes object-versioning to us that
         # timestamp to form a version id, so version ids are coupled to the
         # upload id and history id for the manifest
+        # TODO: make manifest content-type be application/json, move
+        #  user content-type to sysmeta
         manifest_headers = {
             'X-Timestamp': ts_complete.internal,
             'Accept': 'application/json',
             # report size as 0 in container stats
-            get_container_update_override_key('size'): '0',
+            get_container_update_override_key('size'):
+                str(internal_manifest.mpu_size),
             ALLOW_RESERVED_NAMES: 'true',
+            MPU_SYSMETA_MANIFEST_KEY: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
-            MPU_SYSMETA_ETAG_KEY: parsed_manifest.mpu_etag,
-            MPU_SYSMETA_PARTS_COUNT_KEY: str(len(parsed_manifest.manifest)),
+            MPU_SYSMETA_ETAG_KEY: internal_manifest.mpu_etag,
+            MPU_SYSMETA_SIZE_KEY: str(internal_manifest.mpu_size),
+            MPU_SYSMETA_PARTS_COUNT_KEY: str(internal_manifest.num_parts),
             # The max_manifest_part is not currently used but may prove useful.
             # For example, if max_manifest_part == number of mpu parts then we
             # can infer the path to a part object without a GET for the
             # manifest body.
             MPU_SYSMETA_MAX_MANIFEST_PART_KEY:
-                str(parsed_manifest.max_manifest_part),
+                str(internal_manifest.max_manifest_part),
         }
         manifest_headers.update(session.get_manifest_headers())
         # TODO: pass through more conditional request headers? and add tests
@@ -1076,17 +1136,14 @@ class MPUSessionHandler(BaseMPUHandler):
         part_prefix_path = quote(make_relative_path(
             self.parts_container, self.session_ref.serialize()))
         update_etag_override_header(
-            manifest_headers, parsed_manifest.mpu_etag,
-            [('mpu_etag', parsed_manifest.mpu_etag),
+            manifest_headers, internal_manifest.mpu_etag,
+            [('mpu_etag', internal_manifest.mpu_etag),
              ('mpu_link', part_prefix_path)])
-        params = {'multipart-manifest': 'put', 'heartbeat': 'on'}
         manifest_req = self.make_subrequest(
-            path=self.make_path(
-                self.account, self.container, self.obj),
+            path=self.make_path(self.account, self.container, self.obj),
             method='PUT',
             headers=manifest_headers,
-            body=json.dumps(parsed_manifest.manifest),
-            params=params)
+            body=internal_manifest.serialize())
 
         lifeline_name = make_relative_path(self.obj, self.upload_id, '')
         systags = {
@@ -1099,12 +1156,9 @@ class MPUSessionHandler(BaseMPUHandler):
             manifest_req, session.history_id, 'PUT',
             systags=systags)
 
-        slo_callback_handler = MPUSloCallbackHandler(self.mw)
-        manifest_req.environ['swift.callback.slo_manifest_hook'] = \
-            slo_callback_handler
         self.logger.debug('mpu manifest PUT %s %s',
                           manifest_req.path, dict(manifest_req.headers))
-        return manifest_req.get_response(self.app), slo_callback_handler
+        return manifest_req.get_response(self.app)
 
     def _post_session_completing(self, session):
         # Set session state to completing; this will cause the auditor to
@@ -1123,60 +1177,132 @@ class MPUSessionHandler(BaseMPUHandler):
         sess_resp = self._post_session(session)
         drain_and_close(sess_resp)
 
-    def _make_complete_upload_resp_iter(self, session, parsed_manifest):
-        def response_iter():
-            manifest_resp, slo_callback_handler = self._put_manifest(
-                session, parsed_manifest)
-            if not manifest_resp.is_success:
-                yield json.dumps(
-                    {'Response Status': '503 Service Unavailable',
-                     'Response Body':
-                         manifest_resp.body.decode('utf-8', errors='replace')}
-                ).encode('ascii')
+    def _head_part_and_validate(self, part_index, unvalidated_manifest):
+        # TODO: unit test api version from client req being used
+        unvalidated_part = unvalidated_manifest.parts[part_index]
+
+        part_path = unvalidated_part['path']
+        req_path = '/%s/%s' % (self.api_version, part_path)
+        head_req = self.make_subrequest('HEAD', req_path)
+        head_resp = head_req.get_response(self.app)
+        # TODO: include client part number in error message?
+        if not head_resp.is_success:
+            problems = [head_resp.status]
+            return part_index + 1, unvalidated_part, problems
+
+        problems = []
+        part_size = head_resp.content_length
+        if (part_size is None or
+                (part_size < self.mw.min_part_size
+                 and part_index != unvalidated_manifest.num_parts - 1)):
+            problems.append(
+                'Upload part too small: part must be at least %s bytes.'
+                % self.mw.min_part_size)
+
+        part_etag = unvalidated_part['etag']
+        if part_etag != head_resp.etag:
+            problems.append('Etag Mismatch')
+
+        part_timestamp = head_resp.headers.get('x-backend-timestamp')
+
+        validated_part = dict(unvalidated_part,
+                              size=part_size,
+                              timestamp=part_timestamp)
+        return part_index + 1, validated_part, problems
+
+    def _make_complete_upload_resp_iter(self, session, user_manifest):
+        # Apparently some ways of deploying require that this happens
+        # *before* the return? Not sure why. Copied from slo.py.
+        self.req.environ['eventlet.minimum_write_chunk_size'] = 0
+        separator = b'\r\n\r\n'
+
+        def resp_iter():
+            # wsgi won't propagate start_response calls until some data has
+            # been yielded so make sure first heartbeat is sent immediately
+            yield b' '
+            last_yield_time = time.time()
+            validated_parts = []
+            problem_list = []
+
+            with StreamingPile(self.mw.concurrency) as pile:
+                for part_index, validated_part, problems in pile.asyncstarmap(
+                        self._head_part_and_validate,
+                        [(index, user_manifest)
+                         for index in range(user_manifest.num_parts)]):
+                    validated_parts.append((part_index, validated_part))
+                    for problem in problems:
+                        problem_list.append([str(part_index), problem])
+                    now = time.time()
+                    if now - last_yield_time > self.mw.yield_frequency:
+                        yield b' '
+                        last_yield_time = now
+
+            out_content_type = 'application/json'
+            if problem_list:
+                err = HTTPBadRequest(content_type=out_content_type)
+                resp_dict = {'Response Status': err.status,
+                             'Response Body': err.body.decode('utf-8')}
+                yield separator + get_heartbeat_response_body(
+                    out_content_type, resp_dict,
+                    sorted(problem_list), 'MPU')
                 return
 
-            body_chunks = []
-            manifest_resp.fix_conditional_response()
-            for chunk in manifest_resp.response_iter:
-                if not chunk.strip():
-                    # pass heartbeat bytes on to the client
-                    yield chunk
-                    continue
-                body_chunks.append(chunk)
+            # TODO: do this in pre-parse
+            # client_etag = normalize_etag(req.headers.get('Etag'))
+            # if client_etag and client_etag != slo_etag:
+            #     err = HTTPUnprocessableEntity(request=self.req)
+            #     resp_dict = {}
+            #     resp_dict['Response Status'] = err.status
+            #     resp_dict['Response Body'] = err.body.decode('utf-8')
+            #     yield separator + get_heartbeat_response_body(
+            #         out_content_type, resp_dict, [], 'MPU')
+            #     return
+            internal_manifest = MPUInternalManifest(
+                tuple(part for index, part in sorted(validated_parts)))
+            backend_resp = self._put_manifest(session, internal_manifest)
 
-            try:
-                manifest_resp_body = b''.join(body_chunks)
-                body_dict = json.loads(manifest_resp_body)
-            except ValueError:
-                yield json.dumps(
-                    {'Response Status': '503 Service Unavailable'}
-                ).encode('ascii')
-                return
-
-            manifest_resp_status = body_dict.get('Response Status')
-            if manifest_resp_status == '201 Created':
+            resp_dict = {'Response Status': backend_resp.status}
+            if backend_resp.is_success:
+                friendly_close(backend_resp)
                 self._post_session_completed(session)
                 # report success to the user whatever the result of the
                 # session POST; the auditor will detect that the user obj
                 # was linked to the manifest
-                body_dict['Etag'] = normalize_etag(
-                    parsed_manifest.mpu_etag)
-                yield json.dumps(body_dict).encode('ascii')
-            elif manifest_resp_status == '400 Bad Request':
-                resp_dict = self._parse_slo_errors(body_dict)
-                yield json.dumps(resp_dict).encode('ascii')
+                resp_dict['Etag'] = normalize_etag(
+                    user_manifest.mpu_etag)
+                resp_dict['Last-Modified'] = \
+                    backend_resp.headers['Last-Modified']
             else:
-                yield manifest_resp_body
+                # TODO: check test coverage...
+                backend_resp_body = backend_resp.body
+                if isinstance(backend_resp_body, bytes):
+                    backend_resp_body = backend_resp_body.decode('utf-8')
+                resp_dict['Response Body'] = backend_resp_body
 
-        return reiterate(response_iter())
+            yield separator + get_heartbeat_response_body(
+                out_content_type, resp_dict, [], 'MPU')
+
+        return reiterate(resp_iter())
+
+    def _check_complete_upload_request(self):
+        # TODO: add unit/functional tests for these conditions...
+        if self.req.headers.get('X-Copy-From'):
+            raise HTTPMethodNotAllowed(
+                'MultipartComplete cannot be COPY requests')
+
+        if self.req.is_chunked:
+            return
+
+        if self.req.content_length is None:
+            raise HTTPLengthRequired(request=self.req)
 
     def complete_upload(self):
         """
         Handles Complete Multipart Upload.
         """
         self._authorize_write_request()
-
-        parsed_manifest = self._parse_user_manifest(self.req.body)
+        self._check_complete_upload_request()
+        user_manifest = self._parse_user_manifest(self.req)
         try:
             session = self._load_session()
             if not session.is_active:
@@ -1186,14 +1312,14 @@ class MPUSessionHandler(BaseMPUHandler):
                 return err
             user_obj_metadata = self._get_user_object_metadata()
             if (user_obj_metadata.get(MPU_SYSMETA_ETAG_KEY) ==
-                    parsed_manifest.mpu_etag
+                    user_manifest.mpu_etag
                     and user_obj_metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) ==
                     self.upload_id):
                 # TODO: for belt-and-braces, check it is a symlink too
                 # session was previously completed, tolerate the retry
                 body_dict = {
                     'Response Status': '201 Created',
-                    'Etag': parsed_manifest.mpu_etag,
+                    'Etag': user_manifest.mpu_etag,
                     'Last Modified': user_obj_metadata.get('Last-Modified'),
                     'Response Body': '',
                     'Errors': [],
@@ -1216,33 +1342,89 @@ class MPUSessionHandler(BaseMPUHandler):
         if not sess_resp.is_success:
             return self.translate_error_response(sess_resp)
 
+        # assume we're good for now...
         # return 202 to match SLO response with heartbeat=on
-        resp = HTTPAccepted()  # assume we're good for now...
+        resp = HTTPAccepted(headers={'Content-Type': 'application/json'})
         resp.app_iter = self._make_complete_upload_resp_iter(
-            session, parsed_manifest)
+            session, user_manifest)
         self.logger.debug('mpu complete_upload %s', self.req.path)
         return resp
 
 
-class MPUObjHandler(BaseMPUHandler):
-    def _handle_get_head_request(self):
-        # instruct the object server to look for an mpu-etag in sysmeta
-        # for evaluating conditional requests
-        update_etag_is_at_header(self.req, MPU_SYSMETA_ETAG_KEY)
-        resp = self.req.get_response(self.app)
-        if MPU_SYSMETA_UPLOAD_ID_KEY not in resp.headers:
-            return resp
+def byteranges_parts_iter(parts, byteranges):
+    for range_start, range_end in byteranges:
+        part_end = -1
+        for part in parts:
+            part_size = part['size']
+            part_start = part_end + 1
+            part_end = part_start + part_size - 1
+            if part_start > range_end:
+                break
+            if part_end < range_start:
+                continue
+            part_range_start = max(0, range_start - part_start)
+            part_range_end = min(range_end - part_start, part_size - 1)
+            yield part, part_range_start, part_range_end
 
+
+class MPUObjHandler(BaseMPUHandler):
+    def __init__(self, mw, req, get_for_head=False):
+        super().__init__(mw, req)
+        self.get_for_head = get_for_head
+
+    def _get_byte_ranges(self, content_length):
+        if self.req.range:
+            byte_ranges = [
+                (start, end - 1) for start, end
+                in self.req.range.ranges_for_length(content_length)]
+        else:
+            byte_ranges = [(0, content_length - 1)]
+        return byte_ranges
+
+    def segments_iter(self, byteranges_parts_iter):
+        # translate manifest part dicts to SegmentedIterable segment dicts
+        for part, part_range_start, part_range_end in byteranges_parts_iter:
+            yield (dict(part,
+                        path='/%s/%s' % (self.api_version, part['path']),
+                        hash=part['etag'],
+                        bytes=part['size'],
+                        first_byte=part_range_start,
+                        last_byte=part_range_end))
+
+    def _make_mpu_resp_iter(self, manifest):
+        byte_ranges = self._get_byte_ranges(manifest.mpu_size)
+        parts_iter = byteranges_parts_iter(manifest.parts, byte_ranges)
+        seg_iter = self.segments_iter(parts_iter)
+        segmented_iter = SegmentedIterable(
+            self.req, self.app, seg_iter,
+            name=self.req.path, logger=self.logger,
+            ua_suffix='MPU GET',
+            swift_source='MPU',
+            max_get_time=self.mw.max_get_time,
+            allow_reserved_names=True
+        )
+
+        try:
+            segmented_iter.validate_first_segment()
+        except (ListingIterError, SegmentError):
+            raise HTTPConflict(request=self.req)
+        return segmented_iter
+
+    def _translate_mpu_response_headers(self, resp, keys=None):
         new_headers = HeaderKeyDict()
-        mpu_etag = None
+        mpu_etag = mpu_size = None
         for key, val in resp.headers.items():
             key = key.lower()
+            if keys and key not in keys:
+                continue
             if key in ('x-static-large-object',
                        'content-location',
                        'x-manifest-etag'):
                 continue
             if key == MPU_SYSMETA_ETAG_KEY:
                 mpu_etag = val
+            elif key == MPU_SYSMETA_SIZE_KEY:
+                mpu_size = val
             elif key == MPU_SYSMETA_PARTS_COUNT_KEY:
                 new_headers['x-parts-count'] = val
             elif key == MPU_SYSMETA_UPLOAD_ID_KEY:
@@ -1253,16 +1435,108 @@ class MPUObjHandler(BaseMPUHandler):
                 continue
             else:
                 new_headers[key] = val
-        if mpu_etag:
+        if mpu_etag is not None:
             # mpu mw always quotes response header etag for requests it handles
             new_headers['etag'] = quote_etag(mpu_etag)
-        resp.headers = new_headers
+        if mpu_size is not None:
+            new_headers['content-length'] = mpu_size
+        return new_headers
+
+    def _parse_internal_manifest(self, resp):
+        try:
+            return MPUInternalManifest.parse(resp.body)
+        except MPUManifestException as err:
+            self.logger.warning(
+                'Error loading MPU manifest of type %s: %s',
+                resp.content_type, err)
+            raise HTTPServiceUnavailable(request=self.req)
+
+    def _handle_mpu_get_head_ok_response(self, resp, part_number):
+        new_headers = self._translate_mpu_response_headers(resp)
+        if self.req.method == 'GET':
+            manifest = self._parse_internal_manifest(resp)
+            if part_number:
+                # Add a Range header so that swob mutates the response to 206
+                start, end = manifest.get_byte_range(part_number)
+                self.req.range = "bytes=%d-%d" % (start, end)
+            if self.get_for_head:
+                manifest = MPUInternalManifest([])
+        else:
+            manifest = MPUInternalManifest([])
+        # we always make a SegmentedIterable, which implements app_iter_range
+        # so that swob will mutate range responses. For HEAD responses we just
+        # give the SegmentedIterable an empty manifest.
+        resp_iter = self._make_mpu_resp_iter(manifest)
+        resp = Response(
+            status=200,
+            headers=new_headers,
+            app_iter=resp_iter,
+            request=self.req,
+            conditional_response=True)
+        resp.fix_conditional_response()
+        self.logger.debug('mpu _handle_mpu_get_request %s %s %s %s %s %s',
+                          self.req.method, self.get_for_head, part_number,
+                          self.req.headers.get('range'),
+                          self.req.headers.get('content-length'),
+                          self.req.headers.get('content-range'))
+        return resp
+
+    def _refetch_using_get_for_head_request(self):
+        get_req = Request(self.orig_environ)
+        get_req.method = 'GET'
+        get_req.environ['swift.source'] = MPU_SWIFT_SOURCE
+        refetch_handler = MPUObjHandler(self.mw, get_req, get_for_head=True)
+        return refetch_handler.handle_request()
+
+    def _handle_mpu_get_head_response(self, resp):
+        num_parts = int(resp.headers.get(MPU_SYSMETA_PARTS_COUNT_KEY, 0))
+        try:
+            part_number = get_valid_part_num(
+                self.req, num_actual_parts=num_parts)
+        except HTTPException:
+            friendly_close(resp)
+            raise
+
+        if resp.status_int in (206, 416):
+            # TODO: do we need to refetch without conditional headers similar
+            #   to SLO, or can we assume object servers are new enough?
+            self.logger.warning(
+                'Unexpected response status for mpu GET or HEAD request: %s. '
+                'Upgrade object servers!' % resp.status_int)
+            friendly_close(resp.app_iter)
+            raise HTTPInternalServerError(request=self.req)
+        elif resp.status_int in (304, 412):
+            # only translate a minimal set of headers with 304/412 responses
+            # https://www.rfc-editor.org/info/rfc9110/#status.304
+            resp.headers.update(self._translate_mpu_response_headers(
+                resp, keys=(MPU_SYSMETA_ETAG_KEY,)))
+        elif not resp.is_success:
+            pass
+        elif self.req.method == 'HEAD' and part_number:
+            # we need the manifest to satisfy a HEAD with part-number
+            friendly_close(resp.app_iter)
+            resp = self._refetch_using_get_for_head_request()
+        else:
+            resp = self._handle_mpu_get_head_ok_response(resp, part_number)
+        return resp
+
+    def _handle_get_head_request(self):
+        # instruct the object server to look for an mpu-etag in sysmeta
+        # for evaluating conditional requests
+        update_etag_is_at_header(self.req, MPU_SYSMETA_ETAG_KEY)
+        update_ignore_range_header(self.req, MPU_SYSMETA_MANIFEST_KEY)
+        resp = self.req.get_response(self.app)
+        if MPU_SYSMETA_UPLOAD_ID_KEY in resp.headers:
+            resp = self._handle_mpu_get_head_response(resp)
+        elif self.get_for_head:
+            friendly_close(resp.app_iter)
+            resp.app_iter = None
         return resp
 
     def _handle_put_delete_request(self):
         # TODO: remove!
         # TODO: ok to always use default policy for history?
-        policy_index = POLICIES.default
+        policy_index = POLICIES.default.idx
         self._ensure_container_exists(
             self.hidden_account, self.history_container, policy_index)
         # TODO: the coupling with object-versioning is unfortunate
@@ -1342,7 +1616,6 @@ class MPUContainerHandler(BaseMPUHandler):
             if 'hash' not in item:
                 continue
 
-            # SLO will already have extracted the size from swift_bytes
             hash_value, params = parse_content_type(item['hash'])
             new_params = []
             mpu_etag = None
@@ -1361,8 +1634,6 @@ class MPUContainerHandler(BaseMPUHandler):
             # other middlewares...
             item['hash'] = mpu_etag + ''.join('; %s=%s' % kv
                                               for kv in new_params)
-            # hide the implementation details from the user
-            item.pop('slo_etag', None)
         resp.body = json.dumps(body_json).encode('ascii')
 
     def handle_request(self):
@@ -1372,12 +1643,12 @@ class MPUContainerHandler(BaseMPUHandler):
 
         if self.req.method == 'GET':
             self._process_json_resp(resp)
-            self._update_resp_headers(resp)
-        elif self.req.method == 'HEAD':
-            self._update_resp_headers(resp)
-        elif self.req.method == 'PUT' and resp.is_success:
+        #     self._update_resp_headers(resp)
+        # elif self.req.method == 'HEAD':
+        #     self._update_resp_headers(resp)
+        elif self.req.method == 'PUT':
             # TODO: ok to always use default policy for history?
-            policy_index = POLICIES.default
+            policy_index = POLICIES.default.idx
             self._ensure_container_exists(
                 self.hidden_account, self.history_container, policy_index)
         elif self.req.method == 'DELETE':
@@ -1396,7 +1667,7 @@ class MPUMiddleware:
     def __init__(self, app, conf, logger=None):
         self.conf = conf
         self.app = app
-        self.logger = logger or get_logger(conf, log_route='slo')
+        self.logger = logger or get_logger(conf, log_route='mpu')
         self.upload_id_signing_key = base64.b64decode(
             conf.get('upload_id_key', '').encode('ascii'))
         self.min_part_size = config_positive_int_value(
@@ -1404,6 +1675,20 @@ class MPUMiddleware:
         self.max_part_number = config_positive_int_value(
             conf.get('max_part_number', DEFAULT_MAX_PART_NUMBER))
         self.max_name_length = calculate_max_name_length()
+        # TODO: unit test
+        self.concurrency = min(1000, max(0, int(self.conf.get(
+            'concurrency', '2'))))
+        # TODO: unit test
+        self.yield_frequency = int(conf.get('yield_interval', 10))
+        # TODO: unit test
+        self.max_manifest_size = len(json.dumps(
+            [{'part_number': self.max_part_number,
+              'etag': '"%s"' % MD5_OF_EMPTY_STRING}
+             for _ in range(self.max_part_number)]
+        ))
+        # TODO: unit test
+        self.max_get_time = int(self.conf.get('max_get_time', 86400))
+
         register_swift_info('mpu',
                             max_part_number=self.max_part_number,
                             min_part_size=self.min_part_size,
@@ -1500,5 +1785,5 @@ def filter_factory(global_conf, **local_conf):
     conf.update(local_conf)
 
     def mpu_filter(app):
-        return MPUMiddleware(app, conf,)
+        return MPUMiddleware(app, conf)
     return mpu_filter

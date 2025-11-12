@@ -35,7 +35,8 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.http import is_success, is_server_error
 from swift.common.swob import HTTPBadRequest, \
     HTTPServiceUnavailable, Range, is_chunked, multi_range_iterator, \
-    HTTPPreconditionFailed, wsgi_to_bytes, wsgi_unquote, wsgi_to_str
+    HTTPPreconditionFailed, wsgi_to_bytes, wsgi_unquote, wsgi_to_str, \
+    HTTPRequestedRangeNotSatisfiable
 from swift.common.utils import split_path, validate_device_partition, \
     close_if_possible, friendly_close, \
     maybe_multipart_byteranges_to_document_iters, \
@@ -102,9 +103,9 @@ def validate_part_number(value):
     return part_number
 
 
-def get_valid_part_num(req):
+def get_valid_part_num(req, num_actual_parts=None):
     """
-    Any non-range GET or HEAD request for a SLO object may include a
+    Any non-range GET or HEAD request for a SLO or MPU object may include a
     part-number parameter in query string.  If the passed in request
     includes a part-number parameter it will be parsed into a valid integer
     and returned.  If the passed in request does not include a part-number
@@ -121,14 +122,24 @@ def get_valid_part_num(req):
     try:
         part_number = validate_part_number(part_number_param)
     except ValueError:
-        raise HTTPBadRequest('Part number must be an integer greater '
-                             'than 0')
+        raise HTTPBadRequest(
+            'Part number must be an integer greater than 0'
+        )
 
-    if part_number is not None and req.range:
-        raise HTTPBadRequest(req=req,
-                             body='Range requests are not supported '
-                                  'with part number queries')
+    if part_number is None:
+        return None
 
+    if req.range:
+        raise HTTPBadRequest(
+            req=req,
+            body='Range requests are not supported with part number queries'
+        )
+
+    if num_actual_parts and part_number > num_actual_parts:
+        raise HTTPRequestedRangeNotSatisfiable(
+            req=req,
+            headers={'x-parts-count': str(num_actual_parts)}
+        )
     return part_number
 
 

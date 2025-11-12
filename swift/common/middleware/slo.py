@@ -1099,20 +1099,28 @@ class SloGetContext(WSGIContext):
             conditional_etag=resolve_etag_is_at_header(req, resp_headers))
         return resp(req.environ, start_response)
 
-    def _return_non_slo_response(self, req, start_response, resp_iter):
-        # our "pass-through" response may have been from a manifest refetch w/o
-        # range/conditional headers that turned out to be a real object, and
-        # now we want out.  But if the original client request included Range
-        # or Conditional headers we can trust swob to do the right conversion
-        # back into a 206/416/304/412 (as long as the response we have is a
-        # normal successful response and we respect any forwarding middleware's
-        # etag-is-at header that we stripped off for the refetch!)
+    def _return_non_slo_response(self, req, start_response, resp_iter,
+                                 refetch):
+        # TODO: review and add unit tests for the addition of 'refetch' arg
+        # TODO: the refetch guard needs strengthening in case the refetched
+        #   object turns out to be an mpu manifest, in which case we also do
+        #   not want to make that conditional; we probably need to also
+        #   evaluate any X-Backend-Ignore-Range-If-Metadata-Present header in
+        #   the request.
+        # A non-slo response may arise from a manifest refetch that turned out
+        # to be a non-slo object. The refetch subrequest dropped any range or
+        # conditional headers that came with the original request, so we use
+        # the conditional_response arg here to have swob to do the right
+        # conversion back into a 206/416/304/412 (as long as the response we
+        # have is a normal successful response and we respect any forwarding
+        # middleware's etag-is-at header that we stripped off for the
+        # refetch!). However, we *only* do this for an SLO refetch.
         resp = Response(
             status=self._response_status,
             headers=self._response_headers,
             app_iter=resp_iter,
             request=req,
-            conditional_response=self._get_status_int() == 200,
+            conditional_response=refetch and self._get_status_int() == 200,
             conditional_etag=resolve_etag_is_at_header(
                 req, self._response_headers)
         )
@@ -1168,18 +1176,21 @@ class SloGetContext(WSGIContext):
             #    resp_attrs variables, partly because we *might* get back a NOT
             #    resp_attrs.is_slo response (even if we had one to start), but
             #    hopefully they're just the manifest resp we needed to refetch!
-            if self._need_to_refetch_manifest(req, resp_attrs, part_num):
+            refetch = self._need_to_refetch_manifest(req, resp_attrs, part_num)
+            if refetch:
                 # reset path in case it was modified during original request
                 # (e.g. object versioning might re-write the path)
                 req.path_info = orig_path_info
                 resp_attrs, resp_iter = self._refetch_manifest(
                     req, resp_iter, resp_attrs)
+        else:
+            refetch = False
 
         if not resp_attrs.is_slo:
             # even if the original resp_attrs may have been SLO we may have
             # refetched, this also handles the server error case
             return self._return_non_slo_response(
-                req, start_response, resp_iter)
+                req, start_response, resp_iter, refetch)
 
         if is_manifest_get:
             # manifest pass through doesn't require resp_attrs

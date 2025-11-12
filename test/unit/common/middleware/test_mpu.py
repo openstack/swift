@@ -13,13 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import base64
-import binascii
-import contextlib
 import hmac
 import json
 import unittest
 import urllib
 import urllib.parse
+from copy import deepcopy
 
 from unittest import mock
 
@@ -27,12 +26,13 @@ from swift.common import swob, registry
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import mpu
 from swift.common.middleware.mpu import MPUMiddleware, \
-    normalize_part_number, MPUSession, BaseMPUHandler, MPUEtagHasher
+    normalize_part_number, MPUSession, BaseMPUHandler, MPUEtagHasher, \
+    byteranges_parts_iter
 from swift.common.object_ref import ObjectRef, HistoryId, UploadId
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPServiceUnavailable, HTTPPreconditionFailed, \
     HTTPException, HTTPBadRequest, HTTPNoContent, HTTPInternalServerError, \
-    HTTPConflict
+    HTTPConflict, HTTPPartialContent, HTTPRequestedRangeNotSatisfiable
 from swift.common.utils import md5, quote, Timestamp, MD5_OF_EMPTY_STRING, \
     param_str_from_dict
 from test.debug_logger import debug_logger
@@ -40,18 +40,63 @@ from test.unit import make_timestamp_iter
 from test.unit.common.middleware.helpers import FakeSwift
 
 
-@contextlib.contextmanager
-def mock_generate_unique_id(fake_id):
-    with mock.patch('swift.common.middleware.mpu.generate_unique_id',
-                    return_value=fake_id):
-        yield
-
-
 class TestModuleFunctions(unittest.TestCase):
     def test_normalize_part_number(self):
         self.assertEqual('000001', normalize_part_number(1))
         self.assertEqual('000011', normalize_part_number('11'))
         self.assertEqual('000111', normalize_part_number('000111'))
+
+    def test_byteranges_parts_iter(self):
+        parts = [{'size': 10}, {'size': 11}, {'size': 12}]
+        byte_ranges = [(0, -1)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([], list(it))
+
+        byte_ranges = [(0, 0)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[0], 0, 0)], list(it))
+
+        byte_ranges = [(0, 9)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[0], 0, 9)], list(it))
+
+        byte_ranges = [(0, 10)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[0], 0, 9), (parts[1], 0, 0)], list(it))
+
+        byte_ranges = [(9, 10)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[0], 9, 9), (parts[1], 0, 0)], list(it))
+
+        byte_ranges = [(9, 20)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[0], 9, 9), (parts[1], 0, 10)], list(it))
+
+        byte_ranges = [(9, 21)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual(
+            [(parts[0], 9, 9), (parts[1], 0, 10), (parts[2], 0, 0)], list(it))
+
+        byte_ranges = [(9, 99)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual(
+            [(parts[0], 9, 9), (parts[1], 0, 10), (parts[2], 0, 11)], list(it))
+
+        byte_ranges = [(32, 99)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[2], 11, 11)], list(it))
+
+        byte_ranges = [(33, 99)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([], list(it))
+
+        byte_ranges = [(0, 9), (11, 15)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[0], 0, 9), (parts[1], 1, 5)], list(it))
+
+        byte_ranges = [(25, 26), (26, 28)]
+        it = byteranges_parts_iter(parts, byte_ranges)
+        self.assertEqual([(parts[2], 4, 5), (parts[2], 5, 7)], list(it))
 
 
 class TestMPUSession(unittest.TestCase):
@@ -434,7 +479,100 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  'last_modified': '1970-01-01T00:00:00.000000'},
             ]
 
+        self.sample_part1_body = b'1' * 5 * 1024 * 1024
+        self.sample_part2_body = b'2' * 99
+
+    def _make_parts_check_calls(self, manifest):
+        """
+        Return argument tuples for FakeSwift call registrations for HEAD
+        requests to parts in the given manifest.
+
+        :param manifest: a list of part dicts
+        :return: a list of argument tuples for FakeSwift call registrations
+        """
+        calls = [
+            ('HEAD',
+             swob.str_to_wsgi('/v1/%s' % part['path']),
+             HTTPOk,
+             {'X-Backend-Timestamp': part['timestamp'],
+              'Content-Length': part['size'],
+              'ETag': '%s' % part['etag']})
+            for part in manifest]
+        return calls
+
+    def _make_sample_part_dicts(self, part_numbers=None):
+        """
+        Return a list of dictionaries, one for each part number, that is
+        equivalent to an internal manifest. The list can be passed to
+        _make_parts_check_calls.
+        """
+        part_numbers = part_numbers or [1, 2]
+        return [
+            {'path': 'a/\x00mpu_parts\x00c/%s/%06d'
+                     % (self.session_ref.serialize(), part_numbers[0]),
+             'part_number': part_numbers[0],
+             'etag': md5(self.sample_part1_body).hexdigest(),
+             'timestamp': next(self.ts_iter).internal,
+             'size': len(self.sample_part1_body)},
+            {'path': 'a/\x00mpu_parts\x00c/%s/%06d'
+                     % (self.session_ref.serialize(), part_numbers[1]),
+             'part_number': part_numbers[1],
+             'etag': md5(self.sample_part2_body).hexdigest(),
+             'timestamp': next(self.ts_iter).internal,
+             'size': len(self.sample_part2_body)}
+        ]
+
+    @staticmethod
+    def _user_manifest_for_part_dicts(part_dicts):
+        """
+        Transform an internal manifest to the equivalent abbreviated user
+        manifest.
+
+        :param part_dicts: a list of part dicts
+        :return: a list of abbreviated part dicts
+        """
+        return [
+            dict(part_number=part_dict['part_number'], etag=part_dict['etag'])
+            for part_dict in part_dicts
+        ]
+
+    def _make_sample_user_manifest(self):
+        return self._user_manifest_for_part_dicts(
+            self._make_sample_part_dicts()
+        )
+
+    def _calculate_mpu_etag(self, user_manifest):
+        hasher = MPUEtagHasher()
+        for item in user_manifest:
+            hasher.update(item['etag'])
+        return hasher.etag
+
+    def _make_manifest_resp_hdrs(self, manifest):
+        mpu_size = sum(p['size'] for p in manifest)
+        manifest_body = json.dumps(manifest).encode('ascii')
+        return {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(len(manifest_body)),
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(mpu_size),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+
     def _setup_mpu_create_requests(self):
+        """
+        Register FakeSwift calls to handle account and container requests
+        during a CreateMpu request.
+        """
         registered = [
             ('HEAD', '/v1/.a/\x00mpu_sessions\x00c', HTTPNotFound, {}),
             ('PUT', '/v1/.a/\x00mpu_sessions\x00c', HTTPCreated, {}),
@@ -1332,20 +1470,24 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def _do_test_complete_mpu(self):
         ts_session = next(self.ts_iter)
         ts_session.offset = 123
+        part_dicts = self._make_sample_part_dicts()
+        user_manifest = self._user_manifest_for_part_dicts(part_dicts)
         self._setup_mpu_existence_check_call(ts_session)
-        ts_complete = next(self.ts_iter)
-        put_slo_resp_body = {'Response Status': '201 Created',
-                             'Etag': 'slo-etag'}
+        ts_part1, ts_part2, ts_complete = [next(self.ts_iter)
+                                           for _ in range(3)]
         registered_calls = [
             ('POST',
              '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
              HTTPOk, {}),
-            # SLO heartbeat response is 202...
+        ]
+        registered_calls += self._make_parts_check_calls(part_dicts)
+        registered_calls += [
             ('PUT',
-             '/v1/a/c/%s?heartbeat=on&multipart-manifest=put'
+             '/v1/a/c/%s'
              % swob.str_to_wsgi(self.obj_name),
-             HTTPAccepted, {},
-             json.dumps(put_slo_resp_body).encode('ascii')),
+             HTTPCreated,
+             {'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT'},
+             b'ignored manifest put resp body'),
             ('POST',
              '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
              HTTPAccepted, {}),
@@ -1360,22 +1502,17 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                             % (quote(self.obj_name), self.external_upload_id),
                             headers=req_hdrs)
         req.method = 'POST'
-        mpu_manifest = [
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ]
-        mpu_etag_hasher = md5(usedforsecurity=False)
-        for part in mpu_manifest:
-            mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
-        exp_mpu_etag = mpu_etag_hasher.hexdigest() + '-2'
-        req.body = json.dumps(mpu_manifest)
+        exp_mpu_etag = self._calculate_mpu_etag(user_manifest)
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(202, resp.status_int, resp_body)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
-            {"Response Status": "201 Created",
-             "Etag": exp_mpu_etag},
+            {'Response Status': '201 Created',
+             'Errors': [],
+             'Etag': exp_mpu_etag,
+             'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT'},
             resp_dict)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
@@ -1392,20 +1529,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
         actual_manifest_body = self.app.uploaded.get(
             '/v1/a/c/%s' % swob.str_to_wsgi(self.obj_name))[1]
-        self.assertEqual(
-            [{"path": "\x00mpu_parts\x00c/%s/000001"
-                      % self.session_ref.serialize(),
-              "etag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-             {"path": "\x00mpu_parts\x00c/%s/000002"
-                      % self.session_ref.serialize(),
-              "etag": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
-            json.loads(actual_manifest_body))
+        self.assertEqual(part_dicts, json.loads(actual_manifest_body))
         # the session timestamp's offset is preserved...
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw + 123)
         exp_mpu_link = quote(
             '\x00mpu_parts\x00c/%s' % self.session_ref.serialize())
-        manifest_put = self.app.call_list[4]
+        manifest_put = self.app.call_list[-2]
         exp_systags = {
             'relic_id': quote(self.upload_id.serialize()),
             'child_container': quote('\x00mpu_parts\x00c'),
@@ -1423,10 +1553,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Container-Update-Override-Etag':
                  '%s; mpu_etag=%s; mpu_link=%s'
                  % (exp_mpu_etag, exp_mpu_etag, exp_mpu_link),
-             'X-Object-Sysmeta-Container-Update-Override-Size': '0',
+             'X-Object-Sysmeta-Container-Update-Override-Size': '5242979',
              'X-Object-Sysmeta-Container-Update-Override-Systags':
                 param_str_from_dict(exp_systags),
+             'X-Object-Sysmeta-Mpu-Manifest': 'true',
              'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
+             'X-Object-Sysmeta-Mpu-Size': '5242979',
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
              'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
              'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
@@ -1446,7 +1578,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(exp_updates,
                          manifest_put.env.get('swift.container_updates'))
 
-        session_post = self.app.call_list[5]
+        session_post = self.app.call_list[-1]
         self.assertEqual(
             {'Content-Type': 'application/x-mpu-session-completed',
              'Host': 'localhost:80',
@@ -1462,21 +1594,25 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.obj_name = '\N{SNOWMAN}'
         self._do_test_complete_mpu()
 
-    def test_complete_mpu_with_gaps_in_parts(self):
+    def test_complete_mpu_with_gaps_in_parts_is_ok(self):
         ts_session = next(self.ts_iter)
         self._setup_mpu_existence_check_call(ts_session)
-        ts_complete = next(self.ts_iter)
-        put_slo_resp_body = {'Response Status': '201 Created',
-                             'Etag': 'slo-etag'}
+        ts_part1, ts_part3, ts_complete = [next(self.ts_iter)
+                                           for _ in range(3)]
+        # referenced part numbers are not required to be contiguous...
+        part_dicts = self._make_sample_part_dicts([1, 3])
+        user_manifest = self._user_manifest_for_part_dicts(part_dicts)
         registered_calls = [
             ('POST',
              '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
-             HTTPOk, {}),
-            # SLO heartbeat response is 202...
+             HTTPOk, {})]
+        registered_calls += self._make_parts_check_calls(part_dicts)
+        registered_calls += [
             ('PUT',
-             '/v1/a/c/o?heartbeat=on&multipart-manifest=put',
-             HTTPAccepted, {},
-             json.dumps(put_slo_resp_body).encode('ascii')),
+             '/v1/a/c/o',
+             HTTPCreated,
+             {'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT'},
+             b'ignored manifest put resp body'),
             ('POST',
              '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
              HTTPAccepted, {}),
@@ -1488,23 +1624,17 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        # referenced part numbers are not contiguous
-        mpu_manifest = [
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 3, 'etag': 'b' * 32},
-        ]
-        mpu_etag_hasher = md5(usedforsecurity=False)
-        for part in mpu_manifest:
-            mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
-        exp_mpu_etag = mpu_etag_hasher.hexdigest() + '-2'
-        req.body = json.dumps(mpu_manifest)
+        exp_mpu_etag = self._calculate_mpu_etag(user_manifest)
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
-            {"Response Status": "201 Created",
-             "Etag": exp_mpu_etag},
+            {'Response Status': '201 Created',
+             'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+             'Etag': exp_mpu_etag,
+             'Errors': []},
             resp_dict)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
@@ -1521,16 +1651,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
         actual_manifest_body = self.app.uploaded.get('/v1/a/c/o')[1]
         self.assertEqual(
-            [{"path": "\x00mpu_parts\x00c/%s/000001" % self.session_name,
-              "etag": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
-             {"path": "\x00mpu_parts\x00c/%s/000003" % self.session_name,
-              "etag": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
+            part_dicts,
             json.loads(actual_manifest_body))
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw)
         exp_mpu_link = swob.wsgi_quote(
             '\x00mpu_parts\x00c/%s' % self.session_name)
-        manifest_put = self.app.call_list[4]
+        manifest_put = self.app.call_list[-2]
         exp_systags = {
             'relic_id': quote(self.upload_id.serialize()),
             'child_container': quote('\x00mpu_parts\x00c'),
@@ -1548,10 +1675,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Container-Update-Override-Etag':
                  '%s; mpu_etag=%s; mpu_link=%s'
                  % (exp_mpu_etag, exp_mpu_etag, exp_mpu_link),
-             'X-Object-Sysmeta-Container-Update-Override-Size': '0',
+             'X-Object-Sysmeta-Container-Update-Override-Size': '5242979',
              'X-Object-Sysmeta-Container-Update-Override-Systags':
                 param_str_from_dict(exp_systags),
+             'X-Object-Sysmeta-Mpu-Manifest': 'true',
              'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
+             'X-Object-Sysmeta-Mpu-Size': '5242979',
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
              'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
              'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '3',
@@ -1570,7 +1699,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(exp_updates,
                          manifest_put.env.get('swift.container_updates'))
 
-        session_post = self.app.call_list[5]
+        session_post = self.app.call_list[-1]
         self.assertEqual(
             {'Content-Type': 'application/x-mpu-session-completed',
              'Host': 'localhost:80',
@@ -1595,14 +1724,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        mpu_manifest = [
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ]
-        mpu_etag_hasher = md5(usedforsecurity=False)
-        for part in mpu_manifest:
-            mpu_etag_hasher.update(binascii.a2b_hex(part['etag']))
-        req.body = json.dumps(mpu_manifest)
+        user_manifest = self._make_sample_user_manifest()
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         self.assertEqual(503, resp.status_int)
         exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
@@ -1611,70 +1734,116 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                     for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
-    def test_complete_mpu_bad_manifest(self):
+    def do_complete(self, manifest_body):
+        self.app.clear_calls()
+        ts_complete = next(self.ts_iter)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank(
+            '/v1/a/c/o?upload-id=%s' % self.external_upload_id,
+            headers=req_hdrs)
+        req.method = 'POST'
+        req.body = manifest_body
+        resp = req.get_response(self.mw)
+        expected = [call[:2] for call in self.exp_calls]
+        self.assertEqual(expected, self.app.calls)
+        return resp
 
-        def do_complete(manifest_body):
-            self.app.clear_calls()
-            ts_complete = next(self.ts_iter)
-            req_hdrs = {'X-Timestamp': ts_complete.internal,
-                        'Content-Type': 'ignored'}
-            req = Request.blank(
-                '/v1/a/c/o?upload-id=%s' % self.external_upload_id,
-                headers=req_hdrs)
-            req.method = 'POST'
-            req.body = manifest_body
-            resp = req.get_response(self.mw)
-            expected = [call[:2] for call in self.exp_calls]
-            self.assertEqual(expected, self.app.calls)
-            self.assertEqual(400, resp.status_int)
-            return resp
-
-        resp = do_complete(b"[]")
+    def test_complete_mpu_manifest_no_parts(self):
+        resp = self.do_complete(b"[]")
+        self.assertEqual(400, resp.status_int)
         self.assertEqual(b'Manifest must have at least one part.\n',
                          resp.body)
 
-        resp = do_complete(json.dumps(
+    def test_complete_mpu_manifest_too_many_parts(self):
+        resp = self.do_complete(json.dumps(
             [{'part_number': i + 1, 'etag': MD5_OF_EMPTY_STRING}
              for i in range(10001)]))
-        self.assertEqual(b'Manifest must have at most 10000 parts.\n',
-                         resp.body)
+        self.assertEqual(400, resp.status_int)
+        self.assertEqual(
+            b'Index 10000: part_number must be at most 10000.\n'
+            b'Manifest must have at most 10000 parts.\n',
+            resp.body)
 
-        resp = do_complete(b"[{123: 'foo'}]")
+    def test_complete_mpu_manifest_invalid_json(self):
+        resp = self.do_complete(b"[{123: 'foo'}]")
+        self.assertEqual(400, resp.status_int)
         self.assertEqual(b'Manifest must be valid JSON.\n',
                          resp.body)
 
-        resp = do_complete(json.dumps({'part_number': 2}))
+    def test_complete_mpu_manifest_not_a_list(self):
+        resp = self.do_complete(json.dumps({'part_number': 2}))
+        self.assertEqual(400, resp.status_int)
         self.assertEqual(b'Manifest must be a list.\n',
                          resp.body)
 
-        resp = do_complete(json.dumps([[]]))
+    def test_complete_mpu_manifest_not_list_of_dicts(self):
+        resp = self.do_complete(json.dumps([[]]))
+        self.assertEqual(400, resp.status_int)
         self.assertEqual(b'Index 0: not a JSON object.\n',
                          resp.body)
 
-        resp = do_complete(json.dumps([{'part_number': 2}]))
+    def test_complete_mpu_manifest_part_missing_etag(self):
+        resp = self.do_complete(json.dumps([{'part_number': 2}]))
+        self.assertEqual(400, resp.status_int)
         self.assertEqual(b'Index 0: expected keys to include etag.\n',
                          resp.body)
 
-        resp = do_complete(json.dumps([{'etag': 'a' * 32}]))
+    def test_complete_mpu_manifest_part_missing_part_number(self):
+        resp = self.do_complete(json.dumps([{'etag': 'a' * 32}]))
+        self.assertEqual(400, resp.status_int)
         self.assertEqual(b'Index 0: expected keys to include part_number.\n',
                          resp.body)
 
-        resp = do_complete(json.dumps([{'etag': 'a' * 32},
-                                       {'part_number': 2}]))
+    def test_complete_mpu_manifest_parts_missing_etag_and_part_number(self):
+        resp = self.do_complete(json.dumps([{'etag': 'a' * 32},
+                                            {'part_number': 2}]))
+        self.assertEqual(400, resp.status_int)
         self.assertEqual(b'Index 0: expected keys to include part_number.\n'
                          b'Index 1: expected keys to include etag.\n',
+                         resp.body)
+
+    def test_complete_mpu_manifest_parts_misordered(self):
+        resp = self.do_complete(json.dumps([
+            {'etag': 'b' * 32, 'part_number': 2},
+            {'etag': 'a' * 32, 'part_number': 1}
+        ]))
+        self.assertEqual(400, resp.status_int)
+        self.assertEqual(
+            b'Index 1: part_number 1 must be greater than previous 2.\n',
+            resp.body)
+
+    def test_complete_mpu_manifest_part_number_too_large(self):
+        resp = self.do_complete(json.dumps([
+            {'etag': 'b' * 32, 'part_number': 2},
+            {'etag': 'a' * 32, 'part_number': 10001}
+        ]))
+        self.assertEqual(400, resp.status_int)
+        self.assertEqual(
+            b'Index 1: part_number must be at most 10000.\n',
+            resp.body)
+
+    def test_complete_mpu_manifest_too_long(self):
+        resp = self.do_complete('x' * (self.mw.max_manifest_size + 1))
+        self.assertEqual(413, resp.status_int)
+        self.assertEqual(b'MultipartComplete body > 720000 bytes.\n',
                          resp.body)
 
     def test_complete_mpu_manifest_put_not_success(self):
         ts_session = next(self.ts_iter)
         self._setup_mpu_existence_check_call(ts_session)
         ts_complete = next(self.ts_iter)
+        part_dicts = self._make_sample_part_dicts()
+        user_manifest = self._user_manifest_for_part_dicts(part_dicts)
         registered_calls = [
             ('POST',
              '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
              HTTPOk, {}),
+        ]
+        registered_calls += self._make_parts_check_calls(part_dicts)
+        registered_calls += [
             ('PUT',
-             '/v1/a/c/o?heartbeat=on&multipart-manifest=put',
+             '/v1/a/c/o',
              HTTPServiceUnavailable, {}, None),
         ]
         for call in registered_calls:
@@ -1684,10 +1853,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        req.body = json.dumps([
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ])
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(202, resp.status_int)
@@ -1695,85 +1861,47 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(
             {'Response Status': '503 Service Unavailable',
              'Response Body': b''.join(HTTPServiceUnavailable()(
-                 {}, lambda *args: None)).decode('utf8')},
+                 {}, lambda *args: None)).decode('utf8'),
+             'Errors': []},
             resp_dict)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
         self.assertEqual(expected, self.app.calls)
 
-    def test_complete_mpu_manifest_put_returns_problem_segments(self):
+    def test_complete_mpu_problem_segments(self):
         ts_session = next(self.ts_iter)
         self._setup_mpu_existence_check_call(ts_session)
         ts_complete = next(self.ts_iter)
-        put_slo_resp_body = {
+        part_dicts = self._make_sample_part_dicts()
+        user_manifest = self._user_manifest_for_part_dicts(part_dicts)
+        bad_part_dicts = deepcopy(part_dicts)
+        bad_part_dicts[0]['size'] = 123  # too small
+        bad_part_dicts[1]['etag'] = 'bad etag'
+        registered_calls = [
+            ('POST',
+             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             HTTPOk, {}),
+        ]
+        registered_calls += self._make_parts_check_calls(bad_part_dicts)
+        for call in registered_calls:
+            self.app.register(*call)
+        req_hdrs = {'X-Timestamp': ts_complete.internal,
+                    'Content-Type': 'ignored'}
+        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
+                            headers=req_hdrs)
+        req.method = 'POST'
+        req.body = json.dumps(user_manifest)
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(202, resp.status_int, resp.body)
+        resp_dict = json.loads(resp_body)
+        self.assertEqual({
             'Response Status': '400 Bad Request',
-            'Response Body': 'Bad Request\nThe server could not comply with '
-                             'the request since it is either malformed or '
-                             'otherwise incorrect.',
+            'Response Body': '',
             'Errors': [
-                ["\x00mpu_parts\x00c/\x00o/test-id/1", '404 Not Found'],
-                ["\x00mpu_parts\x00c/\x00o/test-id/2", 'Etag Mismatch'],
-            ]
-        }
-        registered_calls = [
-            ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
-             HTTPOk, {}),
-            ('PUT',
-             '/v1/a/c/o?heartbeat=on&multipart-manifest=put',
-             HTTPAccepted, {}, json.dumps(put_slo_resp_body).encode('ascii')),
-        ]
-        for call in registered_calls:
-            self.app.register(*call)
-        req_hdrs = {'X-Timestamp': ts_complete.internal,
-                    'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
-                            headers=req_hdrs)
-        req.method = 'POST'
-        req.body = json.dumps([
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ])
-        resp = req.get_response(self.mw)
-        resp_body = b''.join(resp.app_iter)
-        self.assertEqual(202, resp.status_int)
-        resp_dict = json.loads(resp_body)
-        self.assertEqual({
-            'Response Status': '400 Bad Request',
-            'Errors': [['1', '404 Not Found'], ['2', 'Etag Mismatch']]
-        }, resp_dict)
-        expected = [call[:2]
-                    for call in self.exp_calls + registered_calls]
-        self.assertEqual(expected, self.app.calls)
-
-    def test_complete_mpu_manifest_put_returns_bad_json(self):
-        ts_session = next(self.ts_iter)
-        self._setup_mpu_existence_check_call(ts_session)
-        ts_complete = next(self.ts_iter)
-        registered_calls = [
-            ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
-             HTTPOk, {}),
-            ('PUT', '/v1/a/c/o?heartbeat=on&multipart-manifest=put',
-             HTTPAccepted, {}, '{123: "NOT JSON"}'),
-        ]
-        for call in registered_calls:
-            self.app.register(*call)
-        req_hdrs = {'X-Timestamp': ts_complete.internal,
-                    'Content-Type': 'ignored'}
-        req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
-                            headers=req_hdrs)
-        req.method = 'POST'
-        req.body = json.dumps([
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ])
-        resp = req.get_response(self.mw)
-        resp_body = b''.join(resp.app_iter)
-        self.assertEqual(202, resp.status_int)
-        resp_dict = json.loads(resp_body)
-        self.assertEqual({
-            'Response Status': '503 Service Unavailable',
+                ['1', 'Upload part too small: '
+                      'part must be at least 5242880 bytes.'],
+                ['2', 'Etag Mismatch']]
         }, resp_dict)
         expected = [call[:2]
                     for call in self.exp_calls + registered_calls]
@@ -1795,10 +1923,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        req.body = json.dumps([
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ])
+        user_manifest = self._make_sample_user_manifest()
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
         self.assertEqual(b'No such upload-id', resp.body)
@@ -1810,14 +1936,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         extra_hdrs = {'Content-Type': 'application/x-mpu-session-completed'}
         self._setup_mpu_existence_check_call(ts_session,
                                              extra_headers=extra_hdrs)
-        manifest = [
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ]
-        hasher = MPUEtagHasher()
-        for item in manifest:
-            hasher.update(item['etag'])
-        exp_mpu_etag = hasher.etag
+        user_manifest = self._make_sample_user_manifest()
+        exp_mpu_etag = self._calculate_mpu_etag(user_manifest)
         # the mpu was previously completed...
         head_resp_hdrs = {
             'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
@@ -1837,7 +1957,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        req.body = json.dumps(manifest)
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(202, resp.status_int)
@@ -1868,10 +1988,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        req.body = json.dumps([
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ])
+        req.body = json.dumps(self._make_sample_user_manifest())
         resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
         self.assertEqual(b'No such upload-id', resp.body)
@@ -1880,16 +1997,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_complete_mpu_session_not_found_user_object_not_same_etag(self):
         ts_complete = next(self.ts_iter)
-        manifest = [
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ]
-        mpu_etag_hasher = MPUEtagHasher()
-        for item in manifest:
-            mpu_etag_hasher.update(item['etag'])
+        user_manifest = self._make_sample_user_manifest()
         user_obj_head_resp_headers = {
             'Content-Type': 'application/test',
-            'X-Static-Large-Object': 'True',
             'X-Manifest-Etag': 'slo-manifest-etag',
             'Etag': '"slo-etag"',
             'X-Object-Sysmeta-Mpu-Etag': 'not-the-same-mpu-etag',
@@ -1909,7 +2019,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        req.body = json.dumps(manifest)
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
         self.assertEqual(b'No such upload-id', resp.body)
@@ -1918,19 +2028,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_complete_mpu_session_not_found_user_object_not_same_id(self):
         ts_complete = next(self.ts_iter)
-        manifest = [
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ]
-        mpu_etag_hasher = MPUEtagHasher()
-        for item in manifest:
-            mpu_etag_hasher.update(item['etag'])
+        user_manifest = self._make_sample_user_manifest()
+        exp_mpu_etag = self._calculate_mpu_etag(user_manifest)
         user_obj_head_resp_headers = {
             'Content-Type': 'application/test',
-            'X-Static-Large-Object': 'True',
             'X-Manifest-Etag': 'slo-manifest-etag',
             'Etag': '"slo-etag"',
-            'X-Object-Sysmeta-Mpu-Etag': mpu_etag_hasher.etag,
+            'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
             'X-Object-Sysmeta-Mpu-Upload-Id': 'not-the-same-upload-id',
         }
 
@@ -1947,7 +2051,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        req.body = json.dumps(manifest)
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         self.assertEqual(404, resp.status_int)
         self.assertEqual(b'No such upload-id', resp.body)
@@ -1956,19 +2060,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_complete_mpu_session_not_found_user_object_linked(self):
         ts_complete = next(self.ts_iter)
-        manifest = [
-            {'part_number': 1, 'etag': 'a' * 32},
-            {'part_number': 2, 'etag': 'b' * 32},
-        ]
-        mpu_etag_hasher = MPUEtagHasher()
-        for item in manifest:
-            mpu_etag_hasher.update(item['etag'])
+        user_manifest = self._make_sample_user_manifest()
+        exp_mpu_etag = self._calculate_mpu_etag(user_manifest)
         user_obj_head_resp_headers = {
             'Content-Type': 'application/test',
-            'X-Static-Large-Object': 'True',
             'X-Manifest-Etag': 'slo-manifest-etag',
             'Etag': '"slo-etag"',
-            'X-Object-Sysmeta-Mpu-Etag': mpu_etag_hasher.etag,
+            'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
             'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
             'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
         }
@@ -1986,14 +2084,14 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req = Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
                             headers=req_hdrs)
         req.method = 'POST'
-        req.body = json.dumps(manifest)
+        req.body = json.dumps(user_manifest)
         resp = req.get_response(self.mw)
         resp_body = b''.join(resp.app_iter)
         self.assertEqual(202, resp.status_int)
         resp_dict = json.loads(resp_body)
         self.assertEqual(
             {'Response Status': '201 Created',
-             'Etag': mpu_etag_hasher.etag,
+             'Etag': exp_mpu_etag,
              'Response Body': '',
              'Last Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
              'Errors': [],
@@ -2182,7 +2280,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                      % (MD5_OF_EMPTY_STRING, mpu_link),
              'content_type': 'application/test',
              'last_modified': '2024-09-10T14:16:00.579190',
-             'slo_etag': 'my-slo-etag'
              },
             # the following shouldn't be modified...
             # symlink
@@ -2216,17 +2313,11 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'X-Container-Object-Count': '4',
             'X-Container-Bytes-Used': '123',
         }
-        head_resp_hdrs = {
-            'X-Container-Object-Count': '2',
-            'X-Container-Bytes-Used': '12341234',
-        }
         registered = [
             ('HEAD', '/v1/a', swob.HTTPOk, {}),
             ('HEAD', '/v1/a/cont', swob.HTTPOk, {}),
             ('GET', '/v1/a/cont', swob.HTTPCreated,
              get_resp_hdrs, resp_body),
-            ('HEAD', '/v1/a/\x00mpu_parts\x00cont', swob.HTTPNoContent,
-             head_resp_hdrs, resp_body),
         ]
         for call in registered:
             self.app.register(*call)
@@ -2246,8 +2337,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         exp_hdrs = {
             'Content-Length': str(len(json.dumps(expected_listing))),
             'Content-Type': 'text/html; charset=UTF-8',
-            'X-Container-Bytes-Used': '12341357',
-            'X-Container-Mpu-Parts-Bytes-Used': '12341234',
+            'X-Container-Bytes-Used': '123',
             'X-Container-Object-Count': '4',
             'X-Container-Sysmeta-Mpu-Parts-Container-0': '%00mpu_parts%00cont'
         }
@@ -2346,9 +2436,593 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                          self.app.headers[-1])
 
     def _do_test_get_head_mpu(self, method):
-        get_resp_headers = {
+        part_dicts = self._make_sample_part_dicts()
+        mpu_size = sum(p['size'] for p in part_dicts)
+        manifest_body = json.dumps(part_dicts).encode('ascii')
+        manifest_get_resp_headers = {
             'Content-Type': 'application/test',
-            'X-Static-Large-Object': 'True',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': len(manifest_body),
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(mpu_size),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            (method, '/v1/a/c/o', swob.HTTPOk, manifest_get_resp_headers,
+             json.dumps(part_dicts)),
+        ]
+        if method == 'GET':
+            registered_calls += [
+                # TODO: the multipart-manifest=get is due to SegmentedIterable
+                ('GET',
+                 '/v1/a/\x00mpu_parts\x00c/%s/000001?multipart-manifest=get'
+                 % self.session_name_wsgi,
+                 HTTPOk,
+                 {'X-Backend-Timestamp': part_dicts[0]['timestamp'],
+                  'Content-Length': str(part_dicts[0]['size']),
+                  'ETag': '%s' % part_dicts[0]['etag']},
+                 self.sample_part1_body),
+                ('GET',
+                 '/v1/a/\x00mpu_parts\x00c/%s/000002?multipart-manifest=get'
+                 % self.session_name_wsgi,
+                 HTTPOk,
+                 {'X-Backend-Timestamp': part_dicts[1]['timestamp'],
+                  'Content-Length': str(part_dicts[1]['size']),
+                  'ETag': '"%s"' % part_dicts[1]['etag']},
+                 self.sample_part2_body),
+            ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank('/v1/a/c/' + quote(self.obj_name))
+        req.method = method
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(200, resp.status_int)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(mpu_size),
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"mpu-etag"',
+            'X-Parts-Count': '2',
+            'X-Upload-Id': self.external_upload_id,
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+        return resp_body
+
+    def test_get_mpu(self):
+        resp_body = self._do_test_get_head_mpu('GET')
+        self.assertEqual(self.sample_part1_body + self.sample_part2_body,
+                         resp_body)
+        self.assertEqual(
+            {'Host': 'localhost:80',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+                 'x-object-sysmeta-mpu-manifest',
+             'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
+            self.app.call_list[-3].headers)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'User-Agent': 'MPU GET'},
+                         self.app.call_list[-2].headers)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'User-Agent': 'MPU GET'},
+                         self.app.call_list[-1].headers)
+
+    def test_head_mpu(self):
+        resp_body = self._do_test_get_head_mpu('HEAD')
+        self.assertEqual(b'', resp_body)
+        self.assertEqual(
+            {'Host': 'localhost:80',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+                 'x-object-sysmeta-mpu-manifest',
+             'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
+            self.app.call_list[-1].headers)
+
+    def _do_test_head_mpu_304(self, method):
+        # A conditional HEAD whose backend returns 304 should have
+        # X-Object-Sysmeta-Mpu-Etag translated to Etag.
+        mpu_size = 5 * 1024 * 1024 + 99
+        manifest_resp_headers = {
+            'Content-Length': '0',
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(mpu_size),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            (method, '/v1/a/c/o',
+             swob.HTTPNotModified, manifest_resp_headers, None),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank('/v1/a/c/' + quote(self.obj_name),
+                            method=method,
+                            headers={'If-None-Match': '"mpu-etag"'})
+        resp = req.get_response(self.mw)
+        self.assertEqual(b'', resp.body)
+        self.assertEqual(304, resp.status_int)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        self.assertEqual('"mpu-etag"', resp.headers.get('Etag'))
+        self.assertEqual('Tue, 24 Sep 2024 13:22:30 GMT',
+                         resp.headers.get('Date'))
+        self.assertEqual('0', resp.headers.get('content-length'))
+
+    def test_head_mpu_304(self):
+        self._do_test_head_mpu_304('HEAD')
+
+    def test_get_mpu_304(self):
+        self._do_test_head_mpu_304('GET')
+
+    def test_get_mpu_bad_manifest_503(self):
+        manifest_body = b'baloney'
+        manifest_get_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(len(manifest_body)),
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(len(manifest_body)),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('GET', '/v1/a/c/o',
+             swob.HTTPOk, manifest_get_resp_headers,
+             manifest_body),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name))
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(503, resp.status_int)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_body = b''.join(HTTPServiceUnavailable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp_body)
+        exp_resp_headers = {
+            'Content-Type': 'text/html; charset=UTF-8',
+            'Content-Length': str(len(exp_body)),
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+
+    def test_get_mpu_with_part_number(self):
+        part_dicts = self._make_sample_part_dicts()
+        manifest_body = json.dumps(part_dicts).encode('ascii')
+        manifest_get_resp_hdrs = self._make_manifest_resp_hdrs(part_dicts)
+        part2_body = '2' * part_dicts[1]['size']
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('GET', '/v1/a/c/o?part-number=2',
+             swob.HTTPOk, manifest_get_resp_hdrs,
+             manifest_body),
+            # TODO: the multipart-manifest=get is due to SegmentedIterable
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c/%s/000002?multipart-manifest=get'
+             % self.session_name_wsgi,
+             HTTPOk,
+             {'X-Backend-Timestamp': part_dicts[1]['timestamp'],
+              'Content-Length': str(part_dicts[1]['size']),
+              'ETag': '%s' % part_dicts[1]['etag']},
+             part2_body),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name) + '?part-number=2')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(206, resp.status_int, resp_body)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(part_dicts[1]['size']),
+            'Content-Range': 'bytes 5242880-5242978/5242979',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"mpu-etag"',
+            'X-Parts-Count': '2',
+            'X-Upload-Id': self.external_upload_id,
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+        self.assertEqual(
+            {'Host': 'localhost:80',
+             'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+                 'x-object-sysmeta-mpu-manifest'},
+            self.app.call_list[-2].headers)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'User-Agent': 'MPU GET'},
+                         self.app.call_list[-1].headers)
+        self.assertEqual(part2_body.encode('utf8'), resp_body)
+
+    def test_get_mpu_with_part_number_greater_than_actual(self):
+        part_dicts = self._make_sample_part_dicts()
+        manifest_body = json.dumps(part_dicts).encode('ascii')
+        manifest_get_resp_headers = self._make_manifest_resp_hdrs(part_dicts)
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('GET', '/v1/a/c/o?part-number=99',
+             swob.HTTPOk, manifest_get_resp_headers,
+             manifest_body),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name) + '?part-number=99')
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(416, resp.status_int, resp_body)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_body = b''.join(
+            HTTPRequestedRangeNotSatisfiable()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp_body)
+        exp_resp_headers = {
+            'Content-Length': str(len(exp_body)),
+            'Content-Type': 'text/html; charset=UTF-8',
+            'X-Parts-Count': '2'}
+        self.assertEqual(exp_resp_headers, resp.headers)
+
+    def test_head_mpu_with_part_number(self):
+        part_dicts = self._make_sample_part_dicts()
+        mpu_size = sum(p['size'] for p in part_dicts)
+        manifest_body = json.dumps(part_dicts).encode('ascii')
+        manifest_get_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(len(manifest_body)),
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(mpu_size),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c/o?part-number=1',
+             swob.HTTPOk, manifest_get_resp_headers,
+             None),
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('GET', '/v1/a/c/o?part-number=1',
+             swob.HTTPOk, manifest_get_resp_headers,
+             manifest_body),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name) + '?part-number=1')
+        req.method = 'HEAD'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(206, resp.status_int, resp_body)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(5 * 1024 * 1024),
+            'Content-Range': 'bytes 0-5242879/5242979',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"mpu-etag"',
+            'X-Parts-Count': '2',
+            'X-Upload-Id': self.external_upload_id,
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+        exp_manifest_get_headers = {
+            'Host': 'localhost:80',
+            'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag',
+            'X-Backend-Ignore-Range-If-Metadata-Present':
+                'x-object-sysmeta-mpu-manifest'}
+        self.assertEqual(
+            exp_manifest_get_headers, self.app.call_list[2].headers)
+        self.assertEqual(
+            exp_manifest_get_headers, self.app.call_list[5].headers)
+        self.assertEqual(b'', resp_body)
+
+    def test_head_mpu_with_range_ignored(self):
+        part_dicts = self._make_sample_part_dicts()
+        mpu_size = sum(p['size'] for p in part_dicts)
+        manifest_body = json.dumps(part_dicts).encode('ascii')
+        manifest_get_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(len(manifest_body)),
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(mpu_size),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c/o',
+             swob.HTTPOk, manifest_get_resp_headers,
+             None),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name))
+        req.method = 'HEAD'
+        req.headers['Range'] = 'bytes=1-10'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(200, resp.status_int, resp_body)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(mpu_size),
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"mpu-etag"',
+            'X-Parts-Count': '2',
+            'X-Upload-Id': self.external_upload_id,
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+        exp_manifest_get_headers = {
+            'Host': 'localhost:80',
+            'Range': 'bytes=1-10',
+            'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag',
+            'X-Backend-Ignore-Range-If-Metadata-Present':
+                'x-object-sysmeta-mpu-manifest'}
+        self.assertEqual(
+            exp_manifest_get_headers, self.app.call_list[2].headers)
+        self.assertEqual(b'', resp_body)
+
+    def test_get_mpu_with_range_subset_manifest(self):
+        part_dicts = self._make_sample_part_dicts()
+        mpu_size = sum(p['size'] for p in part_dicts)
+        manifest_body = json.dumps(part_dicts).encode('ascii')
+        manifest_get_resp_headers = {
+            'Content-Type': 'application/test',
+            'X-Object-Sysmeta-Mpu-Manifest': 'True',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(len(manifest_body)),
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(mpu_size),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('GET', '/v1/a/c/o',
+             swob.HTTPOk, manifest_get_resp_headers,
+             manifest_body),
+            # TODO: the multipart-manifest=get is due to SegmentedIterable
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c/%s/000001?multipart-manifest=get'
+             % self.session_name_wsgi,
+             HTTPOk,
+             {'X-Backend-Timestamp': part_dicts[0]['timestamp'],
+              'Content-Length': str(part_dicts[0]['size']),
+              'ETag': '%s' % part_dicts[0]['etag']},
+             'part1 body'),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name),
+            headers={'Range': 'bytes=1-10'},
+        )
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(206, resp.status_int)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': '10',
+            'Content-Range': 'bytes 1-10/5242979',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"mpu-etag"',
+            'X-Parts-Count': '2',
+            'X-Upload-Id': self.external_upload_id,
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+        self.assertEqual(
+            {'Host': 'localhost:80',
+             'Range': 'bytes=1-10',
+             'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+                 'x-object-sysmeta-mpu-manifest'},
+            self.app.call_list[-2].headers)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'User-Agent': 'MPU GET',
+                          'Range': 'bytes=1-10'},
+                         self.app.call_list[-1].headers)
+        self.assertEqual(b'art1 body', resp_body)
+
+    def test_get_mpu_with_range_spans_parts(self):
+        part_dicts = self._make_sample_part_dicts()
+        mpu_size = sum(p['size'] for p in part_dicts)
+        manifest_body = json.dumps(part_dicts).encode('ascii')
+        manifest_get_resp_headers = {
+            'Content-Type': 'application/test',
+            'X-Object-Sysmeta-Mpu-Manifest': 'True',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': str(len(manifest_body)),
+            'X-Manifest-Etag': 'b871773cf02434d498517245c7b88c11',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"de64a5af184e6f732a26328c13d4ab25"',
+            'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+            'X-Object-Sysmeta-Mpu-Size': str(mpu_size),
+            'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+            'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+            'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
+        }
+        registered_calls = [
+            ('HEAD', '/v1/a', swob.HTTPOk, {}),
+            ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
+            ('GET', '/v1/a/c/o',
+             swob.HTTPOk, manifest_get_resp_headers,
+             manifest_body),
+            # TODO: the multipart-manifest=get is due to SegmentedIterable
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c/%s/000001?multipart-manifest=get'
+             % self.session_name_wsgi,
+             HTTPPartialContent,
+             {'X-Backend-Timestamp': part_dicts[0]['timestamp'],
+              'Content-Length': str(part_dicts[0]['size']),
+              'Content-Range': 'bytes 5242875-5242879/5242880',
+              'ETag': '%s' % part_dicts[0]['etag']},
+             b'part1'),
+            ('GET',
+             '/v1/a/\x00mpu_parts\x00c/%s/000002?multipart-manifest=get'
+             % self.session_name_wsgi,
+             HTTPOk,
+             {'X-Backend-Timestamp': part_dicts[1]['timestamp'],
+              'Content-Length': str(part_dicts[1]['size']),
+              'Content-Range': 'bytes 0-4/99',
+              'ETag': '%s' % part_dicts[1]['etag']},
+             b'part2'),
+        ]
+        for call in registered_calls:
+            self.app.register(*call)
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name),
+            headers={'Range': 'bytes=5242875-5242884'},
+        )
+        req.method = 'GET'
+        resp = req.get_response(self.mw)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(206, resp.status_int, resp_body)
+        exp_calls = [call[:2] for call in registered_calls]
+        self.assertEqual(exp_calls, self.app.calls)
+        exp_resp_headers = {
+            'Content-Type': 'application/test',
+            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
+            'X-Timestamp': '1727184150.29665',
+            'Accept-Ranges': 'bytes',
+            'Content-Length': '10',
+            'Content-Range': 'bytes 5242875-5242884/5242979',
+            'X-Trans-Id': 'test-txn-id',
+            'X-Openstack-Request-Id': 'test-txn-id',
+            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
+            'Etag': '"mpu-etag"',
+            'X-Parts-Count': '2',
+            'X-Upload-Id': self.external_upload_id,
+        }
+        self.assertEqual(exp_resp_headers, resp.headers)
+        self.assertEqual(
+            {'Host': 'localhost:80',
+             'Range': 'bytes=5242875-5242884',
+             'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+                 'x-object-sysmeta-mpu-manifest'},
+            self.app.call_list[-3].headers)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'User-Agent': 'MPU GET',
+                          'Range': 'bytes=5242875-'},
+                         self.app.call_list[-2].headers)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Backend-Allow-Reserved-Names': 'true',
+                          'User-Agent': 'MPU GET',
+                          'Range': 'bytes=0-4'},
+                         self.app.call_list[-1].headers)
+        self.assertEqual(b'part1part2', resp_body)
+
+    def test_get_mpu_412(self):
+        manifest_get_resp_headers = {
+            'Content-Type': 'application/test',
             'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
             'X-Timestamp': '1727184150.29665',
             'Accept-Ranges': 'bytes',
@@ -2366,49 +3040,37 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         registered_calls = [
             ('HEAD', '/v1/a', swob.HTTPOk, {}),
             ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
-            (method, '/v1/a/c/o', swob.HTTPOk, get_resp_headers, b'test')
+            ('GET', '/v1/a/c/o',
+             swob.HTTPPreconditionFailed, manifest_get_resp_headers,
+             None),
         ]
         for call in registered_calls:
             self.app.register(*call)
         req = Request.blank('/v1/a/c/' + quote(self.obj_name))
-        req.method = method
+        req.method = 'GET'
         resp = req.get_response(self.mw)
-        self.assertEqual(200, resp.status_int)
+        resp_body = b''.join(resp.app_iter)
+        self.assertEqual(412, resp.status_int)
         exp_calls = [call[:2] for call in registered_calls]
         self.assertEqual(exp_calls, self.app.calls)
-        self.assertEqual((method, '/v1/a/c/' + quote(self.obj_name)),
-                         self.app.calls[-1])
-        exp_resp_headers = {
-            'Content-Type': 'application/test',
-            'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
-            'X-Timestamp': '1727184150.29665',
-            'Accept-Ranges': 'bytes',
-            'Content-Length': '4',
-            'X-Trans-Id': 'test-txn-id',
-            'X-Openstack-Request-Id': 'test-txn-id',
-            'Date': 'Tue, 24 Sep 2024 13:22:30 GMT',
-            'Etag': '"mpu-etag"',
-            'X-Parts-Count': '2',
-            'X-Upload-Id': self.external_upload_id,
-        }
+        # TODO: the functional test asserts that the body is empty ?!
+        exp_body = b''.join(HTTPPreconditionFailed()({}, lambda *args: None))
+        self.assertEqual(exp_body, resp_body)
+        exp_resp_headers = dict(manifest_get_resp_headers)
+        exp_resp_headers['Content-Length'] = str(len(exp_body))
+        exp_resp_headers['Etag'] = '"mpu-etag"'
+
         self.assertEqual(exp_resp_headers, resp.headers)
-        self.assertEqual({'Host': 'localhost:80',
-                          'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
-                         self.app.call_list[-1].headers)
-        return resp
-
-    def test_get_mpu(self):
-        resp = self._do_test_get_head_mpu('GET')
-        self.assertEqual(b'test', resp.body)
-
-    def test_head_mpu(self):
-        resp = self._do_test_get_head_mpu('HEAD')
-        self.assertEqual(b'', resp.body)
+        self.assertEqual(
+            {'Host': 'localhost:80',
+             'X-Backend-Ignore-Range-If-Metadata-Present':
+                 'x-object-sysmeta-mpu-manifest',
+             'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
+            self.app.call_list[-1].headers)
 
     def _do_test_get_head_not_mpu(self, method):
         get_resp_headers = {
             'Content-Type': 'application/test',
-            'X-Static-Large-Object': 'True',
             'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT',
             'X-Timestamp': '1727184150.29665',
             'Accept-Ranges': 'bytes',
@@ -2436,7 +3098,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(b'test', resp.body)
 
     def test_head_not_mpu(self):
-        resp = self._do_test_get_head_mpu('HEAD')
+        resp = self._do_test_get_head_not_mpu('HEAD')
         self.assertEqual(b'', resp.body)
 
     def test_put_not_mpu(self):
@@ -2501,33 +3163,40 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
     def setUp(self):
         super().setUp()
-        self.session_requests = [
-            # upload part
-            Request.blank('/v1/a/c/o?upload-id=%s&part-number=1'
-                          % self.external_upload_id,
-                          environ={'REQUEST_METHOD': 'PUT'}),
-            # list parts
-            Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
-                          environ={'REQUEST_METHOD': 'GET'}),
-            # complete upload
-            Request.blank(
-                '/v1/a/c/o?upload-id=%s' % self.external_upload_id,
-                environ={'REQUEST_METHOD': 'POST'},
-                body=json.dumps(
-                    [{'part_number': 1, 'etag': MD5_OF_EMPTY_STRING}]
-                ).encode('ascii')),
-            # abort upload
-            Request.blank('/v1/a/c/o?upload-id=%s' % self.external_upload_id,
-                          environ={'REQUEST_METHOD': 'DELETE'}),
-        ]
-        self.requests = self.session_requests + [
-            # list uploads
-            Request.blank('/v1/a/c?uploads=true',
-                          environ={'REQUEST_METHOD': 'GET'}),
-            # create upload
-            Request.blank('/v1/a/c/o?uploads=true',
-                          environ={'REQUEST_METHOD': 'POST'}),
-        ]
+
+    def _make_upload_part_req(self):
+        return Request.blank(
+            '/v1/a/c/o?upload-id=%s&part-number=1'
+            % self.external_upload_id,
+            method='PUT')
+
+    def _make_list_parts_req(self):
+        return Request.blank(
+            '/v1/a/c/o?upload-id=%s' % self.external_upload_id,
+            environ={'REQUEST_METHOD': 'GET'})
+
+    def _make_complete_upload_req(self):
+        return Request.blank(
+            '/v1/a/c/o?upload-id=%s' % self.external_upload_id,
+            method='POST',
+            body=json.dumps(
+                [{'part_number': 1, 'etag': MD5_OF_EMPTY_STRING}]
+            ).encode('ascii'))
+
+    def _make_abort_upload_req(self):
+        return Request.blank(
+            '/v1/a/c/o?upload-id=%s' % self.external_upload_id,
+            method='DELETE')
+
+    def _make_list_uploads_req(self):
+        return Request.blank(
+            '/v1/a/c?uploads=true',
+            method='GET')
+
+    def _make_create_upload_req(self):
+        return Request.blank(
+            '/v1/a/c/o?uploads=true',
+            method='POST')
 
     def test_api_requests_invalid_upload_id(self):
         def do_test(ext_upload_id_str):
@@ -2558,55 +3227,88 @@ class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
 
     def test_api_requests_user_container_not_found(self):
         self.app.register('HEAD', '/v1/a/c', HTTPNotFound, {})
-        for req in self.requests:
+
+        def do_test(req):
             self.app.clear_calls()
             resp = req.get_response(self.mw)
             self.assertEqual(404, resp.status_int)
             self.assertEqual([call[:2] for call in self.exp_calls],
                              self.app.calls)
 
+        do_test(self._make_create_upload_req())
+        do_test(self._make_list_uploads_req())
+        do_test(self._make_upload_part_req())
+        do_test(self._make_list_parts_req())
+        do_test(self._make_complete_upload_req())
+        do_test(self._make_abort_upload_req())
+
     def test_api_requests_user_container_unavailable(self):
         self.app.register('HEAD', '/v1/a/c', HTTPServiceUnavailable, {})
-        for req in self.requests:
+
+        def do_test(req):
             self.app.clear_calls()
             resp = req.get_response(self.mw)
             self.assertEqual(503, resp.status_int)
             self.assertEqual([call[:2] for call in self.exp_calls],
                              self.app.calls)
+
+        do_test(self._make_create_upload_req())
+        do_test(self._make_list_uploads_req())
+        do_test(self._make_upload_part_req())
+        do_test(self._make_list_parts_req())
+        do_test(self._make_complete_upload_req())
+        do_test(self._make_abort_upload_req())
 
     def test_api_requests_user_unexpected_error(self):
         self.app.register('HEAD', '/v1/a/c', HTTPPreconditionFailed, {})
-        for req in self.requests:
+
+        def do_test(req):
             self.app.clear_calls()
             resp = req.get_response(self.mw)
             self.assertEqual(503, resp.status_int)
             self.assertEqual([call[:2] for call in self.exp_calls],
                              self.app.calls)
 
+        do_test(self._make_create_upload_req())
+        do_test(self._make_list_uploads_req())
+        do_test(self._make_upload_part_req())
+        do_test(self._make_list_parts_req())
+        do_test(self._make_complete_upload_req())
+        do_test(self._make_abort_upload_req())
+
     def test_session_requests_with_earlier_timestamp(self):
         ts_older = next(self.ts_iter)
-        ts_session = next(self.ts_iter)
+        ts_session_data = next(self.ts_iter)
         ts_newer = next(self.ts_iter)
-        ts_meta = next(self.ts_iter)
+        # request timestamp must be greater than this session timestamp...
+        ts_session_meta = next(self.ts_iter)
 
-        self._setup_mpu_existence_check_call(ts_session, ts_meta=ts_meta)
-        for req in self.session_requests:
-            req.headers['X-Timestamp'] = ts_older.internal
+        self._setup_mpu_existence_check_call(
+            ts_session_data, ts_meta=ts_session_meta)
+
+        def do_test(req, ts_req):
+            req.headers['X-Timestamp'] = ts_req.internal
             resp = req.get_response(self.mw)
             self.assertEqual(
                 409, resp.status_int,
                 '%s %s %s %s' % (req.method, req.path, req.params, resp.body))
 
-        for req in self.session_requests:
-            req.headers['X-Timestamp'] = ts_newer.internal
-            resp = req.get_response(self.mw)
-            self.assertEqual(
-                409, resp.status_int,
-                '%s %s %s %s' % (req.method, req.path, req.params, resp.body))
+        do_test(self._make_upload_part_req(), ts_older)
+        do_test(self._make_list_parts_req(), ts_older)
+        do_test(self._make_complete_upload_req(), ts_older)
+        do_test(self._make_abort_upload_req(), ts_older)
 
-        for req in self.session_requests:
-            req.headers['X-Timestamp'] = ts_meta.internal
-            resp = req.get_response(self.mw)
-            self.assertEqual(
-                409, resp.status_int,
-                '%s %s %s %s' % (req.method, req.path, req.params, resp.body))
+        do_test(self._make_upload_part_req(), ts_session_data)
+        do_test(self._make_list_parts_req(), ts_session_data)
+        do_test(self._make_complete_upload_req(), ts_session_data)
+        do_test(self._make_abort_upload_req(), ts_session_data)
+
+        do_test(self._make_upload_part_req(), ts_newer)
+        do_test(self._make_list_parts_req(), ts_newer)
+        do_test(self._make_complete_upload_req(), ts_newer)
+        do_test(self._make_abort_upload_req(), ts_newer)
+
+        do_test(self._make_upload_part_req(), ts_session_meta)
+        do_test(self._make_list_parts_req(), ts_session_meta)
+        do_test(self._make_complete_upload_req(), ts_session_meta)
+        do_test(self._make_abort_upload_req(), ts_session_meta)

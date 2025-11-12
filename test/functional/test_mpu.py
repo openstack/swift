@@ -574,12 +574,12 @@ class TestMPU(unittest.TestCase):
         resp = mpu.complete(part_resp_etags)
         self.assertEqual(202, resp.status, resp.content)
         self.assertEqual(
-            {'Content-Type': 'text/html; charset=UTF-8',
+            {'Content-Type': 'application/json',
              'Transfer-Encoding': 'chunked',
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
-            resp.headers)
+            dict(resp.headers))
         body = json.loads(resp.content)
         self.assertEqual('201 Created', body.get('Response Status'), body)
         self.assertEqual(exp_mpu_etag, body.get('Etag'))
@@ -790,7 +790,7 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(202, resp.status, resp.content)
         body = json.loads(resp.content)
         self.assertEqual('400 Bad Request', body.get('Response Status'), body)
-        self.assertEqual([["000002", "404 Not Found"]], body['Errors'], body)
+        self.assertEqual([['2', '404 Not Found']], body['Errors'], body)
 
         # upload second part
         part_body = b'b' * self.part_size
@@ -1336,17 +1336,15 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(
             # TODO: seems odd that content-type is not what was set
             {'Content-Type': 'text/html; charset=UTF-8',
-             # NB: part etags are always quoted by MPU middleware
              'Etag': '"%s"' % mpu.mpu_etag,
-             'X-Upload-Id': mpu.upload_id,
-             'X-Parts-Count': str(mpu.num_parts),
              'Last-Modified': mock.ANY,
              'X-Timestamp': mock.ANY,
+             # something, possibly SLO, is gobbling the explanation body?
              'Content-Length': '0',
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
-            resp.headers
+            dict(resp.headers)
         )
 
     def test_get_mpu_if_match_does_not_match_412(self):
@@ -1365,18 +1363,16 @@ class TestMPU(unittest.TestCase):
         self.assertEqual(b'', resp.content)
         self.assertEqual(
             {'Content-Type': mock.ANY,  # TODO: EC GET returns text/html !?
-             # NB: part etags are always quoted by MPU middleware
              'Etag': '"%s"' % mpu.mpu_etag,
-             'X-Upload-Id': mpu.upload_id,
-             'X-Parts-Count': str(mpu.num_parts),
              'Last-Modified': mock.ANY,
              'X-Timestamp': mock.ANY,
              'Accept-Ranges': 'bytes',
+             # something is gobbling the explanation body?
              'Content-Length': '0',
              'X-Trans-Id': mock.ANY,
              'X-Openstack-Request-Id': mock.ANY,
              'Date': mock.ANY},
-            resp.headers,
+            dict(resp.headers),
         )
 
     def test_get_mpu_if_none_match_does_match_304(self):
@@ -1409,6 +1405,86 @@ class TestMPU(unittest.TestCase):
             resp.headers
         )
         self.assertEqual(self.part_size, len(resp.content))
+
+    def test_get_mpu_with_small_range(self):
+        # verify when range is smaller than the manifest
+        mpu = self._get_singleton_mpu()
+        resp = tf.retry(_make_request, method='GET',
+                        container=mpu.container, obj=mpu.name,
+                        headers={'Range': 'bytes=1-10'})
+        self.assertEqual(206, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'application/test',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % mpu.mpu_etag,
+             'X-Upload-Id': mpu.upload_id,
+             'X-Parts-Count': str(mpu.num_parts),
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'Content-Length': '10',
+             'Content-Range': 'bytes 1-10/%s' % (2 * self.part_size),
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            dict(resp.headers)
+        )
+        self.assertEqual(10, len(resp.content))
+        self.assertEqual(b'a' * 10, resp.content)
+
+    def test_get_mpu_with_range_is_subset_of_manifest(self):
+        mpu = self._get_singleton_mpu()
+        resp = tf.retry(_make_request, method='GET',
+                        container=mpu.container, obj=mpu.name,
+                        headers={'Range': 'bytes=1-10'})
+        self.assertEqual(206, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'application/test',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % mpu.mpu_etag,
+             'X-Upload-Id': mpu.upload_id,
+             'X-Parts-Count': str(mpu.num_parts),
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'Content-Length': '10',
+             'Content-Range': 'bytes 1-10/%s' % (2 * self.part_size),
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            dict(resp.headers)
+        )
+        self.assertEqual(10, len(resp.content))
+        self.assertEqual(b'a' * 10, resp.content)
+
+    def test_get_mpu_with_range_spans_parts(self):
+        mpu = self._get_singleton_mpu()
+        headers = {'Range': 'bytes=%s-%s'
+                            % (self.part_size - 5, self.part_size + 4)}
+        resp = tf.retry(_make_request, method='GET',
+                        container=mpu.container, obj=mpu.name,
+                        headers=headers)
+        self.assertEqual(206, resp.status)
+        self.assertEqual(
+            {'Content-Type': 'application/test',
+             # NB: part etags are always quoted by MPU middleware
+             'Etag': '"%s"' % mpu.mpu_etag,
+             'X-Upload-Id': mpu.upload_id,
+             'X-Parts-Count': str(mpu.num_parts),
+             'Last-Modified': mock.ANY,
+             'X-Timestamp': mock.ANY,
+             'Accept-Ranges': 'bytes',
+             'Content-Length': '10',
+             'Content-Range': 'bytes %s-%s/%s'
+                              % (self.part_size - 5, self.part_size + 4,
+                                 2 * self.part_size),
+             'X-Trans-Id': mock.ANY,
+             'X-Openstack-Request-Id': mock.ANY,
+             'Date': mock.ANY},
+            dict(resp.headers)
+        )
+        self.assertEqual(10, len(resp.content))
+        self.assertEqual(b'a' * 5 + b'b' * 5, resp.content)
 
     def test_copy_mpu(self):
         src = self._get_singleton_mpu()
