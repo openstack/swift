@@ -28,6 +28,15 @@ from swift.common.utils import Timestamp, get_logger, non_negative_float, \
 from swift.container.backend import ContainerBroker
 
 
+def _safe_get_and_unquote(map, key, default_value=None):
+    # TODO: add unit test coverage
+    value = map.get(key)
+    if value:
+        return unquote(value)
+    else:
+        return default_value
+
+
 # TODO: share with object_versioning?  move to request_helpers?
 def safe_split_reserved_name(reserved_name):
     # TODO: this assumes 2 parts, should it be generalised
@@ -127,6 +136,7 @@ class BaseMpuAuditor:
         self.logger = logger
         self.broker = broker
         self.user_container = user_container
+        # TODO: parts container may vary per mpu w.r.t. policy
         self.parts_container = get_reserved_name('mpu_parts',
                                                  self.user_container)
         self.statsd_client = logger.logger.statsd_client
@@ -253,16 +263,15 @@ class MpuHistoryAuditor(BaseMpuAuditor):
         # TODO: vary parts container according to policy OR put explicit path
         #  to parts in systags
         self.debug('cleaning up obsolete item %s', item.name)
-        child = item.systags.get('child')
-        child = unquote(child)
-        child_container = item.systags.get('child_container')
-        if child_container:
-            child_container = unquote(child_container)
-        else:
-            child_container = self.broker.container
-        account = self.broker.account.lstrip('.')
+        child_container = _safe_get_and_unquote(
+            item.systags, 'child_container', self.broker.container)
+        child_account = _safe_get_and_unquote(
+            item.systags, 'child_account', self.broker.account)
         try:
-            self.client.delete_object(account, child_container, child)
+            child = _safe_get_and_unquote(item.systags, 'child')
+            if not child:
+                raise ValueError('missing child in systags')
+            self.client.delete_object(child_account, child_container, child)
             self.increment('marked')
         except Exception as err:  # noqa
             self.increment('errors')
@@ -308,9 +317,10 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
 
     def _process_marker(self, marker_item):
         try:
-            child_prefix = marker_item.systags.get('child_prefix')
+            child_prefix = _safe_get_and_unquote(
+                marker_item.systags, 'child_prefix')
             if child_prefix:
-                self._delete_resources(marker_item, unquote(child_prefix))
+                self._delete_resources(marker_item, child_prefix)
             else:
                 self.increment('noop')
         except UnexpectedResponse:
@@ -393,7 +403,8 @@ class MpuSessionAuditor(BaseMpuAuditor):
             try:
                 self.debug('deleting aborted session %s', session.name)
                 lifeline_name = '%s/%s/' % (obj_ref.user_name, obj_ref.obj_id)
-                account = self.broker.account.lstrip('.')
+                # TODO: get parts account from session meta
+                account = self.broker.account
                 self.client.delete_object(
                     account, self.parts_container, lifeline_name)
                 self._delete_session(session)

@@ -442,7 +442,8 @@ class BaseTestNativeMPU(BaseTestMPU):
                                  include_state=include_state)
 
     def get_mpu_parts(self):
-        return self._get_listing(self.account, self.parts_container_name)
+        return self._get_listing(
+            self.hidden_account, self.parts_container_name)
 
     def get_mpu_sessions(self):
         return self._get_listing(
@@ -525,12 +526,11 @@ class TestNativeMPU(BaseTestNativeMPU):
                          self.externalize_upload_id(int_upload_id))
         sess_name = ObjectRef(self.mpu_name, int_upload_id)
         containers = self.internal_client.iter_containers(self.account)
-        # TODO: move parts container to hidden account
-        self.assertEqual(sorted([self.parts_container_name,
-                                 self.bucket_name]),
+        self.assertEqual(sorted([self.bucket_name]),
                          sorted([c['name'] for c in containers]))
         containers = self.internal_client.iter_containers(self.hidden_account)
-        self.assertEqual(sorted([self.sessions_container_name,
+        self.assertEqual(sorted([self.parts_container_name,
+                                 self.sessions_container_name,
                                  self.history_container_name]),
                          sorted([c['name'] for c in containers]))
 
@@ -564,8 +564,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(hash_, part_etag)
 
         # list parts internal
-        parts = list(self.internal_client.iter_objects(
-            self.account, self.parts_container_name))
+        parts = self.get_mpu_parts()
         part_base = '%s/%s/' % (self.mpu_name, int_upload_id)
         exp_parts_items = [
             {'name': part_base,
@@ -685,14 +684,12 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-updater']).once()
         account_hdrs, account_listing = swiftclient.get_account(
             self.url, self.token)
-        # TODO: move parts to hidden account but add bytes to user account
-        self.assertEqual('2', account_hdrs.get('X-Account-Container-Count'))
+        self.assertEqual('1', account_hdrs.get('X-Account-Container-Count'))
         # user + part + lifeline
-        self.assertEqual('3', account_hdrs.get('X-Account-Object-Count'))
+        self.assertEqual('1', account_hdrs.get('X-Account-Object-Count'))
         # account only reports the sum of part size, not manifest
-        # TODO: fix - we're currently double counting parts bytes
-        # self.assertEqual(str(self.part_size),
-        #                  account_hdrs.get('X-Account-Bytes-Used'))
+        self.assertEqual(str(self.part_size),
+                         account_hdrs.get('X-Account-Bytes-Used'))
 
         # delete the mpu
         swiftclient.delete_object(self.url, self.token, self.bucket_name,
@@ -730,7 +727,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-updater']).once()
         account_hdrs, account_listing = swiftclient.get_account(
             self.url, self.token)
-        self.assertEqual('2', account_hdrs.get('X-Account-Container-Count'))
+        self.assertEqual('1', account_hdrs.get('X-Account-Container-Count'))
         self.assertEqual('0', account_hdrs.get('X-Account-Object-Count'))
         self.assertEqual('0', account_hdrs.get('X-Account-Bytes-Used'))
 
@@ -797,8 +794,7 @@ class TestNativeMPU(BaseTestNativeMPU):
                          [v.user_name for v in history_refs])
 
         # check we still have the parts for both mpu
-        parts = list(self.internal_client.iter_objects(
-            self.account, self.parts_container_name))
+        parts = self.get_mpu_parts()
         self.assertEqual(exp_parts_items_1 + exp_parts_items_2, parts)
 
         # async cleanup: once for sessions and history, once for parts markers
@@ -864,8 +860,7 @@ class TestNativeMPU(BaseTestNativeMPU):
                          [v.user_name for v in history_refs])
 
         # check we still have the parts for mpu
-        parts = list(self.internal_client.iter_objects(
-            self.account, self.parts_container_name))
+        parts = self.get_mpu_parts()
         self.assertEqual(exp_parts_items_1, parts)
 
         # async cleanup: once for sessions and history, once for parts markers
@@ -968,8 +963,7 @@ class TestNativeMPU(BaseTestNativeMPU):
              'content_type': 'application/octet-stream',
              'last_modified': mock.ANY}
         ]
-        parts = list(self.internal_client.iter_objects(
-            self.account, self.parts_container_name))
+        parts = self.get_mpu_parts()
         self.assertEqual(exp_parts_items, parts)
 
         # session still exists but is marked aborted; session are named in

@@ -798,7 +798,8 @@ class MPUSessionsHandler(BaseMPUHandler):
         # PUT a lifeline obj in parts container that will be deleted when the
         # manifest is made obsolete
         lifeline_name = make_relative_path(self.obj, upload_id, '')
-        lifeline_path = self.make_path(self.account, self.parts_container,
+        lifeline_path = self.make_path(self.hidden_account,
+                                       self.parts_container,
                                        lifeline_name)
         systags = {
             'relic_id': quote(upload_id.serialize()),
@@ -838,10 +839,8 @@ class MPUSessionsHandler(BaseMPUHandler):
         policy_index = self.user_container_info['storage_policy']
         self._ensure_container_exists(
             self.hidden_account, self.sessions_container, policy_index)
-        # TODO: hide the parts container; for now it must in the user account
-        #   because SLO doesn't support cross-account segments
         self._ensure_container_exists(
-            self.account, self.parts_container, policy_index)
+            self.hidden_account, self.parts_container, policy_index)
         self._ensure_container_exists(
             self.hidden_account, self.history_container, policy_index)
         self._ensure_resource_containers_in_metadata(policy_index)
@@ -946,7 +945,7 @@ class MPUSessionHandler(BaseMPUHandler):
         part_name = '%s/%s/%s' % (self.obj, self.upload_id,
                                   normalize_part_number(part_number))
         part_path = self.make_path(
-            self.account, self.parts_container, part_name)
+            self.hidden_account, self.parts_container, part_name)
         self.logger.debug('mpu upload_part %s', part_path)
         headers = {}
         for k, v in self.req.headers.items():
@@ -981,7 +980,7 @@ class MPUSessionHandler(BaseMPUHandler):
         if not session.is_active:
             return HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
 
-        path = self.make_path(self.account, self.parts_container)
+        path = self.make_path(self.hidden_account, self.parts_container)
         part_prefix = '%s/%s/' % (self.obj, self.upload_id)
         subreq_params = {
             'prefix': swob.str_to_wsgi(part_prefix),
@@ -1084,7 +1083,8 @@ class MPUSessionHandler(BaseMPUHandler):
 
         # TODO: make manifest briefer by not repeating path to every part
         part_base = make_relative_path(
-            self.account, self.parts_container, self.obj, self.upload_id)
+            self.hidden_account, self.parts_container, self.obj,
+            self.upload_id)
         try:
             user_manifest = MPUUserManifest.parse(
                 manifest_body, part_base, self.mw)
@@ -1148,6 +1148,7 @@ class MPUSessionHandler(BaseMPUHandler):
         lifeline_name = make_relative_path(self.obj, self.upload_id, '')
         systags = {
             'relic_id': quote(self.upload_id.serialize()),
+            'child_account': quote(self.hidden_account),
             'child_container': quote(self.parts_container),
             'child': quote(lifeline_name)
         }
@@ -1384,12 +1385,12 @@ class MPUObjHandler(BaseMPUHandler):
     def segments_iter(self, byteranges_parts_iter):
         # translate manifest part dicts to SegmentedIterable segment dicts
         for part, part_range_start, part_range_end in byteranges_parts_iter:
-            yield (dict(part,
-                        path='/%s/%s' % (self.api_version, part['path']),
-                        hash=part['etag'],
-                        bytes=part['size'],
-                        first_byte=part_range_start,
-                        last_byte=part_range_end))
+            yield dict(part,
+                       path='/%s/%s' % (self.api_version, part['path']),
+                       hash=part['etag'],
+                       bytes=part['size'],
+                       first_byte=part_range_start,
+                       last_byte=part_range_end)
 
     def _make_mpu_resp_iter(self, manifest):
         byte_ranges = self._get_byte_ranges(manifest.mpu_size)
