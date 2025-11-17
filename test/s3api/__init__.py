@@ -167,8 +167,16 @@ def code_from_error(error):
     return error.response['Error']['Code']
 
 
+def status_from_response(response):
+    return response['ResponseMetadata']['HTTPStatusCode']
+
+
 def status_from_error(error):
-    return error.response['ResponseMetadata']['HTTPStatusCode']
+    return status_from_response(error.response)
+
+
+def header_from_response(response, header):
+    return response['ResponseMetadata']['HTTPHeaders'].get(header)
 
 
 TEST_PREFIX = 's3api-test-'

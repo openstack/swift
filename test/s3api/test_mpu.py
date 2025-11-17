@@ -15,7 +15,8 @@
 import time
 
 from test.s3api import BaseS3TestCase, status_from_error, code_from_error, \
-    etag_from_resp, date_to_datetime
+    etag_from_resp, date_to_datetime, header_from_response, \
+    status_from_response
 from botocore.exceptions import ClientError
 
 
@@ -480,7 +481,30 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self._check_part_num_invalid_exc(caught.exception, val, max_part_num,
                                          is_head=True)
 
-    def test_part_number_non_mpu(self):
+    def test_head_object_with_range_satisfiable_206(self):
+        key_name = self.create_name('head-object-with-range-satisfiable')
+        mpu_etag = self.upload_mpu(key_name)
+        mpu_size = self.num_parts * self.part_size
+        range = 'bytes=1-10'
+        resp = self.client.head_object(Bucket=self.bucket_name,
+                                       Key=key_name, Range=range)
+        self.assertEqual(206, status_from_response(resp))
+        self.assertEqual(mpu_etag, resp['ETag'])
+        self.assertEqual('10', header_from_response(resp, 'content-length'))
+        self.assertEqual('bytes 1-10/%s' % mpu_size,
+                         header_from_response(resp, 'content-range'))
+
+    def test_head_object_with_range_not_satisfiable_416(self):
+        key_name = self.create_name('head-object-with-range-not-satisfiable')
+        self.upload_mpu(key_name)
+        mpu_size = self.num_parts * self.part_size
+        range = 'bytes=%s-%s' % (mpu_size, mpu_size + 10)
+        with self.assertRaises(ClientError) as caught:
+            self.client.head_object(Bucket=self.bucket_name,
+                                    Key=key_name, Range=range)
+        self.assertEqual(416, status_from_error(caught.exception))
+
+    def test_get_head_object_part_number_non_mpu(self):
         max_part_num = self._discover_max_part_num()
         key_name = self.create_name('part-num-non-mpu')
         self.client.put_object(Bucket=self.bucket_name,
