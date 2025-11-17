@@ -5614,7 +5614,8 @@ class TestObjectController(BaseTestCase):
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
             resp = req.get_response(self.object_controller)
-            self.assertEqual(resp.status_int, 204)
+            self.assertEqual(resp.status_int, 204,
+                             (start, orig_timestamp, timestamp))
             objfile = os.path.join(
                 self.testdir, 'sda1',
                 storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
