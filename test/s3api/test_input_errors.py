@@ -102,6 +102,17 @@ class S3Session(object):
         self.session_token = session_token
         self.session = requests.Session()
 
+    def _query_string(self, query):
+        """
+        Compose a dict of query parameters into an appropriately formated query
+        string. The returned query string does NOT have a leading '?'.
+
+        :param query: a dict of query parameters
+        :returns: s query string
+        """
+        # Subclasses should implement this method.
+        raise NotImplementedError
+
     def make_request(
         self,
         bucket=None,
@@ -166,7 +177,7 @@ class S3Session(object):
             'https' if request['https'] else 'http',
             request['host'],
             request['path'],
-            '&'.join('%s=%s' % (k, v) for k, v in request['query'].items()),
+            self._query_string(request['query']),
             None,  # no fragment
         ))
         # Note that
@@ -184,6 +195,12 @@ class S3Session(object):
 
 
 class S3SessionV2(S3Session):
+    def _query_string(self, query):
+        # S3 v2 seems to require ?key (without value) for valueless params and
+        # Swift's sigv2 seems happy with either ?key or ?key=<truthy>
+        return '&'.join(('%s' % k) if v is True else ('%s=%s' % (k, v))
+                        for k, v in sorted(query.items()))
+
     def build_request(
         self,
         bucket=None,
@@ -226,9 +243,7 @@ class S3SessionV2(S3Session):
         query_to_sign = {k: v for k, v in request['query'].items()
                          if k not in self.ignored_auth_query_params}
         if query_to_sign:
-            resource += '?' + '&'.join(
-                '%s=%s' % (k, v)
-                for k, v in sorted(query_to_sign.items()))
+            resource += '?' + self._query_string(query_to_sign)
         string_to_sign_lines.append(resource)
 
         signature = base64.b64encode(_hmac(
@@ -299,13 +314,17 @@ class S3SessionV2Query(S3SessionV2):
 
 
 class S3SessionV4(S3Session):
+    def _query_string(self, query):
+        # S3 v4 seems happy to receive either ?key or ?key=<truthy> for
+        # valueless params but Swift's sigv4 checking expects ?key=<truthy>
+        return '&'.join('%s=%s' % (k, v) for k, v in sorted(query.items()))
+
     def sign_v4(self, request):
         canonical_request_lines = [
             request['method'],
             ('/' + request['bucket'] if self.bucket_in_host else '')
             + request['path'],
-            '&'.join('%s=%s' % (k, v)
-                     for k, v in sorted(request['query'].items())),
+            self._query_string(request['query']),
         ]
         canonical_request_lines.extend(
             '%s:%s' % (h, request['headers'][h].strip())
@@ -540,6 +559,13 @@ class InputErrorsMixin(object):
             respbody)
         if expected_body is not None:
             self.assertEqual(resp.content, expected_body)
+
+    def assertMissingMD5OrChecksumHeader(self, resp):
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn(b'<Code>InvalidRequest</Code>', resp.content)
+        self.assertIn(b'<Message>Missing required header for this request: '
+                      b'Content-MD5 OR x-amz-checksum-*</Message>',
+                      resp.content)
 
     def assertSHA256Mismatch(self, resp, sha_in_headers, sha_of_body):
         respbody = resp.content
@@ -1664,6 +1690,191 @@ class InputErrorsMixin(object):
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertIn(b'CompleteMultipartUploadResult', resp.content)
 
+    def _setup_multi_delete(self):
+        key_name = 'test-obj'
+        client = get_s3_client(1)
+        put_resp = client.put_object(Bucket=self.bucket_name,
+                                     Key=key_name,
+                                     Body=b'test data')
+        self.assertEqual(200, put_resp['ResponseMetadata']['HTTPStatusCode'])
+        delete_request_body = (
+            '<?xml version=\'1.0\' encoding=\'UTF-8\'?>\n'
+            '<Delete '
+            'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+            '<Object>'
+            '<Key>%s</Key>'
+            '</Object>'
+            '</Delete>' % key_name
+        ).encode('utf-8')
+        return delete_request_body
+
+    def test_no_md5_no_sha_no_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+        )
+        self.assertMissingMD5OrChecksumHeader(resp)
+
+    def test_good_md5_good_sha_good_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'content-md5': _md5(delete_request_body),
+                'x-amz-content-sha256': _sha256(delete_request_body),
+                'x-amz-checksum-crc32': _crc32(delete_request_body),
+            }
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertIn(b'DeleteResult', resp.content)
+
+    def test_no_md5_good_sha_no_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-content-sha256': _sha256(delete_request_body),
+            }
+        )
+        self.assertMissingMD5OrChecksumHeader(resp)
+
+    def test_bad_md5_good_sha_good_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'content-md5': _md5(b'not the body'),
+                'x-amz-content-sha256': _sha256(delete_request_body),
+                'x-amz-checksum-crc32': _crc32(delete_request_body),
+            }
+        )
+        self.assertBadDigest(
+            resp, _md5(b'not the body'), _md5(delete_request_body),
+            expected_digest_should_be_hex=False)
+
+    def test_good_md5_bad_sha_good_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'content-md5': _md5(delete_request_body),
+                'x-amz-content-sha256': _sha256(b'not the body'),
+                'x-amz-checksum-crc32': _crc32(delete_request_body),
+            }
+        )
+        self.assertSHA256Mismatch(
+            resp, _sha256(b'not the body'), _sha256(delete_request_body))
+
+    def test_good_md5_good_sha_bad_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'content-md5': _md5(delete_request_body),
+                'x-amz-content-sha256': _sha256(delete_request_body),
+                'x-amz-checksum-crc32': _crc32(b'not the body'),
+            }
+        )
+        self.assertBadChecksumDigest(resp, 'CRC32', _crc32(b'not the body'))
+
+    def test_no_md5_no_sha_good_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-checksum-crc32': _crc32(delete_request_body),
+            }
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertIn(b'DeleteResult', resp.content)
+
+    def test_no_md5_no_sha_bad_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-checksum-crc32': _crc32(b'not the body'),
+            }
+        )
+        self.assertBadChecksumDigest(resp, 'CRC32', _crc32(b'not the body'))
+
+    def test_no_md5_unsigned_no_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+            }
+        )
+        self.assertMissingMD5OrChecksumHeader(resp)
+
+    def test_no_md5_unsigned_good_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+                'x-amz-checksum-crc32': _crc32(delete_request_body),
+            }
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertIn(b'DeleteResult', resp.content)
+
+    def test_no_md5_unsigned_bad_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+                'x-amz-checksum-crc32': _crc32(b'not the body'),
+            }
+        )
+        self.assertBadChecksumDigest(resp, 'CRC32', _crc32(b'not the body'))
+
 
 class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
     session_cls = S3SessionV4Headers
@@ -1843,10 +2054,46 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
             body=TEST_BODY,
             headers={
                 'x-amz-checksum-crc32': _crc32(TEST_BODY)})
-        self.assertEqual(resp.status_code, 400, resp.content)
-        self.assertIn(b'<Code>InvalidRequest</Code>', resp.content)
-        self.assertIn(b'<Message>Missing required header for this request: '
-                      b'x-amz-content-sha256</Message>', resp.content)
+        self.assertMissingSHA256(resp)
+
+    def test_no_md5_no_sha_no_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+        )
+        self.assertMissingSHA256(resp)
+
+    def test_no_md5_no_sha_good_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-checksum-crc32': _crc32(delete_request_body),
+            }
+        )
+        self.assertMissingSHA256(resp)
+
+    def test_no_md5_no_sha_bad_crc_header_multi_delete(self):
+        delete_request_body = self._setup_multi_delete()
+        resp = self.conn.make_request(
+            self.bucket_name,
+            key=None,
+            query={'delete': True},
+            method='POST',
+            body=delete_request_body,
+            headers={
+                'x-amz-checksum-crc32': _crc32(b'not the body'),
+            }
+        )
+        self.assertMissingSHA256(resp)
 
     def test_strm_unsgnd_pyld_trl_not_encoded(self):
         resp = self.conn.make_request(
