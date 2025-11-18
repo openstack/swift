@@ -78,9 +78,12 @@ POLICY_STAT_TABLE_CREATE = '''
     CREATE TABLE policy_stat (
         storage_policy_index INTEGER PRIMARY KEY,
         object_count INTEGER DEFAULT 0,
-        bytes_used INTEGER DEFAULT 0
+        bytes_used INTEGER DEFAULT 0,
+        bytes_in_parts INTEGER DEFAULT 0,
+        bytes_in_manifests INTEGER DEFAULT 0
     );
 '''
+
 
 # note: sqlite booleans are in fact integer 0 or 1, so in the following
 # statement (new.deleted == 0) is an int with value 0 or 1.
@@ -89,13 +92,22 @@ POLICY_STAT_TRIGGER_SCRIPT = '''
     BEGIN
         UPDATE policy_stat
         SET object_count = object_count + (new.deleted == 0),
-            bytes_used = bytes_used + new.size * (new.deleted == 0)
+            bytes_used = bytes_used + new.size * (new.deleted == 0),
+            bytes_in_parts = bytes_in_parts
+                + new.size * (new.manifest_size != -1) * (new.deleted == 0),
+            bytes_in_manifests = bytes_in_manifests
+                + new.manifest_size * (new.manifest_size != -1)
+                                     * (new.deleted == 0)
         WHERE storage_policy_index = new.storage_policy_index;
         INSERT INTO policy_stat (
-            storage_policy_index, object_count, bytes_used)
+            storage_policy_index, object_count, bytes_used,
+            bytes_in_parts, bytes_in_manifests)
         SELECT new.storage_policy_index,
                (new.deleted == 0),
-               new.size * (new.deleted == 0)
+               new.size * (new.deleted == 0),
+               new.size * (new.manifest_size != -1) * (new.deleted == 0),
+               new.manifest_size * (new.manifest_size != -1)
+                   * (new.deleted == 0)
         WHERE NOT EXISTS(
             SELECT changes() as change
             FROM policy_stat
@@ -109,7 +121,12 @@ POLICY_STAT_TRIGGER_SCRIPT = '''
     BEGIN
         UPDATE policy_stat
         SET object_count = object_count - (old.deleted == 0),
-            bytes_used = bytes_used - old.size * (old.deleted == 0)
+            bytes_used = bytes_used - old.size * (old.deleted == 0),
+            bytes_in_parts = bytes_in_parts
+                - old.size * (old.manifest_size != -1) * (old.deleted == 0),
+            bytes_in_manifests = bytes_in_manifests
+                - old.manifest_size * (old.manifest_size != -1)
+                                     * (old.deleted == 0)
         WHERE storage_policy_index = old.storage_policy_index;
         UPDATE container_info
         SET hash = chexor(hash, old.name, old.created_at);
@@ -150,7 +167,9 @@ CONTAINER_STAT_VIEW_SCRIPT = '''
         ci.reconciler_sync_point,
         ci.storage_policy_index,
         coalesce(ps.object_count, 0) AS object_count,
-        coalesce(ps.bytes_used, 0) AS bytes_used
+        coalesce(ps.bytes_used, 0) AS bytes_used,
+        coalesce(ps.bytes_in_parts, 0) AS bytes_in_parts,
+        coalesce(ps.bytes_in_manifests, 0) AS bytes_in_manifests
     FROM container_info ci LEFT JOIN policy_stat ps
     ON ci.storage_policy_index = ps.storage_policy_index;
 
@@ -199,7 +218,7 @@ def record_to_dict(rec):
     has the following keys:
 
     ``name``, ``created_at``, ``size``, ``content_type``, ``etag``,
-     ``deleted``, ``storage_policy_index``, ``systags``
+     ``deleted``, ``storage_policy_index``, ``manifest_size``, ``systags``
 
     The keys in the dict are the same as the object table column names, and the
     values are the same as their respective column values.
@@ -209,7 +228,7 @@ def record_to_dict(rec):
     """
     if rec:
         keys = ('name', 'created_at', 'size', 'content_type', 'etag',
-                'deleted', 'storage_policy_index', 'systags')
+                'deleted', 'storage_policy_index', 'manifest_size', 'systags')
         return dict(zip(keys, rec))
     return None
 
@@ -221,7 +240,7 @@ def record_to_item(rec):
 
     ``name``, ``data_timestamp``, ``ctype_timestamp``, ``meta_timestamp``,
     ``size``, ``content_type``, ``etag``, ``deleted``,
-    ``storage_policy_index``, ``systags``
+    ``storage_policy_index``, ``manifest_size``, ``systags``
 
      The ``data_timestamp``, ``ctype_timestamp`` and ``meta_timestamp`` values
      are decoded from the ``created_at`` column. Otherwise the dict values are
@@ -257,6 +276,11 @@ def expand_item(item):
     content_type, swift_bytes = extract_swift_bytes(item['content_type'])
     expanded['content_type'] = content_type
     expanded['swift_bytes'] = swift_bytes
+    item_manifest_size = item.get('manifest_size')
+    if item_manifest_size is None:
+        expanded['manifest_size'] = -1
+    else:
+        expanded['manifest_size'] = item_manifest_size
     expanded['systags'] = param_str_to_dict(item.get('systags'))
     return expanded
 
@@ -312,7 +336,8 @@ def merge_item_with_existing(new_item, existing):
         # apply data attributes from existing record
         updated.update(
             [(k, existing[k])
-             for k in ('size', 'etag', 'deleted', 'swift_bytes', 'systags')])
+             for k in ('size', 'etag', 'deleted', 'swift_bytes',
+                       'manifest_size', 'systags')])
         updated['data_timestamp'] = existing['data_timestamp']
         newer_than_existing[0] = False
     if Timestamp(existing['ctype_timestamp']) >= \
@@ -633,6 +658,8 @@ class ContainerBroker(DatabaseBroker):
 
         :param conn: DB connection object
         """
+        # manifest_size defaults to -1 rather than 0 so that we can distinguish
+        # between a non-mpu object and zero-size mpu object
         conn.execute("""
             CREATE TABLE %s (
                 ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -643,6 +670,7 @@ class ContainerBroker(DatabaseBroker):
                 etag TEXT,
                 deleted INTEGER DEFAULT 0,
                 storage_policy_index INTEGER DEFAULT 0,
+                manifest_size INTEGER DEFAULT -1,
                 systags TEXT
             );
         """ % table)
@@ -794,13 +822,16 @@ class ContainerBroker(DatabaseBroker):
             storage_policy_index = entry[6]
         else:
             storage_policy_index = 0
-        content_type_timestamp = meta_timestamp = systags = None
+        content_type_timestamp = meta_timestamp = manifest_size = systags \
+            = None
         if len(entry) > 7:
             content_type_timestamp = entry[7]
         if len(entry) > 8:
             meta_timestamp = entry[8]
         if len(entry) > 9:
-            systags = entry[9]
+            manifest_size = entry[9]
+        if len(entry) > 10:
+            systags = entry[10]
         item_list.append({'name': name,
                           'created_at': timestamp,
                           'size': size,
@@ -810,6 +841,7 @@ class ContainerBroker(DatabaseBroker):
                           'storage_policy_index': storage_policy_index,
                           'ctype_timestamp': content_type_timestamp,
                           'meta_timestamp': meta_timestamp,
+                          'manifest_size': manifest_size,
                           'systags': systags})
 
     def _empty(self):
@@ -869,11 +901,12 @@ class ContainerBroker(DatabaseBroker):
                 record['storage_policy_index'],
                 record['ctype_timestamp'],
                 record['meta_timestamp'],
+                record['manifest_size'],
                 record['systags'])
 
     def put_object(self, name, timestamp, size, content_type, etag, deleted=0,
                    storage_policy_index=0, ctype_timestamp=None,
-                   meta_timestamp=None, systags=None):
+                   meta_timestamp=None, manifest_size=None, systags=None):
         """
         Creates an object in the DB with its metadata.
 
@@ -890,6 +923,7 @@ class ContainerBroker(DatabaseBroker):
             content_type was last updated, or None
         :param meta_timestamp: string representation of the timestamp when
             metadata was last updated, or None
+        :param manifest_size: (optional) size of object manifest
         :param systags: (str) optional internal metadata for the object
         """
         record = {'name': name, 'created_at': timestamp, 'size': size,
@@ -898,6 +932,7 @@ class ContainerBroker(DatabaseBroker):
                   'storage_policy_index': storage_policy_index,
                   'ctype_timestamp': ctype_timestamp,
                   'meta_timestamp': meta_timestamp,
+                  'manifest_size': manifest_size,
                   'systags': systags}
         self.put_record(record)
 
@@ -1011,18 +1046,22 @@ class ContainerBroker(DatabaseBroker):
         data = None
         trailing_sync = 'x_container_sync_point1, x_container_sync_point2'
         trailing_pol = 'storage_policy_index'
+        trailing_bytes_in_parts = 'bytes_in_parts'
+        trailing_bytes_in_manifests = 'bytes_in_manifests'
         errors = set()
         while not data:
             try:
-                data = conn.execute(('''
+                curs = conn.execute(('''
                     SELECT account, container, created_at, put_timestamp,
                         delete_timestamp, status, status_changed_at,
                         object_count, bytes_used,
                         reported_put_timestamp, reported_delete_timestamp,
                         reported_object_count, reported_bytes_used, hash,
-                        id, %s, %s
+                        id, %s, %s, %s, %s
                         FROM container_stat
-                ''') % (trailing_sync, trailing_pol)).fetchone()
+                ''') % (trailing_sync, trailing_pol, trailing_bytes_in_parts,
+                        trailing_bytes_in_manifests))
+                data = curs.fetchone()
             except sqlite3.OperationalError as err:
                 err_msg = str(err)
                 if err_msg in errors:
@@ -1034,6 +1073,10 @@ class ContainerBroker(DatabaseBroker):
                 elif 'no such column: x_container_sync_point' in err_msg:
                     trailing_sync = '-1 AS x_container_sync_point1, ' \
                                     '-1 AS x_container_sync_point2'
+                elif 'no such column: bytes_in_parts' in err_msg:
+                    trailing_bytes_in_parts = '0 AS bytes_in_parts'
+                elif 'no such column: bytes_in_manifests' in err_msg:
+                    trailing_bytes_in_manifests = '0 AS bytes_in_manifests'
                 else:
                     raise
         data = dict(data)
@@ -1322,7 +1365,8 @@ class ContainerBroker(DatabaseBroker):
 
                 # storage policy filter
                 query, args = build_query(
-                    query_keys + ['storage_policy_index', 'systags'],
+                    query_keys + [
+                        'storage_policy_index', 'manifest_size', 'systags'],
                     query_conditions + ([] if all_policies
                                         else ['storage_policy_index = ?']),
                     query_args + ([] if all_policies
@@ -1332,12 +1376,22 @@ class ContainerBroker(DatabaseBroker):
                     # note: systags was added after storage_policy_index
                     'storage_policy_index': build_query(
                         query_keys + ['0 as storage_policy_index',
+                                      '-1 as manifest_size',
                                       'NULL as systags'],
                         query_conditions,
                         query_args),
+                    'manifest_size': build_query(
+                        query_keys + ['storage_policy_index',
+                                      '-1 as manifest_size',
+                                      ' NULL as systags'],
+                        query_conditions + ([] if all_policies
+                                            else ['storage_policy_index = ?']),
+                        query_args + ([] if all_policies
+                                      else [storage_policy_index])),
                     'systags': build_query(
                         query_keys + ['storage_policy_index',
-                                      'NULL as systags'],
+                                      '-1 as manifest_size',
+                                      ' NULL as systags'],
                         query_conditions + ([] if all_policies
                                             else ['storage_policy_index = ?']),
                         query_args + ([] if all_policies
@@ -1407,7 +1461,7 @@ class ContainerBroker(DatabaseBroker):
                         dir_name = name[:end + len(delimiter)]
                         if dir_name != orig_marker:
                             results.append(transform_func(
-                                (dir_name, '0', 0, None, '', 0, 0, '')))
+                                (dir_name, '0', 0, None, '', 0, 0, -1, '')))
                         curs.close()
                         break
                     results.append(transform_func(row))
@@ -1499,6 +1553,8 @@ class ContainerBroker(DatabaseBroker):
                 self._migrate_add_storage_policy,
             'no such column: systags':
                 self._migrate_add_object_systags,
+            'no such column: manifest_size':
+                self._migrate_add_object_manifest_size,
         }
         return self._execute_with_migrations(
             conn, migrations, func, *args, **kwargs)
@@ -1532,11 +1588,12 @@ class ContainerBroker(DatabaseBroker):
         if to_add:
             curs.executemany(
                 'INSERT INTO %s (name, created_at, size, content_type,'
-                'etag, deleted, storage_policy_index, systags) '
-                'VALUES (?, ?, ?, ?, ?, ?, ?, ?)' % table,
+                'etag, deleted, storage_policy_index, manifest_size, systags) '
+                'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)' % table,
                 ((rec['name'], rec['created_at'], rec['size'],
                   rec['content_type'], rec['etag'], rec['deleted'],
-                  rec['storage_policy_index'], rec.get('systags'))
+                  rec['storage_policy_index'], rec.get('manifest_size'),
+                  rec.get('systags'))
                  for rec in to_add.values()))
 
     def _really_really_merge_items(self, table, conn, item_list, source):
@@ -1554,11 +1611,15 @@ class ContainerBroker(DatabaseBroker):
             chunk = [rec['name'] for rec in
                      item_list[offset:offset + SQLITE_ARG_LIMIT]]
             records.update(
-                ((rec[0], rec[6]), rec) for rec in curs.execute(
+                ((rec[0], rec[6]), rec)
+                for rec in curs.execute(
                     'SELECT name, created_at, size, content_type,'
-                    'etag, deleted, storage_policy_index, systags '
-                    'FROM %s WHERE ' % table + query_mod + ' name IN (%s)' %
-                    ','.join('?' * len(chunk)), chunk))
+                    'etag, deleted, storage_policy_index, manifest_size, '
+                    'systags FROM %s WHERE ' % table
+                    + query_mod
+                    + ' name IN (%s)' % ','.join('?' * len(chunk)), chunk
+                )
+            )
         # Sort item_list into things that need adding and deleting, based
         # on results of created_at query.
         to_delete = set()
@@ -1641,9 +1702,9 @@ class ContainerBroker(DatabaseBroker):
 
         if parents:
             query = ('SELECT name, created_at, size, content_type,'
-                     'etag, deleted, storage_policy_index, systags '
-                     'FROM object WHERE deleted=2 AND name IN (%s)' %
-                     ','.join('?' * len(parents)))
+                     'etag, deleted, storage_policy_index, manifest_size, '
+                     'systags FROM object WHERE deleted=2 AND name IN (%s)'
+                     % ','.join('?' * len(parents)))
             # TODO: this assumes all children have same relic for same parent
             action_required.update(
                 ((rec[0], rec[6]), record_to_dict(rec))
@@ -1918,6 +1979,96 @@ class ContainerBroker(DatabaseBroker):
                 COMMIT;
             ''')
         except sqlite3.OperationalError as e:
+            if 'duplicate column' in str(e):
+                conn.rollback()
+            else:
+                raise
+
+    @staticmethod
+    def _get_schema_object_type(conn, name):
+        # returns the type ('table', 'view', ...) of the named schema object,
+        # or None if there is no such object
+        row = conn.execute(
+            'SELECT type FROM sqlite_master WHERE name = ?', (name,)
+        ).fetchone()
+        return row[0] if row else None
+
+    @staticmethod
+    def _get_table_columns(conn, table):
+        # returns the set of column names of the named table, which is empty
+        # if there is no such table
+        return {row[1]
+                for row in conn.execute('PRAGMA table_info(%s)' % table)}
+
+    def _migrate_add_object_manifest_size(self, conn):
+        """
+        Add the manifest_size column to the 'object' table, add the
+        bytes_in_parts and bytes_in_manifests columns to the 'policy_stat'
+        table, and recreate the policy_stat triggers and the container_stat
+        view, both of which reference those columns.
+
+        Existing object rows take the manifest_size default of -1, so they
+        contribute nothing to the new policy_stat columns. That is correct
+        because a DB created before the manifest_size column existed cannot
+        have any MPUs in it.
+
+        Each part of the migration is applied only if it is needed: the
+        policy_stat table may have been created with the current schema by
+        :meth:`_migrate_add_storage_policy` before this migration runs.
+        """
+        script = []
+        if 'manifest_size' not in self._get_table_columns(conn, 'object'):
+            script.append('''
+                ALTER TABLE object
+                ADD COLUMN manifest_size INTEGER DEFAULT -1;
+            ''')
+
+        # A DB that pre-dates the storage_policy_index column has no
+        # policy_stat table and no container_stat view; there's nothing to
+        # patch up here because _migrate_add_storage_policy will create both
+        # of them with the current schema.
+        policy_stat_columns = self._get_table_columns(conn, 'policy_stat')
+        if (policy_stat_columns
+                and 'bytes_in_manifests' not in policy_stat_columns):
+            # the triggers and the view were compiled when the DB was created
+            # and don't reference the new columns, so recreate them.
+            # note: the
+            # bytes_in_manifests and bytes_in_parts columns must not be added
+            # to an *older schema* table by any other path because that would
+            # prevent this migration script updating the triggers.
+            script.extend([
+                '''
+                    ALTER TABLE policy_stat
+                    ADD COLUMN bytes_in_parts INTEGER DEFAULT 0;
+
+                    ALTER TABLE policy_stat
+                    ADD COLUMN bytes_in_manifests INTEGER DEFAULT 0;
+
+                    DROP TRIGGER IF EXISTS object_insert_policy_stat;
+                    DROP TRIGGER IF EXISTS object_delete_policy_stat;
+                ''',
+                POLICY_STAT_TRIGGER_SCRIPT,
+            ])
+            # a DB that pre-dates the metadata column still has a
+            # container_stat table rather than a view
+            if self._get_schema_object_type(conn, 'container_stat') == 'view':
+                script.extend([
+                    '''
+                        DROP TRIGGER IF EXISTS container_stat_update;
+                        DROP VIEW container_stat;
+                    ''',
+                    CONTAINER_STAT_VIEW_SCRIPT,
+                ])
+
+        if not script:
+            return
+
+        try:
+            conn.executescript('BEGIN;' + ''.join(script) + 'COMMIT;')
+        except sqlite3.OperationalError as e:
+            # a duplicate column means that another process completed this
+            # migration after we inspected the schema; the script is applied
+            # atomically so there's nothing left half-done
             if 'duplicate column' in str(e):
                 conn.rollback()
             else:

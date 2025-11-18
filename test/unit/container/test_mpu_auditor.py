@@ -163,8 +163,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.broker.get_info()
 
     def _create_db_item(self, name, ts_data, ts_ctype=None, ts_meta=None,
-                        ctype='text/plain', size=0, etag='', systags=None,
-                        state=0):
+                        ctype='text/plain', size=0, etag='',
+                        manifest_size=-1, systags=None, state=0):
         """
         Create a DB item dict of the form passed in ContainerBroker.merge_items
         item_list.
@@ -180,6 +180,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
             'size': size,
             'deleted': state,
             'storage_policy_index': 0,
+            'manifest_size': manifest_size,
             'systags': param_str_from_dict(systags),
         }
         return item

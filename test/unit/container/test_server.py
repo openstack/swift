@@ -232,6 +232,8 @@ class TestContainerController(BaseUnitTestCase):
             'X-Container-Object-Count': '0',
             'X-Put-Timestamp': put_timestamp.normal,
             'X-Timestamp': created_at_timestamp.normal,
+            'X-Backend-Container-Bytes-In-Manifests': '0',
+            'X-Backend-Container-Bytes-In-Parts': '0',
         }, dict(headers))
         self.assertEqual(b'', b''.join(body_iter))
 
@@ -4974,6 +4976,7 @@ class TestContainerController(BaseUnitTestCase):
                            'etag': 'X',
                            'name': 'o',
                            'size': 0,
+                           'manifest_size': -1,
                            'storage_policy_index': 0,
                            'systags': None}],
                          broker.list_objects(include_states=[2]))
@@ -5050,8 +5053,9 @@ class TestContainerController(BaseUnitTestCase):
                                     'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
+        ts = self.ts()
         headers = {
-            'X-Timestamp': '1',
+            'X-Timestamp': ts.internal,
             'X-Content-Type': 'text/plain; charset="utf-8"',
             'X-Etag': 'my-etag',
             'X-Size': '0',
@@ -5060,24 +5064,29 @@ class TestContainerController(BaseUnitTestCase):
         req = Request.blank('/sda1/p/a/c/o', headers=headers)
         req.method = 'PUT'
         self._update_object_put_headers(req)
-        exp_policy_idx = req.headers.get('X-Backend-Storage-Policy-Index', 0)
+        exp_policy_idx = int(
+            req.headers.get('X-Backend-Storage-Policy-Index', 0))
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         expected = [{'content_type': 'text/plain;charset="utf-8"',
-                     'created_at': '0000000001.00000',
+                     'data_timestamp': ts.internal,
+                     'ctype_timestamp': ts.internal,
+                     'meta_timestamp': ts.internal,
                      'deleted': 0,
                      'etag': 'my-etag',
                      'name': 'o',
                      'size': 0,
-                     'storage_policy_index': int(exp_policy_idx),
+                     'manifest_size': -1,
+                     'storage_policy_index': exp_policy_idx,
                      'systags': 'a=b&x=\N{SNOWMAN}'}]
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        self.assertEqual(broker.get_objects(), expected)
+        self.assertEqual(
+            expected, broker.list_objects(storage_policy_index=exp_policy_idx))
 
         expected = [{'bytes': 0,
                      'content_type': 'text/plain;charset="utf-8"',
                      'hash': 'my-etag',
-                     'last_modified': '1970-01-01T00:00:01.000000',
+                     'last_modified': ts.isoformat,
                      'name': 'o'}]
         req = Request.blank('/sda1/p/a/c?format=json',
                             environ={'REQUEST_METHOD': 'GET'})
@@ -5086,14 +5095,69 @@ class TestContainerController(BaseUnitTestCase):
         # note: systags are not (yet) returned in listings
         self.assertEqual(json.loads(resp.body), expected)
 
+    def test_PUT_GET_object_with_manifest_size(self):
+        req = Request.blank(
+            '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
+                                    'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        ts = self.ts()
+        headers = {
+            'X-Timestamp': ts.internal,
+            'X-Content-Type': 'text/plain; charset="utf-8"',
+            'X-Etag': 'my-etag',
+            'X-Size': '12345',
+            'X-Manifest-Size': '99'
+        }
+        req = Request.blank('/sda1/p/a/c/o', headers=headers)
+        req.method = 'PUT'
+        self._update_object_put_headers(req)
+        exp_policy_idx = int(
+            req.headers.get('X-Backend-Storage-Policy-Index', 0))
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        expected = [{'content_type': 'text/plain;charset="utf-8"',
+                     'data_timestamp': ts.internal,
+                     'ctype_timestamp': ts.internal,
+                     'meta_timestamp': ts.internal,
+                     'deleted': 0,
+                     'etag': 'my-etag',
+                     'name': 'o',
+                     'size': 12345,
+                     'manifest_size': 99,
+                     'storage_policy_index': exp_policy_idx,
+                     'systags': None}]
+        broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
+        self.assertEqual(
+            expected, broker.list_objects(storage_policy_index=exp_policy_idx))
+
+        # note: size takes value of mpu_size in listing
+        expected = [{'bytes': 12345,
+                     'content_type': 'text/plain;charset="utf-8"',
+                     'hash': 'my-etag',
+                     'last_modified': ts.isoformat,
+                     'name': 'o'}]
+        req = Request.blank('/sda1/p/a/c?format=json',
+                            environ={'REQUEST_METHOD': 'GET'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(json.loads(resp.body), expected)
+
+        info = broker.get_info()
+        self.assertEqual(12345, info['bytes_used'])
+        self.assertEqual(12345, info['bytes_in_parts'])
+        self.assertEqual(99, info['bytes_in_manifests'])
+        self.assertEqual(1, info['object_count'])
+
     def test_DELETE_object_with_systags(self):
         req = Request.blank(
             '/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT',
                                     'HTTP_X_TIMESTAMP': '0'})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
+        ts = self.ts()
         headers = {
-            'X-Timestamp': '1',
+            'X-Timestamp': ts.internal,
             'X-Systags': 'a=b&x=\N{SNOWMAN}'.encode('utf8')
         }
         req = Request.blank('/sda1/p/a/c/o', headers=headers)
@@ -5103,13 +5167,14 @@ class TestContainerController(BaseUnitTestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         expected = [{'content_type': 'application/deleted',
-                     'data_timestamp': '0000000001.00000',
-                     'ctype_timestamp': '0000000001.00000',
-                     'meta_timestamp': '0000000001.00000',
+                     'data_timestamp': ts.internal,
+                     'ctype_timestamp': ts.internal,
+                     'meta_timestamp': ts.internal,
                      'deleted': 1,
                      'etag': 'noetag',
                      'name': 'o',
                      'size': 0,
+                     'manifest_size': -1,
                      'storage_policy_index': int(exp_policy_idx),
                      'systags': 'a=b&x=\N{SNOWMAN}'}]
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')

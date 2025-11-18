@@ -616,6 +616,22 @@ class TestNativeMPU(BaseTestNativeMPU):
                            'content_type': 'application/octet-stream',
                            'last_modified': mock.ANY}],
                          user_objs)
+        self.assertEqual('1', resp_hdrs.get('x-container-object-count'))
+        self.assertEqual(str(self.part_size),
+                         resp_hdrs.get('x-container-bytes-used'))
+
+        # check internal container metadata
+        metadata = self.internal_client.get_container_metadata(
+            self.account, self.bucket_name)
+        self.assertEqual('1', metadata.get('x-container-object-count'))
+        self.assertEqual(str(self.part_size),
+                         metadata.get('x-container-bytes-used'))
+        self.assertEqual(str(self.part_size),
+                         metadata.get('x-backend-container-bytes-in-parts'),
+                         metadata)
+        self.assertGreater(
+            int(metadata.get('x-backend-container-bytes-in-manifests', 0)),
+            0, metadata)
 
         sessions, parts = self.get_mpu_resources()
         self.assertIn(self.mpu_name, sessions[0]['name'])
@@ -667,7 +683,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         account_hdrs, account_listing = swiftclient.get_account(
             self.url, self.token)
         self.assertEqual('1', account_hdrs.get('X-Account-Container-Count'))
-        # user + part + lifeline
+        # account only reports user object
         self.assertEqual('1', account_hdrs.get('X-Account-Object-Count'))
         # account only reports the sum of part size, not manifest
         self.assertEqual(str(self.part_size),

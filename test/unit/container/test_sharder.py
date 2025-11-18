@@ -1143,7 +1143,7 @@ class TestSharder(BaseTestSharder):
         for obj in expected_objs:
             obj = list(obj)
             if len(obj) < 8:
-                obj.append(None)  # systag value
+                obj.extend([-1, None])  # [manifest_size, systags]
             modified_expected_objs.append(obj)
         self.assertEqual(modified_expected_objs, shard_objs)
 
@@ -2605,6 +2605,7 @@ class TestSharder(BaseTestSharder):
                     'size': 1024 * i,
                     'deleted': i % 2,
                     'storage_policy_index': 0,
+                    'manifest_size': -1,
                     'systags': 'a=b',
                     } for i in range(1, 8)]
         broker.merge_items([dict(obj) for obj in objects])
@@ -2684,6 +2685,7 @@ class TestSharder(BaseTestSharder):
                     'size': 1024 * i,
                     'deleted': i % 2,
                     'storage_policy_index': i % 2,
+                    'manifest_size': -1,
                     'systags': 'a=b',
                     } for i in range(1, 8)]
         # merge_items mutates items
@@ -2725,7 +2727,8 @@ class TestSharder(BaseTestSharder):
         objects = [
             {'name': 'obj%03d' % i, 'created_at': self.ts().internal,
              'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
-             'deleted': 0, 'storage_policy_index': 0, 'systags': 'a=b'}
+             'deleted': 0, 'storage_policy_index': 0,
+             'manifest_size': -1, 'systags': 'a=b'}
             for i in range(10)
         ]
         broker.merge_items([dict(obj) for obj in objects])
@@ -2745,7 +2748,7 @@ class TestSharder(BaseTestSharder):
         new_object = {'name': 'alpha', 'created_at': self.ts().internal,
                       'size': 0, 'content_type': 'text/plain', 'etag': 'etag',
                       'deleted': 0, 'storage_policy_index': 0,
-                      'systags': 'a=b'}
+                      'manifest_size': -1, 'systags': 'a=b'}
         broker.merge_items([dict(new_object)])
 
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
@@ -3066,7 +3069,8 @@ class TestSharder(BaseTestSharder):
         objects = [
             {'name': 'obj%03d' % i, 'created_at': self.ts().internal,
              'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
-             'deleted': 0, 'storage_policy_index': 0, 'systags': 'a=b'}
+             'deleted': 0, 'storage_policy_index': 0,
+             'manifest_size': -1, 'systags': 'a=b'}
             for i in range(10)
         ]
         # local db gets 4 objects

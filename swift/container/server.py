@@ -82,6 +82,10 @@ def gen_resp_headers(info, is_deleted=False):
             'X-PUT-Timestamp': Timestamp(
                 info.get('put_timestamp', ts_zero)).normal,
             'X-Backend-Sharding-State': info.get('db_state', UNSHARDED),
+            'X-Backend-Container-Bytes-In-Parts':
+                info.get('bytes_in_parts', 0),
+            'X-Backend-Container-Bytes-In-Manifests':
+                info.get('bytes_in_manifests', 0),
         })
     return headers
 
@@ -539,6 +543,11 @@ class ContainerController(BaseStorageServer):
         if response:
             return response
         state = int(req.headers.get('X-Backend-Object-State', 0))
+        manifest_size_hdr = req.headers.get('x-manifest-size')
+        if manifest_size_hdr is None:
+            manifest_size = None
+        else:
+            manifest_size = int(manifest_size_hdr)
         broker.put_object(
             obj,
             req_timestamp.internal,
@@ -549,7 +558,8 @@ class ContainerController(BaseStorageServer):
             obj_policy_index,
             wsgi_to_str(req.headers.get('x-content-type-timestamp')),
             wsgi_to_str(req.headers.get('x-meta-timestamp')),
-            wsgi_to_str(req.headers.get('x-systags'))
+            manifest_size=manifest_size,
+            systags=wsgi_to_str(req.headers.get('x-systags'))
         )
         return HTTPCreated(request=req)
 

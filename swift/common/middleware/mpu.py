@@ -341,7 +341,8 @@ class MPUItem:
     def __init__(self, name, meta_timestamp, data_timestamp=None,
                  ctype_timestamp=None,
                  size=0, content_type='', etag='', deleted=0,
-                 storage_policy_index=0, systags=None, created_at=None,
+                 storage_policy_index=0, manifest_size=-1,
+                 systags=None, created_at=None,
                  **kwargs):
         self._name = name
         self.meta_timestamp = self.timestampify(meta_timestamp)
@@ -355,6 +356,7 @@ class MPUItem:
         self.etag = etag
         self.deleted = deleted
         self.storage_policy_index = storage_policy_index
+        self.manifest_size = manifest_size
         self.systags = param_str_to_dict(systags)
         self.kwargs = kwargs
 
@@ -381,6 +383,7 @@ class MPUItem:
         yield 'deleted', self.deleted
         yield 'content_type', self.content_type
         yield 'storage_policy_index', self.storage_policy_index
+        yield 'manifest_size', self.manifest_size
         yield 'systags', self.systags
         for k, v in self.kwargs.items():
             yield k, v
@@ -399,6 +402,7 @@ class MPUItem:
                 'storage_policy_index': self.storage_policy_index,
                 'ctype_timestamp': self.ctype_timestamp.internal,
                 'meta_timestamp': self.meta_timestamp.internal,
+                'manifest_size': self.manifest_size,
                 'systags': param_str_from_dict(self.systags)}
 
     def __repr__(self):
@@ -1108,12 +1112,16 @@ class MPUSessionHandler(BaseMPUHandler):
         # upload id for the manifest
         # TODO: make manifest content-type be application/json, move
         #  user content-type to sysmeta
+        manifest_body = internal_manifest.serialize()
         manifest_headers = {
             'X-Timestamp': ts_complete.internal,
             'Accept': 'application/json',
-            # report size as 0 in container stats
+            # force container row size to equal the sum of part sizes...
             get_container_update_override_key('size'):
                 str(internal_manifest.mpu_size),
+            # also send the size of the manifest...
+            get_container_update_override_key('manifest-size'):
+                str(len(manifest_body)),
             ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_MANIFEST_KEY: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
@@ -1143,7 +1151,7 @@ class MPUSessionHandler(BaseMPUHandler):
             path=make_path(self.account, self.container, self.obj),
             method='PUT',
             headers=manifest_headers,
-            body=internal_manifest.serialize())
+            body=manifest_body)
 
         lifeline_name = make_relative_path(self.obj, self.upload_id, '')
         systags = {

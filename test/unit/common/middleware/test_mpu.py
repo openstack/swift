@@ -1548,6 +1548,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  '%s; mpu_etag=%s; mpu_link=%s'
                  % (exp_mpu_etag, exp_mpu_etag, exp_mpu_link),
              'X-Object-Sysmeta-Container-Update-Override-Size': '5242979',
+             'X-Object-Sysmeta-Container-Update-Override-Manifest-Size':
+                 str(len(actual_manifest_body)),
              'X-Object-Sysmeta-Container-Update-Override-Systags':
                 param_str_from_dict(exp_systags),
              'X-Object-Sysmeta-Mpu-Manifest': 'true',
@@ -1663,6 +1665,8 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-Manifest': 'true',
              'X-Object-Sysmeta-Mpu-Etag': exp_mpu_etag,
              'X-Object-Sysmeta-Mpu-Size': '5242979',
+             'X-Object-Sysmeta-Container-Update-Override-Manifest-Size':
+                 str(len(actual_manifest_body)),
              'X-Object-Sysmeta-Mpu-Parts-Count': '2',
              'X-Object-Sysmeta-Mpu-Upload-Id': self.upload_id.serialize(),
              'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '3',

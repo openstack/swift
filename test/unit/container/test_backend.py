@@ -38,7 +38,8 @@ from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
     merge_item_with_existing, UNSHARDED, SHARDING, SHARDED, \
     COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES, sift_shard_ranges, \
-    merge_shards
+    merge_shards, CONTAINER_INFO_TABLE_SCRIPT, POLICY_STAT_TABLE_CREATE, \
+    POLICY_STAT_TRIGGER_SCRIPT, CONTAINER_STAT_VIEW_SCRIPT
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
     TombstoneReclaimer, GreenDBCursor
 from swift.common.request_helpers import get_reserved_name
@@ -64,13 +65,35 @@ class TestContainerBroker(test_db.TestDbBase):
                           'container_info', 'shard_range', 'action'}
     expected_object_table_columns = {'name', 'created_at', 'size',
                                      'content_type', 'etag', 'deleted',
-                                     'storage_policy_index', 'systags'}
+                                     'storage_policy_index', 'manifest_size',
+                                     'systags'}
+    # number of queries that _do_get_info_query makes; subclasses testing
+    # un-migrated DBs may need more because of its fallback retries
+    expected_get_info_queries = 1
     server_type = 'container'
+
+    def setup_broker_mock(self, original, replacement):
+        """
+        Mock a ContainerBroker method, start the mock register to stop the mock
+        during test cleanup.
+
+        :param original: (str) name of ContainerBroker method to mock
+        :param replacement: a callable
+        """
+        p = mock.patch.object(ContainerBroker, original, replacement)
+        p.start()
+        self.addCleanup(p.stop)
 
     def setUp(self):
         super(TestContainerBroker, self).setUp()
         self.ts_init = self.ts()
         self.broker = self._make_broker(self.ts_init)
+
+    def tearDown(self):
+        # do cleanups early so that subclasses can make sanity check assertions
+        # to verify that ContainerBroker has been reverted to original state
+        self.doCleanups()
+        super().tearDown()
 
     def _make_broker(self, ts_init):
         broker = ContainerBroker(self.get_db_path(), account='a',
@@ -201,7 +224,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
             with mock.patch.object(GreenDBCursor, 'execute', tracking_exec):
                 self.assertEqual(policy.idx, broker.storage_policy_index)
-            self.assertEqual(len(execute_queries), 1, execute_queries)
+            self.assertEqual(len(execute_queries),
+                             self.expected_get_info_queries, execute_queries)
 
             broker.enable_sharding(self.normal_ts())
             self.assertTrue(broker.set_sharding_state())
@@ -213,14 +237,16 @@ class TestContainerBroker(test_db.TestDbBase):
             del broker._storage_policy_index
             with mock.patch.object(GreenDBCursor, 'execute', tracking_exec):
                 self.assertEqual(policy.idx, broker.storage_policy_index)
-            self.assertEqual(len(execute_queries), 1, execute_queries)
+            self.assertEqual(len(execute_queries),
+                             self.expected_get_info_queries, execute_queries)
 
             self.assertTrue(broker.set_sharded_state())
             del execute_queries[:]
             del broker._storage_policy_index
             with mock.patch.object(GreenDBCursor, 'execute', tracking_exec):
                 self.assertEqual(policy.idx, broker.storage_policy_index)
-            self.assertEqual(len(execute_queries), 1, execute_queries)
+            self.assertEqual(len(execute_queries),
+                             self.expected_get_info_queries, execute_queries)
 
             # make sure it's cached
             with mock.patch.object(broker, 'get', side_effect=RuntimeError):
@@ -1597,24 +1623,25 @@ class TestContainerBroker(test_db.TestDbBase):
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
                   'meta_timestamp': None,
+                  'manifest_size': -1,
                   'systags': 'a=b'}
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
 
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', None, None, 'a=b')
+                  '1', '2', None, None, -1, 'a=b')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['ctype_timestamp'] = '2233445566.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', None, 'a=b')
+                  '1', '2', '2233445566.00000', None, -1, 'a=b')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
         record['meta_timestamp'] = '5566778899.00000'
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
-                  '1', '2', '2233445566.00000', '5566778899.00000', 'a=b')
+                  '1', '2', '2233445566.00000', '5566778899.00000', -1, 'a=b')
         result = broker.make_tuple_for_pickle(record)
         self.assertEqual(expect, result)
 
@@ -1634,6 +1661,7 @@ class TestContainerBroker(test_db.TestDbBase):
                   'storage_policy_index': '2',
                   'ctype_timestamp': None,
                   'meta_timestamp': None,
+                  'manifest_size': None,
                   'systags': None}
 
         # sanity check
@@ -1680,6 +1708,7 @@ class TestContainerBroker(test_db.TestDbBase):
                   'storage_policy_index': '2',
                   'ctype_timestamp': '1234567890.44444',
                   'meta_timestamp': '1234567890.99999',
+                  'manifest_size': -1,
                   'systags': 'a=b'}
 
         # sanity check
@@ -2752,6 +2781,7 @@ class TestContainerBroker(test_db.TestDbBase):
                       'size': 1024 * i,
                       'deleted': i % 2,
                       'storage_policy_index': 0,
+                      'manifest_size': -1,
                       'systags': '0=%d' % i,
                       } for i in range(1, 8)]
         objects_1 = [{'name': 'obj_1_%d' % i,
@@ -2761,6 +2791,7 @@ class TestContainerBroker(test_db.TestDbBase):
                       'size': 1024 * i,
                       'deleted': i % 2,
                       'storage_policy_index': 1,
+                      'manifest_size': -1,
                       'systags': '1=%d' % i,
                       } for i in range(1, 8)]
         # merge_objects mutates items
@@ -3622,6 +3653,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker2.merge_syncs(broker1.get_syncs())
         self.assertEqual(broker2.get_sync('12345'), 3)
 
+    @mock_execute('swift.container.backend.tpool.execute')
     def test_merge_items(self):
         broker1 = ContainerBroker(self.get_db_path(), account='a',
                                   container='c')
@@ -3629,9 +3661,9 @@ class TestContainerBroker(test_db.TestDbBase):
         broker2 = ContainerBroker(self.get_db_path(),
                                   account='a', container='c')
         broker2.initialize(Timestamp('1').internal, 0)
-        broker1.put_object('a', Timestamp(1).internal, 0,
+        broker1.put_object('a', Timestamp(1).internal, 1,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker1.put_object('b', Timestamp(2).internal, 0,
+        broker1.put_object('b', Timestamp(2).internal, 3,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         # commit pending file into db
         broker1._commit_puts()
@@ -3641,7 +3673,7 @@ class TestContainerBroker(test_db.TestDbBase):
         items = broker2.get_items_since(-1, 1000)
         self.assertEqual(len(items), 2)
         self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
-        broker1.put_object('c', Timestamp(3).internal, 0,
+        broker1.put_object('c', Timestamp(3).internal, 7,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
@@ -3650,6 +3682,82 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(len(items), 3)
         self.assertEqual(['a', 'b', 'c'],
                          sorted([rec['name'] for rec in items]))
+        info = broker2.get_info()
+        self.assertEqual(3, info['object_count'])
+        self.assertEqual(11, info['bytes_used'])
+        self.assertEqual(0, info['bytes_in_parts'])
+        self.assertEqual(0, info['bytes_in_manifests'])
+
+    @mock_execute('swift.container.backend.tpool.execute')
+    def test_merge_items_with_manifest_size(self):
+        self.broker.put_object('1mpu', self.ts().internal, 12345, 'text/plain',
+                               'd41d8cd98f00b204e9800998ecf8427e',
+                               manifest_size=101)
+        self.broker.put_object('2nonmpu', self.ts().internal, 99, 'text/plain',
+                               'd41d8cd98f00b204e9800998ecf8427e',
+                               manifest_size=None)
+        self.broker.put_object('3mpu', self.ts().internal, 13, 'text/plain',
+                               'd41d8cd98f00b204e9800998ecf8427e',
+                               manifest_size=102)
+        self.broker.put_object('4mpu', self.ts().internal, 0, 'text/plain',
+                               'd41d8cd98f00b204e9800998ecf8427e',
+                               manifest_size=103)
+        self.broker._commit_puts()
+
+        expected_items = [('1mpu', 12345, 101, 0),
+                          ('2nonmpu', 99, -1, 0),
+                          ('3mpu', 13, 102, 0),
+                          ('4mpu', 0, 103, 0)]
+        items = self.broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            expected_items,
+            sorted([(item['name'], item['size'], item['manifest_size'],
+                     item['deleted'])
+                    for item in items]))
+
+        items = self.broker.list_objects()
+        self.assertEqual(
+            expected_items,
+            sorted([(item['name'], item['size'], item['manifest_size'],
+                     item['deleted'])
+                    for item in items]))
+
+        info = self.broker.get_info()
+        self.assertEqual(4, info['object_count'])
+        self.assertEqual(12457, info['bytes_used'])
+        self.assertEqual(12358, info['bytes_in_parts'])
+        self.assertEqual(306, info['bytes_in_manifests'])
+
+        # now delete some items...
+        self.broker.put_object('1mpu', self.ts().internal, 0, 'text/plain',
+                               '', manifest_size=None, deleted=True)
+        self.broker.put_object('2nonmpu', self.ts().internal, 0, 'text/plain',
+                               '', manifest_size=None, deleted=True)
+        self.broker._commit_puts()
+
+        expected_items = [('1mpu', 0, -1, 1),
+                          ('2nonmpu', 0, -1, 1),
+                          ('3mpu', 13, 102, 0),
+                          ('4mpu', 0, 103, 0)]
+        items = self.broker.get_items_since(-1, 1000)
+        self.assertEqual(
+            expected_items,
+            sorted([(item['name'], item['size'], item['manifest_size'],
+                     item['deleted'])
+                    for item in items]))
+
+        items = self.broker.list_objects()
+        self.assertEqual(
+            expected_items[2:],
+            sorted([(item['name'], item['size'], item['manifest_size'],
+                     item['deleted'])
+                    for item in items]))
+
+        info = self.broker.get_info()
+        self.assertEqual(2, info['object_count'])
+        self.assertEqual(13, info['bytes_used'])
+        self.assertEqual(13, info['bytes_in_parts'])
+        self.assertEqual(205, info['bytes_in_manifests'])
 
     def test_merge_items_with_systags(self):
         broker1 = ContainerBroker(self.get_db_path(), account='a',
@@ -3669,22 +3777,29 @@ class TestContainerBroker(test_db.TestDbBase):
         id = broker1.get_info()['id']
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
+
         items = broker2.get_items_since(-1, 1000)
         self.assertEqual(len(items), 2)
         self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
+
         broker1.put_object('c', Timestamp(3).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e',
                            systags='a=\N{SNOWMAN}')
         broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
+
+        expected_items = [('a', 'a=b1&x=\N{SNOWMAN}'),
+                          ('b', 'a=b2&x=y'),
+                          ('c', 'a=\N{SNOWMAN}')]
         items = broker2.get_items_since(-1, 1000)
-        self.assertEqual(len(items), 3)
         self.assertEqual(
-            [('a', 'a=b1&x=\N{SNOWMAN}'),
-             ('b', 'a=b2&x=y'),
-             ('c', 'a=\N{SNOWMAN}')],
-            sorted([(rec['name'], rec['systags']) for rec in items]))
+            expected_items,
+            sorted([(item['name'], item['systags']) for item in items]))
+        items = broker2.get_objects()
+        self.assertEqual(
+            expected_items,
+            sorted([(item['name'], item['systags']) for item in items]))
 
     def _do_merge_items(self, objs, ts_merge):
         shuffled_objs = random.sample(objs, len(objs))
@@ -4303,6 +4418,7 @@ class TestContainerBroker(test_db.TestDbBase):
                       'storage_policy_index': 0,
                       'ctype_timestamp': None,
                       'meta_timestamp': None,
+                      'manifest_size': None,
                       'systags': None}]
         exp_conn = mock.ANY
         # subclasses of the TestCase may provoke multiple calls to
@@ -5976,6 +6092,7 @@ class TestContainerBroker(test_db.TestDbBase):
                     'size': 1024 * i,
                     'deleted': 0,
                     'storage_policy_index': 0,
+                    'manifest_size': -1,
                     'systags': 'x=%d' % i,
                     } for i in range(1, 6)]
         # merge_items mutates items
@@ -6698,34 +6815,21 @@ class ContainerBrokerMigrationMixin(test_db.TestDbBase):
 
     def setUp(self):
         super(ContainerBrokerMigrationMixin, self).setUp()
-        self._imported_create_object_table = \
-            ContainerBroker.create_object_table
-        ContainerBroker.create_object_table = \
-            prespi_create_object_table
-        self._imported_create_container_info_table = \
-            ContainerBroker.create_container_info_table
-        ContainerBroker.create_container_info_table = \
-            premetadata_create_container_info_table
-        self._imported_create_policy_stat_table = \
-            ContainerBroker.create_policy_stat_table
-        ContainerBroker.create_policy_stat_table = lambda *args: None
+        self.setup_broker_mock('create_object_table',
+                               prespi_create_object_table)
+        self.setup_broker_mock('create_container_info_table',
+                               premetadata_create_container_info_table)
+        self.setup_broker_mock('create_policy_stat_table', lambda *args: None)
 
-        self._imported_create_shard_range_table = \
-            ContainerBroker.create_shard_range_table
         if 'shard_range' not in self.expected_db_tables:
-            p = mock.patch.object(
-                ContainerBroker, 'create_shard_range_table',
+            self.setup_broker_mock(
+                'create_shard_range_table',
                 self.OverrideCreateTable(
                     ContainerBroker.create_shard_range_table))
-            p.start()
-            self.addCleanup(p.stop)
         if 'action' not in self.expected_db_tables:
-            p = mock.patch.object(
-                ContainerBroker, 'create_action_table',
-                self.OverrideCreateTable(
-                    ContainerBroker.create_action_table))
-            p.start()
-            self.addCleanup(p.stop)
+            self.setup_broker_mock(
+                'create_action_table',
+                self.OverrideCreateTable(ContainerBroker.create_action_table))
 
     @classmethod
     @contextmanager
@@ -6738,17 +6842,6 @@ class ContainerBrokerMigrationMixin(test_db.TestDbBase):
         finally:
             case.tearDown()
             case.doCleanups()
-
-    def tearDown(self):
-        ContainerBroker.create_container_info_table = \
-            self._imported_create_container_info_table
-        ContainerBroker.create_object_table = \
-            self._imported_create_object_table
-        ContainerBroker.create_shard_range_table = \
-            self._imported_create_shard_range_table
-        ContainerBroker.create_policy_stat_table = \
-            self._imported_create_policy_stat_table
-        # We need to manually teardown and clean the self.tempdir
 
 
 def premetadata_create_container_info_table(self, conn, put_timestamp,
@@ -6882,8 +6975,8 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
 
     def setUp(self):
         super(TestContainerBrokerBeforeXSync, self).setUp()
-        ContainerBroker.create_container_info_table = \
-            prexsync_create_container_info_table
+        self.setup_broker_mock('create_container_info_table',
+                               prexsync_create_container_info_table)
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
         broker.initialize(Timestamp('1').internal, 0)
@@ -6995,6 +7088,81 @@ def pre_systags_create_object_table(self, conn, *args, **kwargs):
     """)
 
 
+def pre_manifest_size_create_policy_stat_table(
+        self, conn, storage_policy_index=0):
+    """
+    Copied from ContainerBroker before the bytes_in_parts and
+    bytes_in_manifests columns were added to the policy_stat tables.
+    """
+    conn.executescript('''
+        CREATE TABLE policy_stat (
+            storage_policy_index INTEGER PRIMARY KEY,
+            object_count INTEGER DEFAULT 0,
+            bytes_used INTEGER DEFAULT 0
+        );
+    ''')
+    conn.execute("""
+        INSERT INTO policy_stat (storage_policy_index)
+        VALUES (?)
+    """, (storage_policy_index,))
+
+
+def pre_manifest_size_create_container_info_table(
+        self, conn, put_timestamp, storage_policy_index):
+    """
+    Copied from ContainerBroker before the bytes_in_parts and
+    bytes_in_manifests columns were added to the container_stat view; used
+    for testing with TestContainerBrokerBeforeSystags.
+    """
+    if put_timestamp is None:
+        put_timestamp = Timestamp(0).internal
+    conn.executescript(CONTAINER_INFO_TABLE_SCRIPT + '''
+        CREATE VIEW container_stat
+        AS SELECT ci.account, ci.container, ci.created_at,
+            ci.put_timestamp, ci.delete_timestamp,
+            ci.reported_put_timestamp, ci.reported_delete_timestamp,
+            ci.reported_object_count, ci.reported_bytes_used, ci.hash,
+            ci.id, ci.status, ci.status_changed_at, ci.metadata,
+            ci.x_container_sync_point1, ci.x_container_sync_point2,
+            ci.reconciler_sync_point,
+            ci.storage_policy_index,
+            coalesce(ps.object_count, 0) AS object_count,
+            coalesce(ps.bytes_used, 0) AS bytes_used
+        FROM container_info ci LEFT JOIN policy_stat ps
+        ON ci.storage_policy_index = ps.storage_policy_index;
+
+        CREATE TRIGGER container_stat_update
+        INSTEAD OF UPDATE ON container_stat
+        BEGIN
+            UPDATE container_info
+            SET account = NEW.account,
+                container = NEW.container,
+                created_at = NEW.created_at,
+                put_timestamp = NEW.put_timestamp,
+                delete_timestamp = NEW.delete_timestamp,
+                reported_put_timestamp = NEW.reported_put_timestamp,
+                reported_delete_timestamp = NEW.reported_delete_timestamp,
+                reported_object_count = NEW.reported_object_count,
+                reported_bytes_used = NEW.reported_bytes_used,
+                hash = NEW.hash,
+                id = NEW.id,
+                status = NEW.status,
+                status_changed_at = NEW.status_changed_at,
+                metadata = NEW.metadata,
+                x_container_sync_point1 = NEW.x_container_sync_point1,
+                x_container_sync_point2 = NEW.x_container_sync_point2,
+                storage_policy_index = NEW.storage_policy_index,
+                reconciler_sync_point = NEW.reconciler_sync_point;
+        END;
+    ''')
+    conn.execute("""
+        INSERT INTO container_info (account, container, created_at, id,
+            put_timestamp, status_changed_at, storage_policy_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+    """, (self.account, self.container, NormalTimestamp.now().internal,
+          str(uuid4()), put_timestamp, put_timestamp, storage_policy_index))
+
+
 def prespi_create_container_info_table(self, conn, put_timestamp,
                                        _spi=None):
     """
@@ -7053,8 +7221,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
 
     def setUp(self):
         super(TestContainerBrokerBeforeSPI, self).setUp()
-        ContainerBroker.create_container_info_table = \
-            prespi_create_container_info_table
+        self.setup_broker_mock('create_container_info_table',
+                               prespi_create_container_info_table)
         # initialize an un-migrated database
         self.broker = self._make_broker(self.ts_init)
         self.assert_column_not_in_table(
@@ -7214,16 +7382,26 @@ class TestContainerBrokerBeforeSystags(TestContainerBroker):
     expected_object_table_columns = {'name', 'created_at', 'size',
                                      'content_type', 'etag', 'deleted',
                                      'storage_policy_index'}
+    # get_info doesn't migrate the DB, so every call retries the query once
+    # per missing column before falling back to reporting zeros
+    expected_get_info_queries = 3
 
     def setUp(self):
         super().setUp()
-        self._orig_create_object_table = ContainerBroker.create_object_table
-        ContainerBroker.create_object_table = pre_systags_create_object_table
+        # The older create_object_table did not install the latest
+        # manifest_size policy_stat triggers. We need the policy_stat table to
+        # be created *without* the bytes_in_manifest column so that the
+        # manifest_size migration will install the latest triggers.
+        self.setup_broker_mock('create_object_table',
+                               pre_systags_create_object_table)
+        self.setup_broker_mock('create_policy_stat_table',
+                               pre_manifest_size_create_policy_stat_table)
+        self.setup_broker_mock('create_container_info_table',
+                               pre_manifest_size_create_container_info_table)
         self.broker = self._make_broker(self.ts())
         self.assert_column_not_in_table(self.broker, 'systags', 'object')
 
     def tearDown(self):
-        ContainerBroker.create_object_table = self._orig_create_object_table
         super().tearDown()
         # sanity check ...
         broker = self._make_broker(self.ts())
@@ -7303,6 +7481,276 @@ class TestContainerBrokerBeforeSystags(TestContainerBroker):
                                  'text/plain',
                                  '8f4c680e75ca4c81dc1917ddab0a0b5c'))
         self.assert_column_not_in_table(self.broker, 'systags', 'object')
+
+
+def pre_manifest_size_create_object_table(self, conn, *args, **kwargs):
+    """
+    Copied from ContainerBroker before the manifest_size column was added to
+    the object table.
+    """
+    conn.executescript("""
+        CREATE TABLE object (
+            ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            created_at TEXT,
+            size INTEGER,
+            content_type TEXT,
+            etag TEXT,
+            deleted INTEGER DEFAULT 0,
+            storage_policy_index INTEGER DEFAULT 0,
+            systags TEXT
+        );
+
+        CREATE INDEX ix_object_deleted_name ON object (deleted, name);
+
+        CREATE TRIGGER object_update BEFORE UPDATE ON object
+        BEGIN
+            SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+        END;
+
+        CREATE TRIGGER object_insert_policy_stat AFTER INSERT ON object
+        BEGIN
+            UPDATE policy_stat
+            SET object_count = object_count + (new.deleted == 0),
+                bytes_used = bytes_used + new.size * (new.deleted == 0)
+            WHERE storage_policy_index = new.storage_policy_index;
+            INSERT INTO policy_stat (
+                storage_policy_index, object_count, bytes_used)
+            SELECT new.storage_policy_index,
+                   (new.deleted == 0),
+                   new.size * (new.deleted == 0)
+            WHERE NOT EXISTS(
+                SELECT changes() as change
+                FROM policy_stat
+                WHERE change <> 0
+            );
+            UPDATE container_info
+            SET hash = chexor(hash, new.name, new.created_at);
+        END;
+
+        CREATE TRIGGER object_delete_policy_stat AFTER DELETE ON object
+        BEGIN
+            UPDATE policy_stat
+            SET object_count = object_count - (old.deleted == 0),
+                bytes_used = bytes_used - old.size * (old.deleted == 0)
+            WHERE storage_policy_index = old.storage_policy_index;
+            UPDATE container_info
+            SET hash = chexor(hash, old.name, old.created_at);
+        END;
+    """)
+
+
+class TestContainerBrokerBeforeManifestSize(TestContainerBroker):
+    """
+    Tests for ContainerBroker against databases created before the
+    manifest_size column was added to the object table and the
+    bytes_in_parts and bytes_in_manifests columns were added to the
+    policy_stat table.
+    """
+    expected_object_table_columns = {'name', 'created_at', 'size',
+                                     'content_type', 'etag', 'deleted',
+                                     'storage_policy_index', 'systags'}
+    # get_info doesn't migrate the DB, so every call retries the query once
+    # per missing column before falling back to reporting zeros
+    expected_get_info_queries = 3
+
+    def setUp(self):
+        super().setUp()
+        # The older create_object_table did not install the latest
+        # manifest_size policy_stat triggers. We need the policy_stat table to
+        # be created *without* the bytes_in_manifest column so that the
+        # manifest_size migration will install the latest triggers.
+        self.setup_broker_mock('create_object_table',
+                               pre_manifest_size_create_object_table)
+        self.setup_broker_mock('create_policy_stat_table',
+                               pre_manifest_size_create_policy_stat_table)
+        self.setup_broker_mock('create_container_info_table',
+                               pre_manifest_size_create_container_info_table)
+        self.broker = self._make_broker(self.ts())
+        self.assert_pre_migration(self.broker)
+
+    def tearDown(self):
+        super().tearDown()
+        # sanity check ...
+        broker = self._make_broker(self.ts())
+        self.assert_column_in_table(broker, 'manifest_size', 'object')
+        test_db.TestDbBase.tearDown(self)
+
+    def assert_pre_migration(self, broker):
+        self.assert_column_not_in_table(broker, 'manifest_size', 'object')
+        self.assert_column_not_in_table(broker, 'bytes_in_parts',
+                                        'policy_stat')
+        self.assert_column_not_in_table(broker, 'bytes_in_manifests',
+                                        'policy_stat')
+        self.assert_column_not_in_table(broker, 'bytes_in_parts',
+                                        'container_stat')
+        self.assert_column_not_in_table(broker, 'bytes_in_manifests',
+                                        'container_stat')
+
+    def assert_migrated(self, broker):
+        self.assert_column_in_table(broker, 'manifest_size', 'object')
+        self.assert_column_in_table(broker, 'bytes_in_parts', 'policy_stat')
+        self.assert_column_in_table(broker, 'bytes_in_manifests',
+                                    'policy_stat')
+        # the view must expose the new columns too, otherwise get_info falls
+        # back to reporting zeros
+        self.assert_column_in_table(broker, 'bytes_in_parts',
+                                    'container_stat')
+        self.assert_column_in_table(broker, 'bytes_in_manifests',
+                                    'container_stat')
+
+    def _insert_object_row(self, broker, name, ts_put, size=123):
+        # manually insert a row, without manifest_size, to avoid automatic
+        # migration
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO object (name, created_at, size,
+                    content_type, etag, deleted, storage_policy_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (name, ts_put.internal, size,
+                  'text/plain', '8f4c680e75ca4c81dc1917ddab0a0b5c', 0, 0))
+            conn.commit()
+
+    def test_put_object_table_migration(self):
+        ts_put = self.ts()
+        self._insert_object_row(self.broker, 'test1', ts_put)
+        self.assert_pre_migration(self.broker)
+        self.broker.put_object('test2', self.ts().internal, 456, 'text/plain',
+                               'cbac50c175793513fa3c581551c876ab',
+                               storage_policy_index=0, manifest_size=7)
+        # commit_puts will trigger migration
+        self.broker._commit_puts_stale_ok()
+        self.assert_migrated(self.broker)
+
+        with self.broker.get() as conn:
+            rows = conn.execute('''
+                SELECT name, manifest_size FROM object
+                ''').fetchall()
+        # the pre-existing row gets the column default
+        self.assertEqual([('test1', -1), ('test2', 7)],
+                         [tuple(row) for row in rows])
+
+        # check that it's ok to attempt the migration again (e.g. if there was
+        # a race)
+        try:
+            with self.broker.get() as conn:
+                self.broker._migrate_add_object_manifest_size(conn)
+        except sqlite3.OperationalError as err:
+            self.fail('Unexpected exception raised: %s' % err)
+        self.assert_migrated(self.broker)
+
+    def test_put_object_table_migration_only_tries_once(self):
+        self._insert_object_row(self.broker, 'test1', self.ts())
+        self.assert_pre_migration(self.broker)
+        self.broker.put_object('test2', self.ts().internal, 456, 'text/plain',
+                               'cbac50c175793513fa3c581551c876ab',
+                               storage_policy_index=0, manifest_size=7)
+
+        # pretend the migration has no effect; the AssertionError prevents an
+        # infinte loop of migrations if there's a regression
+        with mock.patch.object(
+                self.broker, '_migrate_add_object_manifest_size',
+                side_effect=[None, AssertionError('too many calls')]
+        ) as mock_migrate:
+            with self.assertRaises(sqlite3.OperationalError) as cm:
+                # commit_puts will trigger migration
+                self.broker._commit_puts_stale_ok()
+
+        self.assertIn('no such column: manifest_size', str(cm.exception))
+        self.assertEqual([mock.call(mock.ANY)], mock_migrate.call_args_list)
+
+    def test_get_info_after_migration(self):
+        # a row inserted before migration contributes nothing to the new stats
+        self._insert_object_row(self.broker, 'test1', self.ts(), size=123)
+        self.broker.put_object('test2', self.ts().internal, 456, 'text/plain',
+                               'cbac50c175793513fa3c581551c876ab',
+                               storage_policy_index=0, manifest_size=7)
+        # commit_puts will trigger migration
+        self.broker._commit_puts_stale_ok()
+        self.assert_migrated(self.broker)
+
+        info = self.broker.get_info()
+        self.assertEqual(2, info['object_count'])
+        self.assertEqual(579, info['bytes_used'])
+        # only the mpu contributes to the new stats, which means the
+        # recreated triggers were used for the test2 insert
+        self.assertEqual(456, info['bytes_in_parts'])
+        self.assertEqual(7, info['bytes_in_manifests'])
+
+        # ... and deleting the mpu decrements them again
+        self.broker.delete_object('test2', self.ts().internal,
+                                  storage_policy_index=0)
+        self.broker._commit_puts_stale_ok()
+        info = self.broker.get_info()
+        self.assertEqual(1, info['object_count'])
+        self.assertEqual(123, info['bytes_used'])
+        self.assertEqual(0, info['bytes_in_parts'])
+        self.assertEqual(0, info['bytes_in_manifests'])
+
+    def test_migration_without_policy_stat_table(self):
+        # a db old enough to have no policy_stat table has no triggers or
+        # view to patch up either; _migrate_add_storage_policy creates them
+        # all with the current schema
+        with self.broker.get() as conn:
+            conn.executescript('''
+                DROP TRIGGER object_insert_policy_stat;
+                DROP TRIGGER object_delete_policy_stat;
+                DROP TRIGGER container_stat_update;
+                DROP VIEW container_stat;
+                DROP TABLE policy_stat;
+            ''')
+            self.broker._migrate_add_object_manifest_size(conn)
+        self.assert_column_in_table(self.broker, 'manifest_size', 'object')
+
+    def test_migration_with_up_to_date_policy_stat_table(self):
+        # _migrate_add_storage_policy may have already created the
+        # policy_stat table, and the triggers and view, with the current
+        # schema, in which case only the object table needs migrating
+        with self.broker.get() as conn:
+            conn.executescript('''
+                DROP TRIGGER object_insert_policy_stat;
+                DROP TRIGGER object_delete_policy_stat;
+                DROP TRIGGER container_stat_update;
+                DROP VIEW container_stat;
+                DROP TABLE policy_stat;
+            ''')
+            conn.executescript(POLICY_STAT_TABLE_CREATE +
+                               POLICY_STAT_TRIGGER_SCRIPT +
+                               CONTAINER_STAT_VIEW_SCRIPT)
+            conn.execute('INSERT INTO policy_stat (storage_policy_index) '
+                         'VALUES (0)')
+            self.broker._migrate_add_object_manifest_size(conn)
+        self.assert_migrated(self.broker)
+
+    def test_migration_with_container_stat_table(self):
+        # a db old enough to have a container_stat table rather than a view
+        # must not have that table dropped
+        with self.broker.get() as conn:
+            conn.executescript('''
+                DROP TRIGGER container_stat_update;
+                DROP VIEW container_stat;
+                CREATE TABLE container_stat (account TEXT, container TEXT);
+                INSERT INTO container_stat (account, container)
+                    VALUES ('a', 'c');
+            ''')
+            self.broker._migrate_add_object_manifest_size(conn)
+            rows = conn.execute(
+                'SELECT account, container FROM container_stat').fetchall()
+        self.assertEqual([('a', 'c')], [tuple(row) for row in rows])
+        self.assert_column_in_table(self.broker, 'manifest_size', 'object')
+        self.assert_column_in_table(self.broker, 'bytes_in_parts',
+                                    'policy_stat')
+
+    def test_list_objects_iter_table_migration(self):
+        ts_put = self.ts()
+        self._insert_object_row(self.broker, 'test1', ts_put)
+        self.assert_pre_migration(self.broker)
+        # iter objects will NOT trigger migration
+        for o in self.broker.list_objects_iter(1, None, None, None, None):
+            self.assertEqual(o, ('test1', ts_put.internal, 123,
+                                 'text/plain',
+                                 '8f4c680e75ca4c81dc1917ddab0a0b5c'))
+        self.assert_pre_migration(self.broker)
 
 
 class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
@@ -7385,8 +7833,8 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
     def setUp(self):
         super(TestContainerBrokerBeforeShardRangeReportedColumn,
               self).setUp()
-        ContainerBroker.create_shard_range_table = \
-            pre_reported_create_shard_range_table
+        self.setup_broker_mock('create_shard_range_table',
+                               pre_reported_create_shard_range_table)
 
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
@@ -7618,8 +8066,8 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
     def setUp(self):
         super(TestContainerBrokerBeforeShardRangeTombstonesColumn,
               self).setUp()
-        ContainerBroker.create_shard_range_table = \
-            pre_tombstones_create_shard_range_table
+        self.setup_broker_mock('create_shard_range_table',
+                               pre_tombstones_create_shard_range_table)
 
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
@@ -7729,6 +8177,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
               'etag': 'd41d8cd98f00b204e9800998ecf8427e',
               'deleted': 0,
               'storage_policy_index': 0,
+              'manifest_size': -1,
               'systags': None},
              # "hidden" object row...
              {'ROWID': 2,
@@ -7739,6 +8188,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
               'etag': 'd41d8cd98f00b204e9800998ecf8427e',
               'deleted': 2,
               'storage_policy_index': 0,
+              'manifest_size': -1,
               'systags': None}
              ],
             items)
@@ -7761,6 +8211,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
               'etag': 'd41d8cd98f00b204e9800998ecf8427e',
               'deleted': 2,
               'storage_policy_index': 0,
+              'manifest_size': -1,
               'systags': None},
              {'ROWID': 3,
               'name': 'o1',
@@ -7770,6 +8221,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
               'etag': 'noetag',
               'deleted': 1,
               'storage_policy_index': 0,
+              'manifest_size': -1,
               'systags': None},
              ],
             items)
@@ -7790,6 +8242,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
               'etag': 'noetag',
               'deleted': 1,
               'storage_policy_index': 0,
+              'manifest_size': -1,
               'systags': None},
              {'ROWID': 4,
               'name': 'o2',
@@ -7799,6 +8252,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
               'etag': 'noetag',
               'deleted': 1,
               'storage_policy_index': 0,
+              'manifest_size': -1,
               'systags': None},
              ], items)
         info = broker.get_info()
@@ -7826,6 +8280,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
               'etag': 'd41d8cd98f00b204e9800998ecf8427e',
               'deleted': 2,
               'storage_policy_index': 1,
+              'manifest_size': -1,
               'systags': None},
              ],
             items)
@@ -7861,6 +8316,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
                      'content_type': 'text/plain',
                      'storage_policy_index': 0,
                      'deleted': 0,
+                     'manifest_size': -1,
                      'systags': None,
                      'etag': 'my-etag'},
                     {'name': 'o2',
@@ -7871,6 +8327,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
                      'content_type': 'text/plain',
                      'storage_policy_index': 0,
                      'deleted': 2,
+                     'manifest_size': -1,
                      'systags': None,
                      'etag': 'my-etag'},
                     {'name': 'o3',
@@ -7881,6 +8338,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
                      'content_type': 'application/deleted',
                      'storage_policy_index': 0,
                      'deleted': 1,
+                     'manifest_size': -1,
                      'systags': None,
                      'etag': 'noetag'}]
 
@@ -7928,11 +8386,13 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
                      'size': 'nEw_item',
                      'content_type': 'neW_item',
                      'deleted': '0',
+                     'manifest_size': -1,
                      'systags': 'x=neW'}
     base_existing = {'etag': 'Existing',
                      'size': 'eXisting',
                      'content_type': 'exIsting',
                      'deleted': '0',
+                     'manifest_size': -1,
                      'systags': 'x=existIng'}
     #
     # each scenario is a tuple of:
@@ -8155,6 +8615,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
           'meta_timestamp': t4},
          {'created_at': t3.internal + '+0+1', 'etag': 'Existing',
           'size': 'eXisting', 'content_type': 'exIsting',
+          'manifest_size': -1,
           'systags': 'x=existIng'}),
 
         ({'created_at': t3.internal},
@@ -8163,6 +8624,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
           'meta_timestamp': t4},
          {'created_at': t3.internal + '+1+0', 'etag': 'Existing',
           'size': 'eXisting', 'content_type': 'neW_item',
+          'manifest_size': -1,
           'systags': 'x=existIng'}),
 
         ({'created_at': t3.internal},
@@ -8171,6 +8633,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
           'meta_timestamp': t5},
          {'created_at': t3.internal + '+1+1', 'etag': 'Existing',
           'size': 'eXisting', 'content_type': 'neW_item',
+          'manifest_size': -1,
           'systags': 'x=existIng'}),
 
         #
@@ -8183,6 +8646,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
           'meta_timestamp': t8},
          {'created_at': t3.internal + '+2+3', 'etag': 'Existing',
           'size': 'eXisting', 'content_type': 'exIsting',
+          'manifest_size': -1,
           'systags': 'x=existIng'}),
 
         ({'created_at': t3.internal + '+2+2'},
@@ -8191,6 +8655,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
           'meta_timestamp': t8},
          {'created_at': t3.internal + '+3+2', 'etag': 'Existing',
           'size': 'eXisting', 'content_type': 'neW_item',
+          'manifest_size': -1,
           'systags': 'x=existIng'}),
 
         ({'created_at': t3.internal + '+2+2'},
@@ -8198,21 +8663,24 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
           'ctype_timestamp': t4,
           'meta_timestamp': t6},
          {'created_at': t4.internal + '+1+2', 'etag': 'New_item',
-          'size': 'nEw_item', 'content_type': 'exIsting', 'systags': 'x=neW'}),
+          'size': 'nEw_item', 'content_type': 'exIsting',
+          'manifest_size': -1, 'systags': 'x=neW'}),
 
         ({'created_at': t3.internal + '+2+2'},
          {'created_at': t4,
           'ctype_timestamp': t6,
           'meta_timestamp': t6},
          {'created_at': t4.internal + '+2+1', 'etag': 'New_item',
-          'size': 'nEw_item', 'content_type': 'neW_item', 'systags': 'x=neW'}),
+          'size': 'nEw_item', 'content_type': 'neW_item',
+          'manifest_size': -1, 'systags': 'x=neW'}),
 
         ({'created_at': t3.internal + '+2+2'},
          {'created_at': t4,
           'ctype_timestamp': t4,
           'meta_timestamp': t8},
          {'created_at': t4.internal + '+1+3', 'etag': 'New_item',
-          'size': 'nEw_item', 'content_type': 'exIsting', 'systags': 'x=neW'}),
+          'size': 'nEw_item', 'content_type': 'exIsting',
+          'manifest_size': -1, 'systags': 'x=neW'}),
 
         # this scenario is to check that the deltas are in hex
         ({'created_at': t3.internal + '+2+2'},
@@ -8221,7 +8689,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
           'meta_timestamp': t30},
          {'created_at': t3.internal + '+11+a', 'etag': 'Existing',
           'size': 'eXisting', 'content_type': 'neW_item',
-          'systags': 'x=existIng'}),
+          'manifest_size': -1, 'systags': 'x=existIng'}),
     )
 
     def _test_scenario(self, scenario, newer):
@@ -8517,6 +8985,7 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
             'name': '1234-a/c/o',
             'size': 0,
             'storage_policy_index': self.policy.idx,
+            'manifest_size': -1,
             'systags': None,
         }], broker.get_objects())
 
@@ -8549,6 +9018,7 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
             'name': '1234-a/c/o',
             'size': 0,
             'storage_policy_index': self.policy.idx,
+            'manifest_size': -1,
             'systags': None,
         }], broker.get_objects())
 
@@ -8584,5 +9054,6 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
             'name': '1234-a/c/o',
             'size': 0,
             'storage_policy_index': self.policy.idx,
+            'manifest_size': -1,
             'systags': None,
         }], broker.get_objects())
