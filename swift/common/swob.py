@@ -134,6 +134,25 @@ class WsgiBytesIO(BytesIO):
         pass
 
 
+DATE_HEADER_FORMAT_STRING = "%a, %d %b %Y %H:%M:%S GMT"
+
+
+def date_header_format(value):
+    """
+    Return a string in the IMF-fixdate format specified by RFC7231 [1] and
+    defined in RFC5322 [2], e.g.:
+
+        Sun, 06 Nov 1994 08:49:37 GMT
+
+    This format should be used for headers such as Date, Last-Modified,
+    If-modified-Since and If-Unmodified-Since.
+
+    [1] https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.1.1
+    [2] https://datatracker.ietf.org/doc/html/rfc5322
+    """
+    return time.strftime(DATE_HEADER_FORMAT_STRING, time.gmtime(value))
+
+
 def _datetime_property(header):
     """
     Set and retrieve the datetime value of self.headers[header]
@@ -155,10 +174,9 @@ def _datetime_property(header):
 
     def setter(self, value):
         if isinstance(value, (float, int)):
-            self.headers[header] = time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(value))
+            self.headers[header] = date_header_format(value)
         elif isinstance(value, datetime):
-            self.headers[header] = value.strftime("%a, %d %b %Y %H:%M:%S GMT")
+            self.headers[header] = value.strftime(DATE_HEADER_FORMAT_STRING)
         else:
             self.headers[header] = value
 

@@ -16,7 +16,6 @@
 
 import collections
 import itertools
-import math
 import random
 import time
 import unittest
@@ -47,7 +46,8 @@ from swift.proxy.controllers.base import \
     NodeIter
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
-from swift.common.swob import Request, Response, wsgi_to_str
+from swift.common.swob import Request, Response, wsgi_to_str, \
+    date_header_format
 from test.debug_logger import debug_logger, debug_labeled_statsd_client
 from test.unit import (
     FakeRing, fake_http_connect, patch_policies, SlowBody, FakeStatus,
@@ -1582,9 +1582,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
             'Etag': etag,
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop()).ceil()),
         })
         for connection_id, info in put_requests.items():
             body = b''.join(info['chunks'])
@@ -3047,9 +3046,8 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
             'Etag': 'resp_etag',
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop()).ceil()),
         })
         for connection_id, info in put_requests.items():
             body = unchunk_body(b''.join(info['chunks']))
@@ -7459,9 +7457,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop()).ceil()),
             'Etag': etag,
         })
         frag_archives = []
@@ -7593,9 +7590,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             self.assertEqual(dict(resp.headers), {
                 'Content-Type': 'text/html; charset=UTF-8',
                 'Content-Length': '0',
-                'Last-Modified': time.strftime(
-                    "%a, %d %b %Y %H:%M:%S GMT",
-                    time.gmtime(math.ceil(float(timestamps.pop())))),
+                'Last-Modified':
+                    date_header_format(Timestamp(timestamps.pop()).ceil()),
                 'Etag': etag,
             })
             for connection_id, info in put_requests.items():
