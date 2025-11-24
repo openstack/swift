@@ -139,17 +139,19 @@ DATE_HEADER_FORMAT_STRING = "%a, %d %b %Y %H:%M:%S GMT"
 
 def date_header_format(value):
     """
-    Return a string in the IMF-fixdate format specified by RFC7231 [1] and
-    defined in RFC5322 [2], e.g.:
+    Given a Timestamp or numeric epoch, return a string in the IMF-fixdate
+    format specified by RFC7231 [1] and defined in RFC5322 [2], e.g.:
 
         Sun, 06 Nov 1994 08:49:37 GMT
 
     This format should be used for headers such as Date, Last-Modified,
-    If-modified-Since and If-Unmodified-Since.
+    If-Modified-Since and If-Unmodified-Since.
 
     [1] https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.1.1
     [2] https://datatracker.ietf.org/doc/html/rfc5322
     """
+    if isinstance(value, Timestamp):
+        value = value.ceil()
     return time.strftime(DATE_HEADER_FORMAT_STRING, time.gmtime(value))
 
 
@@ -158,7 +160,7 @@ def _datetime_property(header):
     Set and retrieve the datetime value of self.headers[header]
     (Used by both request and response)
     The header is parsed on retrieval and a datetime object is returned.
-    The header can be set using a datetime, numeric value, or str.
+    The header can be set using a datetime, numeric value, Timestamp, or str.
     If a value of None is given, the header is deleted.
 
     :param header: name of the header, e.g. "Content-Length"
@@ -173,7 +175,7 @@ def _datetime_property(header):
                 return None
 
     def setter(self, value):
-        if isinstance(value, (float, int)):
+        if isinstance(value, (float, int, Timestamp)):
             self.headers[header] = date_header_format(value)
         elif isinstance(value, datetime):
             self.headers[header] = value.strftime(DATE_HEADER_FORMAT_STRING)

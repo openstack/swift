@@ -158,7 +158,7 @@ class ContainerController(Controller):
                         'x-backend-cached-results': 'true'})
         resp = Response(request=req)
         update_headers(resp, headers)
-        resp.last_modified = Timestamp(headers['x-put-timestamp']).ceil()
+        resp.last_modified = Timestamp(headers['x-put-timestamp'])
         resp.environ['swift_x_timestamp'] = headers.get('x-timestamp')
         resp.accept_ranges = 'bytes'
         resp.content_type = 'application/json'

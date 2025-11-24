@@ -1167,7 +1167,7 @@ class ObjectController(BaseStorageServer):
                             key.lower() in self.allowed_headers):
                         response.headers[key] = value
                 response.etag = metadata['ETag']
-                response.last_modified = file_x_ts.ceil()
+                response.last_modified = file_x_ts
                 response.content_length = obj_size
                 try:
                     response.content_encoding = metadata[
@@ -1243,7 +1243,7 @@ class ObjectController(BaseStorageServer):
                 response.headers[key] = value
         response.etag = metadata['ETag']
         ts = Timestamp(metadata['X-Timestamp'])
-        response.last_modified = ts.ceil()
+        response.last_modified = ts
         # Needed for container sync feature
         response.headers['X-Timestamp'] = ts.normal
         response.headers['X-Backend-Timestamp'] = ts.internal

@@ -608,7 +608,7 @@ class ContainerController(BaseStorageServer):
         headers['Content-Type'] = out_content_type
         headers['Content-Length'] = 0
         resp = HTTPNoContent(request=req, headers=headers, charset='utf-8')
-        resp.last_modified = Timestamp(headers['X-PUT-Timestamp']).ceil()
+        resp.last_modified = Timestamp(headers['X-PUT-Timestamp'])
         return resp
 
     def update_shard_record(self, record, shard_record_full=True):
@@ -920,7 +920,7 @@ class ContainerController(BaseStorageServer):
 
         ret = Response(request=req, headers=resp_headers, body=body,
                        content_type=out_content_type, charset='utf-8')
-        ret.last_modified = Timestamp(resp_headers['X-PUT-Timestamp']).ceil()
+        ret.last_modified = Timestamp(resp_headers['X-PUT-Timestamp'])
         if not ret.body:
             ret.status_int = HTTP_NO_CONTENT
         return ret
