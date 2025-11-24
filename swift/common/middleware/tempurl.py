@@ -300,7 +300,7 @@ __all__ = ['TempURL', 'filter_factory',
 
 from calendar import timegm
 from os.path import basename
-from time import time, strftime, strptime, gmtime
+from time import time, strptime
 from ipaddress import ip_address, ip_network
 
 from urllib.parse import parse_qs, urlencode
@@ -311,7 +311,7 @@ from swift.common.http import is_success
 from swift.common.digest import get_allowed_digests, \
     extract_digest_and_algorithm, DEFAULT_ALLOWED_DIGESTS, get_hmac
 from swift.common.swob import header_to_environ_key, HTTPUnauthorized, \
-    HTTPBadRequest, wsgi_to_str
+    HTTPBadRequest, wsgi_to_str, date_header_format
 from swift.common.utils import split_path, \
     streq_const_time, quote, get_logger, close_if_possible
 from swift.common.registry import register_swift_info, register_sensitive_param
@@ -688,9 +688,9 @@ class TempURL(object):
             out_headers.append(('Content-Disposition', value))
 
             # include Expires header for better cache-control
-            out_headers.append(('Expires', strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                gmtime(temp_url_expires))))
+            out_headers.append((
+                'Expires',
+                date_header_format(temp_url_expires)))
             ctx._response_headers = out_headers
         start_response(
             ctx._response_status,

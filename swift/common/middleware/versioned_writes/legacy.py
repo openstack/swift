@@ -242,7 +242,7 @@ from swift.common.http import (
     is_success, is_client_error, HTTP_NOT_FOUND)
 from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
     HTTPServerError, HTTPBadRequest, str_to_wsgi, bytes_to_wsgi, wsgi_quote, \
-    wsgi_unquote
+    wsgi_unquote, DATE_HEADER_FORMAT_STRING
 from swift.common.exceptions import (
     ListingIterNotFound, ListingIterError)
 
@@ -461,7 +461,7 @@ class VersionedWritesContext(WSGIContext):
             'x-timestamp',
             calendar.timegm(time.strptime(
                 get_resp.headers['last-modified'],
-                '%a, %d %b %Y %H:%M:%S GMT')))
+                DATE_HEADER_FORMAT_STRING)))
         vers_obj_name = self._build_versions_object_name(
             object_name, ts_source)
 

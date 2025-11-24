@@ -164,7 +164,7 @@ from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
     HTTPBadRequest, str_to_wsgi, bytes_to_wsgi, wsgi_quote, \
     wsgi_to_str, wsgi_unquote, Request, HTTPNotFound, HTTPException, \
     HTTPRequestEntityTooLarge, HTTPInternalServerError, HTTPNotAcceptable, \
-    HTTPConflict, HTTPLengthRequired
+    HTTPConflict, HTTPLengthRequired, DATE_HEADER_FORMAT_STRING
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import get_logger, Timestamp, drain_and_close, \
     config_true_value, close_if_possible, closing_if_possible, \
@@ -449,7 +449,7 @@ class ObjectContext(ObjectVersioningContext):
             'x-timestamp',
             calendar.timegm(time.strptime(
                 get_resp.headers['last-modified'],
-                '%a, %d %b %Y %H:%M:%S GMT')))
+                DATE_HEADER_FORMAT_STRING)))
         vers_obj_name = self._build_versions_object_name(
             object_name, ts_source)
 
