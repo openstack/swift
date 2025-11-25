@@ -1676,7 +1676,7 @@ class TestTombstoneReclaimer(TestDbBase):
                 Timestamp(top_of_the_minute - (i * 60)), True)
             self._make_object(
                 broker, 'a_%3d' % (559 - i if reverse_names else i + 1),
-                Timestamp(top_of_the_minute - ((i + 1) * 60)), False)
+                Timestamp(top_of_the_minute - ((i + 1) * 60), offset=1), False)
             self._make_object(
                 broker, 'b_%3d' % (560 - i if reverse_names else i),
                 Timestamp(top_of_the_minute - ((i + 2) * 60)), True)
@@ -1790,6 +1790,22 @@ class TestTombstoneReclaimer(TestDbBase):
             actual = reclaimer.get_tombstone_count()
 
         self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+        self.assertEqual(140, actual)
+
+    def test_reclaim_with_timestamp_with_offset(self):
+        broker, totm, reclaim_age = self._setup_tombstones()
+
+        age_timestamp = Timestamp(reclaim_age, offset=0xabcd)
+        reclaimer = TombstoneReclaimer(broker, age_timestamp.internal)
+        reclaimer.reclaim()
+
+        self.assertEqual(0, self._get_reclaimable(broker, reclaim_age))
+        tombstones = self._get_reclaimable(broker, totm + 1)
+        self.assertEqual(140, tombstones)
+        # in this scenario the reclaim phase all tombstones (140)
+        self.assertEqual(0, reclaimer.remaining_tombstones)
+        # get_tombstone_count finds the rest
+        actual = reclaimer.get_tombstone_count()
         self.assertEqual(140, actual)
 
 

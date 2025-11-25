@@ -252,7 +252,7 @@ class TombstoneReclaimer(object):
         ''' % self.broker.db_contains_type
         self.clean_batch_query = '''
             DELETE FROM %s WHERE deleted = 1
-            AND name >= ? AND %s < %s
+            AND name >= ? AND %s < '%s'
         ''' % (self.broker.db_contains_type, self.broker.db_reclaim_timestamp,
                self.age_timestamp)
 
@@ -1053,8 +1053,10 @@ class DatabaseBroker(object):
 
         Subclasses may reclaim other items by overriding :meth:`_reclaim`.
 
-        :param age_timestamp: max created_at timestamp of object rows to delete
-        :param sync_timestamp: max update_at timestamp of sync rows to delete
+        :param age_timestamp: (float) the max created_at timestamp of object
+            rows to delete
+        :param sync_timestamp: (float) the max update_at timestamp of sync rows
+            to delete
         """
         if not self._skip_commit_puts():
             with lock_parent_directory(self.pending_file,
@@ -1072,11 +1074,22 @@ class DatabaseBroker(object):
         """
         This is only called once at the end of reclaim after tombstone reclaim
         has been completed.
+
+        :param conn: db connection
+        :param age_timestamp: (float) the max created_at timestamp of object
+            rows to delete
+        :param sync_timestamp: (float) the max update_at timestamp of sync rows
+            to delete
         """
         self._reclaim_sync(conn, sync_timestamp)
         self._reclaim_metadata(conn, age_timestamp)
 
     def _reclaim_sync(self, conn, sync_timestamp):
+        """
+        :param conn: db connection
+        :param sync_timestamp: (float) the max update_at timestamp of sync rows
+            to delete
+        """
         try:
             conn.execute('''
                 DELETE FROM outgoing_sync WHERE updated_at < ?
@@ -1098,7 +1111,7 @@ class DatabaseBroker(object):
         from other related functions.
 
         :param conn: Database connection to reclaim metadata within.
-        :param timestamp: Empty metadata items last updated before this
+        :param timestamp: (float) Empty metadata items last updated before this
                           timestamp will be removed.
         :returns: True if conn.commit() should be called
         """

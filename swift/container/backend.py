@@ -1662,6 +1662,16 @@ class ContainerBroker(DatabaseBroker):
         ''' % SHARD_RANGE_TABLE)
 
     def _reclaim_other_stuff(self, conn, age_timestamp, sync_timestamp):
+        """
+        This is only called once at the end of reclaim after tombstone reclaim
+        has been completed.
+
+        :param conn: db connection
+        :param age_timestamp: (float) the max created_at timestamp of object
+            rows to delete
+        :param sync_timestamp: (float) the max update_at timestamp of sync rows
+            to delete
+        """
         super(ContainerBroker, self)._reclaim_other_stuff(
             conn, age_timestamp, sync_timestamp)
         # populate instance cache, but use existing conn to avoid deadlock
