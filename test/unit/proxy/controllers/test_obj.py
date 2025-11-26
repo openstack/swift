@@ -198,8 +198,7 @@ class BaseObjectControllerMixin(object):
         # default policy and ring references
         self.policy = POLICIES.default
         self.obj_ring = self.policy.object_ring
-        self._ts_iter = (utils.Timestamp(t) for t in
-                         itertools.count(int(time.time())))
+        self._ts_iter = make_timestamp_iter()
 
     def _make_app(self):
         self.app = PatchedObjControllerApp(
@@ -1081,9 +1080,8 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_HEAD_x_newest_different_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         num_expected_requests = 2 * self.replicas()
-        timestamps = [next(ts) for i in range(num_expected_requests)]
+        timestamps = [self.ts() for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
         random.shuffle(timestamps)
         backend_response_headers = [{
@@ -1099,11 +1097,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_HEAD_x_newest_with_two_vector_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp.now(offset=offset)
-              for offset in itertools.count())
+        # constant float part, varying offset...
+        now = Timestamp.now()
+        ts = (Timestamp(now, offset) for offset in itertools.count())
         num_expected_requests = 2 * self.replicas()
         timestamps = [next(ts) for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
+        self.assertGreater(newest_timestamp, timestamps[0])
         random.shuffle(timestamps)
         backend_response_headers = [{
             'X-Backend-Timestamp': t.internal,
@@ -1114,15 +1114,14 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['x-backend-timestamp'],
-                         newest_timestamp.internal)
+                         newest_timestamp.internal, timestamps)
 
     def test_HEAD_x_newest_with_some_missing(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         request_count = self.app.request_node_count(self.obj_ring.replicas)
         backend_response_headers = [{
-            'x-timestamp': next(ts).normal,
+            'x-timestamp': self.ts().normal,
         } for i in range(request_count)]
         responses = [404] * (request_count - 1)
         responses.append(200)
@@ -1167,14 +1166,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], '2')
 
     def test_container_sync_delete(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             req = swob.Request.blank(
                 '/v1/a/c/o', method='DELETE', headers={
-                    'X-Timestamp': next(ts).internal})
+                    'X-Timestamp': self.ts().internal})
             codes = [409] * self.obj_ring.replicas
-            ts_iter = itertools.repeat(next(ts).internal)
+            ts_iter = itertools.repeat(self.ts().internal)
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 409)
@@ -2778,29 +2776,27 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_older(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             self.app.container_info['storage_policy'] = policy_index
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': next(ts).internal})
-            ts_iter = itertools.repeat(next(ts).internal)
+                    'X-Timestamp': self.ts().internal})
+            ts_iter = itertools.repeat(self.ts().internal)
             codes = [409] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_newer(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            orig_timestamp = next(ts).internal
+            orig_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': next(ts).internal})
+                    'X-Timestamp': self.ts().internal})
             ts_iter = itertools.repeat(orig_timestamp)
             codes = [201] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
@@ -2808,23 +2804,21 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 201)
 
     def test_put_x_timestamp_conflict(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [201] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_missing_backend_timestamp(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
+                'X-Timestamp': self.ts().internal})
         ts_iter = iter([None, None, None])
         codes = [409] * self.obj_ring.replicas
         with set_http_connect(*codes, timestamps=ts_iter):
@@ -2832,35 +2826,32 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_other_weird_success_response(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [(201, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_if_none_match(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
                 'If-None-Match': '*',
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [(412, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 412)
 
     def test_container_sync_put_x_timestamp_race(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = next(ts).internal
+            put_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -2877,10 +2868,9 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_unsynced_race(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = next(ts).internal
+            put_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
