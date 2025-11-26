@@ -708,7 +708,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': post_timestamp.normal,
             'X-Backend-Data-Timestamp': put_timestamp.internal,
             'X-Backend-Durable-Timestamp': put_timestamp.internal,
-            'Last-Modified': date_header_format(post_timestamp.ceil()),
+            'Last-Modified': date_header_format(post_timestamp),
         }
         self.assertEqual(dict(resp.headers), expected_headers)
 
@@ -743,7 +743,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': post_timestamp.normal,
             'X-Backend-Data-Timestamp': put_timestamp.internal,
             'X-Backend-Durable-Timestamp': put_timestamp.internal,
-            'Last-Modified': date_header_format(post_timestamp.ceil()),
+            'Last-Modified': date_header_format(post_timestamp),
         })
 
         # test defaults
@@ -786,7 +786,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': put_timestamp.normal,
             'X-Backend-Data-Timestamp': put_timestamp.internal,
             'X-Backend-Durable-Timestamp': put_timestamp.internal,
-            'Last-Modified': date_header_format(put_timestamp.ceil()),
+            'Last-Modified': date_header_format(put_timestamp),
         })
 
         post_timestamp = next(self.ts)
@@ -818,7 +818,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': post_timestamp.normal,
             'X-Backend-Data-Timestamp': put_timestamp.internal,
             'X-Backend-Durable-Timestamp': put_timestamp.internal,
-            'Last-Modified': date_header_format(post_timestamp.ceil()),
+            'Last-Modified': date_header_format(post_timestamp),
         })
 
         # Test for empty metadata
@@ -850,7 +850,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': post_timestamp.normal,
             'X-Backend-Data-Timestamp': put_timestamp.internal,
             'X-Backend-Durable-Timestamp': put_timestamp.internal,
-            'Last-Modified': date_header_format(post_timestamp.ceil()),
+            'Last-Modified': date_header_format(post_timestamp),
         })
 
     def test_POST_old_timestamp(self):
@@ -2935,7 +2935,7 @@ class TestObjectController(BaseTestCase):
             self.assertEqual(resp.content_type, 'text/plain')
             self.assertEqual(resp.headers['content-type'], 'text/plain')
             self.assertEqual(resp.headers['last-modified'],
-                             date_header_format(timestamp.ceil()))
+                             date_header_format(timestamp))
             self.assertEqual(resp.headers['etag'],
                              '"1000d172764c9dbc3a5798a67ec5bb76"')
             self.assertEqual(resp.headers['x-object-meta-1'], 'One')
@@ -3593,7 +3593,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.content_type, 'application/x-test')
         self.assertEqual(resp.headers['content-type'], 'application/x-test')
         self.assertEqual(resp.headers['last-modified'],
-                         date_header_format(timestamp.ceil()))
+                         date_header_format(timestamp))
         self.assertEqual(resp.headers['etag'],
                          '"0b4c12d7e0a73840c1c4f148fda3b037"')
         self.assertEqual(resp.headers['x-object-meta-1'], 'One')
@@ -3776,7 +3776,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.headers['content-length'], '6')
         self.assertEqual(resp.headers['content-type'], 'application/x-test')
         self.assertEqual(resp.headers['last-modified'],
-                         date_header_format(timestamp.ceil()))
+                         date_header_format(timestamp))
         self.assertEqual(resp.headers['etag'],
                          '"0b4c12d7e0a73840c1c4f148fda3b037"')
         self.assertEqual(resp.headers['x-object-meta-1'], 'One')
@@ -4917,7 +4917,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': timestamp.normal,
             'X-Backend-Data-Timestamp': timestamp.internal,
             'X-Backend-Durable-Timestamp': timestamp.internal,
-            'Last-Modified': date_header_format(timestamp.ceil()),
+            'Last-Modified': date_header_format(timestamp),
         })
 
         # Request headers have 'X-Auth-Token'.
@@ -4991,7 +4991,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': timestamp.normal,
             'X-Backend-Data-Timestamp': timestamp.internal,
             'X-Backend-Durable-Timestamp': timestamp.internal,
-            'Last-Modified': date_header_format(timestamp.ceil()),
+            'Last-Modified': date_header_format(timestamp),
         })
 
         # Request headers have 'X-Auth-Token'.
@@ -5068,7 +5068,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': timestamp.normal,
             'X-Backend-Data-Timestamp': timestamp.internal,
             'X-Backend-Durable-Timestamp': timestamp.internal,
-            'Last-Modified': date_header_format(timestamp.ceil()),
+            'Last-Modified': date_header_format(timestamp),
         })
 
     def test_GET_keep_cache_slo_manifest_config_false(self):
@@ -5112,7 +5112,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': timestamp.normal,
             'X-Backend-Data-Timestamp': timestamp.internal,
             'X-Backend-Durable-Timestamp': timestamp.internal,
-            'Last-Modified': date_header_format(timestamp.ceil()),
+            'Last-Modified': date_header_format(timestamp),
         })
 
     def test_GET_keep_cache_slo_manifest_config_true(self):
@@ -5156,7 +5156,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': timestamp.normal,
             'X-Backend-Data-Timestamp': timestamp.internal,
             'X-Backend-Durable-Timestamp': timestamp.internal,
-            'Last-Modified': date_header_format(timestamp.ceil()),
+            'Last-Modified': date_header_format(timestamp),
         })
 
     def test_GET_keep_cache_slo_manifest_not_slo(self):
@@ -5198,7 +5198,7 @@ class TestObjectController(BaseTestCase):
             'X-Timestamp': timestamp.normal,
             'X-Backend-Data-Timestamp': timestamp.internal,
             'X-Backend-Durable-Timestamp': timestamp.internal,
-            'Last-Modified': date_header_format(timestamp.ceil()),
+            'Last-Modified': date_header_format(timestamp),
         })
 
     def test_GET_cooperative_period_config(self):

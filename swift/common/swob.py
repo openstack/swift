@@ -147,8 +147,14 @@ def date_header_format(value):
     This format should be used for headers such as Date, Last-Modified,
     If-Modified-Since and If-Unmodified-Since.
 
+    If ``value`` is a Timestamp instance then ``value.ceil()`` is used as the
+    numeric epoch.
+
     [1] https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.1.1
     [2] https://datatracker.ietf.org/doc/html/rfc5322
+
+    :param value: a Timestamp or numeric epoch
+    :returns: an RFC5322 format HTTP date string.
     """
     if isinstance(value, Timestamp):
         value = value.ceil()

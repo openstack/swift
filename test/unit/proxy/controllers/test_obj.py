@@ -1581,7 +1581,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             'Content-Length': '0',
             'Etag': etag,
             'Last-Modified':
-                date_header_format(Timestamp(timestamps.pop()).ceil()),
+                date_header_format(Timestamp(timestamps.pop())),
         })
         for connection_id, info in put_requests.items():
             body = b''.join(info['chunks'])
@@ -3037,7 +3037,7 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
             'Content-Length': '0',
             'Etag': 'resp_etag',
             'Last-Modified':
-                date_header_format(Timestamp(timestamps.pop()).ceil()),
+                date_header_format(Timestamp(timestamps.pop())),
         })
         for connection_id, info in put_requests.items():
             body = unchunk_body(b''.join(info['chunks']))
@@ -7448,7 +7448,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
             'Last-Modified':
-                date_header_format(Timestamp(timestamps.pop()).ceil()),
+                date_header_format(Timestamp(timestamps.pop())),
             'Etag': etag,
         })
         frag_archives = []
@@ -7581,7 +7581,7 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
                 'Content-Type': 'text/html; charset=UTF-8',
                 'Content-Length': '0',
                 'Last-Modified':
-                    date_header_format(Timestamp(timestamps.pop()).ceil()),
+                    date_header_format(Timestamp(timestamps.pop())),
                 'Etag': etag,
             })
             for connection_id, info in put_requests.items():
