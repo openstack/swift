@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from eventlet import Timeout
-import swift.common.utils
+from swift.common.utils.timestamp import Timestamp
 
 
 class MessageTimeout(Timeout):
@@ -93,8 +93,8 @@ class DiskFileDeleted(DiskFileNotExist):
 
     def __init__(self, metadata=None):
         self.metadata = metadata or {}
-        self.timestamp = swift.common.utils.Timestamp(
-            self.metadata.get('X-Timestamp', 0))
+        self.timestamp = Timestamp(
+            self.metadata.get('X-Timestamp', Timestamp.zero()))
 
 
 class DiskFileExpired(DiskFileDeleted):

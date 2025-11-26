@@ -1322,7 +1322,7 @@ class S3Request(swob.Request):
                                reason='invalid_date')
 
         # Anyways, request timestamp should be validated
-        epoch = S3Timestamp(0)
+        epoch = S3Timestamp.zero()
         if self.timestamp < epoch:
             raise AccessDenied(reason='invalid_date')
 

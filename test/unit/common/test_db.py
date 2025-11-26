@@ -353,6 +353,31 @@ class TestExampleBroker(TestDbBase):
     def setUp(self):
         super(TestExampleBroker, self).setUp()
 
+    def test_initialize(self):
+        broker = self.broker_class(self.db_path, account='a', container='c')
+        put_timestamp = next(self.ts)
+        created_at = next(self.ts)
+        with patch('swift.common.db.Timestamp.now', return_value=created_at):
+            broker.initialize(put_timestamp.internal)
+        info = broker.get_info()
+        self.assertEqual(info['created_at'], created_at.internal)
+        self.assertEqual(info['put_timestamp'], put_timestamp.internal)
+        self.assertEqual(info['delete_timestamp'], '0')
+        self.assertEqual(info['status_changed_at'], put_timestamp.internal)
+        self.assertFalse(broker.is_deleted())
+
+    def test_initialize_default_put_timestamp(self):
+        broker = self.broker_class(self.db_path, account='a', container='c')
+        created_at = next(self.ts)
+        with patch('swift.common.db.Timestamp.now', return_value=created_at):
+            broker.initialize()
+        info = broker.get_info()
+        self.assertEqual(info['created_at'], created_at.internal)
+        self.assertEqual(info['put_timestamp'], Timestamp.zero().internal)
+        self.assertEqual(info['delete_timestamp'], '0')
+        self.assertEqual(info['status_changed_at'], Timestamp.zero().internal)
+        self.assertFalse(broker.is_deleted())
+
     def test_delete_db(self):
         broker = self.broker_class(self.db_path, account='a', container='c')
         broker.initialize(next(self.ts).internal)

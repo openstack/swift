@@ -23,6 +23,7 @@ from unittest import mock
 
 from swift.common import swob
 from swift.common.middleware import container_sync
+from swift.common.utils.timestamp import Timestamp
 from swift.proxy.controllers.base import get_cache_key
 from swift.proxy.controllers.info import InfoController
 
@@ -245,6 +246,24 @@ cluster_dfw1 = http://dfw1.host/v1/
             self.sync.realms_conf.key2('US'), 'abc')
         req = swob.Request.blank(
             '/v1/a/c', headers={'x-container-sync-auth': 'US nonce ' + sig})
+        infocache = req.environ.setdefault('swift.infocache', {})
+        infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
+        resp = req.get_response(self.sync)
+        self.assertEqual(resp.status, '200 OK')
+        self.assertEqual(resp.body, b'Response to Authorized Request')
+        self.assertIn('cs:valid', req.environ.get('swift.log_info'))
+        self.assertIn('swift.authorize_override', req.environ)
+        self.assertIn('swift.slo_override', req.environ)
+        self.assertIn('swift.symlink_override', req.environ)
+
+    def test_valid_sig3(self):
+        ts = Timestamp.zero()
+        sig = self.sync.realms_conf.get_sig(
+            'GET', '/v1/a/c', ts.internal, 'nonce',
+            self.sync.realms_conf.key2('US'), 'abc')
+        req = swob.Request.blank(
+            '/v1/a/c', headers={'x-container-sync-auth': 'US nonce ' + sig,
+                                'x-timestamp': ts.internal})
         infocache = req.environ.setdefault('swift.infocache', {})
         infocache[get_cache_key('a', 'c')] = {'sync_key': 'abc'}
         resp = req.get_response(self.sync)

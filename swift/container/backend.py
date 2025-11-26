@@ -588,7 +588,7 @@ class ContainerBroker(DatabaseBroker):
         :param storage_policy_index: storage policy index
         """
         if put_timestamp is None:
-            put_timestamp = Timestamp(0).internal
+            put_timestamp = Timestamp.zero().internal
         # The container_stat view is for compatibility; old versions of Swift
         # expected a container_stat table with columns "object_count" and
         # "bytes_used", but when that stuff became per-storage-policy and

@@ -493,7 +493,8 @@ class ContainerSync(Daemon):
                                       proxy=self.select_http_proxy(),
                                       logger=self.logger,
                                       retries=0)
-            remote_ts = Timestamp(metadata.get('x-timestamp', 0))
+            remote_ts = Timestamp(
+                metadata.get('x-timestamp', Timestamp.zero()))
             self.logger.debug("remote obj timestamp %s local obj %s" %
                               (timestamp.internal, remote_ts.internal))
             if timestamp <= remote_ts:
@@ -590,7 +591,8 @@ class ContainerSync(Daemon):
                             row['name']))
                     return True
 
-                timestamp = Timestamp(headers.get('x-timestamp', 0))
+                timestamp = Timestamp(
+                    headers.get('x-timestamp', Timestamp.zero()))
                 if timestamp < ts_meta:
                     if exc:
                         raise exc

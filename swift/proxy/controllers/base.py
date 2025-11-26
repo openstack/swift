@@ -1176,7 +1176,8 @@ class GetterSource(object):
         return Timestamp(self.resp.getheader('x-backend-data-timestamp') or
                          self.resp.getheader('x-backend-timestamp') or
                          self.resp.getheader('x-put-timestamp') or
-                         self.resp.getheader('x-timestamp') or 0)
+                         self.resp.getheader('x-timestamp') or
+                         Timestamp.zero())
 
     @property
     def parts_iter(self):
@@ -1412,7 +1413,7 @@ class GetOrHeadHandler(GetterBase):
         self.used_nodes = []
         self.used_source_etag = None
         self.concurrency = concurrency
-        self.latest_404_timestamp = Timestamp(0)
+        self.latest_404_timestamp = Timestamp.zero()
         policy_options = self.app.get_policy_options(self.policy)
         self.rebalance_missing_suppression_count = min(
             policy_options.rebalance_missing_suppression_count,
@@ -1601,7 +1602,8 @@ class GetOrHeadHandler(GetterBase):
                     src_headers.get('x-backend-data-timestamp') or
                     src_headers.get('x-backend-timestamp') or
                     src_headers.get('x-put-timestamp') or
-                    src_headers.get('x-timestamp') or 0)
+                    src_headers.get('x-timestamp') or
+                    Timestamp.zero())
                 if ps_timestamp >= self.latest_404_timestamp:
                     self.statuses.append(possible_source.status)
                     self.reasons.append(possible_source.reason)
@@ -1615,14 +1617,16 @@ class GetOrHeadHandler(GetterBase):
             if 'handoff_index' in node and \
                     (is_server_error(possible_source.status) or
                      possible_source.status == HTTP_NOT_FOUND) and \
-                    not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                    not Timestamp(src_headers.get('x-backend-timestamp',
+                                                  Timestamp.zero())):
                 # throw out 5XX and 404s from handoff nodes unless the data is
                 # really on disk and had been DELETEd
                 return False
 
             if self.rebalance_missing_suppression_count > 0 and \
                     possible_source.status == HTTP_NOT_FOUND and \
-                    not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                    not Timestamp(src_headers.get('x-backend-timestamp',
+                                                  Timestamp.zero())):
                 self.rebalance_missing_suppression_count -= 1
                 return False
 
@@ -1638,7 +1642,8 @@ class GetOrHeadHandler(GetterBase):
             if self.server_type == 'Object' and \
                     possible_source.status == HTTP_NOT_FOUND:
                 hdrs = HeaderKeyDict(possible_source.getheaders())
-                ts = Timestamp(hdrs.get('X-Backend-Timestamp', 0))
+                ts = Timestamp(hdrs.get('X-Backend-Timestamp',
+                                        Timestamp.zero()))
                 if ts > self.latest_404_timestamp:
                     self.latest_404_timestamp = ts
             self.app.check_response(node, self.server_type, possible_source,
