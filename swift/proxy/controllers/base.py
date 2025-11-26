@@ -1168,8 +1168,8 @@ class GetterSource(object):
     @property
     def timestamp(self):
         """
-        Provide the timestamp of the swift http response as a floating
-        point value.  Used as a sort key.
+        Provide the timestamp of the swift http response as a Timestamp
+        instance.  Used as a sort key.
 
         :return: an instance of ``utils.Timestamp``
         """
