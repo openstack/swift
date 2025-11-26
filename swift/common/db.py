@@ -180,8 +180,9 @@ def chexor(old, name, timestamp):
 
     :param old: hex representation of the current DB hash
     :param name: name of the object or container being inserted
-    :param timestamp: internalized timestamp of the new record
-    :returns: a hex representation of the new hash value
+    :param timestamp: a string representation of attributes of the item being
+        inserted, for example the string representation of the item's
+        timestamp.
     """
     if name is None:
         raise Exception('name is None!')
@@ -1001,11 +1002,11 @@ class DatabaseBroker(object):
     def update_metadata(self, metadata_updates, validate_metadata=False):
         """
         Updates the metadata dict for the database. The metadata dict values
-        are tuples of (value, timestamp) where the timestamp indicates when
-        that key was set to that value. Key/values will only be overwritten if
-        the timestamp is newer. To delete a key, set its value to ('',
-        timestamp). These empty keys will eventually be removed by
-        :func:`reclaim`
+        are tuples of (value, timestamp) where the timestamp is an internalized
+        timestamp string that indicates when that key was set to that value.
+        Key/values will only be overwritten if the timestamp is newer. To
+        delete a key, set its value to ('', timestamp). These empty keys will
+        eventually be removed by :func:`reclaim`
         """
         old_metadata = self.metadata
         if set(metadata_updates).issubset(set(old_metadata)):

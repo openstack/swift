@@ -26,7 +26,6 @@ from unittest import mock
 import base64
 import json
 import sqlite3
-import itertools
 import time
 import random
 from unittest.mock import patch, MagicMock
@@ -39,7 +38,7 @@ from swift.common.constraints import \
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
     GreenDBConnection, PICKLE_PROTOCOL, zero_like, TombstoneReclaimer
-from swift.common.utils import normalize_timestamp, mkdirs, Timestamp
+from swift.common.utils import normalize_timestamp, mkdirs, Timestamp, md5
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
@@ -105,7 +104,7 @@ class TestChexor(unittest.TestCase):
     def test_normal_case(self):
         self.assertEqual(
             chexor('d41d8cd98f00b204e9800998ecf8427e',
-                   'new name', normalize_timestamp(1)),
+                   'new name', Timestamp('1').internal),
             '4f2ea31ac14d4273fe32ba08062b21de')
 
     def test_invalid_old_hash(self):
@@ -118,16 +117,15 @@ class TestChexor(unittest.TestCase):
                           normalize_timestamp(1))
 
     def test_chexor(self):
-        ts = (normalize_timestamp(ts) for ts in
-              itertools.count(int(time.time())))
+        ts = make_timestamp_iter()
 
         objects = [
-            ('frank', next(ts)),
-            ('bob', next(ts)),
-            ('tom', next(ts)),
-            ('frank', next(ts)),
-            ('tom', next(ts)),
-            ('bob', next(ts)),
+            ('frank', next(ts).internal),
+            ('bob', next(ts).internal),
+            ('tom', next(ts).internal),
+            ('frank', next(ts).internal),
+            ('tom', next(ts).internal),
+            ('bob', next(ts).internal),
         ]
         hash_ = '0'
         random.shuffle(objects)
@@ -184,6 +182,7 @@ class TestDbBase(unittest.TestCase):
     def setUp(self):
         self.testdir = mkdtemp()
         self.db_path = self.get_db_path()
+        self.ts = make_timestamp_iter()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=True)
@@ -353,7 +352,6 @@ class TestExampleBroker(TestDbBase):
 
     def setUp(self):
         super(TestExampleBroker, self).setUp()
-        self.ts = make_timestamp_iter()
 
     def test_delete_db(self):
         broker = self.broker_class(self.db_path, account='a', container='c')
@@ -437,16 +435,16 @@ class TestExampleBroker(TestDbBase):
                         Timestamp(virgin_status_changed_at))
         # recreate
         recreate_timestamp = next(self.ts).internal
-        status_changed_at = time.time()
-        with patch('swift.common.db.time.time', new=lambda: status_changed_at):
+        status_changed_at = Timestamp.now()
+        with patch('swift.common.db.Timestamp.now',
+                   return_value=status_changed_at):
             broker.merge_timestamps(created_at, recreate_timestamp, '0')
         self.assertFalse(broker.is_deleted())
         info = broker.get_info()
         self.assertEqual(info['created_at'], created_at)
         self.assertEqual(info['put_timestamp'], recreate_timestamp)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
-        self.assertEqual(Timestamp(status_changed_at).normal,
-                         info['status_changed_at'])
+        self.assertEqual(status_changed_at.internal, info['status_changed_at'])
 
     def test_merge_timestamps_recreate_with_objects(self):
         put_timestamp = next(self.ts).internal
@@ -528,17 +526,18 @@ class TestExampleBroker(TestDbBase):
 
     def test_get_info(self):
         broker = self.broker_class(self.db_path, account='test', container='c')
-        created_at = time.time()
-        with patch('swift.common.db.time.time', new=lambda: created_at):
-            broker.initialize(Timestamp(1).internal,
+        created_at = Timestamp.now()
+        put_timestamp = next(self.ts)
+        with patch('swift.common.db.Timestamp.now', return_value=created_at):
+            broker.initialize(put_timestamp.internal,
                               storage_policy_index=int(self.policy))
         info = broker.get_info()
         count_key = '%s_count' % broker.db_contains_type
         expected = {
             count_key: 0,
-            'created_at': Timestamp(created_at).internal,
-            'put_timestamp': Timestamp(1).internal,
-            'status_changed_at': Timestamp(1).internal,
+            'created_at': created_at.internal,
+            'put_timestamp': put_timestamp.internal,
+            'status_changed_at': put_timestamp.internal,
             'delete_timestamp': '0',
         }
         for k, v in expected.items():
@@ -584,14 +583,13 @@ class TestExampleBroker(TestDbBase):
     def test_status_changed_at(self):
         broker = self.broker_class(self.db_path, account='test', container='c')
         put_timestamp = next(self.ts).internal
-        created_at = time.time()
-        with patch('swift.common.db.time.time', new=lambda: created_at):
+        created_at = Timestamp.now()
+        with patch('swift.common.db.Timestamp.now', return_value=created_at):
             broker.initialize(put_timestamp,
                               storage_policy_index=int(self.policy))
         self.assertEqual(broker.get_info()['status_changed_at'],
                          put_timestamp)
-        self.assertEqual(broker.get_info()['created_at'],
-                         Timestamp(created_at).internal)
+        self.assertEqual(broker.get_info()['created_at'], created_at.internal)
         status_changed_at = next(self.ts).internal
         broker.update_status_changed_at(status_changed_at)
         self.assertEqual(broker.get_info()['status_changed_at'],
@@ -1168,10 +1166,10 @@ class TestDatabaseBroker(TestDbBase):
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
         broker.db_reclaim_timestamp = 'created_at'
-        broker_creation = normalize_timestamp(1)
+        broker_creation = next(self.ts)
         broker_uuid = str(uuid4())
         broker_metadata = metadata and json.dumps(
-            {'Test': ('Value', normalize_timestamp(1))}) or ''
+            {'Test': ('Value', next(self.ts).internal)}) or ''
 
         def _initialize(conn, put_timestamp, **kwargs):
             if put_timestamp is None:
@@ -1216,34 +1214,40 @@ class TestDatabaseBroker(TestDbBase):
                 UPDATE test_stat
                 SET account = ?, created_at = ?,  id = ?, put_timestamp = ?,
                     status_changed_at = ?
-            ''', (broker.account, broker_creation, broker_uuid, put_timestamp,
-                  put_timestamp))
+            ''', (broker.account, broker_creation.internal, broker_uuid,
+                  put_timestamp, put_timestamp))
             if metadata:
                 conn.execute('UPDATE test_stat SET metadata = ?',
                              (broker_metadata,))
             conn.commit()
         broker._initialize = _initialize
-        put_timestamp = normalize_timestamp(2)
-        broker.initialize(put_timestamp)
+        put_timestamp = next(self.ts)
+        broker.initialize(put_timestamp.internal)
         info = broker.get_replication_info()
         self.assertEqual(info, {
             'account': broker.account, 'count': 0,
             'hash': '00000000000000000000000000000000',
-            'created_at': broker_creation, 'put_timestamp': put_timestamp,
-            'delete_timestamp': '0', 'status_changed_at': put_timestamp,
+            'created_at': broker_creation.internal,
+            'put_timestamp': put_timestamp.internal,
+            'delete_timestamp': '0',
+            'status_changed_at': put_timestamp.internal,
             'max_row': -1, 'id': broker_uuid, 'metadata': broker_metadata})
-        insert_timestamp = normalize_timestamp(3)
+        insert_timestamp = next(self.ts)
+        exp_hash = md5(
+            b'test-%s' % insert_timestamp.internal.encode('utf8')).hexdigest()
         with broker.get() as conn:
             conn.execute('''
                 INSERT INTO test (name, created_at) VALUES ('test', ?)
-            ''', (insert_timestamp,))
+            ''', (insert_timestamp.internal,))
             conn.commit()
         info = broker.get_replication_info()
         self.assertEqual(info, {
             'account': broker.account, 'count': 1,
-            'hash': 'bdc4c93f574b0d8c2911a27ce9dd38ba',
-            'created_at': broker_creation, 'put_timestamp': put_timestamp,
-            'delete_timestamp': '0', 'status_changed_at': put_timestamp,
+            'hash': exp_hash,
+            'created_at': broker_creation.internal,
+            'put_timestamp': put_timestamp.internal,
+            'delete_timestamp': '0',
+            'status_changed_at': put_timestamp.internal,
             'max_row': 1, 'id': broker_uuid, 'metadata': broker_metadata})
         with broker.get() as conn:
             conn.execute('DELETE FROM test')
@@ -1252,8 +1256,10 @@ class TestDatabaseBroker(TestDbBase):
         self.assertEqual(info, {
             'account': broker.account, 'count': 0,
             'hash': '00000000000000000000000000000000',
-            'created_at': broker_creation, 'put_timestamp': put_timestamp,
-            'delete_timestamp': '0', 'status_changed_at': put_timestamp,
+            'created_at': broker_creation.internal,
+            'put_timestamp': put_timestamp.internal,
+            'delete_timestamp': '0',
+            'status_changed_at': put_timestamp.internal,
             'max_row': 1, 'id': broker_uuid, 'metadata': broker_metadata})
         return broker
 
@@ -1262,71 +1268,67 @@ class TestDatabaseBroker(TestDbBase):
     def test_metadata(self, mock_reclaim):
         # Initializes a good broker for us
         broker = self.get_replication_info_tester(metadata=True)
+        ts = [next(self.ts) for _ in range(6)]
         # Add our first item
-        first_timestamp = normalize_timestamp(1)
         first_value = '1'
-        broker.update_metadata({'First': [first_value, first_timestamp]})
+        broker.update_metadata({'First': [first_value, ts[0].internal]})
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
-                         [first_value, first_timestamp])
+                         [first_value, ts[0].internal])
         # Add our second item
-        second_timestamp = normalize_timestamp(2)
         second_value = '2'
-        broker.update_metadata({'Second': [second_value, second_timestamp]})
+        broker.update_metadata({'Second': [second_value, ts[1].internal]})
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
-                         [first_value, first_timestamp])
+                         [first_value, ts[0].internal])
         self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
-                         [second_value, second_timestamp])
+                         [second_value, ts[1].internal])
         # Update our first item
-        first_timestamp = normalize_timestamp(3)
         first_value = '1b'
-        broker.update_metadata({'First': [first_value, first_timestamp]})
+        broker.update_metadata({'First': [first_value, ts[2].internal]})
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
-                         [first_value, first_timestamp])
+                         [first_value, ts[2].internal])
         self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
-                         [second_value, second_timestamp])
+                         [second_value, ts[1].internal])
         # Delete our second item (by setting to empty string)
-        second_timestamp = normalize_timestamp(4)
         second_value = ''
-        broker.update_metadata({'Second': [second_value, second_timestamp]})
+        broker.update_metadata({'Second': [second_value, ts[3].internal]})
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
-                         [first_value, first_timestamp])
+                         [first_value, ts[2].internal])
         self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
-                         [second_value, second_timestamp])
+                         [second_value, ts[3].internal])
         # Reclaim at point before second item was deleted
-        broker.reclaim(normalize_timestamp(3), normalize_timestamp(3))
+        broker.reclaim(float(ts[2]), float(ts[2]))
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
-                         [first_value, first_timestamp])
+                         [first_value, ts[2].internal])
         self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
-                         [second_value, second_timestamp])
+                         [second_value, ts[3].internal])
         # Reclaim at point second item was deleted
-        broker.reclaim(normalize_timestamp(4), normalize_timestamp(4))
+        broker.reclaim(float(ts[3]), float(ts[3]))
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
-                         [first_value, first_timestamp])
+                         [first_value, ts[2].internal])
         self.assertIn('Second', broker.metadata)
         self.assertEqual(broker.metadata['Second'],
-                         [second_value, second_timestamp])
+                         [second_value, ts[3].internal])
         # Reclaim after point second item was deleted
-        broker.reclaim(normalize_timestamp(5), normalize_timestamp(5))
+        broker.reclaim(float(ts[4]), float(ts[4]))
         self.assertIn('First', broker.metadata)
         self.assertEqual(broker.metadata['First'],
-                         [first_value, first_timestamp])
+                         [first_value, ts[2].internal])
         self.assertNotIn('Second', broker.metadata)
         # Delete first item (by setting to empty string)
-        first_timestamp = normalize_timestamp(6)
-        broker.update_metadata({'First': ['', first_timestamp]})
+        broker.update_metadata({'First': ['', ts[5].internal]})
         self.assertIn('First', broker.metadata)
         # Check that sync_timestamp doesn't cause item to be reclaimed
-        broker.reclaim(normalize_timestamp(5), normalize_timestamp(99))
+        broker.reclaim(float(ts[4]), float(ts[4]))
         self.assertIn('First', broker.metadata)
 
     def test_update_metadata_missing_container_info(self):
