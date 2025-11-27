@@ -686,7 +686,7 @@ class TestAuditor(TestAuditorBase):
                 writer.write(data)
                 metadata = {
                     'ETag': md5(data, usedforsecurity=False).hexdigest(),
-                    'X-Timestamp': timestamp.normal,
+                    'X-Timestamp': timestamp.internal,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
                 writer.put(metadata)
@@ -713,7 +713,7 @@ class TestAuditor(TestAuditorBase):
                 writer.write(data)
                 metadata = {
                     'ETag': md5(data, usedforsecurity=False).hexdigest(),
-                    'X-Timestamp': ts2.normal,
+                    'X-Timestamp': ts2.internal,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
                 writer.put(metadata)
