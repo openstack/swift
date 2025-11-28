@@ -641,7 +641,8 @@ class RespAttrs(object):
 
     :param is_slo: True if the response appears to be an SLO manifest, False
         otherwise.
-    :param timestamp: an instance of :class:`~swift.common.utils.Timestamp`.
+    :param timestamp: a value from which an instance of
+        :class:`~swift.common.utils.Timestamp` can be constructed.
     :param manifest_etag: the Etag of the manifest object, or None if
         ``is_slo`` is False.
     :param slo_etag: the Etag of the SLO.
@@ -649,7 +650,7 @@ class RespAttrs(object):
     """
     def __init__(self, is_slo, timestamp, manifest_etag, slo_etag, slo_size):
         self.is_slo = bool(is_slo)
-        self.timestamp = Timestamp(timestamp or 0)
+        self.timestamp = Timestamp(timestamp or Timestamp.zero())
         # manifest_etag is unambiguous, but json_md5 is even more explicit
         self.json_md5 = manifest_etag or ''
         self.slo_etag = slo_etag or ''
