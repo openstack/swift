@@ -25,7 +25,7 @@ from swift.common.middleware import symlink, copy, versioned_writes, \
     listing_formats
 from swift.common.swob import Request
 from swift.common.request_helpers import get_reserved_name
-from swift.common.utils import MD5_OF_EMPTY_STRING
+from swift.common.utils import MD5_OF_EMPTY_STRING, Timestamp
 from swift.common.registry import get_swift_info
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.common.middleware.test_versioned_writes import FakeCache
@@ -1217,6 +1217,7 @@ class SymlinkVersioningTestCase(TestSymlinkMiddlewareBase):
         self.assertEqual(req.path, other.path)
 
     def test_new_symlink_version_success(self):
+        ts = Timestamp.now()
         self.app.register(
             'PUT', '/v1/a/c/symlink', swob.HTTPCreated,
             {'X-Symlink-Target': 'new_cont/new_tgt',
@@ -1224,11 +1225,12 @@ class SymlinkVersioningTestCase(TestSymlinkMiddlewareBase):
         self.app.register(
             'GET', '/v1/a/c/symlink', swob.HTTPOk,
             {'last-modified': 'Thu, 1 Jan 1970 00:00:01 GMT',
+             'x-timestamp': ts.normal,
              'X-Object-Sysmeta-Symlink-Target': 'old_cont/old_tgt',
              'X-Object-Sysmeta-Symlink-Target-Account': 'a'},
             '')
         self.app.register(
-            'PUT', '/v1/a/ver_cont/007symlink/0000000001.00000',
+            'PUT', '/v1/a/ver_cont/007symlink/%s' % ts.normal,
             swob.HTTPCreated,
             {'X-Symlink-Target': 'old_cont/old_tgt',
              'X-Symlink-Target-Account': 'a'}, None)
