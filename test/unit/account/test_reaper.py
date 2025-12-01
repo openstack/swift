@@ -308,8 +308,9 @@ class TestReaper(unittest.TestCase):
         for policy in POLICIES:
             r.reset_stats()
             with patch(mock_path) as fake_direct_delete:
-                with patch('swift.common.utils.Timestamp.now') as mock_now:
-                    mock_now.return_value = Timestamp(1429117638.86767)
+                ts_now = Timestamp(1429117638.86767)
+                with patch('swift.common.utils.Timestamp.now',
+                           return_value=ts_now) as mock_now:
                     r.reap_object('a', 'c', 'partition', cont_nodes, 'o',
                                   policy.idx)
                     mock_now.assert_called_once_with()
@@ -323,7 +324,7 @@ class TestReaper(unittest.TestCase):
                             'X-Container-Partition': 'partition',
                             'X-Container-Device': device,
                             'X-Backend-Storage-Policy-Index': policy.idx,
-                            'X-Timestamp': '1429117638.86767',
+                            'X-Timestamp': ts_now.internal,
                             'x-backend-use-replication-network': 'true',
                         }
                         ring = r.get_object_ring(policy.idx)
@@ -415,9 +416,10 @@ class TestReaper(unittest.TestCase):
                 return headers, obj_list
 
             mocks['direct_get_container'].side_effect = fake_get_container
-            with patch('swift.common.utils.Timestamp.now') as mock_now:
-                mock_now.side_effect = [Timestamp(1429117638.86767),
-                                        Timestamp(1429117639.67676)]
+            mock_timestamps = [Timestamp(1429117638.86767),
+                               Timestamp(1429117639.67676)]
+            with patch('swift.common.utils.Timestamp.now',
+                       side_effect=mock_timestamps):
                 r.reap_container('a', 'partition', acc_nodes, 'c')
 
             # verify calls to direct_delete_object
@@ -428,9 +430,8 @@ class TestReaper(unittest.TestCase):
                 self.assertEqual(kwargs['headers']
                                  ['X-Backend-Storage-Policy-Index'],
                                  policy.idx)
-                self.assertEqual(kwargs['headers']
-                                 ['X-Timestamp'],
-                                 '1429117638.86767')
+                self.assertEqual(kwargs['headers']['X-Timestamp'],
+                                 mock_timestamps[0].internal)
 
             # verify calls to direct_delete_container
             self.assertEqual(mocks['direct_delete_container'].call_count, 3)
@@ -444,7 +445,7 @@ class TestReaper(unittest.TestCase):
                     'X-Account-Partition': 'partition',
                     'X-Account-Device': device,
                     'X-Account-Override-Deleted': 'yes',
-                    'X-Timestamp': '1429117639.67676',
+                    'X-Timestamp': mock_timestamps[1].internal,
                     'x-backend-use-replication-network': 'true',
                 }
                 ring = r.get_object_ring(policy.idx)
