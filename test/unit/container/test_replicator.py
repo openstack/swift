@@ -60,18 +60,19 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
     def test_report_up_to_date(self):
         broker = self._get_broker('a', 'c', node_index=0)
-        broker.initialize(Timestamp(1).internal, int(POLICIES.default))
+        ts_1 = Timestamp(1)
+        broker.initialize(ts_1.internal, int(POLICIES.default))
         info = broker.get_info()
         broker.reported(info['put_timestamp'],
                         info['delete_timestamp'],
                         info['object_count'],
                         info['bytes_used'])
         full_info = broker.get_replication_info()
-        expected_info = {'put_timestamp': Timestamp(1).internal,
+        expected_info = {'put_timestamp': ts_1.internal,
                          'delete_timestamp': '0',
                          'count': 0,
                          'bytes_used': 0,
-                         'reported_put_timestamp': Timestamp(1).internal,
+                         'reported_put_timestamp': ts_1.internal,
                          'reported_delete_timestamp': '0',
                          'reported_object_count': 0,
                          'reported_bytes_used': 0}
@@ -81,9 +82,10 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.assertEqual(full_info[key], value, msg)
         repl = replicator.ContainerReplicator({})
         self.assertTrue(repl.report_up_to_date(full_info))
-        full_info['delete_timestamp'] = Timestamp(2).internal
+        ts_2 = Timestamp(2)
+        full_info['delete_timestamp'] = ts_2.internal
         self.assertFalse(repl.report_up_to_date(full_info))
-        full_info['reported_delete_timestamp'] = Timestamp(2).internal
+        full_info['reported_delete_timestamp'] = ts_2.internal
         self.assertTrue(repl.report_up_to_date(full_info))
         full_info['count'] = 1
         self.assertFalse(repl.report_up_to_date(full_info))
@@ -93,9 +95,10 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertFalse(repl.report_up_to_date(full_info))
         full_info['reported_bytes_used'] = 1
         self.assertTrue(repl.report_up_to_date(full_info))
-        full_info['put_timestamp'] = Timestamp(3).internal
+        ts_3 = Timestamp(3)
+        full_info['put_timestamp'] = ts_3.internal
         self.assertFalse(repl.report_up_to_date(full_info))
-        full_info['reported_put_timestamp'] = Timestamp(3).internal
+        full_info['reported_put_timestamp'] = ts_3.internal
         self.assertTrue(repl.report_up_to_date(full_info))
 
     def test_sync_remote_in_sync(self):
@@ -338,13 +341,14 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker.initialize(put_timestamp, POLICIES.default.idx)
         # add some rows to both db
         for i in range(10):
-            put_timestamp = time.time()
+            put_timestamp = Timestamp.now()
             for db in (broker, remote_broker):
                 path = '/a/c/o_%s' % i
-                db.put_object(path, put_timestamp, 0, 'content-type', 'etag',
-                              storage_policy_index=db.storage_policy_index)
+                db.put_object(
+                    path, put_timestamp.internal, 0, 'content-type', 'etag',
+                    storage_policy_index=db.storage_policy_index)
         # now a row to the "local" broker only
-        broker.put_object('/a/c/o_missing', time.time(), 0,
+        broker.put_object('/a/c/o_missing', Timestamp.now().internal, 0,
                           'content-type', 'etag',
                           storage_policy_index=broker.storage_policy_index)
         # replicate
@@ -376,10 +380,10 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker.initialize(put_timestamp, POLICIES.default.idx)
         # add some rows to both db's
         for i in range(10):
-            put_timestamp = time.time()
+            put_timestamp = Timestamp.now()
             for db in (broker, remote_broker):
                 obj_name = 'o_%s' % i
-                db.put_object(obj_name, put_timestamp, 0,
+                db.put_object(obj_name, put_timestamp.internal, 0,
                               'content-type', 'etag',
                               storage_policy_index=db.storage_policy_index)
         # setup REPLICATE callback to simulate adding rows during merge_items
@@ -389,8 +393,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             if op != 'merge_items':
                 return
             path = '/a/c/o_missing_%s' % next(missing_counter)
-            broker.put_object(path, time.time(), 0, 'content-type', 'etag',
-                              storage_policy_index=db.storage_policy_index)
+            broker.put_object(
+                path, Timestamp.now().internal, 0, 'content-type', 'etag',
+                storage_policy_index=db.storage_policy_index)
         FakeReplConnection = test_db_replicator.attach_fake_replication_rpc(
             self.rpc, replicate_hook=put_more_objects)
         # and add one extra to local db to trigger merge_items

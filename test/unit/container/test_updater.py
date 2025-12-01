@@ -27,7 +27,7 @@ from swift.common import exceptions, utils
 from swift.container import updater as container_updater
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.ring import RingData
-from swift.common.utils import normalize_timestamp
+from swift.common.utils import normalize_timestamp, Timestamp
 
 from test import listen_zero
 
@@ -361,7 +361,8 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'),
                              account='.shards_a', container='c')
-        cb.initialize(normalize_timestamp(1), 0)
+        put_ts = Timestamp(1)
+        cb.initialize(put_ts.internal, 0)
         cb.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(cb.is_root_container())
         cu.run_once()
@@ -435,7 +436,7 @@ class TestContainerUpdater(unittest.TestCase):
         info = cb.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 3)
-        self.assertEqual(info['reported_put_timestamp'], '0000000001.00000')
+        self.assertEqual(info['reported_put_timestamp'], put_ts.internal)
         self.assertEqual(info['reported_delete_timestamp'], '0')
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
@@ -451,7 +452,8 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'),
                              account='.shards_a', container='c')
-        cb.initialize(normalize_timestamp(1), 0)
+        put_ts = Timestamp(1)
+        cb.initialize(put_ts.internal, 0)
         cb.set_sharding_sysmeta('Quoted-Root', 'a/c')
         self.assertFalse(cb.is_root_container())
         cu.run_once()
@@ -525,7 +527,7 @@ class TestContainerUpdater(unittest.TestCase):
         info = cb.get_info()
         self.assertEqual(info['object_count'], 1)
         self.assertEqual(info['bytes_used'], 3)
-        self.assertEqual(info['reported_put_timestamp'], '0000000001.00000')
+        self.assertEqual(info['reported_put_timestamp'], put_ts.internal)
         self.assertEqual(info['reported_delete_timestamp'], '0')
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
