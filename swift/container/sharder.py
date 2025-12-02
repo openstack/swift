@@ -1018,27 +1018,26 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         if own_shard_range.state not in ShardRange.CLEAVING_STATES:
             return
 
-        sharded_ctx = None
+        latest_context = latest_context_ts = None
         if db_state == SHARDED:
             contexts = CleavingContext.load_all(broker)
             if not contexts:
                 return
-            context_ts = max(float(ts) for c, ts in contexts)
-            if context_ts + self.recon_sharded_timeout \
+            contexts_sorted = sorted(contexts, key=lambda x: Timestamp(x[1]))
+            latest_context = contexts_sorted[-1]
+            latest_context_ts = Timestamp(latest_context[1])
+            if float(latest_context_ts) + self.recon_sharded_timeout \
                     < float(Timestamp.now()):
                 # last context timestamp too old for the
                 # broker to be recorded
                 return
 
-            contexts_sorted = sorted(contexts, key=lambda x: float(x[1]))
-            sharded_ctx = contexts_sorted[-1]
-
         update_own_shard_range_stats(broker, own_shard_range)
         info = self._make_stats_info(broker, node, own_shard_range)
 
-        if sharded_ctx:
-            info["total_replicate_time"] = sharded_ctx[0].replication_time
-            sharding_total_elapsed = (float(sharded_ctx[1])
+        if latest_context:
+            info["total_replicate_time"] = latest_context[0].replication_time
+            sharding_total_elapsed = (float(latest_context_ts)
                                       - float(own_shard_range.epoch))
             info['total_sharding_time'] = sharding_total_elapsed
 
@@ -1215,7 +1214,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         headers.update({'X-Backend-Record-Type': RECORD_TYPE_SHARD,
                         USE_REPLICATION_NETWORK_HEADER: 'True',
                         'User-Agent': 'container-sharder %s' % os.getpid(),
-                        'X-Timestamp': Timestamp.now().normal,
+                        'X-Timestamp': Timestamp.now().internal,
                         'Content-Length': len(body),
                         'Content-Type': 'application/json'})
 
