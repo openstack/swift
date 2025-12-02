@@ -42,7 +42,7 @@ import swift.obj.server as obj_server
 import swift.container.server as container_server
 import swift.account.server as account_server
 from swift.common.swob import Request
-from swift.common import wsgi, utils
+from swift.common import wsgi, utils, constraints
 from swift.common.storage_policy import POLICIES
 
 from test import listen_zero
@@ -64,13 +64,15 @@ def _fake_rings(tmpdir):
         policy.object_ring = None
 
 
-def _fake_swift_conf(tmpdir):
-    swift_config = dedent("""
+def _fake_swift_conf(tmpdir, custom_swift_conf=None):
+    swift_config = custom_swift_conf or dedent("""
     [swift-hash]
     swift_hash_path_prefix = arbitrary-nonempty-value
     """)
-    with open(os.path.join(tmpdir, 'swift.conf'), 'w') as f:
+    conf_path = os.path.join(tmpdir, 'swift.conf')
+    with open(conf_path, 'w') as f:
         f.write(swift_config)
+    return conf_path
 
 
 @patch_policies
@@ -863,6 +865,63 @@ class TestWSGI(unittest.TestCase):
         self.assertTrue('protocol' in kwargs)
         self.assertEqual('HTTP/1.0',
                          kwargs['protocol'].default_request_version)
+
+    def test_run_server_constraints(self):
+        config = """
+        [DEFAULT]
+        swift_dir = TEMPDIR
+
+        [pipeline:main]
+        pipeline = proxy-server
+
+        [app:proxy-server]
+        use = egg:swift#proxy
+        """
+
+        swift_conf = """
+        [swift-hash]
+        swift_hash_path_prefix = arbitrary-nonempty-value
+
+        [swift-constraints]
+        max_request_line = 10240
+        """
+
+        contents = dedent(config)
+        with temptree(['proxy-server.conf']) as t:
+            proxy_conf_file = os.path.join(t, 'proxy-server.conf')
+            with open(proxy_conf_file, 'w') as f:
+                f.write(contents.replace('TEMPDIR', t))
+            _fake_rings(t)
+            # rewrite swift.conf in tmp dir...
+            swift_conf_path = _fake_swift_conf(t, custom_swift_conf=swift_conf)
+            try:
+                # reload constraints using tmp dir swift.conf...
+                with mock.patch(
+                        'swift.common.constraints.utils.SWIFT_CONF_FILE',
+                        new=swift_conf_path):
+                    constraints.reload_constraints()
+                # run a wsgi server...
+                with mock.patch('swift.proxy.server.Application.'
+                                'modify_wsgi_pipeline'), \
+                        mock.patch('swift.common.wsgi.wsgi') as _wsgi, \
+                        mock.patch('swift.common.wsgi.eventlet') as _wsgi_evt:
+                    mock_server = _wsgi.server
+                    _wsgi.server = lambda *args, **kwargs: mock_server(
+                        *args, **kwargs)
+                    proxy_conf = wsgi.appconfig(proxy_conf_file)
+                    logger = logging.getLogger('test')
+                    sock = listen_zero()
+                    wsgi.run_server(proxy_conf, logger, sock)
+            finally:
+                constraints.reload_constraints()
+        _wsgi_evt.hubs.use_hub.assert_called_with(utils.get_hub())
+        _wsgi_evt.debug.hub_exceptions.assert_called_with(False)
+        self.assertTrue(mock_server.called)
+        args, kwargs = mock_server.call_args
+        server_sock, server_app, server_logger = args
+        self.assertEqual(sock, server_sock)
+        self.assertIsInstance(server_app, swift.proxy.server.Application)
+        self.assertEqual(10240, kwargs.get('url_length_limit'))
 
     def test_appconfig_dir_ignores_hidden_files(self):
         config_dir = {

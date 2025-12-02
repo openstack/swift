@@ -435,6 +435,7 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
     else:
         protocol_class = SwiftHttpProtocol
 
+    max_request_line = constraints.MAX_REQUEST_LINE
     server_kwargs = {
         'custom_pool': pool,
         'protocol': protocol_class,
@@ -443,6 +444,7 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
         # the AWS SDK to work with s3api middleware (it needs an "ETag"
         # header; "Etag" just won't do).
         'capitalize_response_headers': False,
+        'url_length_limit': max_request_line,
     }
     if conf.get('keepalive_timeout'):
         server_kwargs['keepalive'] = float(conf['keepalive_timeout']) or False
