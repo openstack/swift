@@ -46,7 +46,7 @@ from swift.common.utils import (
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
     NamespaceBoundList, CooperativeIterator, cache_from_env,
-    CooperativeCachePopulator)
+    CooperativeCachePopulator, node_to_string)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -60,7 +60,7 @@ from swift.common.http import (
     is_redirection, HTTP_CONTINUE, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, HTTP_UNPROCESSABLE_ENTITY,
-    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_NOT_FOUND)
+    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_NOT_FOUND, HTTP_ACCEPTED)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -875,6 +875,44 @@ class BaseObjectController(Controller):
                                   node_iterator=node_iterator)
         return resp
 
+    def _post_extra_handoffs(self, req, obj_ring, partition, headers, results,
+                             handoff_nodes):
+        """
+        Send POST requests to handoff nodes when primary nodes return mixed
+        results.
+
+        :param req: the POST Request
+        :param obj_ring: the object ring
+        :param partition: ring partition number
+        :param headers: system headers to storage nodes
+        :param results: results from primary node requests
+        :param handoff_nodes: list of handoff nodes to try
+        :return: list of handoff results to extend the original results
+        """
+        node_iter = NodeIter(
+            'object', self.app, obj_ring, partition, self.logger, req,
+            node_iter=handoff_nodes)
+        # we want the backend headers from the *missing* nodes
+        missing_headers = [h for h, r in zip(headers, results)
+                           if r[0].status != HTTP_ACCEPTED]
+        # _make_requests will make requests per header, if our handoff_iter is
+        # too short it can *recycle* the nodes (?) and get 409s!?
+        missing_headers = missing_headers[:len(handoff_nodes)]
+        handoff_results = self._make_requests(
+            req, obj_ring, partition, 'POST',
+            req.swift_entity_path, missing_headers,
+            node_count=len(handoff_nodes),
+            node_iterator=node_iter)
+        return handoff_results
+
+    def _collect_status_map(self, results):
+        status_map = collections.defaultdict(list)
+        for resp, _body, node in results:
+            if not node:
+                continue
+            status_map[resp.status].append(node_to_string(node))
+        return status_map
+
     def _post_object(self, req, obj_ring, partition, headers):
         """
         send object POST request to storage nodes.
@@ -885,9 +923,47 @@ class BaseObjectController(Controller):
         :param headers: system headers to storage nodes
         :return: Response object
         """
-        resp = self.make_requests(req, obj_ring, partition,
-                                  'POST', req.swift_entity_path, headers)
-        return resp
+        node_iter = NodeIter(
+            'object', self.app, obj_ring, partition, self.logger, req)
+        results = self._make_requests(
+            req, obj_ring, partition, 'POST', req.swift_entity_path, headers,
+            node_iterator=node_iter)
+        primary_status_map = self._collect_status_map(results)
+        # by default best_response quorum is resp length sized, presumably in
+        # order to support fractional replicas
+        quorum = self._quorum_size(len(results))
+        found_count = len(primary_status_map[HTTP_ACCEPTED])
+        if found_count and found_count < quorum:
+            # ... but quorum is going to be wrong if we make extra requests
+            quorum = self._quorum_size(obj_ring.replica_count)
+            # the make_requests machinery will make extra requests to handoffs
+            # for Timeout/503 primaries, we only have to make up for the 404s
+            extra_requests = len(primary_status_map[HTTP_NOT_FOUND])
+            handoff_nodes = list(itertools.islice(
+                node_iter.handoff_iter, extra_requests))
+            self.logger.debug(
+                'Primary nodes returned mixed results on POST: %r,'
+                ' trying handoffs: %r', dict(primary_status_map),
+                [node_to_string(n) for n in handoff_nodes])
+            handoff_results = self._post_extra_handoffs(
+                req, obj_ring, partition, headers, results, handoff_nodes)
+            results.extend(handoff_results)
+
+        statuses, reasons, resp_headers, bodies = zip(*[(
+            resp.status, resp.reason, resp.getheaders(), body)
+            for resp, body, _node in results])
+
+        final_resp = self.best_response(
+            req, statuses, reasons, bodies, 'Object POST',
+            headers=resp_headers, quorum_size=quorum)
+        if final_resp.status_int == HTTP_NOT_FOUND and found_count > 0:
+            # 404 can't be right, we have an existence proof
+            final_status_map = self._collect_status_map(results)
+            self.logger.debug(
+                'Unable to resolve mixed results on POST: %r',
+                dict(final_status_map))
+            raise HTTPServiceUnavailable(request=req)
+        return final_resp
 
     @public
     @cors_validation

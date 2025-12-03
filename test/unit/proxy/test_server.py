@@ -4144,7 +4144,7 @@ class TestReplicatedObjectController(
             test_status_map((200, 200, 202, 202, 500), 202)
             test_status_map((200, 200, 202, 500, 500), 503)
             test_status_map((200, 200, 202, 404, 500), 503)
-            test_status_map((200, 200, 202, 404, 404), 404)
+            test_status_map((200, 200, 202, 404, 404), 503)
             test_status_map((200, 200, 404, 500, 500), 503)
             test_status_map((200, 200, 404, 404, 404), 404)
 

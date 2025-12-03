@@ -34,6 +34,7 @@ import itertools
 import operator
 import random
 from copy import deepcopy
+from types import SimpleNamespace
 
 from eventlet.timeout import Timeout
 
@@ -51,9 +52,8 @@ from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
-    HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE, \
-    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+    HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, HTTP_CONTINUE, \
+    HTTP_GONE, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, wsgi_unquote, \
@@ -2105,6 +2105,59 @@ class Controller(object):
                     {'method': method, 'path': path})
         return None, None, None
 
+    def _make_requests(self, req, ring, part, method, path, headers,
+                       query_string='', node_count=None, node_iterator=None,
+                       body=None):
+        """
+        Internal method that handles the actual request execution and response
+        collection.
+
+        :param req: a request sent by the client
+        :param ring: the ring used for finding backend servers
+        :param part: the partition number
+        :param method: the method to send to the backend
+        :param path: the path to send to the backend
+        :param headers: a list of dicts, where each dict represents one
+                        backend request that should be made.
+        :param query_string: optional query string to send to the backend
+        :param node_count: optional number of nodes to send request to.
+        :param node_iterator: optional node iterator.
+        :param body: byte string to use as the request body.
+        :returns: list of tuples of (resp, body, node)
+        """
+        nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
+            self.server_type.lower(), self.app, ring, part, self.logger, req))
+        node_number = node_count or len(ring.get_part_nodes(part))
+        pile = GreenAsyncPile(node_number)
+
+        for head in headers:
+            pile.spawn(self._make_request, nodes, part, method, path,
+                       head, query_string, body, self.logger.thread_locals)
+        results = []
+        statuses = []
+        for resp, body, node in pile:
+            if not is_useful_response(resp, node):
+                continue
+            results.append((resp, body, node))
+            statuses.append(resp.status)
+            if self.have_quorum(statuses, node_number):
+                break
+        # give any pending requests *some* chance to finish
+        finished_quickly = pile.waitall(self.app.post_quorum_timeout)
+        for resp, body, node in finished_quickly:
+            if not is_useful_response(resp, node):
+                continue
+            results.append((resp, body, node))
+            statuses.append(resp.status)
+        while len(results) < node_number:
+            swob_resp = HTTPServiceUnavailable(request=req)
+            stub_http_client_resp = SimpleNamespace(
+                status=swob_resp.status_int,
+                reason=swob_resp.title,
+                getheaders=lambda: swob_resp.headers)
+            results.append((stub_http_client_resp, swob_resp.body, None))
+        return results
+
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string='', overrides=None, node_count=None,
                       node_iterator=None, body=None):
@@ -2130,33 +2183,12 @@ class Controller(object):
                      Try to keep it small.
         :returns: a swob.Response object
         """
-        nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
-            self.server_type.lower(), self.app, ring, part, self.logger, req))
-        node_number = node_count or len(ring.get_part_nodes(part))
-        pile = GreenAsyncPile(node_number)
-
-        for head in headers:
-            pile.spawn(self._make_request, nodes, part, method, path,
-                       head, query_string, body, self.logger.thread_locals)
-        results = []
-        statuses = []
-        for resp, body, node in pile:
-            if not is_useful_response(resp, node):
-                continue
-            results.append((resp.status, resp.reason, resp.getheaders(), body))
-            statuses.append(resp.status)
-            if self.have_quorum(statuses, node_number):
-                break
-        # give any pending requests *some* chance to finish
-        finished_quickly = pile.waitall(self.app.post_quorum_timeout)
-        for resp, body, node in finished_quickly:
-            if not is_useful_response(resp, node):
-                continue
-            results.append((resp.status, resp.reason, resp.getheaders(), body))
-            statuses.append(resp.status)
-        while len(results) < node_number:
-            results.append((HTTP_SERVICE_UNAVAILABLE, '', '', b''))
-        statuses, reasons, resp_headers, bodies = zip(*results)
+        results = self._make_requests(
+            req, ring, part, method, path, headers, query_string,
+            node_count, node_iterator, body)
+        statuses, reasons, resp_headers, bodies = zip(*[(
+            resp.status, resp.reason, resp.getheaders(), body)
+            for resp, body, _ in results])
         return self.best_response(req, statuses, reasons, bodies,
                                   '%s %s' % (self.server_type, req.method),
                                   overrides=overrides, headers=resp_headers)
