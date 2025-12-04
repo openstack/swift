@@ -35,6 +35,7 @@ from swift.common.direct_client import (direct_put_container,
 from swift.common.daemon import run_daemon
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring.utils import is_local_device
+from swift.common.statsd_client import get_labeled_statsd_client
 from swift.common.swob import str_to_wsgi
 from swift.common.utils import get_logger, config_true_value, \
     dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
@@ -850,11 +851,12 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
     """Shards containers."""
     log_route = 'container-sharder'
 
-    def __init__(self, conf, logger=None):
+    def __init__(self, conf, logger=None, statsd=None):
         logger = logger or get_logger(conf, log_route=self.log_route)
         ContainerReplicator.__init__(self, conf, logger=logger)
         ContainerSharderConf.__init__(self, conf)
         ContainerSharderConf.validate_conf(self)
+        self.statsd = statsd or get_labeled_statsd_client(conf, self.logger)
         self.shards_account_prefix = (AUTO_CREATE_ACCOUNT_PREFIX + 'shards_')
         self.sharding_candidates = []
         self.shrinking_candidates = []
@@ -2193,6 +2195,17 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             self.db_logger.warning(broker, 'Failed to get own_shard_range')
             ranges_todo = []  # skip cleaving
 
+        labels = {
+            'account': broker.account,
+            'container': broker.container
+        }
+        if cleaving_context.ranges_done == 0 and own_shard_range:
+            self.statsd.timing_since(
+                'swift_container_sharder_time_to_first_cleave',
+                float(own_shard_range.epoch), labels={
+                    **labels,
+                    'ranges_todo': cleaving_context.ranges_todo})
+
         ranges_done = []
         for shard_range in ranges_todo:
             if cleaving_context.cleaving_done:
@@ -2234,6 +2247,14 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         cleaving_context.store(broker)
         self.db_logger.debug(
             broker, 'Cleaved %s shard ranges', len(ranges_done))
+
+        if cleaving_context.cleaving_done:
+            self.statsd.timing_since(
+                'swift_container_sharder_time_to_last_cleave',
+                float(own_shard_range.epoch), labels={
+                    **labels,
+                    'ranges_done': cleaving_context.ranges_done})
+
         return (cleaving_context.misplaced_done and
                 cleaving_context.cleaving_done)
 
