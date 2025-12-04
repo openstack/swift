@@ -2314,7 +2314,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             [remote_broker.db_file], get_db_files(remote_broker.db_file))
         self.assertEqual(os.path.basename(remote_broker.db_file),
                          os.path.basename(local_broker.db_file))
-        self.assertEqual(epoch, remote_broker.db_epoch)
+        self.assertEqual(epoch.normal, remote_broker.db_epoch)
         # remote db has only the misplaced objects
         self.assertEqual(objs[2:8], remote_broker.get_objects())
         self.assert_shard_ranges_synced(local_broker, remote_broker)
@@ -2331,7 +2331,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         self.assertEqual(os.path.basename(remote_broker.db_file),
                          os.path.basename(local_broker.db_file))
         self.assertEqual(objs[2:8], remote_broker.get_objects())
-        self.assertEqual(epoch, remote_broker.db_epoch)
+        self.assertEqual(epoch.normal, remote_broker.db_epoch)
 
     def test_replication_local_sharding_remote_missing(self):
         self._check_replication_local_sharding_remote_missing({})

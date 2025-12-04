@@ -3942,7 +3942,7 @@ class TestContainerBroker(test_db.TestDbBase):
         hsh = hash_path('a', 'c3')
         expected_path = os.path.join(
             tempdir, 'containers', '0', hsh[-3:],
-            hsh, '%s_%s.db' % (hsh, epoch.internal))
+            hsh, '%s_%s.db' % (hsh, epoch.normal))
         self.assertEqual(expected_path, broker.db_file)
         self.assertTrue(init)
 
@@ -5376,7 +5376,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(db_path, broker.db_files[0])
         fresh_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash',
-            'container_%s.db' % epoch.internal)
+            'container_%s.db' % epoch.normal)
         self.assertEqual(fresh_db_path, broker.db_files[1])
 
     @with_tempdir
@@ -5425,7 +5425,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(db_path, broker.db_files[0])
         fresh_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash',
-            'container_%s.db' % epoch.internal)
+            'container_%s.db' % epoch.normal)
         self.assertEqual(fresh_db_path, broker.db_files[1])
 
     @with_tempdir
