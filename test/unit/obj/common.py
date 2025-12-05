@@ -20,6 +20,7 @@ import unittest
 from swift.common import utils
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import Timestamp, md5
+from test.unit import make_timestamp_iter
 
 
 def write_diskfile(df, timestamp, data=b'test data', frag_index=None,
@@ -66,9 +67,16 @@ class BaseTest(unittest.TestCase):
         }
         # daemon will be set in subclass setUp
         self.daemon = None
+        self._ts_iter = make_timestamp_iter()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def ts(self):
+        """
+        Timestamps - forever.
+        """
+        return next(self._ts_iter)
 
     def _make_diskfile(self, device='dev', partition='9',
                        account='a', container='c', obj='o', body=b'test',
