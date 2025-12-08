@@ -17,7 +17,7 @@ import time
 from unittest import main
 from uuid import uuid4
 
-from swift.common.concurrency import GreenPool, Timeout, eventlet
+from swift.common.concurrency import SwiftPool, Timeout, eventlet
 from sqlite3 import connect
 
 from swift.common.manager import Manager
@@ -243,7 +243,7 @@ class TestContainerFailures(ReplProbeTest):
         proxy_conf = readconf(self.configs['proxy-server'],
                               section_name='app:proxy-server')
         node_timeout = int(proxy_conf.get('node_timeout', 10))
-        pool = GreenPool()
+        pool = SwiftPool()
         try:
             with Timeout(node_timeout + 5):
                 pool.spawn(run_test, 1, False)

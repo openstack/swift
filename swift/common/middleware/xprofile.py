@@ -83,7 +83,7 @@ import os
 import sys
 import time
 
-from swift.common.concurrency import greenthread, GreenPool, patcher, eprofile
+from swift.common.concurrency import greenthread, SwiftPool, patcher, eprofile
 import urllib
 
 from swift.common.utils import get_logger, config_true_value
@@ -93,7 +93,6 @@ from swift.common.middleware.x_profile.exceptions import NotFoundException
 from swift.common.middleware.x_profile.exceptions import ProfileException
 from swift.common.middleware.x_profile.html_viewer import HTMLViewer
 from swift.common.middleware.x_profile.profile_model import ProfileLog
-
 
 DEFAULT_PROFILE_PREFIX = '/tmp/log/swift/profile/default.profile'  # nosec B108
 
@@ -170,7 +169,7 @@ class ProfileMiddleware(object):
                                       self.dump_timestamp)
         self.viewer = HTMLViewer(self.path, self.profile_module,
                                  self.profile_log)
-        self.dump_pool = GreenPool(1000)
+        self.dump_pool = SwiftPool(1000)
         self.last_dump_at = None
 
     def __del__(self):

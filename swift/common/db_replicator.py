@@ -25,7 +25,7 @@ import errno
 import re
 from contextlib import contextmanager
 
-from swift.common.concurrency import GreenPool, sleep, Timeout, subprocess
+from swift.common.concurrency import SwiftPool, sleep, Timeout, subprocess
 
 import swift.common.db
 from swift.common.constraints import check_drive
@@ -256,7 +256,11 @@ class Replicator(Daemon):
         self.bind_ip = conf.get('bind_ip', '0.0.0.0')
         self.port = int(conf.get('bind_port', self.default_port))
         concurrency = int(conf.get('concurrency', 8))
-        self.cpool = GreenPool(size=concurrency)
+        # backpressure: the producer loop is non-recursive and feeds an
+        # unbounded DB stream, so block it when the pool is full rather than
+        # queueing every DB as a Future -- matching eventlet GreenPool.spawn_n,
+        # which blocks the caller once ``concurrency`` jobs are in flight.
+        self.cpool = SwiftPool(size=concurrency, backpressure=True)
         swift_dir = conf.get('swift_dir', '/etc/swift')
         self.ring = ring.Ring(swift_dir, ring_name=self.server_type)
         self._local_device_ids = {}

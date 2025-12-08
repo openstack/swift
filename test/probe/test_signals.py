@@ -31,6 +31,8 @@ from urllib.parse import urlparse
 from swift.common.ring import Ring
 from swift.common.manager import Manager
 
+from swift.common.concurrency import SwiftPool
+
 from test.probe import PROXY_BASE_URL
 from test.probe.common import resetswift, ReplProbeTest, client
 
@@ -458,7 +460,7 @@ def spawn_services(ip_ports, timeout=10):
         finally:
             sock.close()
 
-    pool = eventlet.GreenPool()
+    pool = SwiftPool()
     for ip, port in ip_ports:
         sock = eventlet.listen((ip, port))
         pool.spawn(service, sock)

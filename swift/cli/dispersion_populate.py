@@ -20,7 +20,7 @@ from optparse import OptionParser
 from sys import exit, stdout
 from time import time
 
-from swift.common.concurrency import GreenPool, patcher, sleep, Pool
+from swift.common.concurrency import SwiftPool, patcher, sleep, Pool
 from configparser import ConfigParser
 
 from swift.common.internal_client import SimpleClient
@@ -147,7 +147,9 @@ Usage: %%prog [options] [conf_file]
     if not (object_populate or container_populate):
         exit("Neither container or object populate is set to run")
 
-    coropool = GreenPool(size=concurrency)
+    # a non-recursive producer loop: block spawn at capacity like
+    # GreenPool did, instead of queueing all containers/objects up front
+    coropool = SwiftPool(size=concurrency, backpressure=True)
     retries_done = 0
 
     os_options = {'endpoint_type': endpoint_type}

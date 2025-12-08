@@ -28,7 +28,7 @@ from test.unit import temptree, with_tempdir, DebugMemcacheRing, \
 
 import contextlib
 import errno
-from swift.common.concurrency import eventlet, sleep
+from swift.common.concurrency import eventlet, sleep, SwiftPool
 import grp
 import logging
 import os
@@ -3495,7 +3495,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
                 exceptions.append(e)
 
         # Issue those parallel requests "at the same time".
-        pool = eventlet.GreenPool()
+        pool = SwiftPool()
         for i in range(num_processes):
             pool.spawn(worker_process)
 
@@ -3584,7 +3584,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
 
         # Issue those parallel requests at different time within this
         # cooperative token session.
-        pool = eventlet.GreenPool()
+        pool = SwiftPool()
         # The first three requests will get the token but fails.
         for i in range(3):
             pool.spawn(
@@ -3667,7 +3667,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
                 exceptions.append(e)
 
         # Issue the parallel requests for the first token session.
-        pool = eventlet.GreenPool()
+        pool = SwiftPool()
         for i in range(3):
             pool.spawn(
                 worker_process, 0, self.avg_backend_fetch_time * 15, True)

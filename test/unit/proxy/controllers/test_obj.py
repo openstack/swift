@@ -25,7 +25,7 @@ from contextlib import contextmanager
 import json
 
 from unittest import mock
-from swift.common.concurrency import eventlet, Timeout, sleep, Empty
+from swift.common.concurrency import Timeout, sleep, Empty, SwiftPool
 
 from io import StringIO
 from urllib.parse import quote, parse_qsl
@@ -9097,7 +9097,7 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
                 'swift.proxy.controllers.obj.'
                 'CooperativeNamespaceCachePopulator.do_fetch_backend',
                 delayed_fetch_backend):
-            pool = eventlet.GreenPool()
+            pool = SwiftPool()
             for i in range(num_processes):
                 pool.spawn(worker, 'POST', '/v1/a/c/o' + str(i))
             pool.waitall()
@@ -9206,7 +9206,7 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
                     'swift.proxy.controllers.obj.'
                     'CooperativeNamespaceCachePopulator.do_fetch_backend',
                     delayed_fetch_backend):
-            pool = eventlet.GreenPool()
+            pool = SwiftPool()
             for i in range(num_processes):
                 pool.spawn(worker, 'POST', '/v1/a/c/o' + str(i))
             pool.waitall()

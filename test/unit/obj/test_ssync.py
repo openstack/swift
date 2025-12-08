@@ -20,6 +20,7 @@ import unittest
 
 from swift.common.concurrency import eventlet, spawn
 import urllib.parse
+from swift.common.concurrency import SwiftPool
 
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
     DiskFileDeleted, DiskFileExpired
@@ -63,7 +64,7 @@ class TestBaseSsync(BaseTest):
         self.ts_iter = make_timestamp_iter()
         self.rx_ip = '127.0.0.1'
         sock = listen_zero()
-        self.rx_server_pool = eventlet.GreenPool(size=1)
+        self.rx_server_pool = SwiftPool(size=1)
         self.rx_server = spawn(
             eventlet.wsgi.server, sock, self.rx_controller, log=self.rx_logger,
             custom_pool=self.rx_server_pool)

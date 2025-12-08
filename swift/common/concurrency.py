@@ -22,8 +22,10 @@ rather than importing directly from eventlet.
 import collections
 import importlib.util
 import os
+import sys
 import threading
 import time
+import traceback
 from contextlib import contextmanager
 from socket import timeout as socket_timeout
 
@@ -55,7 +57,7 @@ import eventlet.patcher
 import eventlet.queue
 import eventlet.semaphore
 import eventlet.wsgi
-from eventlet import GreenPile, GreenPool  # noqa: F401
+from eventlet import GreenPile
 from eventlet import greenio, greenpool, hubs, patcher, queue, wsgi
 from eventlet import debug, listen, timeout, websocket
 from eventlet import greenthread
@@ -69,9 +71,9 @@ from eventlet.green.http.client import CONTINUE, HTTPConnection, \
 from eventlet.green.urllib import request as urllib_request
 from eventlet.greenthread import getcurrent
 from eventlet.hubs import trampoline  # noqa: F401
-from eventlet.queue import Empty, LightQueue, Queue  # noqa: F401
+from eventlet.queue import Empty, LightQueue, Queue
 from eventlet.semaphore import Semaphore
-from eventlet.support.greenlets import GreenletExit  # noqa: F401
+from eventlet.support.greenlets import GreenletExit
 import eventlet.green.profile as eprofile  # noqa: F401
 hub_exceptions = eventlet.debug.hub_exceptions
 hub_prevent_multiple_readers = eventlet.debug.hub_prevent_multiple_readers
@@ -85,6 +87,17 @@ if USE_EVENTLET:
     from eventlet import sleep
 
     from eventlet import Timeout as _Timeout
+    from eventlet import GreenPool as _GreenPool
+
+    class SwiftPool(_GreenPool):
+        # GreenPool already blocks spawn when full, so the threading-only
+        # ``backpressure`` flag is accepted and ignored here.
+        def __init__(self, size=1024, backpressure=False):
+            super(SwiftPool, self).__init__(size)
+
+    # No real lock needed under eventlet (cooperative scheduling)
+    from contextlib import nullcontext
+    CooperativeLock = nullcontext
 
     class Timeout(_Timeout):
         def __init__(self, *args, **kwargs):
@@ -121,12 +134,41 @@ if USE_EVENTLET:
     # spawn_n is not used with a kwarg, just use the unwrapped function
     spawn_n = eventlet.spawn_n
 
+    def reset_pool(pool):
+        # Stop the pool's in-flight work: kill the greenthreads still running
+        # in it (the pool object itself stays usable). coroutines_running
+        # clears itself as they die.
+        for coro in list(pool.coroutines_running):
+            try:
+                coro.kill(GreenletExit)
+            except GreenletExit:
+                pass
+
 else:
     import os as green_os  # noqa: F811
     import socket  # noqa: F811
     import ssl  # noqa: F811
     import threading as green_threading  # noqa: F811
     import urllib.request as urllib_request  # noqa: F811
+    from queue import Empty, Queue as _StdQueue  # noqa: F811
+    from threading import Lock as CooperativeLock
+
+    class Queue(_StdQueue):  # noqa: F811
+        def resize(self, size):
+            # Match eventlet's LightQueue.resize(): set maxsize and wake
+            # blocked putters. stdlib Queue has no resize(); callers use it
+            # to guarantee room for a sentinel.
+            with self.mutex:
+                self.maxsize = size
+                self.not_full.notify_all()
+
+    LightQueue = Queue  # noqa: F811
+
+    try:
+        from greenlet import GreenletExit  # noqa: F811
+    except ImportError:
+        class GreenletExit(BaseException):
+            pass
 
     class Timeout(BaseException):
         # Distinguishes "no timeout captured" from a captured None (a socket
@@ -268,6 +310,40 @@ else:
     # eventlet spawn_n is spawn without a return value; reuse spawn here.
     spawn_n = spawn
 
+    def reset_pool(pool):
+        # Stop the pool's in-flight work (the pool object itself stays
+        # usable): real threads can't be interrupted, so cancel any
+        # not-yet-started work, then clear the tracking set so the pool can be
+        # reused.
+        for future in list(pool.futures):
+            future.cancel()
+        pool.futures = set()
+        # Order matters: clear _threads and reset _idle BEFORE topping up the
+        # permit, so a producer that wakes on the freed permit sees an empty
+        # pool and _adjust_threads starts a fresh worker (release the permit
+        # first and it could enqueue work, still see a full _threads, and spawn
+        # no replacement). Bumping _generation retires abandoned workers: a
+        # wedged one that later returns exits instead of consuming more work,
+        # so they can't accumulate past `size`. Abandoned threads are daemon,
+        # so they die at exit like eventlet's killed greenthreads.
+        with pool._threads_lock:
+            pool._threads = set()
+            pool._generation += 1
+        pool._idle = threading.Semaphore(0)
+        # A wedged native thread can't be interrupted to release its
+        # backpressure permit, so a producer blocked in submit() would hang
+        # forever (an eventlet greenthread, by contrast, is killed here and
+        # unwinds through its release). Top the semaphore back up to its full
+        # budget so the producer wakes; BoundedSemaphore caps the count, so a
+        # wedged worker that finishes later and releases again is a safe no-op.
+        sem = getattr(pool, '_sem', None)
+        if sem is not None:
+            for _ in range(pool.size):
+                try:
+                    sem.release()
+                except ValueError:
+                    break
+
     class Pool(object):
         """
         Thread-safe connection pool replacement for eventlet.pools.Pool.
@@ -353,6 +429,229 @@ else:
     # No need for a threadpool when already running in threads.
     tpool = Executor()
 
+    # Imported lazily so the eventlet path never triggers
+    # concurrent.futures.thread's module-level threading.Lock() before
+    # eventlet.monkey_patch() runs.
+    import weakref
+    from concurrent.futures import Future, wait
+
+    _POOL_SENTINEL = None
+
+    def _swiftpool_worker(pool_ref, work_queue, work_sem, generation):
+        # Daemon worker for SwiftPool. Pulls (future, func, args, kwargs) items
+        # and runs them, releasing the backpressure permit (if any) when done
+        # and marking itself idle so SwiftPool reuses it. pool_ref is a weakref
+        # whose callback enqueues a sentinel when the pool is garbage
+        # collected, so an idle worker on get() doesn't keep the pool alive and
+        # exits cleanly (same lifecycle as ThreadPoolExecutor, but public APIs
+        # only).
+        while True:
+            item = work_queue.get()
+            if item is _POOL_SENTINEL:
+                # pool gc'd or shut down; wake the next worker and exit.
+                work_queue.put(_POOL_SENTINEL)
+                return
+            future, func, args, kwargs = item
+            del item
+            try:
+                if future.set_running_or_notify_cancel():
+                    try:
+                        result = func(*args, **kwargs)
+                    except BaseException as exc:
+                        future.set_exception(exc)
+                        del exc
+                    else:
+                        future.set_result(result)
+                        del result
+            finally:
+                if work_sem is not None:
+                    # BoundedSemaphore: a wedged worker finishing after
+                    # reset_pool() topped the budget up would over-release;
+                    # ignore it -- the permit was already reclaimed.
+                    try:
+                        work_sem.release()
+                    except ValueError:
+                        pass
+                del future, func, args, kwargs
+            pool = pool_ref()
+            if pool is None:
+                return
+            if pool._generation != generation:
+                # reset_pool() retired this generation (we were likely a wedged
+                # worker that has now returned). Exit instead of consuming more
+                # work, so abandoned workers can't accumulate and push the live
+                # worker count past `size`.
+                return
+            pool._idle.release()
+            del pool
+
+    class SwiftPool(object):
+        """GreenPool-compatible pool of daemon worker threads.
+
+        A Swift-owned replacement for eventlet.GreenPool, with the same API so
+        callers don't need per-method ``if USE_EVENTLET`` branches. A
+        ThreadPoolExecutor subclass can't provide what Swift needs without
+        copying CPython internals, so this builds on public APIs only:
+
+          * daemon worker threads, never registered for the interpreter-exit
+            join, so a stuck task is abandoned at exit instead of hanging it
+            (like GreenPool greenthreads);
+          * an optional BoundedSemaphore(size) bounding outstanding work, so
+            spawn()/submit() block when the pool is full (backpressure) rather
+            than queueing unboundedly. Off by default: the worker count already
+            caps concurrency to ``size``, and a blocking spawn deadlocks a
+            recursive caller (e.g. the account auditor) -- a worker that spawns
+            onto a full pool would wait on a slot only another worker can free.
+            Opt in for a non-recursive producer loop that must throttle a
+            genuinely unbounded input stream (e.g. the DB/object replicators);
+            a stuck worker can't be interrupted to free its slot (unlike an
+            eventlet greenthread), so reset_pool() tops the budget back up to
+            let a lockup detector unblock the producer;
+          * concurrent.futures.Future results;
+          * a locked tracking set so reset_pool()/waitall() see in-flight work.
+
+        Idle workers block on the work queue; a weakref callback enqueues a
+        sentinel when the pool is garbage collected so they exit. Workers are
+        started lazily (up to ``size``) and reused while idle.
+        """
+
+        def __init__(self, size=1024, backpressure=False):
+            self.size = size
+            self.futures = set()
+            self._futures_lock = threading.Lock()
+            self._work = Queue()
+            # bounds outstanding (queued + running) work for backpressure
+            self._sem = threading.BoundedSemaphore(size) if backpressure \
+                else None
+            # counts idle workers available for reuse
+            self._idle = threading.Semaphore(0)
+            self._threads_lock = threading.Lock()
+            self._threads = set()
+            # bumped by reset_pool() to retire the current worker generation
+            self._generation = 0
+
+            def shutdown_cb(_, q=self._work):
+                q.put(_POOL_SENTINEL)
+            self._ref = weakref.ref(self, shutdown_cb)
+
+        def _adjust_threads(self):
+            # Reuse an idle worker if one is available, otherwise start a new
+            # daemon worker (up to size).
+            if self._idle.acquire(timeout=0):
+                return
+            with self._threads_lock:
+                if len(self._threads) >= self.size:
+                    return
+                t = threading.Thread(
+                    target=_swiftpool_worker,
+                    args=(self._ref, self._work, self._sem, self._generation),
+                    name='swift-pool-worker')
+                t.daemon = True
+                self._threads.add(t)
+                t.start()
+
+        def submit(self, func, *args, **kwargs):
+            if self._sem is not None:
+                self._sem.acquire()  # backpressure: block while pool is full
+            future = Future()
+            self._work.put((future, func, args, kwargs))
+            self._adjust_threads()
+            return future
+
+        def _track(self, future):
+            with self._futures_lock:
+                self.futures.add(future)
+            # Runs immediately if the future is already done
+            future.add_done_callback(self._untrack)
+            return future
+
+        def _untrack(self, future):
+            with self._futures_lock:
+                self.futures.discard(future)
+
+        def spawn(self, func, *args, **kwargs):
+            return self._track(self.submit(func, *args, **kwargs))
+
+        def spawn_n(self, func, *args, **kwargs):
+            return self._track(self.submit(func, *args, **kwargs))
+
+        def waitall(self, timeout=None):
+            # Wait until the pool is idle. Re-snapshot after each batch so work
+            # a running task spawns (recursive spawn_n, e.g. the account
+            # auditor descending account/container/object) is also awaited,
+            # matching GreenPool.waitall. A child is tracked before its
+            # parent's future completes, so an empty snapshot means the pool is
+            # genuinely idle.
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while True:
+                with self._futures_lock:
+                    futures = list(self.futures)
+                if not futures:
+                    return
+                if deadline is None:
+                    remaining = None
+                else:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise Timeout()
+                done, not_done = wait(futures, timeout=remaining)
+                if not_done:
+                    # The timeout elapsed with work still running. A real
+                    # thread can't be interrupted, so raise and let the caller
+                    # recover (reset_pool); the stuck worker runs on but the
+                    # caller (e.g. the reconstructor's lockup recovery) stops
+                    # hanging.
+                    raise Timeout()
+
+        def running(self):
+            with self._futures_lock:
+                return len([f for f in self.futures if f.running()])
+
+        def free(self):
+            return self.size - self.running()
+
+        def imap(self, func, *iterables):
+            # Lazy, ordered and bounded like eventlet.GreenPool.imap: keep at
+            # most ``size`` calls in flight, pulling from the source only as
+            # results are consumed, so a large or infinite input doesn't queue
+            # unboundedly. Abandoning the iterator cancels not-yet-started
+            # work (the worker honours Future.cancel).
+            pending = collections.deque()
+            try:
+                for args in zip(*iterables):
+                    pending.append(self.submit(func, *args))
+                    if len(pending) >= self.size:
+                        yield pending.popleft().result()
+                while pending:
+                    yield pending.popleft().result()
+            finally:
+                for fut in pending:
+                    fut.cancel()
+
+        def map(self, func, *iterables):
+            return self.imap(func, *iterables)
+
+        def starmap(self, func, iterable):
+            return self.imap(lambda args: func(*args), iterable)
+
+        def shutdown(self, wait=True):
+            # Drain queued work, then wake workers to exit (each propagates the
+            # sentinel to the next) and optionally join them.
+            with self._threads_lock:
+                threads = list(self._threads)
+                self._threads = set()
+            self._work.put(_POOL_SENTINEL)
+            if wait:
+                for t in threads:
+                    t.join()
+
+
+def report_worker_exception():
+    # Print an unhandled worker exception. eventlet's hub prints it when
+    # debug_exceptions is on; without eventlet there is no hub, so print here.
+    if not USE_EVENTLET or eventlet.hubs.get_hub().debug_exceptions:
+        traceback.print_exception(*sys.exc_info())
+
 
 def clear_connect_timeout(sock):
     # Once a backend connection is established (the connect was bounded by the
@@ -369,6 +668,7 @@ def clear_connect_timeout(sock):
 # flake8 raises a F401 without this
 __all__ = [
     'USE_EVENTLET',
+    'reset_pool',
     'debug',
     'greenio',
     'greenthread',
@@ -377,6 +677,7 @@ __all__ = [
     'queue',
     'wsgi',
     'GreenPile',
+    'SwiftPool',
     'Timeout',
     'greenpool',
     'tpool',
@@ -385,6 +686,7 @@ __all__ = [
     'spawn',
     'timeout',
     'websocket',
+    'CooperativeLock',
     'Event',
     'socket',
     'ssl',
@@ -403,10 +705,12 @@ __all__ = [
     'Pool',
     'Empty',
     'LightQueue',
+    'Queue',
     'Semaphore',
     'hub_exceptions',
     'hub_prevent_multiple_readers',
     'monkey_patch',
     'shutdown_safe',
+    'spawn_n',
     'ChunkReadError',
 ]

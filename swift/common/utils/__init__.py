@@ -39,7 +39,6 @@ from contextlib import contextmanager, closing
 import ctypes
 import ctypes.util
 from optparse import OptionParser
-import traceback
 import warnings
 
 from tempfile import gettempdir, NamedTemporaryFile
@@ -48,7 +47,8 @@ import itertools
 import stat
 
 from swift.common.concurrency import (
-    eventlet, GreenPool, sleep, Timeout, Event, socket
+    eventlet, SwiftPool, sleep, Timeout, Event, socket,
+    report_worker_exception, CooperativeLock, reset_pool, Empty, LightQueue
 )
 try:
     import importlib.metadata
@@ -2120,8 +2120,11 @@ def ratelimit_sleep(running_time, max_rate, incr_by=1, rate_buffer=5):
     return rate_limit.running_time
 
 
-class ContextPool(GreenPool):
-    """GreenPool subclassed to kill its coros when it gets gc'ed"""
+class ContextPool(SwiftPool):
+    """SwiftPool that stops outstanding work on exit: eventlet workers
+    are killed; native threads cannot be, so queued work is cancelled
+    and running work is abandoned.
+    """
 
     def __enter__(self):
         return self
@@ -2130,12 +2133,9 @@ class ContextPool(GreenPool):
         self.close()
 
     def close(self):
-        for coro in list(self.coroutines_running):
-            coro.kill()
-
-
-class GreenAsyncPileWaitallTimeout(Timeout):
-    pass
+        # Reset the pool so it can be reused for later ranges of a multi-range
+        # EC response; the pool object itself stays usable.
+        reset_pool(self)
 
 
 DEAD = object()
@@ -2143,8 +2143,9 @@ DEAD = object()
 
 class GreenAsyncPile(object):
     """
-    Runs jobs in a pool of green threads, and the results can be retrieved by
-    using this object as an iterator.
+    Runs jobs in a SwiftPool of workers (greenthreads under eventlet,
+    native threads otherwise); results can be retrieved by using this
+    object as an iterator.
 
     This is very similar in principle to eventlet.GreenPile, except it returns
     results as they become available rather than in the order they were
@@ -2157,25 +2158,28 @@ class GreenAsyncPile(object):
         """
         :param size_or_pool: thread pool size or a pool to use
         """
-        if isinstance(size_or_pool, GreenPool):
+        if isinstance(size_or_pool, SwiftPool):
             self._pool = size_or_pool
             size = self._pool.size
         else:
-            self._pool = GreenPool(size_or_pool)
+            self._pool = SwiftPool(size_or_pool)
             size = size_or_pool
-        self._responses = eventlet.queue.LightQueue(size)
+        self._responses = LightQueue(size)
         self._inflight = 0
         self._pending = 0
+        self._inflight_lock = CooperativeLock()
 
     def _run_func(self, func, args, kwargs):
         try:
             self._responses.put(func(*args, **kwargs))
         except Exception:
-            if eventlet.hubs.get_hub().debug_exceptions:
-                traceback.print_exception(*sys.exc_info())
+            # Don't swallow the exception: eventlet's hub prints it (on by
+            # default); without a hub, print the traceback here.
+            report_worker_exception()
             self._responses.put(DEAD)
         finally:
-            self._inflight -= 1
+            with self._inflight_lock:
+                self._inflight -= 1
 
     @property
     def inflight(self):
@@ -2183,10 +2187,11 @@ class GreenAsyncPile(object):
 
     def spawn(self, func, *args, **kwargs):
         """
-        Spawn a job in a green thread on the pile.
+        Spawn a job on the pile.
         """
         self._pending += 1
-        self._inflight += 1
+        with self._inflight_lock:
+            self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
 
     def waitfirst(self, timeout):
@@ -2210,14 +2215,21 @@ class GreenAsyncPile(object):
 
     def _wait(self, timeout, first_n=None):
         results = []
+        deadline = None if timeout is None else time.time() + timeout
         try:
-            with GreenAsyncPileWaitallTimeout(timeout) as to:
-                while True:
-                    results.append(next(self))
-                    if first_n and len(results) >= first_n:
+            while True:
+                # A Timeout context manager can't interrupt a blocking queue
+                # get in a real thread, so bound each get by the remaining
+                # time. Works under eventlet too, so no per-mode branch.
+                remaining = None
+                if deadline is not None:
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
                         break
-                    to.check_time()
-        except (GreenAsyncPileWaitallTimeout, StopIteration):
+                results.append(self._next(timeout=remaining))
+                if first_n and len(results) >= first_n:
+                    break
+        except (StopIteration, Empty):
             pass
         return results
 
@@ -2225,13 +2237,16 @@ class GreenAsyncPile(object):
         return self
 
     def __next__(self):
+        return self._next()
+
+    def _next(self, timeout=None):
         while True:
             try:
                 rv = self._responses.get_nowait()
-            except eventlet.queue.Empty:
+            except Empty:
                 if self._inflight == 0:
                     raise StopIteration()
-                rv = self._responses.get()
+                rv = self._responses.get(timeout=timeout)
             self._pending -= 1
             if rv is DEAD:
                 continue
@@ -2240,10 +2255,10 @@ class GreenAsyncPile(object):
 
 class StreamingPile(GreenAsyncPile):
     """
-    Runs jobs in a pool of green threads, spawning more jobs as results are
-    retrieved and worker threads become available.
+    Runs jobs in a SwiftPool of workers, spawning more jobs as results
+    are retrieved and workers become available.
 
-    When used as a context manager, has the same worker-killing properties as
+    When used as a context manager, cleans its workers up on exit like
     :class:`ContextPool`.
     """
 
@@ -2255,7 +2270,7 @@ class StreamingPile(GreenAsyncPile):
     def asyncstarmap(self, func, args_iter):
         """
         This is the same as :func:`itertools.starmap`, except that *func* is
-        executed in a separate green thread for each item, and results won't
+        executed concurrently for each item, and results won't
         necessarily have the same order as inputs.
         """
         args_iter = iter(args_iter)

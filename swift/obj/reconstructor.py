@@ -24,7 +24,7 @@ from collections import defaultdict
 import shutil
 
 from swift.common.concurrency import (
-    GreenPile, GreenPool, Timeout, sleep, tpool, spawn, GreenletExit
+    GreenPile, SwiftPool, Timeout, sleep, tpool, spawn, GreenletExit
 )
 
 from swift.common.utils import (
@@ -1445,7 +1445,7 @@ class ObjectReconstructor(Daemon):
         changed_rings = set()
 
         try:
-            self.run_pool = GreenPool(size=self.concurrency)
+            self.run_pool = SwiftPool(size=self.concurrency)
             for part_info in self.collect_parts(**kwargs):
                 sleep()  # Give spawns a cycle
                 if part_info['policy'] in changed_rings:

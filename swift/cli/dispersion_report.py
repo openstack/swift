@@ -21,7 +21,7 @@ from optparse import OptionParser
 from sys import exit, stdout, stderr
 from time import time
 
-from swift.common.concurrency import GreenPool, hubs, patcher, Timeout, Pool
+from swift.common.concurrency import SwiftPool, hubs, patcher, Timeout, Pool
 
 from swift.common import direct_client
 from swift.common.internal_client import SimpleClient
@@ -390,7 +390,9 @@ def generate_report(conf, policy_name=None):
     project_name = str(conf.get('project_name', ''))
     insecure = config_true_value(conf.get('keystone_api_insecure', 'no'))
 
-    coropool = GreenPool(size=concurrency)
+    # a non-recursive producer loop: block spawn at capacity like
+    # GreenPool did, instead of queueing full ring coverage up front
+    coropool = SwiftPool(size=concurrency, backpressure=True)
 
     os_options = {'endpoint_type': endpoint_type}
     if user_domain_name:

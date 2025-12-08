@@ -16,7 +16,7 @@
 """
 
 
-from swift.common.concurrency import socket, GreenPool, urllib_request
+from swift.common.concurrency import socket, SwiftPool, urllib_request
 from urllib.parse import urlparse
 
 from swift.common.utils import (
@@ -149,7 +149,7 @@ class SwiftRecon(object):
         self.suppress_errors = False
         self.timeout = 5
         self.pool_size = 30
-        self.pool = GreenPool(self.pool_size)
+        self.pool = SwiftPool(self.pool_size)
         self.check_types = ['account', 'container', 'object']
         self.server_type = 'object'
 

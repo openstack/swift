@@ -20,7 +20,7 @@ import getopt
 from itertools import chain
 
 import json
-from swift.common.concurrency import GreenPool, Event
+from swift.common.concurrency import SwiftPool, Event
 from urllib.parse import quote
 
 from swift.common.ring import Ring
@@ -53,7 +53,7 @@ Examples!
 class Auditor(object):
     def __init__(self, swift_dir='/etc/swift', concurrency=50, deep=False,
                  error_file=None):
-        self.pool = GreenPool(concurrency)
+        self.pool = SwiftPool(concurrency)
         self.object_ring = Ring(swift_dir, ring_name='object')
         self.container_ring = Ring(swift_dir, ring_name='container')
         self.account_ring = Ring(swift_dir, ring_name='account')

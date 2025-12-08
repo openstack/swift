@@ -24,7 +24,7 @@ import time
 import itertools
 
 from swift.common.concurrency import (
-    spawn, spawn_n, GreenPool, queue, tpool, Timeout, sleep, subprocess
+    spawn, spawn_n, SwiftPool, queue, tpool, Timeout, sleep, subprocess
 )
 
 from swift.common.constraints import check_drive
@@ -983,7 +983,7 @@ class ObjectReplicator(Daemon):
         dev_stats = None
         num_jobs = 0
         try:
-            self.run_pool = GreenPool(size=self.concurrency)
+            self.run_pool = SwiftPool(size=self.concurrency)
             jobs = self.collect_jobs(override_devices=override_devices,
                                      override_partitions=override_partitions,
                                      override_policies=override_policies)

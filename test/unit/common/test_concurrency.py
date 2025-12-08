@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import socket
 import time
 import unittest
 
 import threading
-from swift.common.concurrency import Pool, USE_EVENTLET, Timeout, spawn, tpool
+from swift.common.concurrency import (
+    Pool, USE_EVENTLET, Timeout, spawn, tpool, SwiftPool, sleep, reset_pool)
 
 
 @unittest.skipIf(USE_EVENTLET, "Only tested when eventlet is disabled")
@@ -122,6 +124,250 @@ class TestTpool(unittest.TestCase):
     def test_set_num_threads_is_a_no_op(self):
         self.assertIsNone(tpool.set_num_threads(10))
         self.assertIsNone(tpool.set_num_threads(num_threads=5))
+
+
+@unittest.skipIf(USE_EVENTLET, "Only tested when eventlet is disabled")
+class TestSwiftPool(unittest.TestCase):
+    def test_waitall(self):
+        results = []
+
+        def append_val(val):
+            results.append(val)
+
+        pool = SwiftPool(size=4)
+        for i in range(5):
+            pool.spawn_n(append_val, i)
+        pool.waitall()
+        self.assertEqual(sorted(results), [0, 1, 2, 3, 4])
+        pool.shutdown(wait=True)
+
+    def test_default_is_non_blocking(self):
+        # Backpressure is off by default: no bounding semaphore, so a recursive
+        # or producer-loop caller can't deadlock on a blocked spawn. Opt-in
+        # restores the semaphore.
+        self.assertIsNone(SwiftPool(size=2)._sem)
+        self.assertIsNotNone(SwiftPool(size=2, backpressure=True)._sem)
+
+    def test_backpressure_blocks_spawn_when_full(self):
+        # With backpressure on, a producer that outruns the workers blocks on
+        # spawn rather than queueing unboundedly (the #4 OOM guard for the
+        # expirer/reconciler/updater scan loops).
+        pool = SwiftPool(size=1, backpressure=True)
+        started = threading.Event()
+        release = threading.Event()
+
+        def blocker():
+            started.set()
+            release.wait()
+
+        pool.spawn_n(blocker)            # occupies the only slot
+        self.assertTrue(started.wait(2))
+
+        spawned = threading.Event()
+
+        def do_spawn():
+            pool.spawn_n(lambda: None)   # must block: pool is full
+            spawned.set()
+
+        t = threading.Thread(target=do_spawn)
+        t.start()
+        try:
+            # the second spawn is blocked on the backpressure semaphore
+            self.assertFalse(spawned.wait(0.2))
+            release.set()                # free the slot
+            self.assertTrue(spawned.wait(2))
+        finally:
+            release.set()
+            t.join()
+            pool.waitall()
+            pool.shutdown(wait=True)
+
+    def test_reset_pool_unblocks_producer_wedged_on_backpressure(self):
+        # #1 deadlock recovery: a wedged worker never releases its backpressure
+        # permit, so a producer blocked on spawn hangs forever. reset_pool()
+        # must top the semaphore back up AND abandon the wedged worker so a
+        # fresh one runs the requeued work.
+        pool = SwiftPool(size=1, backpressure=True)
+        started = threading.Event()
+        wedge = threading.Event()
+
+        def wedged():
+            started.set()
+            wedge.wait()                 # never freed until teardown
+
+        pool.spawn_n(wedged)             # occupies and wedges the only slot
+        self.assertTrue(started.wait(2))
+
+        spawned = threading.Event()
+        ran = threading.Event()
+
+        def do_spawn():
+            pool.spawn_n(ran.set)        # blocks: pool is full, worker wedged
+            spawned.set()
+
+        t = threading.Thread(target=do_spawn)
+        t.start()
+        try:
+            self.assertFalse(spawned.wait(0.2))   # producer is wedged
+            reset_pool(pool)             # recovery: permit + fresh worker
+            self.assertTrue(spawned.wait(2))      # producer now proceeds
+            # the real test: a fresh worker must actually RUN the requeued job,
+            # even though the original worker is still wedged.
+            self.assertTrue(ran.wait(2))
+        finally:
+            wedge.set()
+            t.join()
+            pool.shutdown(wait=True)
+
+    def test_reset_pool_retires_revived_workers(self):
+        # #1: a wedged worker abandoned by reset_pool() must retire when it
+        # later returns, not resume consuming from the shared queue -- else
+        # worker generations accumulate and exceed the configured concurrency.
+        pool = SwiftPool(size=1, backpressure=True)
+        started = threading.Event()
+        wedge = threading.Event()
+
+        def wedged():
+            started.set()
+            wedge.wait(5)
+
+        pool.spawn_n(wedged)
+        self.assertTrue(started.wait(2))
+        reset_pool(pool)              # abandon + retire generation 0
+        wedge.set()                   # revive the abandoned worker
+        sleep(0.1)
+
+        idents = set()
+        lock = threading.Lock()
+
+        def rec():
+            with lock:
+                idents.add(threading.current_thread().ident)
+            sleep(0.02)
+
+        futs = [pool.spawn(rec) for _ in range(20)]
+        for f in futs:
+            f.result(5)
+        # size=1: every task must run on the single live worker; a revived
+        # abandoned worker would show up as a second ident (over-concurrency).
+        self.assertLessEqual(len(idents), pool.size)
+        pool.shutdown(wait=True)
+
+    def test_waitall_catches_descendants(self):
+        # waitall() must await work spawned by running tasks (recursive
+        # spawn_n), not just the futures present when it was called -- and must
+        # not deadlock doing so on a pool smaller than the recursion breadth.
+        lock = threading.Lock()
+        count = [0]
+        pool = SwiftPool(size=2)
+
+        def task(depth):
+            with lock:
+                count[0] += 1
+            if depth < 3:
+                for _ in range(3):
+                    pool.spawn_n(task, depth + 1)
+
+        for _ in range(3):
+            pool.spawn_n(task, 1)
+        pool.waitall()
+        # full closure: 3 + 9 + 27
+        self.assertEqual(count[0], 39)
+        pool.shutdown(wait=True)
+
+    def test_completed_futures_are_cleaned_up(self):
+        # Completed futures must not accumulate even without a waitall() call.
+        pool = SwiftPool(size=4)
+        futures = [pool.spawn_n(lambda x: x, i) for i in range(100)]
+        for future in futures:
+            future.result()
+        # done callbacks may still be firing; give them a moment
+        for _ in range(100):
+            if not pool.futures:
+                break
+            sleep(0.01)
+        self.assertEqual(pool.futures, set())
+        pool.shutdown(wait=True)
+
+    def test_free_and_running(self):
+        pool = SwiftPool(size=4)
+        self.assertEqual(pool.free(), 4)
+        self.assertEqual(pool.running(), 0)
+        pool.shutdown(wait=True)
+
+    def test_imap_returns_results_in_order(self):
+        def double(x):
+            return x * 2
+
+        pool = SwiftPool(size=4)
+        results = list(pool.imap(double, [1, 2, 3, 4, 5]))
+        self.assertEqual(results, [2, 4, 6, 8, 10])
+        pool.shutdown(wait=True)
+
+    def test_starmap_returns_results_in_order(self):
+        def multiply(a, b):
+            return a * b
+
+        pool = SwiftPool(size=4)
+        results = list(pool.starmap(multiply, [(2, 3), (4, 5), (6, 7)]))
+        self.assertEqual(results, [6, 20, 42])
+        pool.shutdown(wait=True)
+
+    def test_runs_in_separate_thread(self):
+        main_thread_id = threading.current_thread().ident
+        pool = SwiftPool(size=2)
+        future = pool.spawn(lambda: threading.current_thread().ident)
+        worker_thread_id = future.result()
+        self.assertNotEqual(main_thread_id, worker_thread_id)
+        pool.shutdown(wait=True)
+
+    def test_workers_are_daemonic_and_unregistered(self):
+        # Workers must be daemonic and absent from concurrent.futures'
+        # _threads_queues, so a blocked worker is abandoned at interpreter
+        # exit instead of hanging the join (see _adjust_threads).
+        import concurrent.futures.thread as cf_thread
+        pool = SwiftPool(size=2)
+        started = threading.Event()
+        try:
+            pool.spawn_n(started.set)
+            self.assertTrue(started.wait(5))
+            self.assertTrue(pool._threads)
+            for t in pool._threads:
+                self.assertTrue(t.daemon)
+                self.assertNotIn(t, cf_thread._threads_queues)
+        finally:
+            pool.shutdown(wait=True)
+
+    def test_imap_pulls_lazily(self):
+        # The source advances only as results are consumed, bounded by the
+        # pool size; abandoning the iterator stops pulling.
+        pool = SwiftPool(size=2)
+        pulled = []
+
+        def source():
+            for i in range(100):
+                pulled.append(i)
+                yield i
+
+        try:
+            it = pool.imap(lambda x: x, source())
+            self.assertEqual(0, next(it))
+            self.assertLessEqual(len(pulled), 4)
+            it.close()
+            self.assertLessEqual(len(pulled), 4)
+        finally:
+            pool.shutdown(wait=True)
+
+    def test_imap_infinite_input(self):
+        # An infinite source must not be drained up front.
+        pool = SwiftPool(size=2)
+        try:
+            it = pool.imap(lambda x: x, itertools.count())
+            self.assertEqual([0, 1, 2, 3, 4],
+                             [next(it) for _ in range(5)])
+            it.close()
+        finally:
+            pool.shutdown(wait=True)
 
 
 @unittest.skipIf(USE_EVENTLET, "threading Timeout only")

@@ -222,6 +222,14 @@ class TestReaper(unittest.TestCase):
         r = reaper.AccountReaper({'node_timeout': '3.5'})
         self.assertEqual(r.node_timeout, 3.5)
 
+    def test_container_pool_is_bounded(self):
+        # the reaper is a non-recursive producer loop: spawn must block at
+        # pool capacity like GreenPool did, not queue containers unboundedly
+        with patch.object(reaper, 'SwiftPool') as mock_pool:
+            r = reaper.AccountReaper({})
+        mock_pool.assert_called_once_with(
+            size=r.container_concurrency, backpressure=True)
+
     def test_delay_reaping_conf_default(self):
         r = reaper.AccountReaper({})
         self.assertEqual(r.delay_reaping, 0)

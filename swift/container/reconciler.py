@@ -18,7 +18,7 @@ import socket
 import itertools
 import logging
 
-from swift.common.concurrency import GreenPile, GreenPool, Timeout
+from swift.common.concurrency import GreenPile, SwiftPool, Timeout
 
 from swift.common import constraints
 from swift.common.daemon import Daemon, run_daemon
@@ -341,7 +341,7 @@ def direct_delete_container_entry(container_ring, account_name, container_name,
         headers = {}
     headers[USE_REPLICATION_NETWORK_HEADER] = 'true'
 
-    pool = GreenPool()
+    pool = SwiftPool()
     part, nodes = container_ring.get_nodes(account_name, container_name)
     for node in nodes:
         pool.spawn_n(direct_delete_container_object, node, part, account_name,
@@ -821,7 +821,7 @@ class ContainerReconciler(Daemon):
         workers in the pool.
         """
         self.logger.debug('pulling items from the queue')
-        pool = GreenPool(self.concurrency)
+        pool = SwiftPool(self.concurrency)
         for container in self._iter_containers():
             self.logger.debug('checking container %s', container)
             for raw_obj in self._iter_objects(container):

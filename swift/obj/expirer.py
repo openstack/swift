@@ -21,7 +21,7 @@ from optparse import OptionParser
 from os.path import join
 from collections import defaultdict, deque
 
-from swift.common.concurrency import sleep, Timeout, GreenPool
+from swift.common.concurrency import sleep, Timeout, SwiftPool
 
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.daemon import Daemon, run_daemon
@@ -574,7 +574,7 @@ class ObjectExpirer(Daemon):
                              'with dequeue_from_legacy == true.')
             return
 
-        pool = GreenPool(self.concurrency)
+        pool = SwiftPool(self.concurrency)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
         try:

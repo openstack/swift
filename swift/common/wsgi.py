@@ -27,7 +27,7 @@ import time
 import warnings
 
 from swift.common.concurrency import (
-    eventlet, greenio, GreenPool, sleep, wsgi, listen, Timeout, socket, ssl,
+    eventlet, greenio, SwiftPool, sleep, wsgi, listen, Timeout, socket, ssl,
     green_os
 )
 from paste.deploy import loadwsgi
@@ -221,18 +221,18 @@ def get_socket(conf):
     return sock
 
 
-class RestrictedGreenPool(GreenPool):
+class RestrictedSwiftPool(SwiftPool):
     """
-    Works the same as GreenPool, but if the size is specified as one, then the
+    Works the same as SwiftPool, but if the size is specified as one, then the
     spawn_n() method will invoke waitall() before returning to prevent the
     caller from doing any other work (like calling accept()).
     """
     def __init__(self, size=1024):
-        super(RestrictedGreenPool, self).__init__(size=size)
+        super(RestrictedSwiftPool, self).__init__(size=size)
         self._rgp_do_wait = (size == 1)
 
     def spawn_n(self, *args, **kwargs):
-        super(RestrictedGreenPool, self).spawn_n(*args, **kwargs)
+        super(RestrictedSwiftPool, self).spawn_n(*args, **kwargs)
         if self._rgp_do_wait:
             self.waitall()
 
@@ -426,7 +426,7 @@ def run_server(conf, logger, sock, global_conf=None, ready_callback=None,
     app = loadapp(conf['__file__'], global_conf=global_conf,
                   allow_modify_pipeline=allow_modify_pipeline)
     max_clients = int(conf.get('max_clients', '1024'))
-    pool = RestrictedGreenPool(size=max_clients)
+    pool = RestrictedSwiftPool(size=max_clients)
 
     # Select which protocol class to use (normal or one expecting PROXY
     # protocol)

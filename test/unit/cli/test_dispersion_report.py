@@ -181,7 +181,7 @@ class TestGenerateReport(unittest.TestCase):
         self.mock_object_dispersion_report = stack.enter_context(
             patch.object(dispersion_report, 'object_dispersion_report',
                          return_value={}))
-        stack.enter_context(patch.object(dispersion_report, 'GreenPool'))
+        stack.enter_context(patch.object(dispersion_report, 'SwiftPool'))
         stack.enter_context(patch.object(dispersion_report, 'Pool'))
         stack.enter_context(patch.object(dispersion_report, 'Ring'))
         stack.enter_context(patch(

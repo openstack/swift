@@ -28,7 +28,7 @@ import os
 from unittest import mock
 from configparser import NoSectionError, NoOptionError
 
-from swift.common.concurrency import GreenPool, sleep, Queue, Pool, ssl
+from swift.common.concurrency import SwiftPool, sleep, Queue, Pool, ssl
 
 from swift.common import memcached
 from swift.common.memcached import MemcacheConnectionError, md5hash, \
@@ -1074,7 +1074,7 @@ class TestMemcached(unittest.TestCase):
                 self.assertEqual(2, pool.max_size)
 
             # make 10 requests "at the same time"
-            p = GreenPool()
+            p = SwiftPool()
             for i in range(10):
                 p.spawn(memcache_client.set, 'key', 'value')
             for i in range(3):
@@ -1143,7 +1143,7 @@ class TestMemcached(unittest.TestCase):
             connections['1.2.3.4'].put(mock_conn)
             connections['1.2.3.4'].put(mock_conn)
 
-            p = GreenPool()
+            p = SwiftPool()
             for i in range(10):
                 p.spawn(memcache_client.set, 'key', 'value')
 
