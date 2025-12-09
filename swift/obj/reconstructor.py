@@ -24,7 +24,7 @@ from collections import defaultdict
 import shutil
 
 from swift.common.concurrency import (
-    GreenPile, SwiftPool, Timeout, sleep, tpool, spawn, GreenletExit
+    SwiftPile, SwiftPool, Timeout, sleep, tpool, spawn, GreenletExit
 )
 
 from swift.common.utils import (
@@ -725,8 +725,8 @@ class ObjectReconstructor(Daemon):
 
         def fragment_payload_iter():
             # We need a fragment from each connections, so best to
-            # use a GreenPile to keep them ordered and in sync
-            pile = GreenPile(len(responses))
+            # use a SwiftPile to keep them ordered and in sync
+            pile = SwiftPile(len(responses))
             while True:
                 for resp in responses:
                     pile.spawn(_get_one_fragment, resp)

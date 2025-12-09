@@ -28,7 +28,7 @@ from test.unit import temptree, with_tempdir, DebugMemcacheRing, \
 
 import contextlib
 import errno
-from swift.common.concurrency import eventlet, sleep, SwiftPool
+from swift.common.concurrency import eventlet, sleep, SwiftPool, USE_EVENTLET
 import grp
 import logging
 import os
@@ -4935,7 +4935,23 @@ class TestGreenAsyncPile(unittest.TestCase):
                 pile.spawn(run_test, i)
             actual = pile._wait(1, first_n)
             expected_n = first_n if first_n else 10
-            self.assertEqual(completed[:expected_n], actual)
+            if USE_EVENTLET:
+                self.assertEqual(completed[:expected_n], actual)
+            else:
+                # Real threads finish out of order and the append to
+                # `completed` isn't atomic with enqueuing the result, so actual
+                # need not match completed[:expected_n]; assert expected_n
+                # distinct task results instead.
+                self.assertEqual(expected_n, len(actual))
+                self.assertEqual(expected_n, len(set(actual)))
+                self.assertTrue(set(actual).issubset(set(range(10))))
+                # _wait returned after first_n results; the rest are still
+                # running. Wait for them to verify none were dropped (eventlet
+                # runs all greenthreads before _wait returns).
+                for _ in range(1000):
+                    if len(completed) == 10:
+                        break
+                    sleep(0.001)
             self.assertEqual(10, len(completed))
 
     def test_pending(self):

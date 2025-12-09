@@ -35,7 +35,7 @@ import math
 import random
 
 from greenlet import GreenletExit
-from swift.common.concurrency import GreenPile, Queue, Empty, Timeout
+from swift.common.concurrency import SwiftPile, Queue, Empty, Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
@@ -799,7 +799,7 @@ class BaseObjectController(Controller):
         node_iter = GreenthreadSafeIterator(
             self.iter_nodes_local_first(obj_ring, partition, req,
                                         policy=policy))
-        pile = GreenPile(len(nodes))
+        pile = SwiftPile(len(nodes))
 
         for nheaders in outgoing_headers:
             # RFC2616:8.2.3 disallows 100-continue without a body,

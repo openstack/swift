@@ -88,6 +88,7 @@ if USE_EVENTLET:
 
     from eventlet import Timeout as _Timeout
     from eventlet import GreenPool as _GreenPool
+    from eventlet import GreenPile as SwiftPile
 
     class SwiftPool(_GreenPool):
         # GreenPool already blocks spawn when full, so the threading-only
@@ -98,6 +99,11 @@ if USE_EVENTLET:
     # No real lock needed under eventlet (cooperative scheduling)
     from contextlib import nullcontext
     CooperativeLock = nullcontext
+
+    def make_pile_queue(size):
+        # Bounded result queue for GreenAsyncPile: producers are greenthreads,
+        # safely discarded if the pile is abandoned, so backpressure is fine.
+        return LightQueue(size)
 
     class Timeout(_Timeout):
         def __init__(self, *args, **kwargs):
@@ -163,6 +169,13 @@ else:
                 self.not_full.notify_all()
 
     LightQueue = Queue  # noqa: F811
+
+    def make_pile_queue(size):
+        # Unbounded result queue for GreenAsyncPile: producers are real pool
+        # threads that can't be discarded, so a bounded put() would block
+        # forever and leak if the pile is abandoned before draining. Pool size
+        # still caps concurrency.
+        return LightQueue()
 
     try:
         from greenlet import GreenletExit  # noqa: F811
@@ -645,6 +658,32 @@ else:
                 for t in threads:
                     t.join()
 
+    class SwiftPile(object):
+        """GreenPile-compatible pile backed by a SwiftPool.
+
+        Spawns jobs in a thread pool and yields results in the order they
+        were spawned, matching eventlet.GreenPile's ordered result behavior.
+        """
+
+        def __init__(self, size_or_pool=1000):
+            if isinstance(size_or_pool, SwiftPool):
+                self._pool = size_or_pool
+            else:
+                self._pool = SwiftPool(size_or_pool)
+            self._futures = collections.deque()
+
+        def spawn(self, func, *args, **kwargs):
+            future = self._pool.submit(func, *args, **kwargs)
+            self._futures.append(future)
+
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            if not self._futures:
+                raise StopIteration()
+            return self._futures.popleft().result()
+
 
 def report_worker_exception():
     # Print an unhandled worker exception. eventlet's hub prints it when
@@ -669,6 +708,7 @@ def clear_connect_timeout(sock):
 __all__ = [
     'USE_EVENTLET',
     'reset_pool',
+    'make_pile_queue',
     'debug',
     'greenio',
     'greenthread',

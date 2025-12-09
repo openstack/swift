@@ -18,7 +18,7 @@ import socket
 import itertools
 import logging
 
-from swift.common.concurrency import GreenPile, SwiftPool, Timeout
+from swift.common.concurrency import SwiftPile, SwiftPool, Timeout
 
 from swift.common import constraints
 from swift.common.daemon import Daemon, run_daemon
@@ -240,7 +240,7 @@ def add_to_reconciler_queue(container_ring, account, container, obj,
         except (ClientException, Timeout, socket.error):
             return 0
 
-    pile = GreenPile()
+    pile = SwiftPile()
     part, nodes = container_ring.get_nodes(MISPLACED_OBJECTS_ACCOUNT,
                                            container_name)
     for node in nodes:
@@ -318,7 +318,7 @@ def direct_get_container_policy_index(container_ring, account_name,
         except (Timeout, socket.error):
             pass
 
-    pile = GreenPile()
+    pile = SwiftPile()
     part, nodes = container_ring.get_nodes(account_name, container_name)
     for node in nodes:
         pile.spawn(_eat_client_exception, node, part, account_name,

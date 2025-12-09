@@ -48,7 +48,8 @@ import stat
 
 from swift.common.concurrency import (
     eventlet, SwiftPool, sleep, Timeout, Event, socket,
-    report_worker_exception, CooperativeLock, reset_pool, Empty, LightQueue
+    report_worker_exception, CooperativeLock, reset_pool, Empty,
+    make_pile_queue
 )
 try:
     import importlib.metadata
@@ -2164,7 +2165,7 @@ class GreenAsyncPile(object):
         else:
             self._pool = SwiftPool(size_or_pool)
             size = size_or_pool
-        self._responses = LightQueue(size)
+        self._responses = make_pile_queue(size)
         self._inflight = 0
         self._pending = 0
         self._inflight_lock = CooperativeLock()
