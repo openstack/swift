@@ -895,9 +895,9 @@ class TestRelinker(unittest.TestCase):
                       conflict_file_specs, exp_old_specs, exp_new_specs,
                       exp_ret_code=0, relink_errors=None,
                       mock_relink_paths=None, extra_options=None):
-        # Each 'spec' is a tuple (file extension, timestamp offset); files are
-        # created for each old_file_specs and links are created for each in
-        # new_file_specs, then cleanup is run and checks made that
+        # Each 'spec' is a tuple (file extension, timestamp delta in seconds);
+        # files are created for each old_file_specs and links are created for
+        # each in new_file_specs, then cleanup is run and checks made that
         # exp_old_specs and exp_new_specs exist.
         # - conflict_file_specs are files in the new partition that are *not*
         #   linked to the same file in the old partition
@@ -917,7 +917,8 @@ class TestRelinker(unittest.TestCase):
         def make_filenames(specs):
             filenames = []
             for ext, ts_delta in specs:
-                ts = utils.Timestamp(float(self.obj_ts) + ts_delta)
+                ts = utils.Timestamp(float(self.obj_ts),
+                                     delta=ts_delta * 10000)
                 filename = '.'.join([ts.internal, ext])
                 filenames.append(filename)
             return filenames
