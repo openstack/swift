@@ -413,7 +413,7 @@ class DatabaseBroker(object):
             END;
         """)
         if not put_timestamp:
-            put_timestamp = Timestamp(0).internal
+            put_timestamp = Timestamp.zero().internal
         self._initialize(conn, put_timestamp,
                          storage_policy_index=storage_policy_index)
         conn.commit()

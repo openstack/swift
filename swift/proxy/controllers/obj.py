@@ -2781,7 +2781,8 @@ class ECFragGetter(GetterBase):
         if 'handoff_index' in node and \
                 (is_server_error(possible_source.status) or
                  possible_source.status == HTTP_NOT_FOUND) and \
-                not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                not Timestamp(
+                    src_headers.get('x-backend-timestamp', Timestamp.zero())):
             # throw out 5XX and 404s from handoff nodes unless the data is
             # really on disk and had been DELETEd
             self.logger.debug('Ignoring %s from handoff' %
@@ -3086,7 +3087,9 @@ class ECObjectController(BaseObjectController):
                         t_obj = bad_resp_headers.get(
                             'X-Backend-Timestamp',
                             bad_resp_headers.get('X-Timestamp'))
-                        bad_ts = Timestamp(t_data_file or t_obj or '0')
+                        bad_ts = Timestamp(t_data_file or
+                                           t_obj or
+                                           Timestamp.zero())
                         if bad_ts <= best_bucket.timestamp:
                             # We have reason to believe there's still good data
                             # out there, it's just currently unavailable
@@ -3094,7 +3097,8 @@ class ECObjectController(BaseObjectController):
                     if getter.status:
                         timestamp = Timestamp(getter.last_headers.get(
                             'X-Backend-Timestamp',
-                            getter.last_headers.get('X-Timestamp', 0)))
+                            getter.last_headers.get(
+                                'X-Timestamp', Timestamp.zero())))
                         if (rebalance_missing_suppression_count > 0 and
                                 getter.status == HTTP_NOT_FOUND and
                                 not timestamp):

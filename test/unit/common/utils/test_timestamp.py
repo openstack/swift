@@ -25,12 +25,25 @@ from swift.common.utils import timestamp
 
 class TestTimestamp(unittest.TestCase):
     """Tests for swift.common.utils.timestamp.Timestamp"""
+    def test_zero(self):
+        ts_zero = timestamp.Timestamp.zero()
+        self.assertEqual(0.0, float(ts_zero))
+        self.assertEqual(0, ts_zero.offset)
+        self.assertEqual(timestamp.Timestamp.zero(),
+                         timestamp.Timestamp(timestamp.Timestamp.zero()))
+        self.assertEqual(ts_zero.internal, '0000000000.00000')
+        # for now this is true...
+        self.assertEqual(timestamp.Timestamp(0), ts_zero)
 
     def test_invalid_input(self):
         with self.assertRaises(ValueError):
             timestamp.Timestamp(time.time(), offset=-1)
         with self.assertRaises(ValueError):
             timestamp.Timestamp('123.456_78_90')
+        with self.assertRaises(ValueError):
+            timestamp.Timestamp('')
+        with self.assertRaises(TypeError):
+            timestamp.Timestamp(None)
 
     def test_invalid_string_conversion(self):
         t = timestamp.Timestamp.now()
