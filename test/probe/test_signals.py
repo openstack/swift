@@ -120,13 +120,15 @@ class TestWSGIServerProcessHandling(ReplProbeTest):
         conn = self.get_conn()
         self.addCleanup(conn.close)
 
+        if self.HAS_INFO:
+            self.check_info_values({'max_header_size': 8192,
+                                    'max_request_line': 8192})
+
         # sanity request
-        self.start_write_req(conn, 'sanity')
+        self.start_write_req(conn, 'sanity', request_line_len=8099,
+                             extra_header_size=8191)
         resp = self.finish_write_req(conn)
         self.check_write_resp(resp)
-
-        if self.HAS_INFO:
-            self.check_info_value(8192)
 
         # Start another write request before reloading...
         self.start_write_req(conn, 'across-reload')
@@ -157,7 +159,9 @@ class TestWSGIServerProcessHandling(ReplProbeTest):
                       timeout=self.PID_TIMEOUT)
 
         if self.HAS_INFO:
-            self.check_info_value(8191)
+            self.check_info_values({'max_header_size': 8191,
+                                    'max_request_line': 8100})
+        return conn
 
 
 class OldReloadMixin(object):
@@ -274,7 +278,7 @@ class TestObjectServerReloadBase(TestWSGIServerProcessHandling):
             self.policy.object_ring.get_part_nodes(1))
         return 'http', self.ring_node['ip'], self.ring_node['port']
 
-    def start_write_req(self, conn, suffix):
+    def start_write_req(self, conn, suffix, *args, **kwargs):
         putrequest(conn, 'PUT', '/%s/123/%s/%s/blah-%s' % (
             self.ring_node['device'], self.account, self.container, suffix),
             headers={'X-Timestamp': str(time.time()),
@@ -333,10 +337,14 @@ class TestProxyServerReloadBase(TestWSGIServerProcessHandling):
         if section_header in config:
             config = config.replace(
                 section_header,
-                section_header + 'max_header_size = 8191\n',
+                section_header +
+                'max_header_size = 8191\n'
+                'max_request_line = 8100\n',
                 1)
         else:
-            config += section_header + 'max_header_size = 8191\n'
+            config += (section_header +
+                       'max_header_size = 8191\n'
+                       'max_request_line = 8100\n')
         with open(self.new_swift_conf_path, 'w') as wfh:
             wfh.write(config)
             wfh.flush()
@@ -359,29 +367,38 @@ class TestProxyServerReloadBase(TestWSGIServerProcessHandling):
             port = '443' if parsed.scheme == 'https' else '80'
         return parsed.scheme, host, int(port)
 
-    def assertMaxHeaderSize(self, resp, exp_max_header_size):
-        self.assertEqual(resp.status // 100, 2)
-        info_dict = json.loads(resp.read())
-        self.assertEqual(exp_max_header_size,
-                         info_dict['swift']['max_header_size'])
-
-    def check_info_value(self, expected_value):
-        # show that we're talking to the original server with the default
-        # max_header_size == 8192
+    def check_info_values(self, expected_info):
+        # verify that we're talking to the expected server
         conn2 = self.get_conn()
         putrequest(conn2, 'GET', '/info',
                    headers={'Content-Length': '0',
                             'Accept': 'application/json'})
         conn2.send('')
         resp = conn2.getresponse()
-        self.assertMaxHeaderSize(resp, expected_value)
+        self.assertEqual(resp.status // 100, 2)
+        info_dict = json.loads(resp.read())
         conn2.close()
+        actual = {}
+        for key in expected_info:
+            actual[key] = info_dict['swift'].get(key)
+        self.assertEqual(expected_info, actual)
 
-    def start_write_req(self, conn, suffix):
-        putrequest(conn, 'PUT', '/v1/%s/%s/blah-%s' % (
-            self.account, self.container, suffix),
-            headers={'X-Auth-Token': self.token,
-                     'Content-Length': len(self.BODY)})
+    def start_write_req(self, conn, suffix, request_line_len=None,
+                        extra_header_size=None):
+        path = '/v1/%s/%s/blah-%s' % (self.account, self.container, suffix)
+        if request_line_len is not None:
+            # pad request line to request_line_len
+            # request line = PUT <path> HTTP/1.1\r\n
+            req_line = 'PUT %s? HTTP/1.1\r\n' % path
+            path += '?%s' % ('x' * (request_line_len - len(req_line)))
+        headers = {'X-Auth-Token': self.token,
+                   'Content-Length': len(self.BODY)}
+        if extra_header_size is not None:
+            # add header line of extra_header_size
+            # header line = '<key>: <value>\r\n'
+            hdr_line = 'x-foo: \r\n'
+            headers['x-foo'] = 'x' * (extra_header_size - len(hdr_line))
+        putrequest(conn, 'PUT', path, headers=headers)
 
     def finish_write_req(self, conn):
         conn.send(self.BODY)
@@ -389,8 +406,8 @@ class TestProxyServerReloadBase(TestWSGIServerProcessHandling):
 
     def check_write_resp(self, resp):
         got_body = resp.read()
-        self.assertEqual(resp.status // 100, 2, 'Got status %d; %r' %
-                         (resp.status, got_body))
+        self.assertEqual(resp.status // 100, 2, 'Got status %d; %r %s' %
+                         (resp.status, got_body, resp.getheaders()))
         self.assertEqual(b'', got_body)
         return resp
 
@@ -399,7 +416,15 @@ class TestProxyServerReload(OldReloadMixin, TestProxyServerReloadBase):
     BODY = b'proxy' * 10
 
     def test_proxy_reload(self):
-        self._check_reload()
+        conn = self._check_reload()
+        # verify reduced max_header_size (header line must be < 8191)
+        self.start_write_req(conn, 'header-too-long', extra_header_size=8191)
+        resp = self.finish_write_req(conn)
+        self.assertEqual(400, resp.status)
+        # verify reduced max_request_line (request line must be < 8100)
+        self.start_write_req(conn, 'request-too-long', request_line_len=8100)
+        resp = self.finish_write_req(conn)
+        self.assertEqual(414, resp.status)
 
 
 class TestProxyServerReloadSeamless(SeamlessReloadMixin,
