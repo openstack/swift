@@ -917,8 +917,8 @@ class TestRelinker(unittest.TestCase):
         def make_filenames(specs):
             filenames = []
             for ext, ts_delta in specs:
-                ts = utils.Timestamp(float(self.obj_ts),
-                                     delta=ts_delta * 10000)
+                # modify self.obj_ts by ts_delta seconds
+                ts = utils.Timestamp(self.obj_ts, delta=ts_delta * 10000)
                 filename = '.'.join([ts.internal, ext])
                 filenames.append(filename)
             return filenames
