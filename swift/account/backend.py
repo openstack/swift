@@ -19,7 +19,8 @@ Pluggable Back-end for Account Server
 
 import sqlite3
 
-from swift.common.utils import Timestamp, RESERVED_BYTE
+from swift.common.utils import RESERVED_BYTE
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.common.db import DatabaseBroker, zero_like
 
 DATADIR = 'accounts'
@@ -151,8 +152,8 @@ class AccountBroker(DatabaseBroker):
         conn.execute('''
             UPDATE account_stat SET account = ?, created_at = ?, id = ?,
                    put_timestamp = ?, status_changed_at = ?
-            ''', (self.account, Timestamp.now().internal, self._new_db_id(),
-                  put_timestamp, put_timestamp))
+            ''', (self.account, NormalTimestamp.now().internal,
+                  self._new_db_id(), put_timestamp, put_timestamp))
 
     def create_policy_stat_table(self, conn):
         """

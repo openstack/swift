@@ -162,7 +162,8 @@ import sys
 import time
 from contextlib import contextmanager
 
-from swift.common.utils import Timestamp, get_logger, ShardRange, readconf, \
+from swift.common.utils.timestamp import NormalTimestamp
+from swift.common.utils import get_logger, ShardRange, readconf, \
     ShardRangeList, non_negative_int, config_positive_int_value
 from swift.container.backend import ContainerBroker, UNSHARDED
 from swift.container.sharder import make_shard_ranges, sharding_enabled, \
@@ -425,7 +426,7 @@ def delete_shard_ranges(broker, args):
             print('Please make a valid choice.')
             print()
 
-    now = Timestamp.now()
+    now = NormalTimestamp.now()
     for sr in shard_ranges:
         sr.deleted = 1
         sr.timestamp = now
@@ -508,8 +509,9 @@ def find_replace_shard_ranges(broker, args):
 
 
 def _enable_sharding(broker, own_shard_range, args):
+    ts_now = NormalTimestamp.now()
     if own_shard_range.update_state(ShardRange.SHARDING):
-        own_shard_range.epoch = Timestamp.now()
+        own_shard_range.epoch = ts_now
         own_shard_range.state_timestamp = own_shard_range.epoch
     # initialise own_shard_range with current broker object stats...
     update_own_shard_range_stats(broker, own_shard_range)
@@ -517,7 +519,7 @@ def _enable_sharding(broker, own_shard_range, args):
     with broker.updated_timeout(args.enable_timeout):
         broker.merge_shard_ranges([own_shard_range])
         broker.update_metadata({'X-Container-Sysmeta-Sharding':
-                                ('True', Timestamp.now().normal)})
+                                ('True', ts_now.normal)})
     return own_shard_range
 
 
@@ -628,7 +630,7 @@ def _remove_illegal_overlapping_donors(
     # Check minimum age requirement in overlaps between acceptors and donors.
     if args.min_shard_age == 0:
         return acceptor_path, overlapping_donors
-    ts_now = Timestamp.now()
+    ts_now = NormalTimestamp.now()
     # Remove overlapping donor shard ranges who were created recently within
     # 'min_shard_age' age limit.
     qualified_donors = ShardRangeList(
@@ -713,7 +715,7 @@ def _find_overlapping_donors(shard_ranges, own_sr, args):
 
 
 def _fix_gaps(broker, args, paths_with_gaps):
-    timestamp = Timestamp.now()
+    timestamp = NormalTimestamp.now()
     solutions = []
     print('Found %d gaps:' % len(paths_with_gaps))
     for start_path, gap_range, end_path in paths_with_gaps:
@@ -857,7 +859,7 @@ def repair_overlaps(broker, args):
     # merge changes to the broker...
     # note: acceptors do not need to be modified since they already span the
     # complete range
-    ts_now = Timestamp.now()
+    ts_now = NormalTimestamp.now()
     finalize_shrinking(broker, [], overlapping_donors, ts_now)
     print('Updated %s donor shard ranges.' % len(overlapping_donors))
     print('Run container-replicator to replicate the changes to other nodes.')

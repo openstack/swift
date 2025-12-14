@@ -30,7 +30,8 @@ import shutil
 
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
-from test.unit import patch_policies, with_tempdir, mock_timestamp_now
+from swift.common.utils.timestamp import NormalTimestamp as LegacyTimestamp
+from test.unit import patch_policies, with_tempdir, mock_normal_timestamp_now
 from swift.common.db import DatabaseConnectionError, TombstoneReclaimer
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -251,9 +252,9 @@ class TestAccountBroker(test_db.TestDbBase):
                         trace[1][2] > trace[2][2])
 
     def test_delete_db_status(self):
-        start = self.ts()
+        start = self.normal_ts()
         broker = AccountBroker(self.get_db_path(), account='a')
-        with mock_timestamp_now(self.ts()) as exp_created_at:
+        with mock_normal_timestamp_now(self.normal_ts()) as exp_created_at:
             broker.initialize(start.internal)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], start.internal)
@@ -1215,6 +1216,9 @@ def premetadata_create_account_stat_table(self, conn, put_timestamp):
 
     Create account_stat table which is specific to the account DB.
 
+    Update 2026: Timestamp has evolved, so use NormalTimestamp in legacy tests
+    because it better represents the behaviour of Timestamp c. 2013.
+
     :param conn: DB connection object
     :param put_timestamp: put timestamp
     """
@@ -1239,7 +1243,7 @@ def premetadata_create_account_stat_table(self, conn, put_timestamp):
     conn.execute('''
         UPDATE account_stat SET account = ?, created_at = ?, id = ?,
                put_timestamp = ?
-        ''', (self.account, Timestamp.now().internal, str(uuid4()),
+        ''', (self.account, LegacyTimestamp.now().internal, str(uuid4()),
               put_timestamp))
 
 

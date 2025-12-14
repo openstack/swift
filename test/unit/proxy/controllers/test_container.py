@@ -24,8 +24,8 @@ from itertools import zip_longest
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.swob import Request, bytes_to_wsgi, str_to_wsgi, wsgi_quote
-from swift.common.utils import ShardRange, Timestamp, Namespace, \
-    NamespaceBoundList
+from swift.common.utils import ShardRange, Namespace, NamespaceBoundList
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, get_container_info, get_cache_key
@@ -743,7 +743,7 @@ class TestGetShardedContainer(BaseTestContainerController):
                                     expected_objects=expected_objects)
 
         # GET all objects - sharding, final shard range points back to root
-        root_range = ShardRange('a/c', Timestamp.now(), 'pie', '')
+        root_range = ShardRange('a/c', NormalTimestamp.now(), 'pie', '')
         mock_responses = [
             # status, body, headers
             (200, ns_dicts[:2] + [dict(root_range)], root_shard_resp_hdrs),
@@ -1135,7 +1135,7 @@ class TestGetShardedContainer(BaseTestContainerController):
                                     expected_objects=expected_objects)
 
         # GET all objects - sharding, final shard range points back to root
-        root_range = ShardRange('a/c', Timestamp.now(), 'pie', '')
+        root_range = ShardRange('a/c', NormalTimestamp.now(), 'pie', '')
         mock_responses = [
             # status, body, headers
             (200, ns_dicts[:2] + [dict(root_range)], root_shard_resp_hdrs),
@@ -3036,7 +3036,7 @@ class TestGetShardedContainerLegacy(TestGetShardedContainer):
     def create_server_namespace_dict(self, name, lower, upper):
         # return a dict representation of an instance of the type the backend
         # server returns for shard format = 'namespace'
-        return dict(ShardRange(name, Timestamp.now(), lower, upper,
+        return dict(ShardRange(name, NormalTimestamp.now(), lower, upper,
                                state=ShardRange.ACTIVE))
 
     def create_server_response_data(self, bounds, states=None,
@@ -3047,7 +3047,7 @@ class TestGetShardedContainerLegacy(TestGetShardedContainer):
             states = []
         shard_ranges = [
             ShardRange(name_prefix + bound[1].replace('/', '-'),
-                       Timestamp.now(), bound[0], bound[1], state=state)
+                       NormalTimestamp.now(), bound[0], bound[1], state=state)
             for bound, state in zip_longest(
                 bounds, states, fillvalue=ShardRange.FOUND)]
         sr_dicts = [dict(sr, last_modified=sr.timestamp.isoformat)
@@ -4148,7 +4148,7 @@ class TestGetPathNamespaceCachingLegacy(TestGetPathNamespaceCaching):
     def _setup_namespace_stubs(self):
         # old container servers always returned full format ShardRange dicts
         self._stub_namespaces = [
-            dict(ShardRange(timestamp=Timestamp.now(), **ns))
+            dict(ShardRange(timestamp=NormalTimestamp.now(), **ns))
             for ns in self.ns_dicts]
         self._stub_namespaces_dump = json.dumps(self._stub_namespaces).encode(
             'ascii')
@@ -4162,8 +4162,9 @@ class TestGetExplicitRecordType(BaseTestContainerControllerGetPath):
         self._setup_shard_range_stubs()
 
     def _setup_shard_range_stubs(self):
-        self._stub_shards = [dict(ShardRange(timestamp=Timestamp.now(), **ns))
-                             for ns in self.ns_dicts]
+        self._stub_shards = [
+            dict(ShardRange(timestamp=NormalTimestamp.now(), **ns))
+            for ns in self.ns_dicts]
         self._stub_shards_dump = json.dumps(self.ns_dicts).encode('ascii')
 
     def _do_test_GET_shard_ranges_no_cache(self, sharding_state, req_params,

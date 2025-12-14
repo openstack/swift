@@ -26,9 +26,10 @@ from eventlet import tpool
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.exceptions import LockTimeout
-from swift.common.utils import Timestamp, encode_timestamps, \
-    decode_timestamps, extract_swift_bytes, storage_directory, hash_path, \
-    ShardRange, renamer, MD5_OF_EMPTY_STRING, get_db_files, \
+from swift.common.utils.timestamp import NormalTimestamp, Timestamp, \
+    encode_timestamps, decode_timestamps
+from swift.common.utils import extract_swift_bytes, storage_directory, \
+    hash_path, ShardRange, renamer, MD5_OF_EMPTY_STRING, get_db_files, \
     parse_db_filename, make_db_file_path, split_path, RESERVED_BYTE, \
     ShardRangeList, Namespace
 from swift.common.db import DatabaseBroker, BROKER_TIMEOUT, \
@@ -610,7 +611,7 @@ class ContainerBroker(DatabaseBroker):
             INSERT INTO container_info (account, container, created_at, id,
                 put_timestamp, status_changed_at, storage_policy_index)
             VALUES (?, ?, ?, ?, ?, ?, ?);
-        """, (self.account, self.container, Timestamp.now().internal,
+        """, (self.account, self.container, NormalTimestamp.now().internal,
               self._new_db_id(), put_timestamp, put_timestamp,
               storage_policy_index))
 
@@ -860,7 +861,7 @@ class ContainerBroker(DatabaseBroker):
             info = conn.execute('''
                 SELECT put_timestamp, delete_timestamp
                 FROM container_stat''').fetchone()
-        return (Timestamp(now - reclaim_age) >
+        return (NormalTimestamp(now - reclaim_age) >
                 Timestamp(info['delete_timestamp']) >
                 Timestamp(info['put_timestamp']))
 
@@ -1045,7 +1046,7 @@ class ContainerBroker(DatabaseBroker):
         Update the container_stat policy_index and status_changed_at.
         """
         if timestamp is None:
-            timestamp = Timestamp.now().internal
+            timestamp = NormalTimestamp.now().internal
 
         def _setit(conn):
             conn.execute('''
@@ -2056,7 +2057,8 @@ class ContainerBroker(DatabaseBroker):
             own_shard_range = None
         else:
             own_shard_range = ShardRange(
-                self.path, Timestamp.now(), ShardRange.MIN, ShardRange.MAX,
+                self.path, NormalTimestamp.now(),
+                ShardRange.MIN, ShardRange.MAX,
                 state=ShardRange.ACTIVE)
         return own_shard_range
 
@@ -2068,7 +2070,7 @@ class ContainerBroker(DatabaseBroker):
         Updates this broker's own shard range with the given epoch, sets its
         state to SHARDING and persists it in the DB.
 
-        :param epoch: a :class:`~swift.utils.common.Timestamp`
+        :param epoch: a :class:`~swift.utils.common.timestamp.NormalTimestamp`
         :return: the broker's updated own shard range.
         """
         own_shard_range = self.get_own_shard_range()
