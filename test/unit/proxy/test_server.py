@@ -67,7 +67,7 @@ from swift.common.middleware import proxy_logging, versioned_writes, \
     copy, listing_formats
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
-    APIVersionError, ChunkReadError
+    DiskFileDeleted, APIVersionError, ChunkReadError
 from swift.common import utils, constraints, registry
 from swift.common.utils import hash_path, storage_directory, \
     ShardRange, parse_content_type, parse_mime_headers, \
@@ -2755,12 +2755,9 @@ class TestReplicatedObjectController(
 
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
                                  'c1', 'wrong-o', policy=POLICIES[2])
-        try:
+        with self.assertRaises(DiskFileDeleted) as cm:
             df.open()
-        except DiskFileNotExist as e:
-            self.assertGreater(float(e.timestamp), 0)
-        else:
-            self.fail('did not raise DiskFileNotExist')
+        self.assertGreater(cm.exception.timestamp, utils.Timestamp.zero())
 
     @unpatch_policies
     def test_GET_newest_large_file(self):
