@@ -20,6 +20,7 @@ import unittest
 from swift.common.swob import Request
 from swift.common.middleware.s3api import utils, s3request
 from swift.common.middleware.s3api.exception import InvalidBucketNameParseError
+from swift.common.middleware.s3api.utils import make_header_label
 
 strs = [
     ('Owner', 'owner'),
@@ -36,6 +37,23 @@ class TestS3ApiUtils(unittest.TestCase):
     def test_snake_to_camel(self):
         for s1, s2 in strs:
             self.assertEqual(s1, utils.snake_to_camel(s2))
+
+    def test_make_header_label(self):
+        self.assertEqual('header_aa_b_c', make_header_label('Aa-B-C'))
+        self.assertEqual('header_aa_b_c', make_header_label('AA_B_C'))
+        self.assertEqual('header_aa_b_c', make_header_label('aA-b-c'))
+
+    def test_classify_checksum_header_value(self):
+        self.assertEqual(
+            utils.classify_checksum_header_value('00000000'), 'hash_8')
+        self.assertEqual(
+            utils.classify_checksum_header_value('a' * 64), 'hash_64')
+        self.assertEqual(
+            utils.classify_checksum_header_value('STUVWXYZ'), 'b64_8')
+        self.assertEqual(
+            utils.classify_checksum_header_value('abcdef&1'), 'unknown')
+        self.assertEqual(
+            utils.classify_checksum_header_value('z'), 'unknown')
 
     def test_validate_bucket_name(self):
         # good cases

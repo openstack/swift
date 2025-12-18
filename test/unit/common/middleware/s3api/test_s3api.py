@@ -15,6 +15,7 @@
 # limitations under the License.
 
 import base64
+import hashlib
 import io
 import unittest
 from unittest.mock import patch, MagicMock
@@ -41,7 +42,8 @@ from swift.common.utils import md5, get_logger
 from keystonemiddleware.auth_token import AuthProtocol
 from keystoneauth1.access import AccessInfoV2
 
-from test.debug_logger import debug_logger, FakeStatsdClient
+from test.debug_logger import debug_logger, FakeStatsdClient, \
+    FakeLabeledStatsdClient
 from test.unit.common.middleware.s3api import S3ApiTestCase
 from test.unit.common.middleware.helpers import FakeSwift
 from test.unit.common.middleware.s3api.test_s3token import \
@@ -51,6 +53,9 @@ from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.s3api import filter_factory, \
     S3ApiMiddleware
 from swift.common.middleware.s3api.s3token import S3Token
+
+SHA256_OF_EMPTY_STRING = \
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
 
 
 class TestListingMiddleware(S3ApiTestCase):
@@ -255,14 +260,42 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             mock_crc64nvme.__name__ = 'crc64nvme_isal'
             S3ApiMiddleware(None, {})
         self.assertEqual(
-            {'info': ['Using crc32c_isal implementation for CRC32C.',
-                      'Using crc64nvme_isal implementation for CRC64NVME.']},
+            {
+                'debug': [
+                    'Labeled statsd mode: disabled (fake-swift)',
+                ],
+                'info': [
+                    'Using crc32c_isal implementation for CRC32C.',
+                    'Using crc64nvme_isal implementation for CRC64NVME.',
+                ],
+            },
             self.logger.all_log_lines())
+
+    def test_init_statsd_options_user_labels(self):
+        conf = {
+            'log_statsd_host': 'example.com',
+            'log_statsd_port': '1234',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_legacy': False,
+            'statsd_user_label_userdefined': 'whatever',
+        }
+        with mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                        FakeLabeledStatsdClient):
+            s3api = S3ApiMiddleware(None, conf)
+
+        statsd = s3api.statsd
+        self.assertIsInstance(statsd, FakeLabeledStatsdClient)
+        statsd.increment('baz', labels={'label_foo': 'foo'})
+        self.assertEqual(
+            [(b'baz:1|c|#label_foo:foo,user_userdefined:whatever',
+             ('example.com', 1234))],
+            statsd.sendto_calls)
 
     def test_non_s3_request_passthrough(self):
         req = Request.blank('/something')
         status, headers, body = self.call_s3api(req)
         self.assertEqual(body, b'FAKE APP')
+        self.assertFalse(self.statsd.calls['increment'])
 
     def test_bad_format_authorization(self):
         req = Request.blank('/something',
@@ -699,30 +732,52 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                          get_log_info(req.environ))
 
     def test_bucket_virtual_hosted_style(self):
-        req = Request.blank('/',
-                            environ={'HTTP_HOST': 'bucket.localhost:80',
-                                     'REQUEST_METHOD': 'HEAD',
-                                     'HTTP_AUTHORIZATION':
-                                     'AWS test:tester:hmac'},
-                            headers={'Date': self.get_date_header()})
+        req = Request.blank(
+            '/',
+            environ={'HTTP_HOST': 'bucket.localhost:80',
+                     'REQUEST_METHOD': 'HEAD',
+                     'HTTP_AUTHORIZATION':
+                         'AWS test:tester:hmac'},
+            headers={'Date': self.get_date_header(),
+                     'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         self.assertIn('swift.backend_path', req.environ)
         self.assertEqual('/v1/AUTH_test/bucket',
                          req.environ['swift.backend_path'])
+        exp_labels = {'account': 'AUTH_test',
+                      'container': 'bucket',
+                      'method': 'HEAD',
+                      'type': 'container',
+                      'status': 200,
+                      'header_x_amz_content_sha256': 'hash_64'}
+        self.assertEqual([(('swift_s3_checksum_algo_request',),
+                           {'labels': exp_labels})],
+                         self.statsd.calls['increment'])
 
     def test_object_virtual_hosted_style(self):
-        req = Request.blank('/object',
-                            environ={'HTTP_HOST': 'bucket.localhost:80',
-                                     'REQUEST_METHOD': 'HEAD',
-                                     'HTTP_AUTHORIZATION':
-                                     'AWS test:tester:hmac'},
-                            headers={'Date': self.get_date_header()})
+        req = Request.blank(
+            '/object',
+            environ={'HTTP_HOST': 'bucket.localhost:80',
+                     'REQUEST_METHOD': 'HEAD',
+                     'HTTP_AUTHORIZATION':
+                         'AWS test:tester:hmac'},
+            headers={'Date': self.get_date_header(),
+                     'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING})
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
         self.assertIn('swift.backend_path', req.environ)
         self.assertEqual('/v1/AUTH_test/bucket/object',
                          req.environ['swift.backend_path'])
+        exp_labels = {'account': 'AUTH_test',
+                      'container': 'bucket',
+                      'method': 'HEAD',
+                      'type': 'object',
+                      'status': 200,
+                      'header_x_amz_content_sha256': 'hash_64'}
+        self.assertEqual([(('swift_s3_checksum_algo_request',),
+                           {'labels': exp_labels})],
+                         self.statsd.calls['increment'])
 
     def test_token_generation(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/'
@@ -1789,6 +1844,492 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(
             ['HEAD /bucket/object s3:err:AccessDenied.invalid_credential'],
             self.logger.get_lines_for_level('info'))
+
+    def _do_test_emit_header_stats(self, extra_headers,
+                                   method='PUT',
+                                   path='/bucket/object'):
+        authz_header = 'AWS4-HMAC-SHA256 ' + ', '.join([
+            'Credential=test:tester/%s/us-east-1/s3/aws4_request' %
+            self.get_v4_amz_date_header().split('T', 1)[0],
+            'SignedHeaders=host;x-amz-date',
+            'Signature=X',
+        ])
+        headers = {
+            'Authorization': authz_header,
+            'X-Amz-Date': self.get_v4_amz_date_header(),
+            'Content-Type': 'text/plain',
+            'Content-Length': '0',
+        }
+        headers.update(extra_headers)
+        req = Request.blank(path, headers=headers, body='')
+        req.method = method
+        self.statsd.clear()
+
+        # verify that request headers are sampled before request is handled by
+        # mocking the controller to mutate the request headers
+        orig_get_response = S3Request.get_response
+        captured_envs = []
+
+        def mock_handler(req, *args, **kwargs):
+            # note: only requests that succeed in constructing an S3Request
+            # will reach this handler
+            captured_envs.append(req)
+            resp = orig_get_response(req, *args, **kwargs)
+            for k in extra_headers:
+                req.headers.pop(k, None)
+            return resp
+
+        with mock.patch('swift.common.middleware.s3api.s3request.S3Request.'
+                        'get_response', mock_handler):
+            _, _, body = self.call_s3api(req)
+        self.assertEqual([(('swift_s3_checksum_algo_request',), mock.ANY)],
+                         self.statsd.calls['increment'])
+        kwargs = self.statsd.calls['increment'][0][1]
+        self.assertIn('labels', kwargs)
+        return kwargs['labels']
+
+    def test_emit_stats_x_amx_content_sha256_real_hash(self):
+        headers = {'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 200,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amx_content_sha256_real_hash_GET(self):
+        # boto3 sends this header with GETs...
+        headers = {'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        resp_body = json.dumps([]).encode('ascii')
+        self.swift.register('GET', '/v1/AUTH_test', swob.HTTPOk, {}, resp_body)
+        labels = self._do_test_emit_header_stats(headers,
+                                                 method='GET',
+                                                 path='/')
+        self.assertEqual({'account': 'AUTH_test',
+                          'method': 'GET',
+                          'type': 'account',
+                          'status': 200,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
+                            resp_body)
+        labels = self._do_test_emit_header_stats(headers,
+                                                 method='GET',
+                                                 path='/bucket')
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'GET',
+                          'type': 'container',
+                          'status': 200,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        labels = self._do_test_emit_header_stats(headers,
+                                                 method='GET',
+                                                 path='/bucket/object')
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'GET',
+                          'type': 'object',
+                          'status': 200,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        self.swift.register('GET', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPNotFound, {}, "")
+        labels = self._do_test_emit_header_stats(headers,
+                                                 method='GET',
+                                                 path='/bucket/object')
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'GET',
+                          'type': 'object',
+                          'status': 404,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amx_checksum_sha256_real_hash(self):
+        headers = {'X-Amz-Checksum-SHA256': base64.b64encode(
+            hashlib.sha256().digest())}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'method': 'PUT',
+                          'type': 'UNKNOWN',
+                          'status': 400,
+                          'header_x_amz_checksum_sha256': 'b64_44'},
+                         labels)
+
+    def test_emit_stats_x_amx_content_sha256_supported_aliases(self):
+        def do_test(alias):
+            headers = {'X-Amz-Content-SHA256': alias}
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'account': 'AUTH_test',
+                              'container': 'bucket',
+                              'method': 'PUT',
+                              'type': 'object',
+                              'status': 200,
+                              'header_x_amz_content_sha256': alias},
+                             labels)
+
+        do_test('UNSIGNED-PAYLOAD')
+
+    def test_emit_stats_x_amx_content_sha256_supported_streaming_aliases(self):
+        def do_test(alias):
+            headers = {'X-Amz-Content-SHA256': alias,
+                       'x-amz-decoded-content-length': '0'}
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'account': 'AUTH_test',
+                              'container': 'bucket',
+                              'method': 'PUT',
+                              'type': 'object',
+                              'status': 400,  # incomplete payload
+                              'header_x_amz_decoded_content_length': True,
+                              'header_x_amz_content_sha256': alias},
+                             labels)
+
+        do_test('STREAMING-UNSIGNED-PAYLOAD-TRAILER')
+        do_test('STREAMING-AWS4-HMAC-SHA256-PAYLOAD')
+        do_test('STREAMING-AWS4-HMAC-SHA256-PAYLOAD-TRAILER')
+
+    def test_emit_stats_x_amx_content_sha256_unsupported_aliases(self):
+        def do_test(alias):
+            headers = {'X-Amz-Content-SHA256': alias,
+                       'x-amz-decoded-content-length': '0'}
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'method': 'PUT',
+                              'type': 'UNKNOWN',
+                              'status': 501,
+                              'header_x_amz_decoded_content_length': True,
+                              'header_x_amz_content_sha256': alias},
+                             labels)
+
+        do_test('STREAMING-AWS4-ECDSA-P256-SHA256-PAYLOAD')
+        do_test('STREAMING-AWS4-ECDSA-P256-SHA256-PAYLOAD-TRAILER')
+
+    def test_emit_stats_x_amx_content_sha256_invalid(self):
+        def do_test(value):
+            headers = {'X-Amz-Content-SHA256': value}
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'method': 'PUT',
+                              'type': 'UNKNOWN',
+                              'status': 400,
+                              'header_x_amz_content_sha256': 'unknown'},
+                             labels)
+        do_test('0' * 63)
+        do_test('UNSIGNED-NONSENSE')
+
+    def test_emit_stats_content_md5(self):
+        headers = {'Content-MD5': base64.b64encode(md5(b'').digest()),
+                   # X-Amz-Content-SHA256 is required
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 200,
+                          'header_content_md5': 'b64_24',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        headers = {'Content-MD5': 'nonsense',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'method': 'PUT',
+                          'type': 'UNKNOWN',
+                          'status': 400,
+                          'header_content_md5': 'b64_8',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_content_encoding(self):
+        headers = {'Content-Encoding': 'aws-chunked',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 200,
+                          'header_content_encoding': 'aws-chunked',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        headers = {'Content-Encoding': 'aws-chunked,gzip',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 200,
+                          'header_content_encoding': 'aws-chunked',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        # s3api sees 'aws-chunked' in 'not-aws-chunked' and treats the
+        # request as unsupported rather than ignoring 'not-aws-chunked' !
+        headers = {'Content-Encoding': 'not-aws-chunked',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 200,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_transfer_encoding(self):
+        headers = {'Transfer-Encoding': 'chunked',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'type': 'object',
+                          'method': 'PUT',
+                          'status': 200,
+                          'header_transfer_encoding': 'chunked',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        headers = {'Transfer-Encoding': 'chunked,gzip',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'type': 'object',
+                          'method': 'PUT',
+                          'status': 200,
+                          'header_transfer_encoding': 'chunked',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        headers = {'Transfer-Encoding': 'aws-chunked',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'type': 'object',
+                          'method': 'PUT',
+                          'status': 200,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amz_decoded_content_length(self):
+        headers = {'X-Amz-Decoded-Content-Length': '123',
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 200,
+                          'header_x_amz_decoded_content_length': True,
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amz_checksum_crc32(self):
+        headers = {'X-Amz-Checksum-Crc32': base64.b64encode(b'1234'),
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 400,  # bad digest
+                          'header_x_amz_checksum_crc32': 'b64_8',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        headers = {'X-Amz-Checksum-Crc32': base64.b64encode(b'123'),  # bad
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'method': 'PUT',
+                          'type': 'UNKNOWN',
+                          'status': 400,
+                          'header_x_amz_checksum_crc32': 'unknown',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amz_checksum_crc32c(self):
+        headers = {'X-Amz-Checksum-Crc32c': base64.b64encode(b'1234'),
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 400,  # bad digest
+                          'header_x_amz_checksum_crc32c': 'b64_8',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        headers = {'X-Amz-Checksum-Crc32c': base64.b64encode(b'123'),  # bad
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'method': 'PUT',
+                          'type': 'UNKNOWN',
+                          'status': 400,
+                          'header_x_amz_checksum_crc32c': 'unknown',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amz_checksum_crc64nvme(self):
+        headers = {'X-Amz-Checksum-Crc32c': base64.b64encode(b'12345678'),
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'type': 'UNKNOWN',
+                          'method': 'PUT',
+                          'status': 400,  # bad digest
+                          'header_x_amz_checksum_crc32c': 'b64_12',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amz_checksum_sha1(self):
+        headers = {'X-Amz-Checksum-SHA1': base64.b64encode(b'1234' * 5),
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'type': 'object',
+                          'status': 400,  # bad digest
+                          'header_x_amz_checksum_sha1': 'b64_28',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+        headers = {'X-Amz-Checksum-SHA1': base64.b64encode(b'123' * 5),  # bad
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'method': 'PUT',
+                          'type': 'UNKNOWN',
+                          'status': 400,  # invalid header value
+                          'header_x_amz_checksum_sha1': 'unknown',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_multiple_x_amz_checksums(self):
+        headers = {'X-Amz-Checksum-SHA1': base64.b64encode(b'1234' * 5),
+                   'X-Amz-Checksum-CRC32': base64.b64encode(b'1234'),
+                   'X-Amz-Content-SHA256': SHA256_OF_EMPTY_STRING}
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'type': 'UNKNOWN',
+                          'status': 400,
+                          'method': 'PUT',
+                          'header_x_amz_checksum_crc32': 'b64_8',
+                          'header_x_amz_checksum_sha1': 'b64_28',
+                          'header_x_amz_content_sha256': 'hash_64'},
+                         labels)
+
+    def test_emit_stats_x_amz_trailer_unknown(self):
+        def do_test(header_value):
+            headers = {
+                'X-Amz-Trailer': header_value,
+                'X-Amz-Content-SHA256': 'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+                'x-amz-decoded-content-length': '0'
+            }
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'method': 'PUT',
+                              'type': 'UNKNOWN',
+                              'status': 400,
+                              'header_x_amz_decoded_content_length': True,
+                              'header_x_amz_trailer': 'unknown',
+                              'header_x_amz_content_sha256':
+                                  'STREAMING-UNSIGNED-PAYLOAD-TRAILER'},
+                             labels)
+
+        do_test('content-md5')
+        do_test('x-amz-checksum-sha2')
+        do_test('content-md5,x-amz-checksum-sha256')
+        do_test('x-amz-checksum-sha256,x-amz-checksum-crc32')
+
+    def test_emit_stats_x_amz_trailer(self):
+        def do_test(header_value):
+            headers = {
+                'X-Amz-Trailer': header_value,
+                'X-Amz-Content-SHA256': 'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+                'x-amz-decoded-content-length': '0'
+            }
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'account': 'AUTH_test',
+                              'container': 'bucket',
+                              'method': 'PUT',
+                              'type': 'object',
+                              'status': 400,  # IncompleteBody
+                              'header_x_amz_decoded_content_length': True,
+                              'header_x_amz_trailer': header_value,
+                              'header_x_amz_content_sha256':
+                                  'STREAMING-UNSIGNED-PAYLOAD-TRAILER'},
+                             labels)
+
+        do_test('x-amz-checksum-crc32')
+        do_test('x-amz-checksum-crc32c')
+        with mock.patch('swift.common.utils.checksum.crc64nvme_isal') \
+                as mock_crc64nvme:
+            mock_crc64nvme.__name__ = 'crc64nvme_isal'
+            do_test('x-amz-checksum-crc64nvme')
+        do_test('x-amz-checksum-sha1')
+        do_test('x-amz-checksum-sha256')
+
+    def test_emit_stats_x_amz_sdk_checksum_algorithm(self):
+        def do_test(algo):
+            headers = {
+                'x-amz-sdk-checksum-algorithm': algo,
+            }
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'method': 'PUT',
+                              'type': 'UNKNOWN',
+                              'status': 400,
+                              'header_x_amz_sdk_checksum_algorithm':
+                                  algo.replace('-', '')},
+                             labels)
+        do_test('CRC32')
+        do_test('CRC32C')
+        do_test('CRC64NVME')
+        do_test('SHA1')
+        do_test('SHA256')
+        do_test('CRC-32')
+        do_test('CRC-32C')
+        do_test('CRC-64NVME')
+        do_test('SHA-1')
+        do_test('SHA-256')
+
+    def test_emit_stats_x_amz_checksum_algorithm(self):
+        def do_test(algo):
+            headers = {
+                'X-Amz-Checksum-Algorithm': algo,
+            }
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'method': 'PUT',
+                              'type': 'UNKNOWN',
+                              'status': 400,
+                              'header_x_amz_checksum_algorithm':
+                                  algo.replace('-', '')},
+                             labels)
+        do_test('CRC32')
+        do_test('CRC32C')
+        do_test('CRC64NVME')
+        do_test('SHA1')
+        do_test('SHA256')
+        do_test('CRC-32')
+        do_test('CRC-32C')
+        do_test('CRC-64NVME')
+        do_test('SHA-1')
+        do_test('SHA-256')
+
+    def test_emit_stats_x_amz_checksum_algorithm_unknown(self):
+        headers = {
+            'X-Amz-Checksum-Algorithm': 'CRC128',
+        }
+        labels = self._do_test_emit_header_stats(headers)
+        self.assertEqual({'method': 'PUT',
+                          'type': 'UNKNOWN',
+                          'status': 400,
+                          'header_x_amz_checksum_algorithm': 'unknown'},
+                         labels)
 
     def test_access_user_id_logging(self):
         # verify that proxy logging gets access_user_id from S3 requests

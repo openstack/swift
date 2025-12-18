@@ -30,6 +30,7 @@ from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     Grant, User, ACL, PERMISSIONS, AllUsers, AuthenticatedUsers
 
 from test.unit.common.middleware.helpers import FakeSwift
+from test.debug_logger import FakeLabeledStatsdClient
 
 
 class FakeAuthApp(object):
@@ -118,8 +119,11 @@ class S3ApiTestCase(unittest.TestCase):
         self.swift = FakeSwift()
         self.app = self._wrap_app(self.swift)
         self.app._pipeline_final_app = self.swift
-        self.s3api = filter_factory({}, **self.conf)(self.app)
+        with mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                        FakeLabeledStatsdClient):
+            self.s3api = filter_factory({}, **self.conf)(self.app)
         self.logger = self.s3api.logger = self.swift.logger
+        self.statsd = self.s3api.statsd
 
         # if you change the registered acl response for /bucket or
         # /bucket/object tearDown will complain at you; you can set this to
