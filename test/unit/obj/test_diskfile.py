@@ -6447,7 +6447,28 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
             with mock.patch('swift.obj.diskfile.os.rename',
                             side_effect=overwriting_rename):
                 writer.commit(timestamp)
-        self.assertEqual(4, len(captured_renames))
+        exp_renames = \
+            [(df._manager.make_on_disk_filename(timestamp, '.data', 2,
+                                                durable=False),
+              df._manager.make_on_disk_filename(timestamp, '.data', 2,
+                                                durable=True))
+             ] * 2
+        if not df._manager.use_linkat:
+            # we capture an extra tmp file rename on some platforms
+            exp_renames += \
+                [(mock.ANY,
+                  df._manager.make_on_disk_filename(ts2, '.data', 2,
+                                                    durable=False))]
+        exp_renames += \
+            [(df._manager.make_on_disk_filename(ts2, '.data', 2,
+                                                durable=False),
+              df._manager.make_on_disk_filename(ts2, '.data', 2,
+                                                durable=True))
+             ] * 2
+        self.assertEqual(
+            exp_renames,
+            [(os.path.basename(args[0]), os.path.basename(args[1]))
+             for args in captured_renames])
         dl = os.listdir(df._datadir)
         datafile = _make_datafilename(
             ts2, POLICIES.default, frag_index=2, durable=True)
