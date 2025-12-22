@@ -46,7 +46,10 @@ if __version__ is None:
     __version__ = _version_info.release_string()
     __canonical_version__ = _version_info.version_string()
 
-
+# Ignore deprecation warnings related to old Python versions (Python 2 and Python 3.6)
+# These warnings come from the cryptography/OpenSSL libraries and indicate that
+# support for these Python versions has been dropped by the core Python team.
+# This is used to keep the console output clean when running code on legacy environments.
 warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
     'Python 2 is no longer supported by the Python core team. '
     'Support for it is now deprecated in cryptography'))
