@@ -512,7 +512,7 @@ class VersionedWritesContext(WSGIContext):
 
         marker_path = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont,
-            self._build_versions_object_name(object_name, time.time()))
+            self._build_versions_object_name(object_name, Timestamp.now()))
         marker_headers = {
             # Definitive source of truth is Content-Type, and since we add
             # a swift_* param, we know users haven't set it themselves.
