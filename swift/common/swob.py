@@ -34,7 +34,7 @@ not have to scramble to add a bunch of code branches all over the
 place to keep Swift working every time webob decides some interface
 needs to change.
 """
-
+import calendar
 from collections import defaultdict
 from collections.abc import MutableMapping
 import time
@@ -159,6 +159,19 @@ def date_header_format(value):
     if isinstance(value, Timestamp):
         value = value.ceil()
     return time.strftime(DATE_HEADER_FORMAT_STRING, time.gmtime(value))
+
+
+def parse_date_header(value):
+    """
+    Given a string in the IMF-fixdate format specified by RFC7231 [1] and
+    defined in RFC5322 [2], return seconds since Unix epoch.
+
+        Sun, 06 Nov 1994 08:49:37 GMT
+
+    :param value: a string in the IMF-fixdate format.
+    :returns: integer seconds since Unix epoch.
+    """
+    return calendar.timegm(time.strptime(value, DATE_HEADER_FORMAT_STRING))
 
 
 def _datetime_property(header):
