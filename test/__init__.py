@@ -38,6 +38,7 @@ import unittest
 from eventlet.green import socket
 
 from swift.common.utils import readconf
+from swift.common.utils.timestamp import Timestamp
 
 
 # Work around what seems to be a Python bug.
@@ -115,3 +116,15 @@ class BaseTestCase(unittest.TestCase):
             standardMsg += 'Mismatched values: %s' % ','.join(mismatched)
 
         self.fail(self._formatMessage(msg, standardMsg))
+
+    def assert_valid_timestamp(self, timestamp):
+        """
+        Helper that asserts the given timestamp is a valid Timestamp
+        representation.
+
+        :param timestamp: a string or instance of Timestamp
+        """
+        try:
+            timestamp = Timestamp(timestamp)
+        except (ValueError, TypeError) as e:
+            self.fail('Invalid timestamp (%r): %r' % (timestamp, e))

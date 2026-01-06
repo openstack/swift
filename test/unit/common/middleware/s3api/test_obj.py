@@ -714,9 +714,13 @@ class BaseS3ApiObj(object):
         # Check that s3api returns an etag header.
         self.assertEqual(headers['etag'], '"%s"' % etag)
 
-        _, _, headers = self.swift.calls_with_headers[-1]
+        _, _, sw_headers = self.swift.calls_with_headers[-1]
         # Check that s3api converts a Content-MD5 header into an etag.
-        self.assertEqual(headers['etag'], etag)
+        self.assertEqual(sw_headers['etag'], etag)
+        # It's not clear if it is necessary or even appropriate for s3api to
+        # set x-timestamp on these requests. However, while it does we'll
+        # assert that it sets a *valid* timestamp.
+        self.assert_valid_timestamp(sw_headers.get('X-Timestamp'))
 
     def test_object_PUT_bad_hash(self):
         # FakeSwift doesn't care if the etag matches, so we explicitly register
@@ -796,15 +800,19 @@ class BaseS3ApiObj(object):
         self.assertEqual(headers['etag'],
                          '"%s"' % self.response_headers['etag'])
 
-        _, _, headers = self.swift.calls_with_headers[-1]
+        _, _, sw_headers = self.swift.calls_with_headers[-1]
         # No way to determine ETag to send
-        self.assertNotIn('etag', headers)
+        self.assertNotIn('etag', sw_headers)
         self.assertEqual('/v1/AUTH_test/bucket/object',
                          req.environ.get('swift.backend_path'))
 
         # Verify access_user_id is set correctly in environ for V4 signature
         self.assertEqual(req.environ['swift.access_logging']['user_id'],
                          'test:tester')
+        # It's not clear if it is necessary or even appropriate for s3api to
+        # set x-timestamp on these requests. However, while it does we'll
+        # assert that it sets a *valid* timestamp.
+        self.assert_valid_timestamp(sw_headers.get('X-Timestamp'))
 
     def test_object_PUT_v4_bad_hash(self):
         orig_app = self.s3api.app
@@ -976,10 +984,14 @@ class BaseS3ApiObj(object):
                           allowed_last_modified)
             self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
-            _, _, headers = self.swift.calls_with_headers[-1]
-            self.assertEqual(headers['X-Copy-From'], '/some/source')
-            self.assertTrue(headers.get('X-Fresh-Metadata') is None)
-            self.assertEqual(headers['Content-Length'], '0')
+            _, _, sw_headers = self.swift.calls_with_headers[-1]
+            self.assertEqual(sw_headers['X-Copy-From'], '/some/source')
+            self.assertTrue(sw_headers.get('X-Fresh-Metadata') is None)
+            self.assertEqual(sw_headers['Content-Length'], '0')
+            # It's not clear if it is necessary or even appropriate for s3api
+            # to set x-timestamp on these requests. However, while it does
+            # we'll assert that it sets a *valid* timestamp.
+            self.assert_valid_timestamp(sw_headers.get('X-Timestamp'))
 
         do_test('/some/source')
         do_test('/some/source?')
@@ -1198,8 +1210,9 @@ class BaseS3ApiObj(object):
                          self.swift.calls)
         self.assertIn(('DELETE', '/v1/AUTH_test/bucket/object'),
                       self.swift.calls)
-        _, path = self.swift.calls[-1]
+        _, path, sw_headers = self.swift.calls_with_headers[-1]
         self.assertEqual(path.count('?'), 0)
+        self.assertNotIn('X-Timestamp', sw_headers)
 
     def test_object_DELETE_with_version_id_but_not_enabled(self):
         req = Request.blank('/bucket/object?versionId=1574358170.12293',

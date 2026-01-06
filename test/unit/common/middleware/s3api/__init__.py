@@ -28,6 +28,7 @@ from swift.common.middleware.s3api.s3api import filter_factory
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     Grant, User, ACL, PERMISSIONS, AllUsers, AuthenticatedUsers
+from test import BaseTestCase
 
 from test.unit.common.middleware.helpers import FakeSwift
 from test.debug_logger import FakeLabeledStatsdClient
@@ -86,7 +87,7 @@ class FakeAuthApp(object):
         return self.app(env, start_response)
 
 
-class S3ApiTestCase(unittest.TestCase):
+class S3ApiTestCase(BaseTestCase):
 
     def __init__(self, name):
         unittest.TestCase.__init__(self, name)
@@ -95,6 +96,7 @@ class S3ApiTestCase(unittest.TestCase):
         return FakeAuthApp(app)
 
     def setUp(self):
+        super().setUp()
         # setup default config dict
         self.conf = {
             'allow_no_owner': False,

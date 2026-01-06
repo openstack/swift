@@ -969,6 +969,11 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
                          '/v1/AUTH_test/bucket+segments/object/X/1')
         self._assert_policy_index(req.headers, headers,
                                   segment_bucket_policy_index)
+        # It's not clear if it is necessary or even appropriate for s3api to
+        # set x-timestamp on these requests. However, while it does we'll
+        # assert that it sets a *valid* timestamp.
+        put_headers = self.swift.calls_with_headers[-1][2]
+        self.assert_valid_timestamp(put_headers.get('X-Timestamp'))
 
     def test_bucket_upload_part_success(self):
         self._do_test_bucket_upload_part_success(0, 0)
@@ -1446,10 +1451,14 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
         self.assertEqual(headers.get(h), override_etag)
         self.assertEqual(headers.get('X-Object-Sysmeta-S3Api-Upload-Id'), 'X')
 
-        # s3api doesn't set storage policy index on backend requests
+        # s3api doesn't set storage policy index nor x-timestamp on these swift
+        # subrequests
         spi = [hdrs.get('X-Backend-Storage-Policy-Index')
                for _, _, hdrs in self.swift.calls_with_headers]
         self.assertEqual(spi, [None] * 5)
+        ts = [hdrs.get('X-Timestamp')
+              for _, _, hdrs in self.swift.calls_with_headers]
+        self.assertEqual(ts, [None] * 5)
 
     def test_object_multipart_upload_complete(self):
         self._do_test_object_multipart_upload_complete()

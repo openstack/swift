@@ -230,6 +230,14 @@ class BaseS3ApiMultiDelete(object):
             ('HEAD', '/v1/AUTH_test/bucket/business/caf\xc3\xa9?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/business/caf\xc3\xa9'),
         ])
+        # s3api doesn't set storage policy index nor x-timestamp on these swift
+        # subrequests
+        spi = [hdrs.get('X-Backend-Storage-Policy-Index')
+               for _, _, hdrs in self.swift.calls_with_headers]
+        self.assertEqual(spi, [None] * 11)
+        ts = [hdrs.get('X-Timestamp')
+              for _, _, hdrs in self.swift.calls_with_headers]
+        self.assertEqual(ts, [None] * 11)
 
     def test_object_multi_DELETE_with_error(self):
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',

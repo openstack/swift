@@ -306,6 +306,19 @@ class TestS3ApiUtils(unittest.TestCase):
 
 
 class TestS3Timestamp(unittest.TestCase):
+    def test_init(self):
+        ts = utils.S3Timestamp(1234567890.123451)
+        self.assertEqual('1234567890.12345', ts.internal)
+        self.assertEqual(1234567890.12345, float(ts))
+
+    def test_now(self):
+        with unittest.mock.patch(
+                'swift.common.middleware.s3api.utils.time.time',
+                return_value=1234567890.123451):
+            ts = utils.S3Timestamp.now()
+        self.assertEqual('1234567890.12345', ts.internal)
+        self.assertEqual(1234567890.12345, float(ts))
+
     def test_s3xmlformat(self):
         expected = '1970-01-01T00:00:01.000Z'
         # integer
