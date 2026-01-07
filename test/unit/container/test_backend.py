@@ -6685,17 +6685,17 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
 
 class TestUpdateNewItemFromExisting(unittest.TestCase):
     # TODO: add test scenarios that have swift_bytes in content_type
-    t0 = Timestamp(1234567890.00000).internal
-    t1 = Timestamp(1234567890.00001).internal
-    t2 = Timestamp(1234567890.00002).internal
-    t3 = Timestamp(1234567890.00003).internal
-    t4 = Timestamp(1234567890.00004).internal
-    t5 = Timestamp(1234567890.00005).internal
-    t6 = Timestamp(1234567890.00006).internal
-    t7 = Timestamp(1234567890.00007).internal
-    t8 = Timestamp(1234567890.00008).internal
-    t20 = Timestamp(1234567890.00020).internal
-    t30 = Timestamp(1234567890.00030).internal
+    t0 = Timestamp(1234567890.00000)
+    t1 = Timestamp(1234567890.00001)
+    t2 = Timestamp(1234567890.00002)
+    t3 = Timestamp(1234567890.00003)
+    t4 = Timestamp(1234567890.00004)
+    t5 = Timestamp(1234567890.00005)
+    t6 = Timestamp(1234567890.00006)
+    t7 = Timestamp(1234567890.00007)
+    t8 = Timestamp(1234567890.00008)
+    t20 = Timestamp(1234567890.00020)
+    t30 = Timestamp(1234567890.00030)
 
     base_new_item = {'etag': 'New_item',
                      'size': 'nEw_item',
@@ -6707,12 +6707,12 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
                      'deleted': '0'}
     #
     # each scenario is a tuple of:
-    #    (existing time, new item times, expected updated item)
+    #    (existing timestamp str, new item timestamps, expected updated item)
     #
     #  e.g.:
-    # existing -> ({'created_at': t5},
+    # existing -> ({'created_at': t5.internal},
     # new_item -> {'created_at': t, 'ctype_timestamp': t, 'meta_timestamp': t},
-    # expected -> {'created_at': t,
+    # expected -> {'created_at': t.internal,
     #              'etag': <val>, 'size': <val>, 'content_type': <val>})
     #
     scenarios_when_all_existing_wins = (
@@ -6721,111 +6721,151 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         # existing has attrs at single time
         #
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t0,
+          'meta_timestamp': t0},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t1},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t0,
+          'meta_timestamp': t1},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t1},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t1,
+          'meta_timestamp': t1},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t2},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t1,
+          'meta_timestamp': t2},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t3},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t1,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t3, 'meta_timestamp': t3},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
+        ({'created_at': t3.internal},
          {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
         #
         # existing has attrs at multiple times:
         # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
         #
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t0,
+          'ctype_timestamp': t0,
+          'meta_timestamp': t0},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t7},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t7},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t5},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t6},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t7},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
     )
 
     scenarios_when_all_new_item_wins = (
         # no existing record
         (None,
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
          {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t4.internal,
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         (None,
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t4 + '+0+1',
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+0+1',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         (None,
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t4 + '+1+0',
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+1+0',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         (None,
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+1',
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+1+1',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         #
@@ -6833,53 +6873,71 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         # existing has attrs at single time
         #
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
+        ({'created_at': t3.internal},
          {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t4.internal,
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t4 + '+0+1',
+        ({'created_at': t3.internal},
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+0+1',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t4 + '+1+0',
+        ({'created_at': t3.internal},
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+1+0',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+1',
+        ({'created_at': t3.internal},
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+1+1',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         #
         # existing has attrs at multiple times:
         # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
         #
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t4 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t8},
+         {'created_at': t4.internal + '+2+2',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t6, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t6 + '+0+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t6,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t8},
+         {'created_at': t6.internal + '+0+2',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t8, 'meta_timestamp': t8},
-         {'created_at': t4 + '+4+0',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t8,
+          'meta_timestamp': t8},
+         {'created_at': t4.internal + '+4+0',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t6, 'ctype_timestamp': t8, 'meta_timestamp': t8},
-         {'created_at': t6 + '+2+0',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t6,
+          'ctype_timestamp': t8,
+          'meta_timestamp': t8},
+         {'created_at': t6.internal + '+2+0',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t8, 'ctype_timestamp': t8, 'meta_timestamp': t8},
+        ({'created_at': t3.internal + '+2+2'},
          {'created_at': t8,
+          'ctype_timestamp': t8,
+          'meta_timestamp': t8},
+         {'created_at': t8.internal,
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
     )
 
@@ -6889,54 +6947,72 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         # existing has attrs at single time
         #
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t4},
-         {'created_at': t3 + '+0+1',
+        ({'created_at': t3.internal},
+         {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t4},
+         {'created_at': t3.internal + '+0+1',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t3 + '+1+0',
+        ({'created_at': t3.internal},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t3.internal + '+1+0',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t3 + '+1+1',
+        ({'created_at': t3.internal},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t3.internal + '+1+1',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
 
         #
         # existing has attrs at multiple times:
         # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
         #
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t8},
-         {'created_at': t3 + '+2+3',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t8},
+         {'created_at': t3.internal + '+2+3',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t3 + '+3+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t8},
+         {'created_at': t3.internal + '+3+2',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+1+2',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t6},
-         {'created_at': t4 + '+2+1',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+2+1',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t8},
-         {'created_at': t4 + '+1+3',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t8},
+         {'created_at': t4.internal + '+1+3',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
 
         # this scenario is to check that the deltas are in hex
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t2, 'ctype_timestamp': t20, 'meta_timestamp': t30},
-         {'created_at': t3 + '+11+a',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t2,
+          'ctype_timestamp': t20,
+          'meta_timestamp': t30},
+         {'created_at': t3.internal + '+11+a',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
     )
 
@@ -6950,7 +7026,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
 
         # this is the new item to update
         new_item = dict(self.base_new_item)
-        new_item.update(new_item_times)
+        new_item.update({k: v.internal for k, v in new_item_times.items()})
 
         # this is the expected result of the update
         expected = dict(new_item)
