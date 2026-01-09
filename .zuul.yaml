@@ -456,7 +456,7 @@
     name: swift-multinode-rolling-upgrade-caracal
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2024.1
+      previous_swift_version: 2024.1-eom
       tox_envlist: func-py3
 
 - job:
