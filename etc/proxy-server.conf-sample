@@ -811,11 +811,6 @@ http_timeout = 10.0
 # username = swift
 # password = password
 
-# Secrets may be cached to reduce latency for the client and load on Keystone.
-# Set this to some number of seconds greater than zero to enable caching and
-# allow some S3 authorization validation checks to happen entirely in the proxy.
-# secret_cache_duration = 0
-
 [filter:healthcheck]
 use = egg:swift#healthcheck
 # An optional filesystem path, which if present, will cause the healthcheck
