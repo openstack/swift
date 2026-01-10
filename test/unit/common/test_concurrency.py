@@ -21,7 +21,7 @@ import unittest
 import threading
 from swift.common.concurrency import (
     Pool, USE_EVENTLET, Timeout, spawn, tpool, SwiftPool, sleep, reset_pool,
-    SwiftPile)
+    SwiftPile, socket_timeout_enter, socket_timeout_exit)
 
 
 @unittest.skipIf(USE_EVENTLET, "Only tested when eventlet is disabled")
@@ -96,6 +96,102 @@ class TestPool(unittest.TestCase):
         pool.put(first)  # return item, unblock getter
         t.join(timeout=5)
         self.assertEqual(result, [first])
+
+
+@unittest.skipIf(USE_EVENTLET, "wall-clock watchdog is threading-mode only")
+class TestSocketDeadlineWatchdog(unittest.TestCase):
+    def _socketpair(self):
+        import socket
+        a, b = socket.socketpair()
+        self.addCleanup(a.close)
+        self.addCleanup(b.close)
+        return a, b
+
+    def test_timeout_bounds_wall_clock_for_dripping_peer(self):
+        # #1: a peer that sends a byte faster than the timeout keeps the per-
+        # recv inactivity timer from ever firing; the wall-clock watchdog must
+        # still bound the total read time (settimeout alone never would).
+        a, b = self._socketpair()
+        stop = threading.Event()
+
+        def drip():
+            while not stop.is_set():
+                try:
+                    b.send(b'x')
+                except OSError:
+                    return
+                sleep(0.05)
+
+        t = threading.Thread(target=drip)
+        t.start()
+        self.addCleanup(t.join)
+        self.addCleanup(stop.set)
+        start = time.monotonic()
+        with self.assertRaises(Timeout):
+            with Timeout(0.3, socket=a):
+                while a.recv(64):       # always active: settimeout can't fire
+                    pass                # watchdog shutdown -> b'' -> raise
+        elapsed = time.monotonic() - start
+        self.assertGreaterEqual(elapsed, 0.25)
+        self.assertLess(elapsed, 2.0)   # bounded, not indefinite
+
+    def test_timeout_no_false_fire_when_op_completes(self):
+        # A completed read must NOT be turned into a Timeout by the watchdog.
+        a, b = self._socketpair()
+        b.send(b'hello')
+        with Timeout(5, socket=a):
+            self.assertEqual(a.recv(5), b'hello')   # no raise
+
+    def test_watchdog_cancel_releases_socket_and_compacts(self):
+        # #3: cancel() must drop the socket ref immediately (so finished ops
+        # don't pin sockets behind a far-off earliest deadline) and compact the
+        # heap once dead entries dominate (so they don't grow unbounded).
+        from swift.common.concurrency import _DeadlineWatchdog
+        wd = _DeadlineWatchdog()
+        far = time.monotonic() + 3600          # never fires during the test
+        entries = [wd.schedule(far, object()) for _ in range(200)]
+        for e in entries[:150]:
+            self.assertFalse(wd.cancel(e))     # not fired
+        self.assertIsNone(entries[0][2])       # socket reference released
+        self.assertTrue(entries[0][3])         # marked cancelled
+        # without compaction the heap would still hold all 200; compaction
+        # drops the cancelled ones, leaving roughly the ~50 live entries.
+        self.assertLess(len(wd._heap), 120)
+
+    def test_socket_timeout_enter_honors_timeout_at(self):
+        # #2: a shared timeout_at (absolute) must bound the read, not the full
+        # (here much larger) per-op timeout -- so later PUT backends inherit
+        # the one chunk deadline instead of a fresh node_timeout each.
+        from swift.common.concurrency import socket_timeout_enter, \
+            socket_timeout_exit
+        a, b = self._socketpair()
+        stop = threading.Event()
+
+        def drip():
+            while not stop.is_set():
+                try:
+                    b.send(b'x')
+                except OSError:
+                    return
+                sleep(0.05)
+
+        t = threading.Thread(target=drip)
+        t.start()
+        self.addCleanup(t.join)
+        self.addCleanup(stop.set)
+        start = time.monotonic()
+        prev = socket_timeout_enter(a, 100, timeout_at=time.time() + 0.3)
+        exc_type = None
+        try:
+            while a.recv(64):
+                pass
+        except OSError as err:
+            exc_type = type(err)
+        # watchdog fired -> socket_timeout_exit must raise the timeout exc
+        with self.assertRaises(socket.timeout):
+            socket_timeout_exit(a, prev, exc_type, 100, socket.timeout)
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 2.0)   # bounded by timeout_at(0.3), not 100s
 
 
 class TestTpool(unittest.TestCase):
@@ -502,6 +598,32 @@ class TestSpawn(unittest.TestCase):
         with self.assertRaises(Exception) as ctx:
             result.wait()
         self.assertEqual(str(ctx.exception), 'reason')
+
+
+@unittest.skipIf(USE_EVENTLET, "threading socket_timeout helpers only")
+class TestSocketTimeoutExitRestore(unittest.TestCase):
+    def _socketpair(self):
+        rd, wr = socket.socketpair()
+        self.addCleanup(rd.close)
+        self.addCleanup(wr.close)
+        return rd, wr
+
+    def test_restores_blocking_socket(self):
+        rd, _ = self._socketpair()
+        rd.setblocking(True)
+        previous = socket_timeout_enter(rd, 5)
+        self.assertEqual(rd.gettimeout(), 5)
+        socket_timeout_exit(rd, previous, None, 5, Timeout)
+        # blocking socket restored to blocking, not left with our timeout
+        self.assertIsNone(rd.gettimeout())
+
+    def test_restores_previous_timeout(self):
+        rd, _ = self._socketpair()
+        rd.settimeout(30)
+        previous = socket_timeout_enter(rd, 5)
+        self.assertEqual(rd.gettimeout(), 5)
+        socket_timeout_exit(rd, previous, None, 5, Timeout)
+        self.assertEqual(rd.gettimeout(), 30)
 
 
 @unittest.skipIf(USE_EVENTLET, "threading Pool only")

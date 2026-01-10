@@ -78,19 +78,20 @@ def iter_mime_headers_and_bodies(wsgi_input, mime_boundary, read_chunk_size):
         yield (hdrs, file_like)
 
 
-def drain(file_like, read_size, timeout):
+def drain(file_like, read_size, timeout, socket=None):
     """
     Read and discard any bytes from file_like.
 
     :param file_like: file-like object to read from
     :param read_size: how big a chunk to read at a time
     :param timeout: how long to wait for a read (use None for no timeout)
+    :param socket: optional socket for enforcing timeout in non-eventlet mode
 
     :raises ChunkReadTimeout: if no chunk was read in time
     """
 
     while True:
-        with ChunkReadTimeout(timeout):
+        with ChunkReadTimeout(timeout, socket=socket):
             chunk = file_like.read(read_size)
             if not chunk:
                 break
@@ -544,23 +545,24 @@ class ObjectController(BaseStorageServer):
                 host, partition, contdevice, headers_out, objdevice,
                 policy)
 
-    def _make_timeout_reader(self, file_like):
+    def _make_timeout_reader(self, file_like, socket=None):
         def timeout_reader():
-            with ChunkReadTimeout(self.client_timeout):
+            with ChunkReadTimeout(self.client_timeout, socket=socket):
                 try:
                     return file_like.read(self.network_chunk_size)
-                except (IOError, ValueError):
-                    raise ChunkReadError
+                except (IOError, ValueError) as e:
+                    raise ChunkReadError(e)
         return timeout_reader
 
-    def _read_put_commit_message(self, mime_documents_iter):
+    def _read_put_commit_message(self, mime_documents_iter, socket=None):
         rcvd_commit = False
         try:
-            with ChunkReadTimeout(self.client_timeout):
+            with ChunkReadTimeout(self.client_timeout, socket=socket):
                 commit_hdrs, commit_iter = next(mime_documents_iter)
                 if commit_hdrs.get('X-Document', None) == "put commit":
                     rcvd_commit = True
-            drain(commit_iter, self.network_chunk_size, self.client_timeout)
+            drain(commit_iter, self.network_chunk_size, self.client_timeout,
+                  socket=socket)
         except ChunkReadError:
             raise HTTPClientDisconnect()
         except ChunkReadTimeout:
@@ -569,9 +571,9 @@ class ObjectController(BaseStorageServer):
             raise HTTPBadRequest(body="couldn't find PUT commit MIME doc")
         return rcvd_commit
 
-    def _read_metadata_footer(self, mime_documents_iter):
+    def _read_metadata_footer(self, mime_documents_iter, socket=None):
         try:
-            with ChunkReadTimeout(self.client_timeout):
+            with ChunkReadTimeout(self.client_timeout, socket=socket):
                 footer_hdrs, footer_iter = next(mime_documents_iter)
         except ChunkReadError:
             raise HTTPClientDisconnect()
@@ -579,13 +581,13 @@ class ObjectController(BaseStorageServer):
             raise HTTPRequestTimeout()
         except StopIteration:
             raise HTTPBadRequest(body="couldn't find footer MIME doc")
-        return self._parse_footer(footer_hdrs, footer_iter)
+        return self._parse_footer(footer_hdrs, footer_iter, socket=socket)
 
-    def _parse_footer(self, footer_hdrs, footer_iter):
+    def _parse_footer(self, footer_hdrs, footer_iter, socket=None):
         """
         Validate footer metadata and translate JSON body into HeaderKeyDict.
         """
-        timeout_reader = self._make_timeout_reader(footer_iter)
+        timeout_reader = self._make_timeout_reader(footer_iter, socket=socket)
         try:
             footer_body = b''.join(iter(timeout_reader, b''))
         except ChunkReadError:
@@ -916,7 +918,8 @@ class ObjectController(BaseStorageServer):
             if not mime_boundary:
                 raise HTTPBadRequest("no MIME boundary")
 
-            with ChunkReadTimeout(self.client_timeout):
+            client_sock = request.environ.get('gunicorn.socket')
+            with ChunkReadTimeout(self.client_timeout, socket=client_sock):
                 mime_documents_iter = iter_mime_headers_and_bodies(
                     request.environ['wsgi.input'],
                     mime_boundary, self.network_chunk_size)
@@ -925,6 +928,7 @@ class ObjectController(BaseStorageServer):
                 'have_metadata_footer': have_metadata_footer,
                 'use_multiphase_commit': use_multiphase_commit,
                 'mime_documents_iter': mime_documents_iter,
+                'socket': client_sock,
             }
         else:
             multi_stage_mime_state = {}
@@ -939,7 +943,9 @@ class ObjectController(BaseStorageServer):
         writer.open()
         elapsed_time = 0
         upload_expiration = time.time() + self.max_upload_time
-        timeout_reader = self._make_timeout_reader(obj_input)
+        client_sock = request.environ.get('gunicorn.socket')
+        timeout_reader = self._make_timeout_reader(obj_input,
+                                                   socket=client_sock)
 
         # Wrap the chunks in CooperativeIterator with specified period
         cooperative_reader = CooperativeIterator(
@@ -990,7 +996,8 @@ class ObjectController(BaseStorageServer):
         return metadata
 
     def _read_mime_footers_metadata(self, have_metadata_footer,
-                                    mime_documents_iter, **kwargs):
+                                    mime_documents_iter,
+                                    socket=None, **kwargs):
         """
         Read footer metadata from the bottom of the multi-stage MIME body.
 
@@ -998,7 +1005,7 @@ class ObjectController(BaseStorageServer):
         """
         if have_metadata_footer:
             metadata = self._read_metadata_footer(
-                mime_documents_iter)
+                mime_documents_iter, socket=socket)
             footer_etag = metadata.pop('etag', '').lower()
             if footer_etag:
                 metadata['ETag'] = footer_etag
@@ -1021,7 +1028,8 @@ class ObjectController(BaseStorageServer):
 
     def _send_multi_stage_continue_headers(self, request,
                                            use_multiphase_commit,
-                                           mime_documents_iter, **kwargs):
+                                           mime_documents_iter,
+                                           socket=None, **kwargs):
         """
         If the PUT requires a two-phase commit (a data and a commit phase) send
         the proxy server another 100-continue response to indicate that we are
@@ -1030,20 +1038,22 @@ class ObjectController(BaseStorageServer):
         if use_multiphase_commit:
             request.environ['wsgi.input'].\
                 send_hundred_continue_response()
-            if not self._read_put_commit_message(mime_documents_iter):
+            if not self._read_put_commit_message(mime_documents_iter,
+                                                 socket=socket):
                 raise HTTPServerError(request=request)
 
-    def _drain_mime_request(self, mime_documents_iter, **kwargs):
+    def _drain_mime_request(self, mime_documents_iter,
+                            socket=None, **kwargs):
         """
         Drain any remaining MIME docs from the socket. There shouldn't be any,
         but we must read the whole request body.
         """
         try:
             while True:
-                with ChunkReadTimeout(self.client_timeout):
+                with ChunkReadTimeout(self.client_timeout, socket=socket):
                     _junk_hdrs, _junk_body = next(mime_documents_iter)
                 drain(_junk_body, self.network_chunk_size,
-                      self.client_timeout)
+                      self.client_timeout, socket=socket)
         except ChunkReadError:
             raise HTTPClientDisconnect()
         except ChunkReadTimeout:

@@ -1229,6 +1229,15 @@ class GetterBase(object):
         self.bytes_used_from_backend = 0
         self.source = None
 
+    def _source_socket(self):
+        # The backend socket the body read blocks on; WatchdogTimeout sets
+        # node_timeout on it to bound the read without eventlet (under eventlet
+        # the Watchdog interrupts the greenthread instead). Use resp.sock:
+        # getresponse() detaches conn.sock into resp, so swift_conn.sock is
+        # None.
+        resp = getattr(self.source, 'resp', None)
+        return getattr(resp, 'sock', None)
+
     def _find_source(self):
         """
         Look for a suitable new source and if one is found then set
@@ -1256,7 +1265,8 @@ class GetterBase(object):
             # and resets the source_parts_iter
             try:
                 with WatchdogTimeout(self.app.watchdog, self.node_timeout,
-                                     ChunkReadTimeout):
+                                     ChunkReadTimeout,
+                                     socket=self._source_socket()):
                     # If we don't have a multipart/byteranges response,
                     # but just a 200 or a single-range 206, then this
                     # performs no IO, and either just returns source or
@@ -1436,7 +1446,8 @@ class GetOrHeadHandler(GetterBase):
         while True:
             try:
                 with WatchdogTimeout(self.app.watchdog, self.node_timeout,
-                                     ChunkReadTimeout):
+                                     ChunkReadTimeout,
+                                     socket=self._source_socket()):
                     chunk = part_file.read(self.app.object_chunk_size)
                     if nbytes is not None:
                         nbytes -= len(chunk)
@@ -1466,9 +1477,11 @@ class GetOrHeadHandler(GetterBase):
                 if not chunk:
                     break
 
+                sock = self.req.environ.get('gunicorn.socket')
                 with WatchdogTimeout(self.app.watchdog,
                                      self.app.client_timeout,
-                                     ChunkWriteTimeout):
+                                     ChunkWriteTimeout,
+                                     socket=sock):
                     self.bytes_used_from_backend += len(chunk)
                     yield chunk
 

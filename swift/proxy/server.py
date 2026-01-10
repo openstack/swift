@@ -32,7 +32,7 @@ from swift.common.http import is_server_error, HTTP_INSUFFICIENT_STORAGE
 from swift.common.storage_policy import POLICIES
 from swift.common.ring import Ring
 from swift.common.error_limiter import ErrorLimiter
-from swift.common.utils import Watchdog, get_logger, \
+from swift.common.utils import get_logger, \
     get_remote_client, split_path, config_true_value, generate_trans_id, \
     affinity_key_function, affinity_locality_predicate, list_from_csv, \
     parse_prefixed_conf, config_auto_int_value, node_to_string, \
@@ -53,6 +53,13 @@ from swift.common.swob import HTTPBadRequest, HTTPForbidden, \
 from swift.common.exceptions import APIVersionError
 from swift.common.wsgi import run_wsgi
 from swift.obj import expirer
+
+from swift.common.concurrency import USE_EVENTLET
+if USE_EVENTLET:
+    from swift.common.utils import Watchdog
+else:
+    from swift.common.utils import WatchdogNoOp as Watchdog
+
 
 DEFAULT_NAMESPACE_AVG_BACKEND_FETCH_TIME = 0.3  # seconds
 DEFAULT_NAMESPACE_CACHE_TOKENS_PER_SESSION = 3  # 3 tokens per session

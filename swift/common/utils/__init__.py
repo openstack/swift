@@ -49,7 +49,7 @@ import stat
 from swift.common.concurrency import (
     eventlet, SwiftPool, sleep, Timeout, Event, socket,
     report_worker_exception, CooperativeLock, reset_pool, Empty,
-    make_pile_queue
+    make_pile_queue, socket_timeout_enter, socket_timeout_exit
 )
 try:
     import importlib.metadata
@@ -5455,29 +5455,73 @@ class Watchdog(object):
         self._evt.wait(sleep_duration)
 
 
+class WatchdogNoOp(object):
+    """
+    No-op Watchdog for non-eventlet mode.
+
+    In non-eventlet mode, timeouts are enforced at the socket level
+    by WatchdogTimeout setting socket.settimeout() and by the gunicorn
+    worker setting client socket timeouts.
+    """
+
+    def __init__(self):
+        self._run_gth = None
+
+    def start(self, timeout, exc, timeout_at=None):
+        return 0
+
+    def stop(self, key):
+        pass
+
+    def spawn(self):
+        pass
+
+    def kill(self):
+        pass
+
+
 class WatchdogTimeout(object):
     """
     Context manager to schedule a timeout in a Watchdog instance
+
+    In eventlet mode, the Watchdog greenthread enforces timeouts by throwing
+    exceptions into the caller greenthread.
+
+    If running without eventlet and if a socket is provided, a socket-level
+    timeout is set for the duration of the context. If the socket operation
+    times out, the resulting socket.timeout is raised using the specified
+    exception class.
     """
 
-    def __init__(self, watchdog, timeout, exc, timeout_at=None):
+    def __init__(self, watchdog, timeout, exc, timeout_at=None, socket=None):
         """
         Schedule a timeout in a Watchdog instance
 
         :param watchdog: Watchdog instance
         :param timeout: duration before the timeout expires
-        :param exc: exception to throw when the timeout expire, must inherit
-                    from eventlet.timeouts.Timeout
+        :param exc: exception class to raise when the timeout expires
         :param timeout_at: allow to force the expiration timestamp
+        :param socket: optional socket to set timeout
         """
         self.watchdog = watchdog
         self.key = watchdog.start(timeout, exc, timeout_at=timeout_at)
+        self.timeout = timeout
+        self.timeout_at = timeout_at
+        self.socket = socket
+        self.previous_timeout = None
+        self.exc = exc
 
     def __enter__(self):
-        pass
+        # Pass timeout_at so threading mode bounds the socket by the shared
+        # deadline (e.g. all PUT backends share one chunk deadline) rather than
+        # giving each a fresh full timeout. No-op under eventlet.
+        self.previous_timeout = socket_timeout_enter(
+            self.socket, self.timeout, timeout_at=self.timeout_at)
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, exc_type, value, traceback):
         self.watchdog.stop(self.key)
+        socket_timeout_exit(self.socket, self.previous_timeout, exc_type,
+                            self.timeout, self.exc)
 
 
 class CooperativeIterator(ClosingIterator):

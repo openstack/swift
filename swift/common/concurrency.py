@@ -20,6 +20,7 @@ rather than importing directly from eventlet.
 """
 
 import collections
+import heapq
 import importlib.util
 import os
 import select
@@ -198,6 +199,7 @@ else:
             self.deadline = None
 
         def __enter__(self):
+            self._wd = None
             if self.seconds is not None:
                 if self.seconds > 0:
                     self.deadline = time.monotonic() + self.seconds
@@ -211,6 +213,13 @@ else:
                     # socket already closed; nothing to bound and nothing to
                     # restore, so leave old_timeout unset.
                     self.old_timeout = self._UNSET
+                else:
+                    # settimeout only bounds per-recv inactivity; arm the
+                    # wall-clock watchdog too so a backend dribbling bytes
+                    # can't hold the read past the deadline (eventlet's Timeout
+                    # was a wall-clock timer).
+                    self._wd = _watch_socket_deadline(self.socket,
+                                                      self.deadline)
             return self
 
         def check_time(self):
@@ -227,8 +236,13 @@ else:
                 self.old_timeout = self._UNSET
 
         def __exit__(self, exc_type, exc_value, exc_traceback):
+            # If the watchdog fired, the read/write was interrupted by a socket
+            # shutdown -- surfacing as OSError or a short read, not
+            # socket_timeout -- so convert it to this Timeout regardless.
+            fired = _unwatch_socket_deadline(getattr(self, '_wd', None))
             self.restore_timeout()
-            if exc_type is socket_timeout:
+            if fired or (exc_type is not None
+                         and issubclass(exc_type, socket_timeout)):
                 raise self
             return False
 
@@ -691,13 +705,6 @@ else:
         select.select(rlist, wlist, [fd], timeout)
 
 
-def report_worker_exception():
-    # Print an unhandled worker exception. eventlet's hub prints it when
-    # debug_exceptions is on; without eventlet there is no hub, so print here.
-    if not USE_EVENTLET or eventlet.hubs.get_hub().debug_exceptions:
-        traceback.print_exception(*sys.exc_info())
-
-
 def clear_connect_timeout(sock):
     # Once a backend connection is established (the connect was bounded by the
     # conn_timeout passed to http_connect), the socket must not keep that short
@@ -708,6 +715,181 @@ def clear_connect_timeout(sock):
     # leave.
     if USE_EVENTLET and sock is not None:
         sock.settimeout(None)
+
+
+class _DeadlineWatchdog(object):
+    """Single daemon thread that shuts down a socket once its wall-clock
+    deadline passes, interrupting a blocked native recv()/send().
+
+    Without eventlet there is no greenthread timer: ``socket.settimeout()``
+    only bounds *per-recv inactivity*, so a backend dribbling bytes faster than
+    the timeout could hold a read open forever. This bounds total wall-clock
+    time the way eventlet's Timeout does -- by forcibly shutting the socket
+    (not closing it, so the fd can't be reused under the owning thread).
+    """
+
+    def __init__(self):
+        # heap entries: [deadline, seq, sock, cancelled, fired, how]
+        self._cv = threading.Condition()
+        self._heap = []
+        self._seq = 0
+        self._cancelled = 0
+        self._thread = None
+
+    def schedule(self, deadline, sock, read_only=False):
+        # read_only -> SHUT_RD on expiry: unblock the read but keep the write
+        # half open to still answer a stalled client. Default SHUT_RDWR.
+        how = socket.SHUT_RD if read_only else socket.SHUT_RDWR
+        entry = [deadline, 0, sock, False, False, how]
+        with self._cv:
+            self._seq += 1
+            entry[1] = self._seq
+            heapq.heappush(self._heap, entry)
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(
+                    target=self._run, name='swift-deadline-watchdog')
+                self._thread.daemon = True
+                self._thread.start()
+            elif self._heap[0] is entry:
+                # Only wake the thread when this entry is the new earliest
+                # deadline; otherwise it already wakes in time. Avoids waking
+                # the thread on every backend op (GIL churn under load).
+                self._cv.notify()
+        return entry
+
+    def cancel(self, entry):
+        # Mark done and drop the socket reference immediately, so a finished
+        # op's socket isn't pinned in the heap until its (far) deadline
+        # expires. A dead slot is skipped when the thread reaches it; to stop
+        # dead slots piling up behind an unexpired earliest entry (e.g. at
+        # proxy chunk rates), compact the heap once they dominate. Returns
+        # whether the watchdog already fired, so the caller maps its I/O
+        # failure to timeout.
+        with self._cv:
+            if not entry[3]:
+                entry[3] = True
+                entry[2] = None
+                self._cancelled += 1
+                if self._cancelled > 64 and self._cancelled * 2 > \
+                        len(self._heap):
+                    self._heap = [e for e in self._heap if not e[3]]
+                    heapq.heapify(self._heap)
+                    self._cancelled = 0
+            return entry[4]
+
+    def _reset_after_fork(self):
+        # Only the forking thread survives fork(); drop the dead worker thread
+        # and any inherited entries (the gunicorn master holds no socket
+        # deadlines when it forks workers) so the child starts clean.
+        self._heap = []
+        self._thread = None
+
+    def _run(self):
+        with self._cv:
+            while True:
+                while not self._heap:
+                    self._cv.wait()
+                entry = self._heap[0]
+                if entry[3]:                       # cancelled
+                    heapq.heappop(self._heap)
+                    continue
+                remaining = entry[0] - time.monotonic()
+                if remaining > 0:
+                    self._cv.wait(remaining)
+                    continue
+                heapq.heappop(self._heap)
+                if entry[3]:                       # cancelled while waiting
+                    continue
+                try:
+                    entry[2].shutdown(entry[5])
+                    entry[4] = True                # fired: we interrupted it
+                except Exception:
+                    # already closed/finished (or no shutdown): not a timeout,
+                    # so leave fired False and never crash the watchdog thread.
+                    pass
+
+
+_deadline_watchdog = _DeadlineWatchdog()
+if hasattr(os, 'register_at_fork'):
+    os.register_at_fork(after_in_child=_deadline_watchdog._reset_after_fork)
+
+
+# Capture the real socket type at import: a test may patch socket.socket (e.g.
+# patch('...memcached.socket.socket')), which would otherwise turn the
+# isinstance() check below into a TypeError.
+_REAL_SOCKET_TYPE = None if USE_EVENTLET else socket.socket
+
+
+def _watch_socket_deadline(sock, deadline, read_only=False):
+    # Arm the wall-clock watchdog (threading mode only) for a real socket whose
+    # blocking recv/send we can interrupt with shutdown(). Skip eventlet, no
+    # deadline, and non-real sockets (test fakes/mocks): those don't block on
+    # real I/O and must keep their no-op timeout behaviour. _REAL_SOCKET_TYPE
+    # is None when imported under eventlet; guard it so a test that flips
+    # USE_EVENTLET off at runtime doesn't hit isinstance(sock, None).
+    if (USE_EVENTLET or deadline is None or _REAL_SOCKET_TYPE is None
+            or not isinstance(sock, _REAL_SOCKET_TYPE)):
+        return None
+    return _deadline_watchdog.schedule(deadline, sock, read_only)
+
+
+def _unwatch_socket_deadline(entry):
+    # Returns True if the watchdog fired (the op was interrupted) before this.
+    if entry is None:
+        return False
+    return _deadline_watchdog.cancel(entry)
+
+
+def socket_timeout_enter(sock, timeout, timeout_at=None, read_only=False):
+    # Without eventlet a Watchdog can't throw into a real thread, so enforce
+    # the timeout at the socket layer: settimeout() bounds per-recv inactivity
+    # and the deadline watchdog bounds total wall-clock time (honouring a
+    # shared timeout_at so e.g. all PUT backends share one chunk deadline).
+    # Returns (previous_timeout, watchdog_entry) to restore/cancel; under
+    # eventlet the Watchdog enforces it, so do nothing.
+    if not USE_EVENTLET and sock is not None and timeout is not None:
+        try:
+            previous = sock.gettimeout()
+            sock.settimeout(timeout)
+        except OSError:
+            # socket already closed (e.g. a prior chunk read consumed the body
+            # and the response closed it); nothing left to bound.
+            return None
+        if timeout_at is not None:
+            deadline = time.monotonic() + max(0, timeout_at - time.time())
+        else:
+            deadline = time.monotonic() + timeout
+        return (previous, _watch_socket_deadline(sock, deadline, read_only))
+    return None
+
+
+def socket_timeout_exit(sock, previous_timeout, exc_type, timeout, exc):
+    if USE_EVENTLET:
+        return
+    fired = False
+    if isinstance(previous_timeout, tuple):
+        # A tuple means we armed the timeout, so always restore the captured
+        # value -- including None, which puts a blocking socket back to
+        # blocking instead of leaving our timeout installed.
+        previous_timeout, entry = previous_timeout
+        fired = _unwatch_socket_deadline(entry)
+        if sock is not None:
+            try:
+                sock.settimeout(previous_timeout)
+            except OSError:
+                # the read closed the socket (Connection: close body fully
+                # consumed), so there's nothing to restore.
+                pass
+    if fired or (exc_type is not None and issubclass(
+            exc_type, (TimeoutError, socket_timeout))):
+        raise exc(timeout)
+
+
+def report_worker_exception():
+    # Print an unhandled worker exception. eventlet's hub prints it when
+    # debug_exceptions is on; without eventlet there is no hub, so print here.
+    if not USE_EVENTLET or eventlet.hubs.get_hub().debug_exceptions:
+        traceback.print_exception(*sys.exc_info())
 
 
 # flake8 raises a F401 without this

@@ -8088,6 +8088,19 @@ class TestWatchdog(unittest.TestCase):
                 w._evt.wait.assert_called_once_with(None)
 
 
+class TestWatchdogTimeout(unittest.TestCase):
+    def test_socket_timeout_is_set(self):
+        watchdog = utils.WatchdogNoOp()
+        mock_socket = mock.Mock()
+        mock_socket.gettimeout.return_value = 30.0
+
+        with mock.patch('swift.common.concurrency.USE_EVENTLET', False):
+            with utils.WatchdogTimeout(
+                    watchdog, 5.0, Exception, socket=mock_socket):
+                mock_socket.settimeout.assert_called_with(5.0)
+            mock_socket.settimeout.assert_called_with(30.0)
+
+
 class TestReiterate(unittest.TestCase):
     def test_reiterate_consumes_first(self):
         test_iter = FakeIterable([1, 2, 3])

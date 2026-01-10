@@ -1008,7 +1008,7 @@ class BaseObjectController(Controller):
                 return req.environ['wsgi.input'].read(
                     self.app.client_chunk_size)
             except (ValueError, IOError) as e:
-                raise ChunkReadError(str(e))
+                raise ChunkReadError(e)
         data_source = iter(reader, b'')
 
         # check if object is set to be automatically deleted (i.e. expired)
@@ -1130,11 +1130,13 @@ class ReplicatedObjectController(BaseObjectController):
                     '%(conns)s/%(nodes)s required connections')
 
         min_conns = quorum_size(len(nodes))
+        sock = req.environ.get('gunicorn.socket')
         try:
             while True:
                 with WatchdogTimeout(self.app.watchdog,
                                      self.app.client_timeout,
-                                     ChunkReadTimeout):
+                                     ChunkReadTimeout,
+                                     socket=sock):
                     try:
                         chunk = next(data_source)
                     except StopIteration:
@@ -1910,7 +1912,8 @@ class Putter(object):
                 to_send = chunk
             try:
                 with WatchdogTimeout(self.watchdog, self.write_timeout,
-                                     ChunkWriteTimeout, timeout_at=timeout_at):
+                                     ChunkWriteTimeout, timeout_at=timeout_at,
+                                     socket=self.conn.sock):
                     self.conn.send(to_send)
             except (Exception, ChunkWriteTimeout):
                 self.failed = True
@@ -2603,11 +2606,16 @@ class ECFragGetter(GetterBase):
     def _iter_bytes_from_response_part(self, part_file, nbytes):
         buf = b''
         part_file = ByteCountEnforcer(part_file, nbytes)
+        sock = self.req.environ.get('gunicorn.socket')
         while True:
             try:
+                # Timeout the *backend* source socket (node_timeout), not the
+                # client socket `sock` used for the write below: without
+                # eventlet WatchdogTimeout acts on the socket it is given.
                 with WatchdogTimeout(self.app.watchdog,
                                      self.node_timeout,
-                                     ChunkReadTimeout):
+                                     ChunkReadTimeout,
+                                     socket=self._source_socket()):
                     chunk = part_file.read(self.app.object_chunk_size)
                     # NB: this append must be *inside* the context
                     # manager for test.unit.SlowBody to do its thing
@@ -2652,7 +2660,8 @@ class ECFragGetter(GetterBase):
                     buf = buf[self.fragment_size:]
                     with WatchdogTimeout(self.app.watchdog,
                                          self.app.client_timeout,
-                                         ChunkWriteTimeout):
+                                         ChunkWriteTimeout,
+                                         socket=sock):
                         self.bytes_used_from_backend += len(client_chunk)
                         yield client_chunk
 
@@ -3282,6 +3291,7 @@ class ECObjectController(BaseObjectController):
                 msg='Object PUT exceptions during send, '
                     '%(conns)s/%(nodes)s required connections')
 
+        sock = req.environ.get('gunicorn.socket')
         try:
             # build our putter_to_frag_index dict to place handoffs in the
             # same part nodes index as the primaries they are covering
@@ -3292,7 +3302,8 @@ class ECObjectController(BaseObjectController):
             while True:
                 with WatchdogTimeout(self.app.watchdog,
                                      self.app.client_timeout,
-                                     ChunkReadTimeout):
+                                     ChunkReadTimeout,
+                                     socket=sock):
                     try:
                         chunk = next(data_source)
                     except StopIteration:
