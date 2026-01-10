@@ -142,10 +142,8 @@ To enable this new mode in a Swift cluster the ``versioned_writes`` and
 the option ``allow_object_versioning`` to ``True``.
 """
 
-import calendar
 import itertools
 import json
-import time
 
 from urllib.parse import unquote
 
@@ -164,7 +162,7 @@ from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
     HTTPBadRequest, str_to_wsgi, bytes_to_wsgi, wsgi_quote, \
     wsgi_to_str, wsgi_unquote, Request, HTTPNotFound, HTTPException, \
     HTTPRequestEntityTooLarge, HTTPInternalServerError, HTTPNotAcceptable, \
-    HTTPConflict, HTTPLengthRequired, DATE_HEADER_FORMAT_STRING
+    HTTPConflict, HTTPLengthRequired, parse_date_header
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import get_logger, Timestamp, drain_and_close, \
     config_true_value, close_if_possible, closing_if_possible, \
@@ -234,6 +232,10 @@ class ObjectVersioningContext(WSGIContext):
         return get_reserved_name('versions', container_name)
 
     def _build_versions_object_name(self, object_name, ts):
+        """
+        :param object_name: (str) name of object
+        :param ts: (str) timestamp of object version
+        """
         inv = ~Timestamp(ts)
         return get_reserved_name(object_name, inv.internal)
 
@@ -447,9 +449,7 @@ class ObjectContext(ObjectVersioningContext):
         # X-Versions-Location
         ts_source = get_resp.headers.get(
             'x-timestamp',
-            calendar.timegm(time.strptime(
-                get_resp.headers['last-modified'],
-                DATE_HEADER_FORMAT_STRING)))
+            str(parse_date_header(get_resp.headers['last-modified'])))
         vers_obj_name = self._build_versions_object_name(
             object_name, ts_source)
 
@@ -1126,7 +1126,7 @@ class ContainerContext(ObjectVersioningContext):
                     raise HTTPBadRequest('invalid version_marker param')
 
                 params['marker'] = self._build_versions_object_name(
-                    params['marker'], ts)
+                    params['marker'], ts.internal)
         elif 'marker' in params:
             params['marker'] = self._build_versions_object_prefix(
                 params['marker']) + ':'  # just past all numbers

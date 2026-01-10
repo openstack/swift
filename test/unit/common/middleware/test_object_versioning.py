@@ -17,7 +17,6 @@ import functools
 import json
 import os
 import time
-from unittest import mock
 import unittest
 import urllib.parse
 from swift.common import swob, utils
@@ -1188,9 +1187,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '200 OK')
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite_null_marker_versioning_disabled(self, mock_time):
+    def test_PUT_overwrite_null_marker_versioning_disabled(self):
         # During object PUT with a versioning disabled, if the most
         # recent versioned object is a DELETE marker will a *null*
         # version-id, then the DELETE marker should be removed.

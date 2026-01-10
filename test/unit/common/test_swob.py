@@ -861,6 +861,14 @@ class TestRequest(unittest.TestCase):
         self.assertEqual('Mon, 24 Nov 2025 21:19:30 GMT',
                          swob.date_header_format(ts))
 
+    def test_parse_date_header(self):
+        secs = swob.parse_date_header('Thu, 01 Jan 1970 00:00:00 GMT')
+        self.assertIsInstance(secs, int)
+        self.assertEqual(0, secs)
+        secs = swob.parse_date_header('Tue, 10 Jun 2014 21:40:08 GMT')
+        self.assertIsInstance(secs, int)
+        self.assertEqual(1402436408, secs)
+
     def test_bad_range(self):
         req = swob.Request.blank('/hi/there', body='hi')
         req.range = 'bad range'

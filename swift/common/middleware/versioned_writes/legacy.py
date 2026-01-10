@@ -225,24 +225,21 @@ Disable versioning from a container (x is any value except empty)::
 -H "X-Remove-Versions-Location: x" http://<storage_url>/container
 """
 
-import calendar
 import json
-import time
 
 from swift.common.utils import get_logger, Timestamp, \
     config_true_value, close_if_possible, FileLikeIter, drain_and_close
 from swift.common.request_helpers import get_sys_meta_prefix, \
     copy_header_subset
 from swift.common.wsgi import WSGIContext, make_pre_authed_request
-from swift.common.swob import (
-    Request, HTTPException, HTTPRequestEntityTooLarge)
 from swift.common.constraints import check_container_format, MAX_FILE_SIZE
 from swift.proxy.controllers.base import get_container_info
 from swift.common.http import (
     is_success, is_client_error, HTTP_NOT_FOUND)
 from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
     HTTPServerError, HTTPBadRequest, str_to_wsgi, bytes_to_wsgi, wsgi_quote, \
-    wsgi_unquote, DATE_HEADER_FORMAT_STRING
+    wsgi_unquote, Request, HTTPException, HTTPRequestEntityTooLarge, \
+    parse_date_header
 from swift.common.exceptions import (
     ListingIterNotFound, ListingIterError)
 
@@ -429,6 +426,10 @@ class VersionedWritesContext(WSGIContext):
             object_name)
 
     def _build_versions_object_name(self, object_name, ts):
+        """
+        :param object_name: (str) name of object
+        :param ts: (str) timestamp of object version
+        """
         return ''.join((
             self._build_versions_object_prefix(object_name),
             Timestamp(ts).internal))
@@ -459,9 +460,7 @@ class VersionedWritesContext(WSGIContext):
         # X-Versions-Location
         ts_source = get_resp.headers.get(
             'x-timestamp',
-            calendar.timegm(time.strptime(
-                get_resp.headers['last-modified'],
-                DATE_HEADER_FORMAT_STRING)))
+            str(parse_date_header(get_resp.headers['last-modified'])))
         vers_obj_name = self._build_versions_object_name(
             object_name, ts_source)
 
@@ -512,7 +511,8 @@ class VersionedWritesContext(WSGIContext):
 
         marker_path = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont,
-            self._build_versions_object_name(object_name, Timestamp.now()))
+            self._build_versions_object_name(object_name,
+                                             Timestamp.now().internal))
         marker_headers = {
             # Definitive source of truth is Content-Type, and since we add
             # a swift_* param, we know users haven't set it themselves.
