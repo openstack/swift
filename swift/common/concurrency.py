@@ -22,6 +22,7 @@ rather than importing directly from eventlet.
 import collections
 import importlib.util
 import os
+import select
 import sys
 import threading
 import time
@@ -70,7 +71,6 @@ from eventlet.green.http.client import CONTINUE, HTTPConnection, \
     HTTPResponse, HTTPSConnection, ImproperConnectionState, _UNKNOWN
 from eventlet.green.urllib import request as urllib_request
 from eventlet.greenthread import getcurrent
-from eventlet.hubs import trampoline  # noqa: F401
 from eventlet.queue import Empty, LightQueue, Queue
 from eventlet.semaphore import Semaphore
 from eventlet.support.greenlets import GreenletExit
@@ -83,6 +83,7 @@ ChunkReadError = eventlet.wsgi.ChunkReadError
 
 if USE_EVENTLET:
     from eventlet import tpool
+    from eventlet.hubs import trampoline
     from eventlet.pools import Pool
     from eventlet import sleep
 
@@ -684,6 +685,11 @@ else:
                 raise StopIteration()
             return self._futures.popleft().result()
 
+    def trampoline(fd, read=None, write=None, timeout=None, **kwargs):
+        rlist = [fd] if read else []
+        wlist = [fd] if write else []
+        select.select(rlist, wlist, [fd], timeout)
+
 
 def report_worker_exception():
     # Print an unhandled worker exception. eventlet's hub prints it when
@@ -742,6 +748,7 @@ __all__ = [
     '_UNKNOWN',
     'urllib_request',
     'getcurrent',
+    'trampoline',
     'Pool',
     'Empty',
     'LightQueue',

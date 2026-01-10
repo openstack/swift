@@ -42,6 +42,7 @@ import swift.common.exceptions
 
 import http.client
 
+from swift.common.concurrency import trampoline
 
 NOTICE = 25
 
@@ -133,7 +134,9 @@ class PipeMutex(object):
                 # Tell eventlet to suspend the current greenthread until
                 # self.rfd becomes readable. This will happen when someone
                 # else writes to self.wfd.
-                eventlet.hubs.trampoline(self.rfd, read=True)
+                # In threading mode this simply sleeps shortly, allowing
+                # other threads to continue in the meantime
+                trampoline(self.rfd, read=True)
 
     def release(self):
         """
