@@ -490,20 +490,21 @@
 
 # Image building jobs
 - secret:
-    name: swift-dockerhub
+    name: swift-dockerhub-2026
     data:
       username: screamingfrenzy
       password: !encrypted/pkcs1-oaep
-        - ruMizg1iVvKm4ABLQ8GshZMwt3EzxOyjPZsInL20+ZS+TQxhEwRbLFGzSxnrChIOdioyl
-          7TMW1PxQeJ5T/mPIsV7TBsSsnIMKYRcDSbKjnC0hjILpKfQXLFw4/rV/d3jeB6oLDSTW1
-          fIt4NmJqhsjlvst+VwT1JnFHLdrRaGMWYkjRU8rEmH82jDM7Wk7J+selykvTrlRQ7RpQR
-          6huzniL6PJPOZ7I5VsQcCmEWYKwd/u9Ifhe50yjgxmKR7Fi+wl0nBSOzt38f9ZEXTB6So
-          /ks0+RX2sTlgulNgJnnR8FG3p2AHxTJ75fcBnY1KkYlG0+KsdRTzNjxNXs2/Ao0pyJJTs
-          JWniEHWVAq6T5agwD1SsmWAzFctBjGKDstxmTyHaSNNN5c6yoVZewRBrFDfYXMJUikyS+
-          52bel/uihhiq60MnUCzKCiBg/TM1uonwRKA2KkDXWRh80oxBMIxw5nVZCMaHFpx7NW/ls
-          k6aI8jio+/N0cLZlglWqGOsE3EC08Ddd+cqe668/LQVY97UgMjIu6aZRwX9Iwa2NXNDRE
-          zPKQ3UDWYFgl8Za90PmrRD4qYuN/1lqCrLKp5cSJbche+EqdrGolCj701zUWcCdwjHMwz
-          YA5zG1SbWFyC9BidZYTwMNbo/RRz4TtFmW35A4CRE5HYB5Uh5ccpGlBvI9Yv8A=
+        # Updated via `zuul-client --zuul-url https://zuul.opendev.org encrypt --tenant openstack --project openstack/swift --secret-name swift-dockerhub-2026 --infile /tmp/secret --field-name password`
+        - THyWPBCU+xc8S50Syk258uDyGeCuVgCLcAw6uskY3mAegDq3Cu7fUNiENYD1HnE6gebZU
+          PRCpkOkuxNgEA8diUv3Z+9JMqTwXr7geBpWLdxuuM37QHlCSwlZRWp8V7BVqUohQnC9VM
+          HwxwiTFFGpzFa6oN2Dn5TrbxG5CH4TxAYQOIuEHh1gcU9lwwyIW3FfXwoxYuJPLwpeOyH
+          jYbkKbrXoAJ5blQk+Lpn0p1vwgK+voGiAM8GgGnPeEt0nK0IqJpekvRtBqP6X+KL+vQC8
+          6KHJ8YAVshFk2qcCd4SgMM8HzfE7T9GYPMt9sEMDUk9KpMIni3Sf9Wo0RlS2GZL9lQ1Dz
+          aRPrg9j9tnX/RfROVSepPOZes34z/ICGVRkmPNjamKCjDxAL5BYPek4yuUv36F/PobUeN
+          QCdKTmagfvo3SvKw2MjEX/ziOep/XUhYP862CCKc1aliSV6aUoijf/Sx4qZhyPbRxiMII
+          MnpvgRuLzILpRxlbyQsf3ItQwKCaYWJvVUHYXqIsQX0OGmGf00MnxWuoZQjcsJFC9NoLB
+          e2y6NcmzrJxhcPMnaTFKPydJuwzwny4srGG7F32diO7oJ8UrNyzUDXHk8nIFLmAcX0bgY
+          t1g6zjnPBUSVsYeG8yw18huIjb0CNn8GUz6AQvgAS4+73am07vBKcp+H2UmaAc=
 
 - job:
     name: swift-build-image
@@ -525,7 +526,7 @@
     description: Build SAIO docker images and upload to Docker Hub.
     secrets:
       name: docker_credentials
-      secret: swift-dockerhub
+      secret: swift-dockerhub-2026
       pass-to-parent: true
     vars: *swift_image_vars
 
@@ -536,7 +537,7 @@
     description: Promote previously uploaded Docker images.
     secrets:
       name: docker_credentials
-      secret: swift-dockerhub
+      secret: swift-dockerhub-2026
       pass-to-parent: true
     vars: *swift_image_vars
 
