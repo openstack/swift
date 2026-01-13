@@ -23,7 +23,7 @@ import unittest
 from urllib.parse import parse_qs, quote, quote_plus
 
 from swift.common import swob
-from swift.common.swob import Request
+from swift.common.swob import Request, parse_date_header
 from swift.common.utils import json, md5, Timestamp
 
 from test.unit import FakeMemcache, patch_policies
@@ -99,7 +99,9 @@ class BaseS3ApiMultiUpload(object):
         self.segment_bucket = '/v1/AUTH_test/bucket+segments'
         self.etag = '7dfa07a8e59ddbcd1dc84d4c4f82aea1'
         self.last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
-        put_headers = {'etag': self.etag, 'last-modified': self.last_modified}
+        put_headers = {'etag': self.etag,
+                       'x-timestamp': 'unexpected and ignored by s3api',
+                       'last-modified': self.last_modified}
 
         self.s3api.conf.min_segment_size = 1
 
@@ -844,23 +846,22 @@ class BaseS3ApiMultiUpload(object):
             '/bucket/object?partNumber=1&uploadId=X',
             environ={'REQUEST_METHOD': 'PUT'},
             headers=put_headers)
-        timestamp = timestamp or time.time()
-        with patch('swift.common.middleware.s3api.utils.time.time',
-                   return_value=timestamp):
-            return self.call_s3api(req)
+        return self.call_s3api(req)
 
     def test_upload_part_copy(self):
         date_header = self.get_date_header()
         timestamp = mktime(date_header)
-        last_modified = S3Timestamp(timestamp).s3xmlformat
         status, headers, body = self._test_copy_for_s3acl(
             'test:tester', put_header={'Date': date_header},
             timestamp=timestamp)
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Content-Type'], 'application/xml')
         self.assertTrue(headers.get('etag') is None)
+        self.assertNotIn('X-Timestamp', headers)
         elem = fromstring(body, 'CopyPartResult')
-        self.assertEqual(elem.find('LastModified').text, last_modified)
+        exp_last_modified = parse_date_header(self.last_modified)
+        self.assertEqual(elem.find('LastModified').text,
+                         S3Timestamp(exp_last_modified).s3xmlformat)
         self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
         _, _, headers = self.swift.calls_with_headers[-1]
@@ -969,11 +970,8 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
                          '/v1/AUTH_test/bucket+segments/object/X/1')
         self._assert_policy_index(req.headers, headers,
                                   segment_bucket_policy_index)
-        # It's not clear if it is necessary or even appropriate for s3api to
-        # set x-timestamp on these requests. However, while it does we'll
-        # assert that it sets a *valid* timestamp.
         put_headers = self.swift.calls_with_headers[-1][2]
-        self.assert_valid_timestamp(put_headers.get('X-Timestamp'))
+        self.assertNotIn('x-timestamp', put_headers)
 
     def test_bucket_upload_part_success(self):
         self._do_test_bucket_upload_part_success(0, 0)
