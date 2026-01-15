@@ -41,7 +41,8 @@ from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, patch_policies,
-    FakeSource, StubResponse, CaptureIteratorFactory, make_timestamp_iter)
+    FakeSource, StubResponse, CaptureIteratorFactory, make_timestamp_iter,
+    BaseUnitTestCase)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -184,9 +185,10 @@ class FakeCache(FakeMemcache):
         return self.stub or super(FakeCache, self).get(key, raise_on_error)
 
 
-class BaseTest(unittest.TestCase):
+class BaseTest(BaseUnitTestCase):
 
     def setUp(self):
+        super().setUp()
         self.logger = debug_logger()
         self.cache = FakeCache()
         self.conf = {}
@@ -1367,13 +1369,14 @@ class TestFuncs(BaseTest):
 
         # with additional, verify precedence
         req = Request.blank('/v1/a/c/o', headers=src_headers)
+        ts_additional = next(self.ts_iter)
         dst_headers = base.generate_request_headers(
             req, transfer=False,
             additional={'X-Backend-Storage-Policy-Index': '2',
-                        'X-Timestamp': '1234.56789'})
+                        'X-Timestamp': ts_additional.internal})
         expected_headers = {'x-backend-no-timestamp-update': 'true',
                             'x-backend-storage-policy-index': '2',
-                            'x-timestamp': '1234.56789',
+                            'x-timestamp': ts_additional.internal,
                             'x-trans-id': '-',
                             'Referer': 'GET http://localhost/v1/a/c/o',
                             'connection': 'close',

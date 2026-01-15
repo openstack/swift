@@ -57,7 +57,7 @@ class TestAccountController(unittest.TestCase):
             with mock.patch(
                     'swift.proxy.controllers.base.http_connect',
                     fake_http_connect(*responses)):
-                req = Request.blank('/v1/AUTH_bob')
+                req = Request.blank('/v1/AUTH_bob', {'REQUEST_METHOD': method})
                 resp = getattr(controller, method)(req)
 
             self.assertEqual(expected,

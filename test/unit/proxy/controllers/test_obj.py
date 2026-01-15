@@ -2091,11 +2091,28 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(200, headers={'Connection': 'close'}):
+        with mocked_http_conn(
+                200, headers={'Connection': 'close'}) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
+        self.assertEqual('GET', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
+
+    def test_HEAD_simple(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        req.method = 'HEAD'
+        with mocked_http_conn(
+                200, headers={'Connection': 'close'}) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
+        self.assertEqual('HEAD', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
 
     def test_GET_slow_read(self):
         self.app.recoverable_node_timeout = 0.01
@@ -3412,13 +3429,34 @@ class TestECObjController(ECObjectControllerMixin, BaseTestCase):
             'Connection': 'close',
             'X-Object-Sysmeta-Ec-Scheme': self.policy.ec_scheme_description,
         }] * self.policy.ec_ndata
-        with set_http_connect(*get_statuses, headers=get_hdrs):
+        with mocked_http_conn(*get_statuses, headers=get_hdrs) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
         self.assertFalse([h for h in resp.headers
                           if h.lower().startswith('x-object-sysmeta-ec-')])
+        self.assertEqual('GET', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
+
+    def test_HEAD_simple(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o',
+                                              {'REQUEST_METHOD': 'HEAD'})
+        resp_hdrs = {
+            'Connection': 'close',
+            'X-Object-Sysmeta-Ec-Scheme': self.policy.ec_scheme_description,
+        }
+        with mocked_http_conn(200, headers=resp_hdrs) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
+        self.assertFalse([h for h in resp.headers
+                          if h.lower().startswith('x-object-sysmeta-ec-')])
+        self.assertEqual('HEAD', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
 
     def test_GET_disconnect(self):
         self.app.recoverable_node_timeout = 0.01

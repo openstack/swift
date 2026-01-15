@@ -47,7 +47,7 @@ from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
 from swift.common.utils import Timestamp, md5, close_if_possible, checksum
-from test import get_config
+from test import get_config, BaseTestCase
 from test.debug_logger import FakeLogger
 from test.unit.common.test_memcached import MockedMemcachePool, \
     MockMemcached
@@ -59,6 +59,12 @@ import functools
 from unittest import mock as mocklib
 import inspect
 from unittest import SkipTest
+
+
+class BaseUnitTestCase(BaseTestCase):
+    def setUp(self):
+        super().setUp()
+        self.ts_iter = make_timestamp_iter()
 
 
 # try not to import this module from swift
