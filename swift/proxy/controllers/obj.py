@@ -474,8 +474,6 @@ class BaseObjectController(Controller):
         if error_response:
             return error_response
 
-        req.ensure_x_timestamp()
-
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
 
@@ -1001,9 +999,6 @@ class BaseObjectController(Controller):
 
         # update content type in case it is missing
         self._update_content_type(req)
-
-        req.ensure_x_timestamp()
-
         # check constraints on object name and request headers
         error_response = check_object_creation(req, self.object_name) or \
             check_content_type(req)
@@ -1058,8 +1053,6 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-
-        req.ensure_x_timestamp()
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)

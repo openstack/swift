@@ -1966,7 +1966,7 @@ class Controller(object):
                            if k.lower() in self.pass_through_headers or
                            is_sys_or_user_meta(st, k))
 
-    def generate_request_headers(self, orig_req=None, additional=None,
+    def generate_request_headers(self, orig_req, additional=None,
                                  transfer=False):
         """
         Create a dict of headers to be used in backend requests
@@ -1977,20 +1977,17 @@ class Controller(object):
         :returns: a dictionary of headers
         """
         headers = HeaderKeyDict()
-        if orig_req:
-            headers.update((k.lower(), v)
-                           for k, v in orig_req.headers.items()
-                           if k.lower().startswith('x-backend-'))
-            referer = orig_req.as_referer()
-        else:
-            referer = ''
+        headers.update((k.lower(), v)
+                       for k, v in orig_req.headers.items()
+                       if (k.lower().startswith('x-backend-') or
+                           k.lower() == 'x-timestamp'))
+        referer = orig_req.as_referer()
         # additional headers can override x-backend-* headers from orig_req
         if additional:
             headers.update(additional)
-        if orig_req and transfer:
+        if transfer:
             # transfer headers from orig_req can override additional headers
             self.transfer_headers(orig_req.headers, headers)
-        headers.setdefault('x-timestamp', Timestamp.now().internal)
         # orig_req and additional headers cannot override the following...
         headers['x-trans-id'] = self.trans_id
         headers['connection'] = 'close'

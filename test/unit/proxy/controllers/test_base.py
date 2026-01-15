@@ -1316,18 +1316,21 @@ class TestFuncs(BaseTest):
 
     def test_generate_request_headers(self):
         base = Controller(self.app)
+        ts = next(self.ts_iter)
+
         src_headers = {'x-remove-base-meta-owner': 'x',
                        'x-base-meta-size': '151M',
                        'x-base-sysmeta-mysysmeta': 'myvalue',
                        'x-Backend-No-Timestamp-Update': 'true',
                        'X-Backend-Storage-Policy-Index': '3',
+                       'X-Timestamp': ts.internal,
                        'x-backendoftheworld': 'ignored',
                        'new-owner': 'Kun'}
         req = Request.blank('/v1/a/c/o', headers=src_headers)
         dst_headers = base.generate_request_headers(req)
         expected_headers = {'x-backend-no-timestamp-update': 'true',
                             'x-backend-storage-policy-index': '3',
-                            'x-timestamp': mock.ANY,
+                            'x-timestamp': ts.internal,
                             'x-trans-id': '-',
                             'Referer': 'GET http://localhost/v1/a/c/o',
                             'connection': 'close',
@@ -1419,21 +1422,6 @@ class TestFuncs(BaseTest):
             self.assertEqual(v, dst_headers[k.lower()])
         for k, v in bad_hdrs.items():
             self.assertNotIn(k.lower(), dst_headers)
-
-    def test_generate_request_headers_with_no_orig_req(self):
-        base = Controller(self.app)
-        src_headers = {'x-remove-base-meta-owner': 'x',
-                       'x-base-meta-size': '151M',
-                       'new-owner': 'Kun'}
-        dst_headers = base.generate_request_headers(None,
-                                                    additional=src_headers,
-                                                    transfer=True)
-        expected_headers = {'x-base-meta-size': '151M',
-                            'connection': 'close'}
-        for k, v in expected_headers.items():
-            self.assertIn(k, dst_headers)
-            self.assertEqual(v, dst_headers[k])
-        self.assertEqual('', dst_headers['Referer'])
 
     def test_bytes_to_skip(self):
         # if you start at the beginning, skip nothing

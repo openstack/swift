@@ -747,12 +747,12 @@ class ContainerController(Controller):
 
     def _backend_requests(self, req, n_outgoing, account_partition, accounts,
                           policy_index=None):
-        additional = {'X-Timestamp': Timestamp.now().internal}
         if policy_index is None:
-            additional['X-Backend-Storage-Policy-Default'] = \
-                int(POLICIES.default)
+            policy_index = int(POLICIES.default)
+            additional = {'X-Backend-Storage-Policy-Default':
+                          str(policy_index)}
         else:
-            additional['X-Backend-Storage-Policy-Index'] = str(policy_index)
+            additional = {'X-Backend-Storage-Policy-Index': str(policy_index)}
         headers = [self.generate_request_headers(req, transfer=True,
                                                  additional=additional)
                    for _junk in range(n_outgoing)]

@@ -21,7 +21,8 @@ from swift.common.middleware.acl import format_acl
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_account_info
 from swift.common import constraints
-from test.unit import fake_http_connect, FakeRing, mocked_http_conn
+from test.unit import fake_http_connect, FakeRing, mocked_http_conn, \
+    BaseUnitTestCase
 from swift.common.storage_policy import StoragePolicy
 from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
@@ -31,22 +32,19 @@ from test.unit import patch_policies
 
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
-class TestAccountController(unittest.TestCase):
+class TestAccountController(BaseUnitTestCase):
 
     ACCOUNT_REPLICAS = 3
 
     def setUp(self):
-        self.app = proxy_server.Application(
-            None,
-            account_ring=FakeRing(), container_ring=FakeRing())
+        super().setUp()
+        self.app = self._make_app()
 
-    def _make_callback_func(self, context):
-        def callback(ipaddr, port, device, partition, method, path,
-                     headers=None, query_string=None, ssl=False):
-            context['method'] = method
-            context['path'] = path
-            context['headers'] = headers or {}
-        return callback
+    def _make_app(self):
+        return proxy_server.Application(
+            None,
+            account_ring=FakeRing(replicas=self.ACCOUNT_REPLICAS),
+            container_ring=FakeRing(replicas=self.ACCOUNT_REPLICAS))
 
     def _assert_responses(self, method, test_cases):
         if method in ('PUT', 'DELETE'):
@@ -158,22 +156,25 @@ class TestAccountController(unittest.TestCase):
         user_meta_key = 'X-Account-Meta-Test'
         # allow PUTs to account...
         self.app.allow_account_management = True
-        controller = proxy_server.AccountController(self.app, 'a')
-        context = {}
-        callback = self._make_callback_func(context)
+        ts = next(self.ts_iter)
         hdrs_in = {sys_meta_key: 'foo',
                    user_meta_key: 'bar',
-                   'x-timestamp': '1.0'}
+                   'x-timestamp': ts.internal,
+                   'x-foo': 'ignored'}
         req = Request.blank('/v1/a', headers=hdrs_in)
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(200, 200, give_connect=callback)):
-            controller.PUT(req)
-        self.assertEqual(context['method'], 'PUT')
-        self.assertIn(sys_meta_key, context['headers'])
-        self.assertEqual(context['headers'][sys_meta_key], 'foo')
-        self.assertIn(user_meta_key, context['headers'])
-        self.assertEqual(context['headers'][user_meta_key], 'bar')
-        self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
+        req.method = 'PUT'
+        with mocked_http_conn(*[200] * self.ACCOUNT_REPLICAS) as mock_conn:
+            req.get_response(self.app)
+        self.assertEqual(
+            ['PUT'] * self.ACCOUNT_REPLICAS,
+            [req['method'] for req in mock_conn.requests])
+        for req in mock_conn.requests:
+            self.assertIn(sys_meta_key, req['headers'])
+            self.assertEqual(req['headers'][sys_meta_key], 'foo')
+            self.assertIn(user_meta_key, req['headers'])
+            self.assertEqual(req['headers'][user_meta_key], 'bar')
+            self.assertEqual(req['headers']['x-timestamp'], ts.internal)
+            self.assertNotIn('x-foo', req['headers'])
 
     def test_sys_meta_headers_POST(self):
         # check that headers in sys meta namespace make it through
@@ -181,22 +182,25 @@ class TestAccountController(unittest.TestCase):
         sys_meta_key = '%stest' % get_sys_meta_prefix('account')
         sys_meta_key = sys_meta_key.title()
         user_meta_key = 'X-Account-Meta-Test'
-        controller = proxy_server.AccountController(self.app, 'a')
-        context = {}
-        callback = self._make_callback_func(context)
+        ts = next(self.ts_iter)
         hdrs_in = {sys_meta_key: 'foo',
                    user_meta_key: 'bar',
-                   'x-timestamp': '1.0'}
+                   'x-timestamp': ts.internal,
+                   'x-foo': 'ignored'}
         req = Request.blank('/v1/a', headers=hdrs_in)
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(200, 200, give_connect=callback)):
-            controller.POST(req)
-        self.assertEqual(context['method'], 'POST')
-        self.assertIn(sys_meta_key, context['headers'])
-        self.assertEqual(context['headers'][sys_meta_key], 'foo')
-        self.assertIn(user_meta_key, context['headers'])
-        self.assertEqual(context['headers'][user_meta_key], 'bar')
-        self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
+        req.method = 'POST'
+        with mocked_http_conn(*[200] * self.ACCOUNT_REPLICAS) as mock_conn:
+            req.get_response(self.app)
+        self.assertEqual(
+            ['POST'] * self.ACCOUNT_REPLICAS,
+            [req['method'] for req in mock_conn.requests])
+        for req in mock_conn.requests:
+            self.assertIn(sys_meta_key, req['headers'])
+            self.assertEqual(req['headers'][sys_meta_key], 'foo')
+            self.assertIn(user_meta_key, req['headers'])
+            self.assertEqual(req['headers'][user_meta_key], 'bar')
+            self.assertEqual(req['headers']['x-timestamp'], ts.internal)
+            self.assertNotIn('x-foo', req['headers'])
 
     def _make_user_and_sys_acl_headers_data(self):
         acl = {
@@ -340,12 +344,6 @@ class TestAccountController(unittest.TestCase):
 class TestAccountController4Replicas(TestAccountController):
 
     ACCOUNT_REPLICAS = 4
-
-    def setUp(self):
-        self.app = proxy_server.Application(
-            None,
-            account_ring=FakeRing(replicas=4),
-            container_ring=FakeRing(replicas=4))
 
     def test_response_code_for_PUT(self):
         PUT_TEST_CASES = [

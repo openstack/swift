@@ -3495,13 +3495,6 @@ class TestReplicatedObjectController(
 
     def _check_PUT_respects_write_affinity(self, conf, policy,
                                            expected_region):
-        written_to = []
-
-        def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
-            if path == '/a/c/o.jpg':
-                written_to.append((ipaddr, port, device))
-
         # mock shuffle to be a no-op to ensure that the only way nodes would
         # not be used in ring order is if affinity is respected.
         with mock.patch('swift.proxy.server.shuffle', lambda x: x):
@@ -3513,23 +3506,21 @@ class TestReplicatedObjectController(
             with save_globals():
                 object_ring = app.get_object_ring(policy)
                 object_ring.max_more_nodes = 100
-                controller = \
-                    ReplicatedObjectController(
-                        app, 'a', 'c', 'o.jpg')
                 # requests go to acc, con, obj, obj, obj
-                set_http_connect(200, 200, 201, 201, 201,
-                                 give_connect=test_connect)
                 req = Request.blank(
                     '/v1/a/c/o.jpg', method='PUT', body='a',
                     headers={'X-Backend-Storage-Policy-Index': str(policy)})
-                res = controller.PUT(req)
+                with mocked_http_conn(200, 200, 201, 201, 201) as mock_conn:
+                    res = req.get_response(app)
         self.assertTrue(res.status.startswith('201 '))
-        self.assertEqual(3, len(written_to))
-        for ip, port, device in written_to:
-            # this is kind of a hokey test, but in FakeRing, the port is even
-            # when the region is 0, and odd when the region is 1, so this test
-            # asserts that we only wrote to nodes in region 0.
-            self.assertEqual(expected_region, port % 2)
+        self.assertEqual(
+            ['HEAD', 'HEAD', 'PUT', 'PUT', 'PUT'],
+            [req['method'] for req in mock_conn.requests])
+        # this is kind of a hokey test, but in FakeRing, the port is even
+        # when the region is 0, and odd when the region is 1, so this test
+        # asserts that we only wrote to nodes in region 0.
+        written_to = [req['port'] % 2 for req in mock_conn.requests[-3:]]
+        self.assertEqual([expected_region] * 3, written_to)
 
     @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
                      StoragePolicy(1, 'one', False, object_ring=FakeRing())])
@@ -3562,13 +3553,6 @@ class TestReplicatedObjectController(
         self._check_PUT_respects_write_affinity(conf, 1, 0)
 
     def test_PUT_respects_write_affinity_with_507s(self):
-        written_to = []
-
-        def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
-            if path == '/a/c/o.jpg':
-                written_to.append((ipaddr, port, device))
-
         with save_globals():
             def is_r0(node):
                 return node['region'] == 0
@@ -3579,9 +3563,6 @@ class TestReplicatedObjectController(
             policy_options.write_affinity_is_local_fn = is_r0
             policy_options.write_affinity_node_count_fn = lambda r: 3
 
-            controller = \
-                ReplicatedObjectController(
-                    self.app, 'a', 'c', 'o.jpg')
             error_node = object_ring.get_part_nodes(1)[0]
             self.app.error_limit(error_node, 'test')
             self.assertEqual(
@@ -3596,26 +3577,27 @@ class TestReplicatedObjectController(
             self.assertEqual(
                 0, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
-            set_http_connect(200, 200,        # account, container
-                             201, 201, 201,   # 3 working backends
-                             give_connect=test_connect)
-            req = Request.blank('/v1/a/c/o.jpg', {})
+            req = Request.blank('/v1/a/c/o.jpg', {'REQUEST_METHOD': 'PUT'})
             req.content_length = 1
             req.body = 'a'
-            res = controller.PUT(req)
-            self.assertTrue(res.status.startswith('201 '))
+            with mocked_http_conn(200, 200,  # account, container
+                                  201, 201, 201,  # 3 working backends
+                                  ) as mock_conn:
+                res = req.get_response(self.app)
+            self.assertEqual(201, res.status_int)
             # error limited happened during PUT.
             self.assertEqual(
                 1, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
+            self.assertEqual(
+                ['HEAD', 'HEAD', 'PUT', 'PUT', 'PUT'],
+                [req['method'] for req in mock_conn.requests])
 
         # this is kind of a hokey test, but in FakeRing, the port is even when
         # the region is 0, and odd when the region is 1, so this test asserts
         # that we wrote to 2 nodes in region 0, then went to 1 non-r0 node.
-        def get_region(x):
-            return x[1] % 2  # it's (ip, port, device)
-
-        self.assertEqual([0, 0, 1], [get_region(x) for x in written_to])
+        written_to = [req['port'] % 2 for req in mock_conn.requests[-3:]]
+        self.assertEqual([0, 0, 1], written_to)
 
     @unpatch_policies
     def test_PUT_no_etag_fallocate(self):
@@ -7407,8 +7389,7 @@ class TestReplicatedObjectController(
                                                          'x-custom-operator']),
                          exposed)
 
-    def _gather_x_container_headers(self, controller_call, req, *connect_args,
-                                    **kwargs):
+    def _gather_x_container_headers(self, req, *connect_args, **kwargs):
         header_list = kwargs.pop('header_list', ['X-Container-Device',
                                                  'X-Container-Host',
                                                  'X-Container-Partition',
@@ -7427,7 +7408,7 @@ class TestReplicatedObjectController(
 
             set_http_connect(*connect_args, give_connect=capture_headers,
                              **kwargs)
-            resp = controller_call(req)
+            resp = req.get_response(self.app)
             self.assertEqual(2, resp.status_int // 100)  # sanity check
 
             if kwargs.get('no_heads', False):
@@ -7493,11 +7474,8 @@ class TestReplicatedObjectController(
 
             with mock.patch('swift.proxy.controllers.obj.BaseObjectController.'
                             '_get_update_shard', return_value=shardrange):
-                controller = ReplicatedObjectController(
-                    self.app, 'a', 'c', 'o')
                 seen_headers = self._gather_x_container_headers(
-                    controller.PUT, req,
-                    201, 201, 201,  # PUT PUT PUT
+                    req, 201, 201, 201,  # PUT PUT PUT
                     header_list=exp_seen_header_list, no_heads=True)
 
             self.assertEqual(seen_headers, expected_headers)
@@ -7505,11 +7483,8 @@ class TestReplicatedObjectController(
     def test_PUT_x_container_headers_with_equal_replicas(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201)  # HEAD HEAD PUT PUT PUT
         self.assertEqual(
             seen_headers, [
                 {'X-Container-Host': '10.0.0.0:1000',
@@ -7530,11 +7505,8 @@ class TestReplicatedObjectController(
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201)  # HEAD HEAD PUT PUT PUT
 
         self.assertEqual(
             seen_headers, [
@@ -7556,10 +7528,8 @@ class TestReplicatedObjectController(
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
+            req,
             # HEAD HEAD PUT PUT PUT PUT PUT PUT PUT PUT PUT PUT PUT
             200, 200, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201)
 
@@ -7588,11 +7558,8 @@ class TestReplicatedObjectController(
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201)  # HEAD HEAD PUT PUT PUT
 
         self.assertEqual(
             seen_headers, [
@@ -7615,11 +7582,8 @@ class TestReplicatedObjectController(
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Content-Type': 'application/stuff'})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.POST, req,
-            200, 200, 200, 200, 200)   # HEAD HEAD POST POST POST
+            req, 200, 200, 200, 200, 200)  # HEAD HEAD POST POST POST
 
         self.assertEqual(
             seen_headers, [
@@ -7642,11 +7606,8 @@ class TestReplicatedObjectController(
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'Content-Type': 'application/stuff'})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.DELETE, req,
-            200, 200, 200, 200, 200)   # HEAD HEAD DELETE DELETE DELETE
+            req, 200, 200, 200, 200, 200)  # HEAD HEAD DELETE DELETE DELETE
 
         self.maxDiff = None
         self.assertEqual(seen_headers, [
@@ -7675,11 +7636,8 @@ class TestReplicatedObjectController(
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
                                      'X-Delete-At': str(delete_at_timestamp)})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201,  # HEAD HEAD PUT PUT PUT
             header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
                          'X-Delete-At-Partition', 'X-Delete-At-Container'))
 
@@ -7721,11 +7679,8 @@ class TestReplicatedObjectController(
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,
                                      'X-Delete-At': str(delete_at_timestamp)})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201,  # HEAD HEAD PUT PUT PUT
             header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
                          'X-Delete-At-Partition', 'X-Delete-At-Container'))
         self.assertEqual(seen_headers, [
@@ -11341,30 +11296,21 @@ class TestContainerController(BaseTestCase):
              'X-Account-Device': 'sdc'}
         ])
 
-    def test_PUT_backed_x_timestamp_header(self):
-        timestamps = []
-
-        def capture_timestamps(*args, **kwargs):
-            headers = kwargs['headers']
-            timestamps.append(headers.get('X-Timestamp'))
-
+    def test_PUT_backend_x_timestamp_header(self):
         req = Request.blank('/v1/a/c', method='PUT', headers={'': ''})
         with save_globals():
-            new_connect = set_http_connect(200,  # account existence check
-                                           201, 201, 201,
-                                           give_connect=capture_timestamps)
-            resp = self.app.handle_request(req)
+            with mocked_http_conn(200,  # account existence check
+                                  201, 201, 201) as mock_conn:
+                resp = req.get_response(self.app)
 
-        # sanity
-        with self.assertRaises(StopIteration):
-            next(new_connect.code_iter)
         self.assertEqual(2, resp.status_int // 100)
-
-        timestamps.pop(0)  # account existence check
-        self.assertEqual(3, len(timestamps))
-        for timestamp in timestamps:
-            self.assertEqual(timestamp, timestamps[0])
-            self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
+        self.assertEqual(
+            ['HEAD', 'PUT', 'PUT', 'PUT'],
+            [req['method'] for req in mock_conn.requests])
+        timestamps = [req['headers'].get('X-Timestamp')
+                      for req in mock_conn.requests[-3:]]
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_DELETE_backed_x_timestamp_header(self):
         timestamps = []
