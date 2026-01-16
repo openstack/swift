@@ -35,7 +35,7 @@ from swift.common.utils import md5
 from swift.common.utils.timestamp import Timestamp
 from swift.proxy.controllers.base import get_cache_key
 from test.unit import patch_policies, FakeMemcache, make_timestamp_iter, \
-    mock_timestamp_now
+    mock_timestamp_now, BaseUnitTestCase
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -59,7 +59,7 @@ def local_tz(func):
     return wrapper
 
 
-class ObjectVersioningBaseTestCase(unittest.TestCase):
+class ObjectVersioningBaseTestCase(BaseUnitTestCase):
     def setUp(self):
         self.app = FakeSwift()
         conf = {}
@@ -630,6 +630,93 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         symlink_put_headers = self.app.call_list[-1].headers
         for k, v in symlink_expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
+
+    def test_PUT_timestamp_set_by_object_versioning(self):
+        # verify timestamps set by versioning
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        # the version path depends on the timestamp chosen by versioning mw...
+        self.app.register_default('PUT', swob.HTTPCreated, {}, '')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        calls = self.app.call_list
+        self.assertEqual(3, len(calls))
+        # GET
+        self.assertEqual(('GET', '/v1/a/c/o?symlink=get'),
+                         (calls[0].method, calls[0].path))
+        # PUT to versions
+        self.assertEqual('PUT', calls[1].method)
+        ts1 = self.assert_valid_timestamp(calls[1].headers.get('X-Timestamp'))
+        self.assertEqual(0, ts1.offset)
+        exp_version = (~ts1).internal
+        self.assertEqual('/v1/a/%s/%s'
+                         % (self.build_container_name('c'),
+                            self.build_object_name('o', exp_version)),
+                         calls[1].path)
+        # symlink PUT
+        self.assertEqual(('PUT', '/v1/a/c/o'),
+                         (calls[2].method, calls[2].path))
+        ts2 = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
+        # XXX it's not clear why the symlink timestamp gets an offset
+        self.assertEqual(1, ts2.offset)
+        self.assertEqual(Timestamp(ts1, offset=1), ts2)
+
+    def test_PUT_timestamp_set_by_preceding_middleware(self):
+        # verify that an existing x-timestamp is used by a multipart put
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        ts_req = req.ensure_x_timestamp()
+
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        exp_version = (~ts_req).internal
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_version),
+            swob.HTTPCreated, {}, '')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        calls = self.app.call_list
+        self.assertEqual(3, len(calls))
+        # GET
+        self.assertEqual(('GET', '/v1/a/c/o?symlink=get'),
+                         (calls[0].method, calls[0].path))
+        # PUT to versions
+        self.assertEqual('PUT', calls[1].method)
+        ts = self.assert_valid_timestamp(calls[1].headers.get('X-Timestamp'))
+        self.assertEqual(ts_req, ts)
+        self.assertEqual('/v1/a/%s/%s'
+                         % (self.build_container_name('c'),
+                            self.build_object_name('o', exp_version)),
+                         calls[1].path)
+        # symlink PUT
+        self.assertEqual(('PUT', '/v1/a/c/o'),
+                         (calls[2].method, calls[2].path))
+        ts = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
+        # XXX it's not clear why the symlink timestamp gets an offset
+        self.assertEqual(1, ts.offset)
+        self.assertEqual(Timestamp(ts_req, offset=1), ts)
 
     def test_POST(self):
         ts_now = Timestamp.now()
@@ -1566,6 +1653,39 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         self.assertEqual(status, '403 Forbidden')
         self.assertEqual(len(authorize_call), 1)
         self.assertEqual(('DELETE', '/v1/a/c/o'), authorize_call[0])
+
+    def test_DELETE_timestamp_set_by_object_versioning(self):
+        # verify timestamps set by versioning
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        # the version path depends on the timestamp chosen by versioning mw...
+        self.app.register_default('PUT', swob.HTTPCreated, {}, '')
+        self.app.register(
+            'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None)
+        req = Request.blank(
+            '/v1/a/c/o', method='DELETE',
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '204 No Content')
+        calls = self.app.call_list
+        self.assertEqual(3, len(calls))
+        # GET
+        self.assertEqual(('GET', '/v1/a/c/o?symlink=get'),
+                         (calls[0].method, calls[0].path))
+        # PUT to versions
+        self.assertEqual('PUT', calls[1].method)
+        ts1 = self.assert_valid_timestamp(calls[1].headers.get('X-Timestamp'))
+        self.assertEqual(0, ts1.offset)
+        exp_version = (~ts1).internal
+        self.assertEqual('/v1/a/%s/%s'
+                         % (self.build_container_name('c'),
+                            self.build_object_name('o', exp_version)),
+                         calls[1].path)
+        # DELETE
+        self.assertEqual(('DELETE', '/v1/a/c/o'),
+                         (calls[2].method, calls[2].path))
+        ts2 = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
+        self.assertEqual(ts1, ts2)
 
 
 class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):

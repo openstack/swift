@@ -125,6 +125,6 @@ class BaseTestCase(unittest.TestCase):
         :param timestamp: a string or instance of Timestamp
         """
         try:
-            timestamp = Timestamp(timestamp)
+            return Timestamp(timestamp)
         except (ValueError, TypeError) as e:
             self.fail('Invalid timestamp (%r): %r' % (timestamp, e))

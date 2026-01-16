@@ -203,6 +203,7 @@ class FakeSwift(object):
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
         self._sticky_headers = {}
+        self._default_responses = {}
         self.logger = debug_logger('fake-swift')
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
@@ -218,7 +219,11 @@ class FakeSwift(object):
 
     def _find_response(self, method, path):
         path = normalize_path(path)
-        resps = self._responses[(method, path)]
+        try:
+            resps = self._responses[(method, path)]
+        except KeyError:
+            resps = [self._default_responses[method]]
+
         if len(resps) == 1:
             # we'll return the last registered response forever
             return resps[0]
@@ -477,6 +482,10 @@ class FakeSwift(object):
         sticky_headers.update(headers)
 
     def register(self, method, path, response_class, headers, body=b''):
+        """
+        Register a response that will match any request with the given method
+        and path
+        """
         path = normalize_path(path)
         self._responses[(method, path)] = [(response_class, headers, body)]
 
@@ -485,6 +494,12 @@ class FakeSwift(object):
         resp_key = (method, normalize_path(path))
         next_resp = (response_class, headers, body)
         self._responses.setdefault(resp_key, []).append(next_resp)
+
+    def register_default(self, method, response_class, headers, body=b''):
+        """
+        Register a response that will match any request with the given method.
+        """
+        self._default_responses[method] = (response_class, headers, body)
 
 
 class FakeAppThatExcepts(object):

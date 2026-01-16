@@ -543,6 +543,7 @@ class ObjectContext(ObjectVersioningContext):
             'content-length': '0',
             'x-auth-token': req.headers.get('x-auth-token'),
             'X-Backend-Allow-Reserved-Names': 'true',
+            'X-Timestamp': req.timestamp.internal,
         }
         marker_req = make_pre_authed_request(
             req.environ, path=wsgi_quote(marker_path),
