@@ -34,7 +34,9 @@ from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
     parse_override_options, round_robin_iter, Everything, get_db_files, \
-    parse_db_filename, quote, RateLimitedIterator, config_auto_int_value
+    parse_db_filename, quote, RateLimitedIterator, config_auto_int_value, \
+    listdir, unlink_paths_older_than
+
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE, \
@@ -642,9 +644,16 @@ class Replicator(Daemon):
         self.db_logger.debug(broker, 'Successfully deleted db')
         return True
 
+    def _reclaim_tmp_dbs(self, broker, now):
+        fnames = listdir(broker.db_dir)
+        fnames = [os.path.join(broker.db_dir, fname) for fname in fnames
+                  if fname.endswith('.tmp')]
+        unlink_paths_older_than(fnames, now - self.reclaim_age)
+
     def _reclaim(self, broker, now=None):
         if not now:
             now = time.time()
+        self._reclaim_tmp_dbs(broker, now)
         return broker.reclaim(now - self.reclaim_age,
                               now - (self.reclaim_age * 2))
 
