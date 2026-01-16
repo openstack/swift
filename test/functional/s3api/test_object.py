@@ -21,7 +21,7 @@ from email.utils import formatdate, parsedate
 from time import mktime
 
 import test.functional as tf
-from swift.common import utils
+from swift.common import utils, swob
 
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import S3Timestamp
@@ -477,6 +477,48 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('PUT', self.bucket, obj, delete_after,
                                    content)
         self.assertEqual(status, 200)
+
+    def test_object_expiration_header(self):
+        # Test that X-Delete-At translates to x-amz-expiration.
+        obj = 'expiring-object'
+        content = b'test content'
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, {}, content)
+        self.assertEqual(status, 200)
+
+        status, headers, body = \
+            self.conn.make_request('HEAD', self.bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertNotIn('x-amz-expiration', headers)
+        status, headers, body = \
+            self.conn.make_request('GET', self.bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertNotIn('x-amz-expiration', headers)
+
+        # now set x-delete-at
+        delete_at_ts = utils.Timestamp.now(delta=3600 * 1e5)
+        headers = {'X-Delete-At': str(delete_at_ts.ceil())}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj, headers)
+        self.assertEqual(status, 200)
+
+        # HEAD should return x-amz-expiration
+        status, headers, body = \
+            self.conn.make_request('HEAD', self.bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertIn('x-amz-expiration', headers)
+        self.assertEqual('expiry-date="%s", rule-id="swift-object-expiration"'
+                         % swob.date_header_format(delete_at_ts),
+                         headers['x-amz-expiration'])
+
+        # GET should also return x-amz-expiration
+        status, headers, body = \
+            self.conn.make_request('GET', self.bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertIn('x-amz-expiration', headers)
+        self.assertEqual('expiry-date="%s", rule-id="swift-object-expiration"'
+                         % swob.date_header_format(delete_at_ts),
+                         headers['x-amz-expiration'])
 
     def test_put_object_invalid_x_delete_at(self):
         obj = 'object'
