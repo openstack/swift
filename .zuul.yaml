@@ -618,8 +618,6 @@
             irrelevant-files: &docker-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
-        - swift-build-image-py3:
-            irrelevant-files: *docker-irrelevant-files
 
         # Unit tests
         - swift-tox-py37:
@@ -709,8 +707,6 @@
         # in-tree definitions) dsvm jobs.
         - swift-upload-image:
             irrelevant-files: *docker-irrelevant-files
-        - swift-upload-image-py3:
-            irrelevant-files: *docker-irrelevant-files
         - swift-tox-py37
         - swift-tox-py39
         - swift-tox-py312
@@ -773,4 +769,3 @@
     promote:
       jobs:
         - swift-promote-image
-        - swift-promote-image-py3
