@@ -2219,6 +2219,8 @@ class S3Request(swob.Request):
                 raise err_resp[0](*err_resp[1:])
             elif b'quota' in err_msg:
                 raise err_resp(err_msg)
+            elif err_resp == RequestTimeout:
+                raise RequestTimeout(headers={'Connection': 'close'})
             else:
                 raise err_resp()
 
