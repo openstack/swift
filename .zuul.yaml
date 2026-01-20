@@ -524,7 +524,7 @@
 - job:
     name: swift-upload-image
     parent: opendev-upload-docker-image
-    voting: true
+    voting: false
     description: Build SAIO docker images and upload to Docker Hub.
     secrets:
       name: docker_credentials
