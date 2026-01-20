@@ -25,7 +25,6 @@ import time
 from shutil import rmtree, copy
 from tempfile import mkdtemp, NamedTemporaryFile
 import json
-from itertools import cycle
 
 from unittest import mock
 from unittest.mock import patch, call
@@ -2004,42 +2003,44 @@ class TestDBReplicator(unittest.TestCase):
             mock.call(node, partition, expected_hsh, replicator.logger)])
 
     @unit.with_tempdir
-    def test_relcaim_tmp_files(self, tmpdir):
+    def test_reclaim_tmp_files(self, tmpdir):
         db_dir = os.path.join(tmpdir, 'containers/123/bla/some_bla/localtion/')
         mkdirs(db_dir)
+
         # Touch some files
-        for f in ('the_db.db', 'somethingelse.txt', 'some_temp_file.tmp',
-                  'another_tmp_file.db.tmp', 'one_last_temp.db.tmp'):
+        file_mtimes = {'the_db.db': 0,
+                       'somethingelse.txt': 0,
+                       'some_temp_file.tmp': 5,
+                       'another_tmp_file.db.tmp': 10,
+                       'one_last_temp.db.tmp': 5}
+        for f in file_mtimes.keys():
             with open(os.path.join(db_dir, f), 'w'):
                 pass
 
         # create a broker
         broker = FakeBroker(os.path.join(db_dir, 'the_db.db'))
+        calls = []
 
-        timestamps = [5, 10]
+        def fake_getmtime(path, *args, **kwargs):
+            calls.append(path)
+            return file_mtimes.get(os.path.basename(path), 0)
 
         # OK now let's try and reclaim old tmp files
-        with mock.patch('os.path.getmtime',
-                        side_effect=cycle(timestamps)) as mock_getmtime:
+        with mock.patch('os.path.getmtime', fake_getmtime):
             replicator = ConcreteReplicator({'reclaim_age': 10})
             replicator._reclaim_tmp_dbs(broker, 18)
 
-        # It should only look at the tmp files and because of the cycle only
+        # It should only look at the tmp files and because of the mtimes only
         # 2 of them should have been removed
         self.assertEqual(sorted(['another_tmp_file.db.tmp',
                                  'somethingelse.txt',
                                  'the_db.db']),
                          sorted(listdir(db_dir)))
-        self.assertTrue(mock_getmtime.called)
-        # We should've only called getmtime on the files ending in .tmp so
-        # 3 times.
-        self.assertEqual(3, mock_getmtime.call_count)
         expected_paths_called = [
-            mock.call(os.path.join(db_dir, 'one_last_temp.db.tmp')),
-            mock.call(os.path.join(db_dir, 'another_tmp_file.db.tmp')),
-            mock.call(os.path.join(db_dir, 'some_temp_file.tmp'))]
-        self.assertEqual(sorted(expected_paths_called),
-                         sorted(list(mock_getmtime.call_args_list)))
+            os.path.join(db_dir, 'another_tmp_file.db.tmp'),
+            os.path.join(db_dir, 'one_last_temp.db.tmp'),
+            os.path.join(db_dir, 'some_temp_file.tmp')]
+        self.assertEqual(expected_paths_called, sorted(calls))
 
 
 class TestHandoffsOnly(unittest.TestCase):
