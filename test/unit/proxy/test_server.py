@@ -844,7 +844,8 @@ class TestProxyServer(unittest.TestCase):
 
         req = Request.blank('/v1/account', environ={'REQUEST_METHOD': 'HEAD'})
         baseapp.update_request(req)
-        resp = baseapp.handle_request(req)
+        with mocked_http_conn(Timeout(), Timeout(), Timeout()):
+            resp = baseapp.handle_request(req)
         self.assertEqual(resp.status_int, 503)  # couldn't connect to anything
         exp_timings = {}
         self.assertEqual(baseapp.node_timings, exp_timings)
