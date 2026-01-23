@@ -94,9 +94,11 @@
 # domain_name = changeme
 
 # If running on a multi-region cluster, Castellan may select the wrong
-# endpoint for Barbican. To avoid this, set this to the URL of the
-# correct barbican endpoint. If there is only a single Barbican service
-# in your deployment, it is fine to leave this unconfigured.
+# endpoint for Barbican. To avoid this, configure the region name for the
+# correct barbican endpoint, or specify the barbican endpoint explicitly.
+# If there is only a single Barbican service in your deployment, it is
+# fine to leave these unconfigured.
+# barbican_region_name =
 # barbican_endpoint =
 
 [kmip_keymaster]
