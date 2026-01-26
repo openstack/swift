@@ -35,7 +35,8 @@ class KmsKeyMaster(BaseKeyMaster):
                       'domain_id', 'domain_name', 'project_id',
                       'project_domain_id', 'reauthenticate',
                       'auth_endpoint', 'api_class', 'key_id*',
-                      'barbican_endpoint', 'active_root_secret_id')
+                      'barbican_endpoint', 'barbican_region_name',
+                      'active_root_secret_id')
     keymaster_conf_section = 'kms_keymaster'
 
     def _get_root_secret(self, conf):
@@ -71,6 +72,12 @@ class KmsKeyMaster(BaseKeyMaster):
             barbican_endpoint=conf.get('barbican_endpoint'),
             api_class=conf.get('api_class')
         )
+        # Set barbican_region_name if provided in config
+        # This is used by Castellan's BarbicanKeyManager for endpoint discovery
+        if conf.get('barbican_region_name'):
+            oslo_conf.set_default('barbican_region_name',
+                                  conf.get('barbican_region_name'),
+                                  group='barbican')
         options.enable_logging()
         manager = key_manager.API(oslo_conf)
 
