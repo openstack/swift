@@ -496,16 +496,16 @@
       password: !encrypted/pkcs1-oaep
         # Updated via `zuul-client --zuul-url https://zuul.opendev.org encrypt --tenant openstack --project openstack/swift --secret-name swift-dockerhub-2026 --infile /tmp/secret --field-name password`
         # Note that the upload ansible uses a command module with the default expand_argument_vars=true, so you may need to sprinkle in some backslashes to prevent expansion
-        - P2BsJQzd8+wwYQPRW5ZRtYcXLJx0wBB5hvClTQzEG1Gtsn5RN21LH7mecpZMqGxYhwqiW
-          I3kxgKXYzScfoGQ2qwwqI1H5OXh/3S8dN8InyZNT0eQj3J8DFS1ke3buNXBA/FfZpzj/1
-          m9Cz10V48Uw3ieQPKYJx/52yJ+uW7szAIh3ev2xgzE2RfYd6N5gsLkKfm6+qTi0owYwEg
-          yqib5c+Md/8F2DSubqynDqPOv3oe5uYvyQ32+lMZorLBNTdnrYh1DfFgMdKwJnLsoefDK
-          jmS6NfbLRZMn06nC5PXlgHJH+Km8mAjpaXkooNsKUNaGXmqeySJWaTtgLeKUfuz8ci4tw
-          YF0WpTcAoPicIc1sqYybOHL1x03LQYhw0Bpad63kR2gANzjGQRJp8kov0DvKO5flaELqO
-          XrEa2jg3ziCuF+ojnivA+uxnn73ysJoVpN2a8vwmM8OomltMelDsVWO4GeeXa9fWvfjYM
-          aF0v3d6EU6AX0BVTpiNJaYL+Zba3zFEPI49IvKqus73ntbkgGDyqXkZIN4GMgcLPu/rYP
-          wKbyxFFrYk4Rxz6nGN//CiC2VzeoPQ7/Ee5ffloxDwQvKOCS+NH19wtExpEGipmyLB2Uh
-          cF2wL8PA/VNnK+iGNp7Fz086KLkbDmUSr1BPPu+P18MRpcRKoLfY+6R54QkHG0=
+        - Cn5654BqBMrlShF6y/wBZjY7bWKlnu1ao3+clf4YwbJBtMQtD3OFgS93AaGJhH/BowB7R
+          c3tyaAJDwQ1J8NF/f5X76bJ/2n6PlAf/Cb1pylwvfreKYP6XrKMStq1SHGkVHxeM06mKX
+          SeL6lJ2I4RV/o2WHpNao9q60jjJZffgk4K1IS4Sb3i2TIvyBZuK2gBXYWAvO6QPn/LOp6
+          QDp3/P43+XFxB+DW6Py1RiFmVmgbzmk46iSnv55LueQ93/2bqria2/6iWh20IW1wJo+y1
+          TDgkOs0jspwfuqoSAEf81nVDnq9Xjus9kaoD1qymTDCTZjwKps/zRHK3a4ZEeHpmW7OSe
+          y/kDS6ssA8vB/RgidydNpQACcJJlhRxAazYLGBTBYiOgtzjHoYxnMoFNbRa0UP+PEOOBZ
+          gfXA2Lt0gUWT8ztZjnXbVuONMZPRYi9Fz6DFS7YsDxlYkcBGJJH7ISib3IMwJW1cqxlto
+          AzSvgDC+VXXyLV3FaFw62F9lgfyd9xzwq13p2sb3hmL2nzn7Mxg2jPU93PYbkAUcwJMwP
+          gUhWS6fRsetp2zzNY6bnnG0dcvUIO9/HsuC2hpNKggelGpUCM9/FVvFswK6Bqr/dgcoIV
+          38dEfw0Gs4qPmy1YRgyT3rzgFRKLjl5l0jyyXemXUpbckh5EZCOmDe1+WH309o=
 
 - job:
     name: swift-build-image
