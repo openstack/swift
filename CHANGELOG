@@ -1,3 +1,21 @@
+swift (2.35.2, epoxy stable backports)
+
+    * The s3token middleware now passes service auth tokens to Keystone
+      if credentials are provided. This is required to enable S3 API
+      access for Keystone users when using Keystone >25.0.0, !=26.0.0,
+      !=26.0.1, !=27.0.0, !=28.0.0. See etc/proxy-server.conf-sample for
+      configuration details. For more information, see
+      https://security.openstack.org/ossa/OSSA-2025-002.html and
+      https://bugs.launchpad.net/keystone/+bug/2119646
+
+    * The s3token middleware now caches credential secrets for one minute
+      by default, if credentials are provided. Secret-caching typically
+      reduces the load on Keystone and is required for Keystone users to
+      be able to use signed aws-chunked transfers. To return to prior
+      behavior, explicitly set `secret_cache_duration = 0` in the
+      `[filter:s3api]` section of your proxy-server.conf.
+
+
 swift (2.35.1, epoxy stable backports)
 
     * S3 API
