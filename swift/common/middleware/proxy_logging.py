@@ -189,7 +189,7 @@ class ProxyLoggingMiddleware(object):
             'method': 'GET',
             'protocol': '',
             'status_int': '0',
-            'auth_token': '1234...',
+            'auth_token': '1234...',  # nosec B105
             'bytes_recvd': '1',
             'bytes_sent': '0',
             'transaction_id': 'tx1234',
