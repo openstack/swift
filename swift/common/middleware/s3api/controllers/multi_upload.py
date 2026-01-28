@@ -67,7 +67,7 @@ import time
 
 from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
-    wsgi_to_str
+    wsgi_to_str, parse_date_header
 from swift.common.utils import json, public, reiterate, md5, Timestamp
 from swift.common.request_helpers import get_container_update_override_key, \
     get_param
@@ -203,8 +203,6 @@ class PartController(Controller):
         req.object_name = '%s/%s/%d' % (req.object_name, upload_id,
                                         part_number)
 
-        req_timestamp = S3Timestamp.now()
-        req.headers['X-Timestamp'] = req_timestamp.internal
         source_resp = req.check_copy_source(self.app)
         if 'X-Amz-Copy-Source' in req.headers and \
                 'X-Amz-Copy-Source-Range' in req.headers:
@@ -244,8 +242,10 @@ class PartController(Controller):
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
+            last_modified_ts = S3Timestamp(
+                parse_date_header(resp.headers['Last-Modified']))
             resp.append_copy_resp_body(req.controller_name,
-                                       req_timestamp.s3xmlformat)
+                                       last_modified_ts.s3xmlformat)
 
         resp.status = 200
         return resp
