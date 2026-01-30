@@ -1911,6 +1911,29 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             'GET, PUT, POST, DELETE, PUT, OPTIONS')
         self.assertEqual('underscored', headers['x-amz-meta-test_underscore'])
 
+    def test_object_GET_with_x_delete_at(self):
+        # Test that X-Delete-At from Swift is translated to x-amz-expiration
+        resp_headers = dict(self.response_headers)
+        # Thu, 22 Jan 2026 20:42:46 GMT
+        resp_headers['X-Delete-At'] = '1769114566'
+        self.swift.register(
+            'GET', '/v1/AUTH_test/bucket/expiring-object', swob.HTTPOk,
+            resp_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/expiring-object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn('x-amz-expiration', headers)
+        self.assertEqual(
+            'expiry-date="Thu, 22 Jan 2026 20:42:46 GMT", '
+            'rule-id="swift-object-expiration"',
+            headers['x-amz-expiration'])
+
 
 class TestS3ApiObjNonUTC(TestS3ApiObj):
     def setUp(self):
