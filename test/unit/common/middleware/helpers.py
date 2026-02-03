@@ -330,7 +330,7 @@ class FakeSwift(object):
             self._calls.append(call)
 
         if (cont and not obj and method == 'UPDATE') or (
-                obj and method == 'PUT'):
+                obj and method in ('PUT', 'POST')):
             if self.read_size < 0:
                 call.body = b''.join(iter(env['wsgi.input'].read, b''))
             else:

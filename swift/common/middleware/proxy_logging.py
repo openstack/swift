@@ -108,17 +108,6 @@ from swift.common.registry import get_sensitive_headers, \
     get_sensitive_params, register_sensitive_header
 
 
-def statsd_metric_resp_labels(base_labels, status_int=None, policy_index=None):
-    # compose labels used for response metrics
-    extra_labels = {}
-    if policy_index is not None:
-        extra_labels['policy'] = policy_index
-    if status_int:
-        extra_labels['status'] = status_int
-    labels_source = ChainMap(extra_labels, base_labels)
-    return labels_source
-
-
 class CallbackInputProxy(InputProxy):
     """
     :param wsgi_input: file-like object to be wrapped
@@ -343,7 +332,7 @@ class ProxyLoggingMiddleware(object):
         return req.environ.get('swift.access_logging', {}).get('user_id')
 
     def log_request(self, req, status_int, bytes_received, bytes_sent,
-                    start_time, end_time, resp_headers=None, ttfb=0,
+                    start_time, end_time, labels, resp_headers=None, ttfb=0,
                     wire_status_int=None):
         """
         Log a request.
@@ -354,6 +343,7 @@ class ProxyLoggingMiddleware(object):
         :param bytes_sent: bytes yielded to the WSGI server
         :param start_time: timestamp request started
         :param end_time: timestamp request completed
+        :param labels: a dict of labels to annotate statsd metrics
         :param resp_headers: dict of the response headers
         :param ttfb: time to first byte
         :param wire_status_int: the on the wire status int
@@ -453,9 +443,6 @@ class ProxyLoggingMiddleware(object):
             self.access_logger.update_stats(metric_name_policy + '.xfer',
                                             bytes_received + bytes_sent)
 
-        labels = self.statsd_metric_labels(
-            req, status_int, metric_method,
-            acc=acc, cont=cont, policy_index=policy_index)
         self.statsd.timing(
             'swift_proxy_server_request_timing',
             (end_time - start_time) * 1000,
@@ -502,37 +489,6 @@ class ProxyLoggingMiddleware(object):
         resource_type = self.get_resource_type(req)
         return '.'.join((resource_type, metric_method, str(status_int)))
 
-    def update_swift_base_labels(self, req):
-        acc, cont, obj = self.get_aco_from_path(req.path)
-        base_labels = req.environ.get('swift.base_labels')
-        if base_labels is None:
-            # expected in the left-most proxy_logging instance
-            if acc is None and is_s3_req(req):
-                cont, obj = extract_bucket_and_key(
-                    req, self.storage_domains, False)
-
-            method = self.method_from_req(req)
-            metric_method = self.statsd_metric_method(method)
-            resource_type = self.get_resource_type_from_aco(
-                req, acc, cont, obj)
-            base_labels = {
-                'method': metric_method,
-            }
-            base_labels['api'] = 'S3' if is_s3_req(req) else 'swift'
-            if resource_type != 'UNKNOWN' or not is_s3_req(req):
-                base_labels['resource'] = resource_type
-            if acc:
-                base_labels['account'] = acc
-            if cont:
-                base_labels['container'] = cont
-            req.environ['swift.base_labels'] = base_labels
-        elif acc:
-            # expected in the right-most proxy_logging instance
-            resource_type = self.get_resource_type_from_aco(
-                req, acc, cont, obj)
-            base_labels.setdefault('account', acc)
-            base_labels.setdefault('resource', resource_type)
-
     def statsd_metric_name_policy(self, req, status_int, metric_method,
                                   policy_index):
         if policy_index is None:
@@ -549,33 +505,113 @@ class ProxyLoggingMiddleware(object):
         else:
             return None
 
-    def statsd_metric_labels(self, req, status_int, metric_method, acc=None,
-                             cont=None, policy_index=None):
-        # overlay freshly derived labels onto base_labels just in case any
-        # changed w.r.t. base labels while the request was being handled (in
-        # particular, container may be different in swift.backend_path)
-        # TODO: remove unnecessary duplication in the overlay e.g. method,
-        # account
-        resource_type = self.get_resource_type(req)
+    def get_request_labels(self, req, acc, cont, obj):
+        """
+        Returns a dict of labels associated with the request.
 
-        labels = {
-            'resource': resource_type,
-            'method': metric_method,
-            'status': status_int,
-        }
+        :param req: a swob.Request
+        :param acc: the account
+        :param cont: the container
+        :param obj: the object
+        :return: a dict of labels associated with the request.
+        """
+        req_labels = {}
         if acc:
-            labels['account'] = acc
+            req_labels['account'] = acc
         if cont:
-            labels['container'] = cont
+            req_labels['container'] = cont
+        req_labels['resource'] = self.get_resource_type_from_aco(
+            req, acc, cont, obj)
+        method = self.method_from_req(req)
+        metric_method = self.statsd_metric_method(method)
+        req_labels['method'] = metric_method
+        return req_labels
+
+    def update_swift_base_labels(self, req):
+        """
+        Updates the dict of base_labels in the request environ and returns
+        the current view of labels associated with the request.
+
+        The proxy logging middleware maintains a per-request dict of
+        base_labels in the request environment that describes the *client*
+        request. The base_labels dict is created by the leftmost proxy logging
+        instance and propagates to subrequests.
+
+        Other middlewares, including the rightmost proxy logging instance, may
+        update base_labels if they consider themselves to have *authoritative*
+        information about the client* request. For example, the 'account' field
+        may be unknown to the leftmost proxy logging instance for an s3API
+        request, but can be set by later middlewares. The base_labels dict
+        should not otherwise be modified by other middlewares.
+
+        Each proxy logging middleware instance also creates a local per-request
+        dict of the req_labels associated with the request that it is handling.
+        This dict is based on the base_labels but may vary from them. For
+        example, the rightmost proxy logging instance may have a different
+        'container' label when handling a subrequest whose path has been
+        modified with respect to the client request.
+
+        Each proxy logging middleware instance also creates a local
+        per-response dict of resp_labels that is based on the req_labels, but
+        has additional labels such as 'status' and 'policy'.
+
+        :param req: a swob.Request
+        :return: a dict having the current view of labels associated with the
+            request.
+        """
+        acc, cont, obj = self.get_aco_from_path(req.path)
+        base_labels = req.environ.get('swift.base_labels')
+        if base_labels is None:
+            # expected in the left-most proxy_logging instance
+            base_labels = self.get_request_labels(req, acc, cont, obj)
+            if base_labels.get('account') is None and is_s3_req(req):
+                cont, obj = extract_bucket_and_key(
+                    req, self.storage_domains, False)
+                base_labels = self.get_request_labels(req, acc, cont, obj)
+                if base_labels.get('resource') == 'UNKNOWN':
+                    # allow a later middleware to update the resource label
+                    # once the full swift path is known.
+                    base_labels.pop('resource')
+                base_labels['api'] = 'S3'
+            else:
+                base_labels['api'] = 'swift'
+            req.environ['swift.base_labels'] = base_labels
+            req_labels = ChainMap({}, base_labels)
+        else:
+            # expected in the right-most proxy_logging instance
+            labels = self.get_request_labels(req, acc, cont, obj)
+            for k, v in labels.items():
+                # if these base_labels are not already set then this is the
+                # best idea we have
+                if k in ('resource', 'account'):
+                    base_labels.setdefault(k, v)
+            req_labels = ChainMap(labels, base_labels)
+        return req_labels
+
+    @staticmethod
+    def get_response_labels(labels, status_int=None, policy_index=None):
+        """
+        Returns a new dict, based on the given ``labels`` dict, with the
+        additional given labels. These labels are typically used when emitting
+        statsd metrics in the response handling path.
+
+        :param labels: a dict
+        :param status_int: (int) optional status code.
+        :param policy_index: (int) optional policy_index.
+        """
+        resource_type = labels.get('resource')
+        updated_labels = dict(labels)
         if resource_type == 'object' and \
                 policy_index is not None and \
                 POLICIES.get_by_index(policy_index) is not None:
-            labels['policy'] = policy_index
-        return ChainMap(labels, req.environ['swift.base_labels'])
+            updated_labels['policy'] = policy_index
+        if status_int is not None:
+            updated_labels['status'] = status_int
+        return updated_labels
 
     def __call__(self, env, start_response):
         req = Request(env)
-        self.update_swift_base_labels(req)
+        req_labels = self.update_swift_base_labels(req)
 
         if self.req_already_logged(env):
             return self.app(env, start_response)
@@ -584,12 +620,10 @@ class ProxyLoggingMiddleware(object):
 
         start_response_args = [None]
 
-        xfer_metric_name = 'swift_proxy_server_request_body_streaming_bytes'
-        base_labels = req.environ.get('swift.base_labels')
-
+        # note: req_labels are used here so status and policy are not included
         statsd_emit_callback = BufferXferEmitCallback(
-            xfer_metric_name, base_labels, self.statsd,
-            self.emit_buffer_xfer_bytes_sec)
+            'swift_proxy_server_request_body_streaming_bytes',
+            req_labels, self.statsd, self.emit_buffer_xfer_bytes_sec)
         input_proxy = CallbackInputProxy(env['wsgi.input'],
                                          statsd_emit_callback)
         env['wsgi.input'] = input_proxy
@@ -630,15 +664,14 @@ class ProxyLoggingMiddleware(object):
             start_response(*start_response_args[0])
 
             policy_index = get_policy_index(req.headers, resp_headers)
+            resp_labels = self.get_response_labels(
+                req_labels, wire_status_int, policy_index=policy_index)
 
             # Log timing information for time-to-first-byte (GET requests only)
             ttfb = 0.0
             if method == 'GET':
                 swift_path = req.environ.get('swift.backend_path', req.path)
                 acc, cont, _ = self.get_aco_from_path(swift_path)
-                labels = self.statsd_metric_labels(
-                    req, wire_status_int, method,
-                    acc=acc, cont=cont, policy_index=policy_index)
                 metric_name = self.statsd_metric_name(
                     req, wire_status_int, method)
                 metric_name_policy = self.statsd_metric_name_policy(
@@ -655,18 +688,14 @@ class ProxyLoggingMiddleware(object):
                 self.statsd.timing(
                     'swift_proxy_server_request_ttfb',
                     ttfb * 1000,
-                    labels=labels,
+                    labels=resp_labels,
                 )
 
-            resp_xfer_labels = statsd_metric_resp_labels(
-                base_labels, status_int=wire_status_int,
-                policy_index=policy_index)
-
-            bytes_sent = 0
+            # note: resp_labels are used here so status and policy are included
             statsd_emit_callback = BufferXferEmitCallback(
                 'swift_proxy_server_response_body_streaming_bytes',
-                resp_xfer_labels,
-                self.statsd, self.emit_buffer_xfer_bytes_sec)
+                resp_labels, self.statsd, self.emit_buffer_xfer_bytes_sec)
+            bytes_sent = 0
             try:
                 for chunk in iterator:
                     bytes_sent += len(chunk)
@@ -684,8 +713,9 @@ class ProxyLoggingMiddleware(object):
                 status_int = status_int_for_logging()
                 self.log_request(
                     req, status_int, input_proxy.bytes_received, bytes_sent,
-                    start_time, time.time(), resp_headers=resp_headers,
-                    ttfb=ttfb, wire_status_int=wire_status_int)
+                    start_time, time.time(), resp_labels,
+                    resp_headers=resp_headers, ttfb=ttfb,
+                    wire_status_int=wire_status_int)
                 close_if_possible(iterator)
 
         try:
@@ -696,7 +726,7 @@ class ProxyLoggingMiddleware(object):
             status_int = status_int_for_logging()
             self.log_request(
                 req, status_int, input_proxy.bytes_received, 0, start_time,
-                time.time())
+                time.time(), req_labels)
             raise
         else:
             return iter_response(iterable)
