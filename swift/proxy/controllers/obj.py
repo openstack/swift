@@ -45,7 +45,8 @@ from swift.common.utils import (
     normalize_delete_at_timestamp, public,
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
-    NamespaceBoundList, CooperativeIterator)
+    NamespaceBoundList, CooperativeIterator, cache_from_env,
+    CooperativeCachePopulator, node_to_string)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -59,14 +60,14 @@ from swift.common.http import (
     is_redirection, HTTP_CONTINUE, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, HTTP_UNPROCESSABLE_ENTITY,
-    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_NOT_FOUND)
+    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_NOT_FOUND, HTTP_ACCEPTED)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
     record_cache_op_metrics, get_cache_key, GetterBase, GetterSource, \
     is_good_source, NodeIter, get_namespaces_from_cache, \
-    set_namespaces_in_cache
+    namespace_bounds_to_list, namespace_list_to_bounds
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -159,6 +160,45 @@ class ObjectControllerRouter(object):
 
     def __getitem__(self, policy):
         return self.policy_to_controller_cls[int(policy)]
+
+
+class CooperativeNamespaceCachePopulator(CooperativeCachePopulator):
+    """
+    CooperativeCachePopulator to fetch updating namespaces from backend
+    container cooperatively using cooperative token and memcached.
+    """
+
+    def __init__(self, ctrl, account, container, req, cache_key):
+        infocache = req.environ.setdefault('swift.infocache', {})
+        memcache = cache_from_env(req.environ, True)
+        cache_ttl = ctrl.app.recheck_updating_shard_ranges
+        avg_backend_fetch_time = ctrl.app.namespace_avg_backend_fetch_time
+        num_tokens = ctrl.app.namespace_cache_tokens_per_session
+        labels = {
+            'resource': 'shard_updating',
+        }
+        if account is not None:
+            labels['account'] = account
+        if container is not None:
+            labels['container'] = container
+        super().__init__(
+            ctrl.app, infocache, memcache, cache_key, cache_ttl,
+            avg_backend_fetch_time, num_tokens, labels=labels
+        )
+        self.ctrl = ctrl
+        self.account = account
+        self.container = container
+        self.req = req
+
+    def cache_encoder(self, ns_bound_list):
+        return namespace_list_to_bounds(ns_bound_list)
+
+    def cache_decoder(self, bounds):
+        return namespace_bounds_to_list(bounds)
+
+    def do_fetch_backend(self):
+        return self.ctrl._get_backend_updating_namespaces(
+            self.req, self.account, self.container)
 
 
 class BaseObjectController(Controller):
@@ -281,7 +321,7 @@ class BaseObjectController(Controller):
         """Handler for HTTP HEAD requests."""
         return self.GETorHEAD(req)
 
-    def _get_updating_namespaces(
+    def _do_get_updating_namespaces(
             self, req, account, container, includes=None):
         """
         Fetch namespaces in 'updating' states from given `account/container`.
@@ -310,7 +350,7 @@ class BaseObjectController(Controller):
 
     def _get_update_shard_caching_disabled(self, req, account, container, obj):
         """
-        Fetch all updating shard ranges for the given root container when
+        Fetch the corresponding updating shard range for the given object when
         all caching is disabled.
 
         :param req: original Request instance.
@@ -321,13 +361,28 @@ class BaseObjectController(Controller):
             or None if the update should go back to the root
         """
         # legacy behavior requests container server for includes=obj
-        namespaces, response = self._get_updating_namespaces(
+        namespaces, response = self._do_get_updating_namespaces(
             req, account, container, includes=obj)
         record_cache_op_metrics(
             self.logger, self.server_type.lower(), 'shard_updating',
             'disabled', response)
         # there will be only one Namespace in the list if any
         return namespaces[0] if namespaces else None
+
+    def _get_backend_updating_namespaces(self, req, account, container):
+        """
+        Retrieve the updating namespaces from the backend.
+
+        :param req: original Request instance.
+        :param account: account from which namespaces should be fetched.
+        :param container: container from which namespaces should be fetched.
+        :return: a tuple of (NamespaceBoundList, response).
+        """
+        # pull full set of updating namespaces from backend
+        namespaces, backend_response = self._do_get_updating_namespaces(
+            req, account, container)
+        ns_bound_list = NamespaceBoundList.parse(namespaces)
+        return ns_bound_list, backend_response
 
     def _get_update_shard(self, req, account, container, obj):
         """
@@ -344,36 +399,42 @@ class BaseObjectController(Controller):
         :return: an instance of :class:`swift.common.utils.Namespace`,
             or None if the update should go back to the root
         """
-        if not self.app.recheck_updating_shard_ranges:
+        memcache = cache_from_env(req.environ, True)
+        if not self.app.recheck_updating_shard_ranges or not memcache:
             # caching is disabled
             return self._get_update_shard_caching_disabled(
                 req, account, container, obj)
 
         # caching is enabled, try to get from caches
-        response = None
         cache_key = get_cache_key(account, container, shard='updating')
         skip_chance = self.app.container_updating_shard_ranges_skip_cache
         ns_bound_list, get_cache_state = get_namespaces_from_cache(
             req, cache_key, skip_chance)
+        response = None
         if not ns_bound_list:
-            # namespaces not found in either infocache or memcache so pull full
-            # set of updating shard ranges from backend
-            namespaces, response = self._get_updating_namespaces(
-                req, account, container)
-            if namespaces:
-                # only store the list of namespace lower bounds and names into
-                # infocache and memcache.
-                ns_bound_list = NamespaceBoundList.parse(namespaces)
-                set_cache_state = set_namespaces_in_cache(
-                    req, cache_key, ns_bound_list,
-                    self.app.recheck_updating_shard_ranges)
+            # namespaces not found in memcache or cache was skipped, so pull
+            # the full set of updating shard ranges from the backend and set in
+            # the memcache with the usage of cooperative token.
+            cache_populator = CooperativeNamespaceCachePopulator(
+                self, account, container, req, cache_key)
+            ns_bound_list = cache_populator.fetch_data()
+            if cache_populator.set_cache_state:
+                # record the general cache set metrics.
                 record_cache_op_metrics(
                     self.logger, self.server_type.lower(), 'shard_updating',
-                    set_cache_state, None)
-                if set_cache_state == 'set':
-                    self.logger.info(
-                        'Caching updating shards for %s (%d shards)',
-                        cache_key, len(namespaces))
+                    cache_populator.set_cache_state, None)
+                # TODO: use enum to unify 'set_cache_state' in existing
+                # 'set_namespaces_in_cache' and CooperativeCachePopulator, and
+                # convert existing usages of response to just status code.
+                if cache_populator.set_cache_state == 'set':
+                    message = "Caching updating shards for %s (%d shards)" % (
+                        cache_key, len(ns_bound_list))
+                    if cache_populator.token_acquired:
+                        message += " with a finished token"
+                    self.logger.info(message)
+            response = cache_populator.backend_resp
+
+        # record the general cache get metrics.
         record_cache_op_metrics(
             self.logger, self.server_type.lower(), 'shard_updating',
             get_cache_state, response)
@@ -412,8 +473,6 @@ class BaseObjectController(Controller):
         error_response = check_metadata(req, 'object')
         if error_response:
             return error_response
-
-        req.ensure_x_timestamp()
 
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
@@ -814,6 +873,44 @@ class BaseObjectController(Controller):
                                   node_iterator=node_iterator)
         return resp
 
+    def _post_extra_handoffs(self, req, obj_ring, partition, headers, results,
+                             handoff_nodes):
+        """
+        Send POST requests to handoff nodes when primary nodes return mixed
+        results.
+
+        :param req: the POST Request
+        :param obj_ring: the object ring
+        :param partition: ring partition number
+        :param headers: system headers to storage nodes
+        :param results: results from primary node requests
+        :param handoff_nodes: list of handoff nodes to try
+        :return: list of handoff results to extend the original results
+        """
+        node_iter = NodeIter(
+            'object', self.app, obj_ring, partition, self.logger, req,
+            node_iter=handoff_nodes)
+        # we want the backend headers from the *missing* nodes
+        missing_headers = [h for h, r in zip(headers, results)
+                           if r[0].status != HTTP_ACCEPTED]
+        # _make_requests will make requests per header, if our handoff_iter is
+        # too short it can *recycle* the nodes (?) and get 409s!?
+        missing_headers = missing_headers[:len(handoff_nodes)]
+        handoff_results = self._make_requests(
+            req, obj_ring, partition, 'POST',
+            req.swift_entity_path, missing_headers,
+            node_count=len(handoff_nodes),
+            node_iterator=node_iter)
+        return handoff_results
+
+    def _collect_status_map(self, results):
+        status_map = collections.defaultdict(list)
+        for resp, _body, node in results:
+            if not node:
+                continue
+            status_map[resp.status].append(node_to_string(node))
+        return status_map
+
     def _post_object(self, req, obj_ring, partition, headers):
         """
         send object POST request to storage nodes.
@@ -824,9 +921,47 @@ class BaseObjectController(Controller):
         :param headers: system headers to storage nodes
         :return: Response object
         """
-        resp = self.make_requests(req, obj_ring, partition,
-                                  'POST', req.swift_entity_path, headers)
-        return resp
+        node_iter = NodeIter(
+            'object', self.app, obj_ring, partition, self.logger, req)
+        results = self._make_requests(
+            req, obj_ring, partition, 'POST', req.swift_entity_path, headers,
+            node_iterator=node_iter)
+        primary_status_map = self._collect_status_map(results)
+        # by default best_response quorum is resp length sized, presumably in
+        # order to support fractional replicas
+        quorum = self._quorum_size(len(results))
+        found_count = len(primary_status_map[HTTP_ACCEPTED])
+        if found_count and found_count < quorum:
+            # ... but quorum is going to be wrong if we make extra requests
+            quorum = self._quorum_size(obj_ring.replica_count)
+            # the make_requests machinery will make extra requests to handoffs
+            # for Timeout/503 primaries, we only have to make up for the 404s
+            extra_requests = len(primary_status_map[HTTP_NOT_FOUND])
+            handoff_nodes = list(itertools.islice(
+                node_iter.handoff_iter, extra_requests))
+            self.logger.debug(
+                'Primary nodes returned mixed results on POST: %r,'
+                ' trying handoffs: %r', dict(primary_status_map),
+                [node_to_string(n) for n in handoff_nodes])
+            handoff_results = self._post_extra_handoffs(
+                req, obj_ring, partition, headers, results, handoff_nodes)
+            results.extend(handoff_results)
+
+        statuses, reasons, resp_headers, bodies = zip(*[(
+            resp.status, resp.reason, resp.getheaders(), body)
+            for resp, body, _node in results])
+
+        final_resp = self.best_response(
+            req, statuses, reasons, bodies, 'Object POST',
+            headers=resp_headers, quorum_size=quorum)
+        if final_resp.status_int == HTTP_NOT_FOUND and found_count > 0:
+            # 404 can't be right, we have an existence proof
+            final_status_map = self._collect_status_map(results)
+            self.logger.debug(
+                'Unable to resolve mixed results on POST: %r',
+                dict(final_status_map))
+            raise HTTPServiceUnavailable(request=req)
+        return final_resp
 
     @public
     @cors_validation
@@ -864,9 +999,6 @@ class BaseObjectController(Controller):
 
         # update content type in case it is missing
         self._update_content_type(req)
-
-        req.ensure_x_timestamp()
-
         # check constraints on object name and request headers
         error_response = check_object_creation(req, self.object_name) or \
             check_content_type(req)
@@ -921,8 +1053,6 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-
-        req.ensure_x_timestamp()
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)
@@ -1100,7 +1230,7 @@ class ReplicatedObjectController(BaseObjectController):
         etag = etags.pop() if len(etags) else None
         resp = self.best_response(req, statuses, reasons, bodies,
                                   'Object PUT', etag=etag)
-        resp.last_modified = Timestamp(req.headers['X-Timestamp']).ceil()
+        resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp
 
 
@@ -1130,6 +1260,7 @@ class ECAppIter(object):
 
     :param logger: a logger
     """
+
     def __init__(self, path, policy, internal_parts_iters, range_specs,
                  fa_length, obj_length, logger):
         self.path = path
@@ -1693,6 +1824,7 @@ class Putter(object):
     :param logger: a Logger instance
     :param chunked: boolean indicating if the request encoding is chunked
     """
+
     def __init__(self, conn, node, resp, path, connect_duration, watchdog,
                  write_timeout, send_exception_handler, logger,
                  chunked=False):
@@ -1853,6 +1985,7 @@ class MIMEPutter(Putter):
 
     An HTTP PUT request that supports streaming.
     """
+
     def __init__(self, conn, node, resp, path, connect_duration, watchdog,
                  write_timeout, send_exception_handler, logger, mime_boundary,
                  multiphase=False):
@@ -2095,6 +2228,7 @@ class ECGetResponseBucket(object):
     A helper class to encapsulate the properties of buckets in which fragment
     getters and alternate nodes are collected.
     """
+
     def __init__(self, policy, timestamp):
         """
         :param policy: an instance of ECStoragePolicy
@@ -2228,6 +2362,7 @@ class ECGetResponseCollection(object):
     This class encapsulates logic for selecting the best bucket from the
     collection, and for choosing alternate nodes.
     """
+
     def __init__(self, policy):
         """
         :param policy: an instance of ECStoragePolicy
@@ -2639,7 +2774,8 @@ class ECFragGetter(GetterBase):
         if 'handoff_index' in node and \
                 (is_server_error(possible_source.status) or
                  possible_source.status == HTTP_NOT_FOUND) and \
-                not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                not Timestamp(
+                    src_headers.get('x-backend-timestamp', Timestamp.zero())):
             # throw out 5XX and 404s from handoff nodes unless the data is
             # really on disk and had been DELETEd
             self.logger.debug('Ignoring %s from handoff' %
@@ -2944,7 +3080,9 @@ class ECObjectController(BaseObjectController):
                         t_obj = bad_resp_headers.get(
                             'X-Backend-Timestamp',
                             bad_resp_headers.get('X-Timestamp'))
-                        bad_ts = Timestamp(t_data_file or t_obj or '0')
+                        bad_ts = Timestamp(t_data_file or
+                                           t_obj or
+                                           Timestamp.zero())
                         if bad_ts <= best_bucket.timestamp:
                             # We have reason to believe there's still good data
                             # out there, it's just currently unavailable
@@ -2952,7 +3090,8 @@ class ECObjectController(BaseObjectController):
                     if getter.status:
                         timestamp = Timestamp(getter.last_headers.get(
                             'X-Backend-Timestamp',
-                            getter.last_headers.get('X-Timestamp', 0)))
+                            getter.last_headers.get(
+                                'X-Timestamp', Timestamp.zero())))
                         if (rebalance_missing_suppression_count > 0 and
                                 getter.status == HTTP_NOT_FOUND and
                                 not timestamp):
@@ -3378,5 +3517,5 @@ class ECObjectController(BaseObjectController):
         resp = self.best_response(req, statuses, reasons, bodies,
                                   'Object PUT', etag=etag,
                                   quorum_size=min_conns)
-        resp.last_modified = Timestamp(req.headers['X-Timestamp']).ceil()
+        resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp

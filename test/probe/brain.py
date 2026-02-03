@@ -171,12 +171,26 @@ class BaseBrain(object, metaclass=meta_command):
         self.client.put_object(self.container_name, self.object_name,
                                headers=headers, contents=contents)
 
+    def post_object(self, headers=None):
+        """
+        issue POST for test object
+        """
+        return self.client.post_object(
+            self.container_name, self.object_name, headers=headers)
+
     @command
     def delete_object(self):
         """
         issue delete for test object
         """
         self.client.delete_object(self.container_name, self.object_name)
+
+    @command
+    def head_object(self):
+        """
+        issue HEAD for test object
+        """
+        return self.client.head_object(self.container_name, self.object_name)
 
     @command
     def get_object(self):
@@ -203,6 +217,10 @@ class PublicBrainClient(object):
     def get_container(self, container_name, headers=None, query_string=None):
         return client.get_container(self.url, self.token, container_name,
                                     headers=headers, query_string=query_string)
+
+    def post_object(self, container_name, object_name, headers=None):
+        return client.post_object(self.url, self.token, container_name,
+                                  object_name, headers=headers)
 
     def delete_container(self, container_name):
         return client.delete_container(self.url, self.token, container_name)

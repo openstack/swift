@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import shutil
 import unittest
 from contextlib import contextmanager
 
@@ -28,12 +28,13 @@ import json
 
 from unittest import mock
 from unittest.mock import patch, call
-from importlib import reload as reload_module
 
+from swift.common.db_replicator import BrokerAnnotatedLogger
 from swift.container.backend import DATADIR
 from swift.common import db_replicator
 from swift.common.utils import (normalize_timestamp, hash_path,
-                                storage_directory, Timestamp)
+                                storage_directory, Timestamp, quote,
+                                mkdirs, listdir)
 from swift.common.exceptions import DriveNotMounted
 from swift.common.swob import HTTPException
 
@@ -45,11 +46,6 @@ from test.unit.common.test_db import ExampleBroker
 
 TEST_ACCOUNT_NAME = 'a c t'
 TEST_CONTAINER_NAME = 'c o n'
-
-
-def teardown_module():
-    "clean up my monkey patching"
-    reload_module(db_replicator)
 
 
 @contextmanager
@@ -196,17 +192,28 @@ class ChangingMtimesOs(object):
 
 
 class FakeBroker(object):
-    db_file = __file__
     get_repl_missing_table = False
     stub_replication_info = None
     db_type = 'container'
     db_contains_type = 'object'
-    info = {'account': TEST_ACCOUNT_NAME, 'container': TEST_CONTAINER_NAME}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, db_file=None, account=TEST_ACCOUNT_NAME,
+                 container=TEST_CONTAINER_NAME, **kwargs):
+        self.db_file = db_file or __file__
+        self.db_dir = os.path.dirname(self.db_file)
         self.locked = False
         self.metadata = {}
-        return None
+
+        self.info = {}
+        if account is not None:
+            self.info['account'] = account
+        if container is not None:
+            self.info['container'] = container
+
+        if 'account' in self.info:
+            self.path = self.info['account']
+            if 'container' in self.info:
+                self.path += '/' + self.info['container']
 
     @contextmanager
     def lock(self):
@@ -285,7 +292,15 @@ class FakeBroker(object):
 class FakeAccountBroker(FakeBroker):
     db_type = 'account'
     db_contains_type = 'container'
-    info = {'account': TEST_ACCOUNT_NAME}
+
+    def __init__(self, db_file=None, account=TEST_ACCOUNT_NAME,
+                 container=None, **kwargs):
+        if container is not None:
+            raise TypeError("FakeAccountBroker: no container allowed")
+        super(FakeAccountBroker, self).__init__(
+            db_file=db_file, account=account, container=None,
+            **kwargs
+        )
 
 
 class ConcreteReplicator(db_replicator.Replicator):
@@ -296,21 +311,145 @@ class ConcreteReplicator(db_replicator.Replicator):
     default_port = 1000
 
 
+class TestBrokerAnnotatedLogger(unittest.TestCase):
+    def setUp(self):
+        self.logger = debug_logger('broker-logger-test')
+        self.db_logger = BrokerAnnotatedLogger(logger=self.logger)
+        self.tempdir = mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tempdir, ignore_errors=True)
+
+    def test_log_broker(self):
+        broker = FakeBroker(account='a', container='c@d',
+                            db_file='/tmp/abc.db')
+
+        def do_test(level_name, call):
+            # exercise
+            call(broker, 'bonjour %s %s', 'mes', 'amis')
+            call(broker, 'hello my %s', 'friend%04ds')
+            call(broker, 'greetings friend%04ds')
+
+            # verify
+            expected = [
+                'bonjour mes amis, path: a/c%40d, db: /tmp/abc.db',
+                'hello my friend%04ds, path: a/c%40d, db: /tmp/abc.db',
+                'greetings friend%04ds, path: a/c%40d, db: /tmp/abc.db',
+            ]
+            self.assertEqual(expected,
+                             self.logger.get_lines_for_level(level_name))
+
+            # other levels should be empty
+            for lvl, lines in self.logger.all_log_lines().items():
+                if lvl != level_name:
+                    self.assertFalse(lines)
+
+            # clear between sub-tests
+            self.logger.clear()
+
+        do_test('debug', self.db_logger.debug)
+        do_test('info', self.db_logger.info)
+        do_test('warning', self.db_logger.warning)
+        do_test('error', self.db_logger.error)
+
+    def test_log_broker_exception(self):
+        broker = FakeBroker(account='a', container='c', db_file='/tmp/abc.db')
+
+        try:
+            raise ValueError('test')
+        except ValueError as err:
+            self.db_logger.exception(broker, 'exception: %s', err)
+
+        self.assertEqual(
+            ['exception: test, path: a/c, db: /tmp/abc.db: '],
+            self.logger.get_lines_for_level('error')
+        )
+        for lvl, lines in self.logger.all_log_lines().items():
+            if lvl != 'error':
+                self.assertFalse(lines)
+
+    def test_log_broker_levels(self):
+        # When level is disabled, no message should be formatted nor emitted.
+        broker = FakeBroker(account='a', container='c', db_file='/tmp/abc.db')
+
+        with mock.patch.object(self.logger, 'isEnabledFor',
+                               return_value=False):
+            self.db_logger.debug(broker, 'test')
+            self.db_logger.info(broker, 'test')
+            self.db_logger.warning(broker, 'test')
+            self.db_logger.error(broker, 'test')
+            self.db_logger.exception(broker, 'test %s', 'x')
+
+        self.assertFalse(self.logger.all_log_lines())
+
+    def test_log_broker_exception_while_logging(self):
+        """
+        If accessing broker.path or broker.db_file raises, the formatter should
+        fall back to empty strings for that field.
+        """
+        class WeirdBroker(object):
+            def __init__(self, db_file, path, raise_db=False,
+                         raise_path=False):
+                self._db_file = db_file
+                self._path = path
+                self._raise_db = raise_db
+                self._raise_path = raise_path
+
+            @property
+            def db_file(self):
+                if self._raise_db:
+                    raise Exception('boom db')
+                return self._db_file
+
+            @property
+            def path(self):
+                if self._raise_path:
+                    raise Exception('boom path')
+                return self._path
+
+        # --- Case 1: path access fails ---
+        broker_path_boom = WeirdBroker('/tmp/abc.db', 'a/c', raise_path=True)
+        self.db_logger.info(broker_path_boom, 'bonjour %s %s', 'mes', 'amis')
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(['bonjour mes amis, path: , db: /tmp/abc.db'],
+                         info_lines)
+        self.logger.clear()
+
+        # --- Case 2: db_file access fails ---
+        broker_db_boom = WeirdBroker('/tmp/abc.db', 'a/c', raise_db=True)
+        self.db_logger.info(broker_db_boom, 'bonjour %s %s', 'mes', 'amis')
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(['bonjour mes amis, path: a/c, db: '], info_lines)
+        self.logger.clear()
+
+        # --- Case 3: both path and db_file fail ---
+        broker_boom = WeirdBroker('/tmp/abc.db', 'a/c', raise_db=True,
+                                  raise_path=True)
+        self.db_logger.info(broker_boom, 'bonjour %s %s', 'mes', 'amis')
+        info_lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(['bonjour mes amis, path: , db: '], info_lines)
+        self.logger.clear()
+
+        for lvl, lines in self.logger.all_log_lines().items():
+            if lvl != 'info':
+                self.assertFalse(lines)
+
+
 class TestDBReplicator(unittest.TestCase):
     def setUp(self):
         db_replicator.ring = FakeRing()
         self.delete_db_calls = []
         self._patchers = []
-        # recon cache path
-        self.recon_cache = mkdtemp()
-        rmtree(self.recon_cache, ignore_errors=1)
-        os.mkdir(self.recon_cache)
         self.logger = debug_logger('test-replicator')
+        self.temp_dir = mkdtemp()
+        # recon cache path
+        self.recon_cache = os.path.join(self.temp_dir, 'cache')
+        os.mkdir(self.recon_cache)
 
     def tearDown(self):
         for patcher in self._patchers:
             patcher.stop()
-        rmtree(self.recon_cache, ignore_errors=1)
+        rmtree(self.temp_dir, ignore_errors=True)
 
     def _patch(self, patching_fn, *args, **kwargs):
         patcher = patching_fn(*args, **kwargs)
@@ -367,19 +506,23 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_rsync_file(self):
         replicator = ConcreteReplicator({})
+        broker = FakeBroker(db_file='/some/file')
+
         with _mock_process(-1):
             self.assertEqual(
                 False,
-                replicator._rsync_file('/some/file', 'remote:/some/file'))
+                replicator._rsync_file(broker, 'remote:/some/file'))
         with _mock_process(0):
             self.assertEqual(
                 True,
-                replicator._rsync_file('/some/file', 'remote:/some/file'))
+                replicator._rsync_file(broker, 'remote:/some/file'))
 
     def test_rsync_file_popen_args(self):
         replicator = ConcreteReplicator({})
+        broker = FakeBroker(db_file='/some/file')
+
         with _mock_process(0) as process:
-            replicator._rsync_file('/some/file', 'remote:/some_file')
+            replicator._rsync_file(broker, 'remote:/some_file')
             exp_args = ([
                 'rsync', '--quiet', '--no-motd',
                 '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
@@ -389,8 +532,9 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_rsync_file_popen_args_whole_file_false(self):
         replicator = ConcreteReplicator({})
+        broker = FakeBroker(db_file='/some/file')
         with _mock_process(0) as process:
-            replicator._rsync_file('/some/file', 'remote:/some_file', False)
+            replicator._rsync_file(broker, 'remote:/some_file', False)
             exp_args = ([
                 'rsync', '--quiet', '--no-motd',
                 '--timeout=%s' % int(math.ceil(replicator.node_timeout)),
@@ -400,11 +544,13 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_rsync_file_popen_args_different_region_and_rsync_compress(self):
         replicator = ConcreteReplicator({})
+        broker = FakeBroker(db_file='/some/file')
+
         for rsync_compress in (False, True):
             replicator.rsync_compress = rsync_compress
             for different_region in (False, True):
                 with _mock_process(0) as process:
-                    replicator._rsync_file('/some/file', 'remote:/some_file',
+                    replicator._rsync_file(broker, 'remote:/some_file',
                                            False, different_region)
                     if rsync_compress and different_region:
                         # --compress arg should be passed to rsync binary
@@ -417,9 +563,26 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_rsync_db(self):
         replicator = ConcreteReplicator({})
-        replicator._rsync_file = lambda *args, **kwargs: True
         fake_device = {'replication_ip': '127.0.0.1', 'device': 'sda1'}
+
+        calls = []
+
+        def _rsync_file_stub(broker_arg, remote_spec, *args, **kwargs):
+            calls.append({
+                'broker': broker_arg,
+                'remote_spec': remote_spec,
+                'args': args,
+                'kwargs': kwargs,
+            })
+            return True
+
+        replicator._rsync_file = _rsync_file_stub
         replicator._rsync_db(FakeBroker(), fake_device, ReplHttp(), 'abcd')
+
+        self.assertEqual(1, len(calls), "single rsync call")
+        broker_arg = calls[0]['broker']
+        self.assertTrue(os.path.isabs(broker_arg.db_file))
+        self.assertFalse(os.path.isabs(broker_arg.path))
 
     def test_rsync_db_rsync_file_call(self):
         fake_device = {'ip': '127.0.0.1', 'port': '0',
@@ -431,11 +594,12 @@ class TestDBReplicator(unittest.TestCase):
                 super(MyTestReplicator, self).__init__({})
                 self.db_file = db_file
                 self.remote_file = remote_file
+                self._rsync_file_called = False
 
-            def _rsync_file(self_, db_file, remote_file, whole_file=True,
+            def _rsync_file(self_, broker, remote_file, whole_file=True,
                             different_region=False):
-                self.assertEqual(self_.db_file, db_file)
-                self.assertEqual(self_.remote_file, remote_file)
+                self.assertEqual(broker.db_file, self_.db_file)
+                self.assertEqual(remote_file, self_.remote_file)
                 self_._rsync_file_called = True
                 return False
 
@@ -472,7 +636,7 @@ class TestDBReplicator(unittest.TestCase):
                 self.broker = broker
                 self._rsync_file_call_count = 0
 
-            def _rsync_file(self_, db_file, remote_file, whole_file=True,
+            def _rsync_file(self_, broker_arg, remote_file, whole_file=True,
                             different_region=False):
                 self_._rsync_file_call_count += 1
                 if self_._rsync_file_call_count == 1:
@@ -799,8 +963,7 @@ class TestDBReplicator(unittest.TestCase):
 
     def test_replicate_object_quarantine(self):
         replicator = ConcreteReplicator({})
-        self._patch(patch.object, replicator.brokerclass, 'db_file',
-                    '/a/b/c/d/e/hey')
+        db_path = '/a/b/c/d/e/hey'
         self._patch(patch.object, replicator.brokerclass,
                     'get_repl_missing_table', True)
 
@@ -817,10 +980,10 @@ class TestDBReplicator(unittest.TestCase):
         def mock_renamer_error(was, new, fsync):
             return mock_renamer(was, new, fsync, cause_colision=True)
         with patch.object(db_replicator, 'renamer', mock_renamer):
-            replicator._replicate_object('0', 'file', 'node_id')
+            replicator._replicate_object('0', db_path, 'node_id')
         # try the double quarantine
         with patch.object(db_replicator, 'renamer', mock_renamer_error):
-            replicator._replicate_object('0', 'file', 'node_id')
+            replicator._replicate_object('0', db_path, 'node_id')
 
     def test_replicate_object_delete_because_deleted(self):
         replicator = ConcreteReplicator({})
@@ -941,7 +1104,7 @@ class TestDBReplicator(unittest.TestCase):
     def test_cleanup_post_replicate(self):
         replicator = ConcreteReplicator({}, logger=self.logger)
         replicator.ring = FakeRingWithNodes().Ring('path')
-        broker = FakeBroker()
+        broker = FakeBroker(account='a', container='c')
         replicator._repl_to_node = lambda *args: True
         info = broker.get_replication_info()
 
@@ -950,7 +1113,8 @@ class TestDBReplicator(unittest.TestCase):
                 broker, info, [False] * 3)
         mock_delete_db.assert_not_called()
         self.assertTrue(res)
-        self.assertEqual(['Not deleting db %s (0/3 success)' % broker.db_file],
+        self.assertEqual(['Not deleting db (0/3 success), path: %s, '
+                          'db: %s' % (quote(broker.path), broker.db_file)],
                          replicator.logger.get_lines_for_level('debug'))
         replicator.logger.clear()
 
@@ -959,7 +1123,8 @@ class TestDBReplicator(unittest.TestCase):
                 broker, info, [True, False, True])
         mock_delete_db.assert_not_called()
         self.assertTrue(res)
-        self.assertEqual(['Not deleting db %s (2/3 success)' % broker.db_file],
+        self.assertEqual(['Not deleting db (2/3 success), path: %s, '
+                          'db: %s' % (quote(broker.path), broker.db_file)],
                          replicator.logger.get_lines_for_level('debug'))
         replicator.logger.clear()
 
@@ -969,7 +1134,8 @@ class TestDBReplicator(unittest.TestCase):
                 broker, info, [True] * 3)
         mock_delete_db.assert_not_called()
         self.assertTrue(res)
-        self.assertEqual(['Not deleting db %s (2 new rows)' % broker.db_file],
+        self.assertEqual(['Not deleting db (2 new rows), path: %s, '
+                          'db: %s' % (quote(broker.path), broker.db_file)],
                          replicator.logger.get_lines_for_level('debug'))
         replicator.logger.clear()
 
@@ -980,8 +1146,9 @@ class TestDBReplicator(unittest.TestCase):
         mock_delete_db.assert_not_called()
         self.assertTrue(res)
         broker.stub_replication_info = None
-        self.assertEqual(['Not deleting db %s (negative max_row_delta: -1)' %
-                          broker.db_file],
+        self.assertEqual(['Not deleting db (negative max_row_delta: -1),'
+                          ' path: %s, db: %s' % (quote(broker.path),
+                                                 broker.db_file)],
                          replicator.logger.get_lines_for_level('error'))
         replicator.logger.clear()
 
@@ -990,7 +1157,8 @@ class TestDBReplicator(unittest.TestCase):
                 broker, info, [True] * 3)
         mock_delete_db.assert_called_once_with(broker)
         self.assertTrue(res)
-        self.assertEqual(['Successfully deleted db %s' % broker.db_file],
+        self.assertEqual(['Successfully deleted db, path: %s, db: %s' %
+                          (quote(broker.path), broker.db_file)],
                          replicator.logger.get_lines_for_level('debug'))
         replicator.logger.clear()
 
@@ -1000,7 +1168,8 @@ class TestDBReplicator(unittest.TestCase):
                 broker, info, [True] * 3)
         mock_delete_db.assert_called_once_with(broker)
         self.assertFalse(res)
-        self.assertEqual(['Failed to delete db %s' % broker.db_file],
+        self.assertEqual(['Failed to delete db, path: %s, db: %s' %
+                          (quote(broker.path), broker.db_file)],
                          replicator.logger.get_lines_for_level('debug'))
         replicator.logger.clear()
 
@@ -1060,8 +1229,9 @@ class TestDBReplicator(unittest.TestCase):
         replicator._replicate_object(str(part), '/path/to/file', node_id)
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
         error_msgs = replicator.logger.get_lines_for_level('error')
-        expected = 'Found /path/to/file for /a%20c%20t when it should be ' \
-            'on partition 0; will replicate out and remove.'
+        expected = ('Found db that should be on '
+                    'partition 0; will replicate out and remove,'
+                    ' path: a%20c%20t, db: /path/to/file')
         self.assertEqual(error_msgs, [expected])
 
     def test_replicate_container_out_of_place(self):
@@ -1077,8 +1247,9 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(['/path/to/file'], self.delete_db_calls)
         self.assertEqual(
             replicator.logger.get_lines_for_level('error'),
-            ['Found /path/to/file for /a%20c%20t/c%20o%20n when it should '
-             'be on partition 0; will replicate out and remove.'])
+            ['Found db that should '
+             'be on partition 0; will replicate out and remove,'
+             ' path: a%20c%20t/c%20o%20n, db: /path/to/file'])
 
     def test_replicate_container_out_of_place_no_node(self):
         replicator = ConcreteReplicator({}, logger=self.logger)
@@ -1124,62 +1295,58 @@ class TestDBReplicator(unittest.TestCase):
         replicator._zero_stats()
         replicator.extract_device = lambda _: 'some_device'
 
-        temp_dir = mkdtemp()
-        try:
-            temp_part_dir = os.path.join(temp_dir, '140')
-            os.mkdir(temp_part_dir)
-            temp_suf_dir = os.path.join(temp_part_dir, '16e')
-            os.mkdir(temp_suf_dir)
-            temp_hash_dir = os.path.join(temp_suf_dir,
-                                         '166e33924a08ede4204871468c11e16e')
-            os.mkdir(temp_hash_dir)
-            temp_file = NamedTemporaryFile(dir=temp_hash_dir, delete=False)
-            temp_hash_dir2 = os.path.join(temp_suf_dir,
-                                          '266e33924a08ede4204871468c11e16e')
-            os.mkdir(temp_hash_dir2)
-            temp_file2 = NamedTemporaryFile(dir=temp_hash_dir2, delete=False)
+        temp_part_dir = os.path.join(self.temp_dir, '140')
+        os.mkdir(temp_part_dir)
+        temp_suf_dir = os.path.join(temp_part_dir, '16e')
+        os.mkdir(temp_suf_dir)
+        temp_hash_dir = os.path.join(temp_suf_dir,
+                                     '166e33924a08ede4204871468c11e16e')
+        os.mkdir(temp_hash_dir)
+        temp_file = NamedTemporaryFile(dir=temp_hash_dir, delete=False)
+        temp_hash_dir2 = os.path.join(temp_suf_dir,
+                                      '266e33924a08ede4204871468c11e16e')
+        os.mkdir(temp_hash_dir2)
+        temp_file2 = NamedTemporaryFile(dir=temp_hash_dir2, delete=False)
 
-            # sanity-checks
-            self.assertTrue(os.path.exists(temp_dir))
-            self.assertTrue(os.path.exists(temp_part_dir))
-            self.assertTrue(os.path.exists(temp_suf_dir))
-            self.assertTrue(os.path.exists(temp_hash_dir))
-            self.assertTrue(os.path.exists(temp_file.name))
-            self.assertTrue(os.path.exists(temp_hash_dir2))
-            self.assertTrue(os.path.exists(temp_file2.name))
-            self.assertEqual(0, replicator.stats['remove'])
+        # sanity-checks
+        self.assertTrue(os.path.exists(self.temp_dir))
+        self.assertTrue(os.path.exists(temp_part_dir))
+        self.assertTrue(os.path.exists(temp_suf_dir))
+        self.assertTrue(os.path.exists(temp_hash_dir))
+        self.assertTrue(os.path.exists(temp_file.name))
+        self.assertTrue(os.path.exists(temp_hash_dir2))
+        self.assertTrue(os.path.exists(temp_file2.name))
+        self.assertEqual(0, replicator.stats['remove'])
 
-            temp_file.db_file = temp_file.name
-            replicator.delete_db(temp_file)
+        temp_file.db_file = temp_file.name
+        replicator.delete_db(temp_file)
 
-            self.assertTrue(os.path.exists(temp_dir))
-            self.assertTrue(os.path.exists(temp_part_dir))
-            self.assertTrue(os.path.exists(temp_suf_dir))
-            self.assertFalse(os.path.exists(temp_hash_dir))
-            self.assertFalse(os.path.exists(temp_file.name))
-            self.assertTrue(os.path.exists(temp_hash_dir2))
-            self.assertTrue(os.path.exists(temp_file2.name))
-            self.assertEqual(
-                [(('removes.some_device',), {})],
-                replicator.logger.statsd_client.calls['increment'])
-            self.assertEqual(1, replicator.stats['remove'])
+        self.assertTrue(os.path.exists(self.temp_dir))
+        self.assertTrue(os.path.exists(temp_part_dir))
+        self.assertTrue(os.path.exists(temp_suf_dir))
+        self.assertFalse(os.path.exists(temp_hash_dir))
+        self.assertFalse(os.path.exists(temp_file.name))
+        self.assertTrue(os.path.exists(temp_hash_dir2))
+        self.assertTrue(os.path.exists(temp_file2.name))
+        self.assertEqual(
+            [(('removes.some_device',), {})],
+            replicator.logger.statsd_client.calls['increment'])
+        self.assertEqual(1, replicator.stats['remove'])
 
-            temp_file2.db_file = temp_file2.name
-            replicator.delete_db(temp_file2)
+        temp_file2.db_file = temp_file2.name
+        replicator.delete_db(temp_file2)
 
-            self.assertTrue(os.path.exists(temp_dir))
-            self.assertFalse(os.path.exists(temp_part_dir))
-            self.assertFalse(os.path.exists(temp_suf_dir))
-            self.assertFalse(os.path.exists(temp_hash_dir))
-            self.assertFalse(os.path.exists(temp_file.name))
-            self.assertFalse(os.path.exists(temp_hash_dir2))
-            self.assertFalse(os.path.exists(temp_file2.name))
-            self.assertEqual(
-                [(('removes.some_device',), {})] * 2,
-                replicator.logger.statsd_client.calls['increment'])
-            self.assertEqual(2, replicator.stats['remove'])
-        finally:
-            rmtree(temp_dir)
+        self.assertTrue(os.path.exists(self.temp_dir))
+        self.assertFalse(os.path.exists(temp_part_dir))
+        self.assertFalse(os.path.exists(temp_suf_dir))
+        self.assertFalse(os.path.exists(temp_hash_dir))
+        self.assertFalse(os.path.exists(temp_file.name))
+        self.assertFalse(os.path.exists(temp_hash_dir2))
+        self.assertFalse(os.path.exists(temp_file2.name))
+        self.assertEqual(
+            [(('removes.some_device',), {})] * 2,
+            replicator.logger.statsd_client.calls['increment'])
+        self.assertEqual(2, replicator.stats['remove'])
 
     def test_extract_device(self):
         replicator = ConcreteReplicator({'devices': '/some/root'})
@@ -1263,7 +1430,7 @@ class TestDBReplicator(unittest.TestCase):
                                     ['rsync_then_merge', 'arg1', 'arg2'])
             expected_calls = [call('/part/ash/hash/hash.db'),
                               call('/drive/tmp/arg1'),
-                              call(FakeBroker.db_file),
+                              call('/part/ash/hash/hash.db'),
                               call('/drive/tmp/arg1')]
             self.assertEqual(mock_os.path.exists.call_args_list,
                              expected_calls)
@@ -1302,6 +1469,45 @@ class TestDBReplicator(unittest.TestCase):
             self.assertEqual('204 No Content', response.status)
             self.assertEqual(204, response.status_int)
 
+    def test_delete_db_exception_log_includes_parent_directory(self):
+        replicator = ConcreteReplicator({}, logger=self.logger)
+        replicator._zero_stats()
+        db_replicator.lock_parent_directory = lock_parent_directory
+        temp_part_dir = os.path.join(self.temp_dir, '140')
+        os.mkdir(temp_part_dir)
+        suf_dir = os.path.join(temp_part_dir, '16e')
+        os.mkdir(suf_dir)
+        hash_prefix = '166e33924a08ede4204871468c11e16e'
+        hash_dir = os.path.join(suf_dir, hash_prefix)
+        os.mkdir(hash_dir)
+        object_file = os.path.join(hash_dir, hash_prefix + '.db')
+        with open(object_file, 'w'):
+            pass
+
+        broker = FakeBroker(account='a', container='c')
+        broker.db_file = object_file
+        parent_dir = suf_dir
+
+        def rmdir_side_effect(path):
+            if path == parent_dir:
+                raise OSError(errno.EPERM, "Operation not permitted")
+            return os.rmdir(path)
+
+        with mock.patch('swift.common.db_replicator.os',
+                        wraps=os) as mock_os:
+            mock_os.rmdir.side_effect = rmdir_side_effect
+            result = replicator.delete_db(broker)
+        self.assertFalse(result)
+        self.assertFalse(os.path.exists(hash_dir))
+        self.assertFalse(os.path.exists(object_file))
+
+        lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ['ERROR while trying to clean up %s, path: %s, db: %s: ' %
+             (parent_dir, db_replicator.quote(broker.path),
+              broker.db_file)],
+            lines)
+
     def test_rsync_then_merge_db_does_not_exist(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
@@ -1335,11 +1541,11 @@ class TestDBReplicator(unittest.TestCase):
     def test_rsync_then_merge_with_objects(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
+        target_db = '/data/db.db'
 
         def mock_renamer(old, new):
             self.assertEqual('/drive/tmp/arg1', old)
-            # FakeBroker uses module filename as db_file!
-            self.assertEqual(__file__, new)
+            self.assertEqual(target_db, new)
 
         self._patch(patch.object, db_replicator, 'renamer', mock_renamer)
 
@@ -1347,7 +1553,7 @@ class TestDBReplicator(unittest.TestCase):
                    new=mock.MagicMock(wraps=os)) as mock_os, \
                 unit.mock_check_drive(isdir=True):
             mock_os.path.exists.return_value = True
-            response = rpc.rsync_then_merge('drive', '/data/db.db',
+            response = rpc.rsync_then_merge('drive', target_db,
                                             ['arg1', 'arg2'])
             self.assertEqual('204 No Content', response.status)
             self.assertEqual(204, response.status_int)
@@ -1464,7 +1670,8 @@ class TestDBReplicator(unittest.TestCase):
         errors = rpc.logger.get_lines_for_level('error')
         self.assertEqual(errors,
                          ["Unable to decode remote metadata 'metadata'",
-                          "Quarantining DB %s" % broker])
+                          "Quarantining DB, path: %s, db: %s" %
+                          (quote(broker.path), broker.db_file)])
 
     def test_replicator_sync(self):
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
@@ -1526,21 +1733,18 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(404, resp.status_int)
 
     def test_complete_rsync(self):
-        drive = mkdtemp()
+        drive = self.temp_dir
         args = ['old_file']
         rpc = db_replicator.ReplicatorRpc('/', '/', FakeBroker,
                                           mount_check=False)
         os.mkdir('%s/tmp' % drive)
         old_file = '%s/tmp/old_file' % drive
         new_file = '%s/new_db_file' % drive
-        try:
-            fp = open(old_file, 'w')
-            fp.write('void')
-            fp.close
-            resp = rpc.complete_rsync(drive, new_file, args)
-            self.assertEqual(204, resp.status_int)
-        finally:
-            rmtree(drive)
+        fp = open(old_file, 'w')
+        fp.write('void')
+        fp.close
+        resp = rpc.complete_rsync(drive, new_file, args)
+        self.assertEqual(204, resp.status_int)
 
     @unit.with_tempdir
     def test_empty_suffix_and_hash_dirs_get_cleanedup(self, tempdir):
@@ -1798,6 +2002,46 @@ class TestDBReplicator(unittest.TestCase):
         db_replicator.ReplConnection.assert_has_calls([
             mock.call(node, partition, expected_hsh, replicator.logger)])
 
+    @unit.with_tempdir
+    def test_reclaim_tmp_files(self, tmpdir):
+        db_dir = os.path.join(tmpdir, 'containers/123/bla/some_bla/localtion/')
+        mkdirs(db_dir)
+
+        # Touch some files
+        file_mtimes = {'the_db.db': 0,
+                       'somethingelse.txt': 0,
+                       'some_temp_file.tmp': 5,
+                       'another_tmp_file.db.tmp': 10,
+                       'one_last_temp.db.tmp': 5}
+        for f in file_mtimes.keys():
+            with open(os.path.join(db_dir, f), 'w'):
+                pass
+
+        # create a broker
+        broker = FakeBroker(os.path.join(db_dir, 'the_db.db'))
+        calls = []
+
+        def fake_getmtime(path, *args, **kwargs):
+            calls.append(path)
+            return file_mtimes.get(os.path.basename(path), 0)
+
+        # OK now let's try and reclaim old tmp files
+        with mock.patch('os.path.getmtime', fake_getmtime):
+            replicator = ConcreteReplicator({'reclaim_age': 10})
+            replicator._reclaim_tmp_dbs(broker, 18)
+
+        # It should only look at the tmp files and because of the mtimes only
+        # 2 of them should have been removed
+        self.assertEqual(sorted(['another_tmp_file.db.tmp',
+                                 'somethingelse.txt',
+                                 'the_db.db']),
+                         sorted(listdir(db_dir)))
+        expected_paths_called = [
+            os.path.join(db_dir, 'another_tmp_file.db.tmp'),
+            os.path.join(db_dir, 'one_last_temp.db.tmp'),
+            os.path.join(db_dir, 'some_temp_file.tmp')]
+        self.assertEqual(expected_paths_called, sorted(calls))
+
 
 class TestHandoffsOnly(unittest.TestCase):
     class FakeRing3Nodes(object):
@@ -2015,14 +2259,16 @@ class TestReplToNode(unittest.TestCase):
         db_replicator.ring = FakeRing()
         self.delete_db_calls = []
         self.broker = FakeBroker()
-        self.replicator = ConcreteReplicator({'per_diff': 10})
+        self.logger = debug_logger()
+        self.fake_statsd_client = self.logger.logger.statsd_client
+        self.replicator = ConcreteReplicator({'per_diff': 10},
+                                             logger=self.logger)
         self.fake_node = {'ip': '127.0.0.1', 'device': 'sda1', 'port': 1000}
         self.fake_info = {'id': 'a', 'point': -1, 'max_row': 20, 'hash': 'b',
                           'created_at': 100, 'put_timestamp': 0,
                           'delete_timestamp': 0, 'count': 0,
                           'metadata': json.dumps({
                               'Test': ('Value', normalize_timestamp(1))})}
-        self.replicator.logger = mock.Mock()
         self.replicator._rsync_db = mock.Mock(return_value=True)
         self.replicator._usync_db = mock.Mock(return_value=True)
         self.http = ReplHttp('{"id": 3, "point": -1}')
@@ -2043,11 +2289,13 @@ class TestReplToNode(unittest.TestCase):
         rinfo = {"id": 3, "point": -1, "max_row": 9, "hash": "c"}
         self.http = ReplHttp(json.dumps(rinfo))
         self.broker.get_sync()
+
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
-        self.replicator.logger.increment.assert_has_calls([
-            mock.call.increment('remote_merges')
-        ])
+        self.assertEqual(1, self.fake_statsd_client.counters[
+            'remote_merges']
+        )
+
         self.replicator._rsync_db.assert_has_calls([
             mock.call(self.broker, self.fake_node, self.http,
                       self.fake_info['id'],
@@ -2064,6 +2312,10 @@ class TestReplToNode(unittest.TestCase):
             self.fake_node, self.broker, '0', self.fake_info), True)
         self.assertEqual(self.replicator._rsync_db.call_count, 0)
         self.assertEqual(self.replicator._usync_db.call_count, 0)
+        lines = self.replicator.logger.get_lines_for_level('debug')
+        self.assertIn('in sync with 127.0.0.1:1000/sda1, nothing to do,'
+                      ' path: %s, db: %s'
+                      % (quote(self.broker.path), self.broker.db_file), lines)
 
     def test_repl_to_node_metadata_update(self):
         now = Timestamp(time.time()).internal
@@ -2075,17 +2327,20 @@ class TestReplToNode(unittest.TestCase):
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info), True)
         metadata = self.broker.metadata
+        lines = self.replicator.logger.get_lines_for_level('debug')
         self.assertIn("X-Container-Sysmeta-Test", metadata)
         self.assertEqual("XYZ", metadata["X-Container-Sysmeta-Test"][0])
         self.assertEqual(now, metadata["X-Container-Sysmeta-Test"][1])
+        self.assertIn('in sync with 127.0.0.1:1000/sda1, nothing to do,'
+                      ' path: %s, db: %s' % (quote(self.broker.path),
+                                             self.broker.db_file), lines)
 
     def test_repl_to_node_not_found(self):
         self.http = ReplHttp('{"id": 3, "point": -1}', set_status=404)
+
         self.assertEqual(self.replicator._repl_to_node(
             self.fake_node, self.broker, '0', self.fake_info, False), True)
-        self.replicator.logger.increment.assert_has_calls([
-            mock.call.increment('rsyncs')
-        ])
+        self.assertEqual(1, self.fake_statsd_client.counters['rsyncs'])
         self.replicator._rsync_db.assert_has_calls([
             mock.call(self.broker, self.fake_node, self.http,
                       self.fake_info['id'], different_region=False)
@@ -2151,19 +2406,22 @@ class TestReplicatorSync(unittest.TestCase):
             self.root, self.datadir, self.backend, mount_check=False,
             logger=debug_logger())
         FakeReplConnection = attach_fake_replication_rpc(self.rpc)
-        self._orig_ReplConnection = db_replicator.ReplConnection
-        db_replicator.ReplConnection = FakeReplConnection
-        self._orig_Ring = db_replicator.ring.Ring
+        p = mock.patch.object(db_replicator, 'ReplConnection',
+                              FakeReplConnection)
+        p.start()
+        # it turns out this works very well, even if a test leaks a global
+        # patch this will restore the original db_replicator.ReplConnection
+        self.addCleanup(p.stop)
         self._ring = unit.FakeRing()
-        db_replicator.ring.Ring = lambda *args, **kwargs: self._get_ring()
+        p = mock.patch.object(db_replicator.ring, 'Ring', self._get_ring)
+        p.start()
+        self.addCleanup(p.stop)
         self.logger = debug_logger()
 
     def tearDown(self):
-        db_replicator.ReplConnection = self._orig_ReplConnection
-        db_replicator.ring.Ring = self._orig_Ring
         rmtree(self.root)
 
-    def _get_ring(self):
+    def _get_ring(self, *args, **kwargs):
         return self._ring
 
     def _get_broker(self, account, container=None, node_index=0):
@@ -2195,12 +2453,13 @@ class TestReplicatorSync(unittest.TestCase):
         return self.replicator_daemon(conf, logger=self.logger)
 
     def _install_fake_rsync_file(self, daemon, captured_calls=None):
-        def _rsync_file(db_file, remote_file, **kwargs):
+        def _rsync_file(src, remote_file, **kwargs):
+            src_path = src.db_file
             if captured_calls is not None:
-                captured_calls.append((db_file, remote_file, kwargs))
+                captured_calls.append((src_path, remote_file, kwargs))
             remote_server, remote_path = remote_file.split('/', 1)
             dest_path = os.path.join(self.root, remote_path)
-            copy(db_file, dest_path)
+            copy(src_path, dest_path)
             return True
         daemon._rsync_file = _rsync_file
 

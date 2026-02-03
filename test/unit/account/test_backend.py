@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """ Tests for swift.account.backend """
-
 from collections import defaultdict
 import json
 import pickle
@@ -421,17 +420,18 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_get_info(self):
         # Test AccountBroker.get_info
         broker = AccountBroker(self.get_db_path(), account='test1')
-        broker.initialize(Timestamp('1').internal)
+        put_ts = next(self.ts)
+        broker.initialize(put_ts.internal)
 
         info = broker.get_info()
         self.assertEqual(info['account'], 'test1')
         self.assertEqual(info['hash'], '00000000000000000000000000000000')
-        self.assertEqual(info['put_timestamp'], Timestamp(1).internal)
+        self.assertEqual(info['put_timestamp'], put_ts.internal)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ == TestAccountBrokerBeforeMetadata:
             self.assertEqual(info['status_changed_at'], '0')
         else:
-            self.assertEqual(info['status_changed_at'], Timestamp(1).internal)
+            self.assertEqual(info['status_changed_at'], put_ts.internal)
 
         info = broker.get_info()
         self.assertEqual(info['container_count'], 0)
@@ -598,20 +598,21 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_list_objects_iter_order_and_reverse(self):
         # Test ContainerBroker.list_objects_iter
         broker = AccountBroker(self.get_db_path(), account='a')
-        broker.initialize(Timestamp('1').internal, 0)
+        put_ts = next(self.ts)
+        broker.initialize(put_ts.internal, 0)
 
         broker.put_container(
-            'c1', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+            'c1', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'c10', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+            'c10', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'C1', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+            'C1', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'c2', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+            'c2', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'c3', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+            'c3', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'C4', Timestamp(0).internal, 0, 0, 0, POLICIES.default.idx)
+            'C4', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
 
         listing = broker.list_containers_iter(100, None, None, '', '',
                                               reverse=False)
@@ -832,27 +833,30 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_chexor(self):
         broker = AccountBroker(self.get_db_path(), account='a')
-        broker.initialize(Timestamp('1').internal)
-        broker.put_container('a', Timestamp(1).internal,
-                             Timestamp(0).internal, 0, 0,
+        put_ts = next(self.ts)
+        delete_ts = Timestamp(0)
+        timestamps = [next(self.ts) for _ in range(3)]
+        broker.initialize(put_ts.internal)
+        broker.put_container('a', timestamps[0].internal,
+                             delete_ts.internal, 0, 0,
                              POLICIES.default.idx)
-        broker.put_container('b', Timestamp(2).internal,
-                             Timestamp(0).internal, 0, 0,
+        broker.put_container('b', timestamps[1].internal,
+                             delete_ts.internal, 0, 0,
                              POLICIES.default.idx)
         text = '%s-%s' % ('a', "%s-%s-%s-%s" % (
-               Timestamp(1).internal, Timestamp(0).internal, 0, 0))
+               timestamps[0].internal, delete_ts.internal, 0, 0))
         hasha = md5(text.encode('ascii'), usedforsecurity=False).digest()
         text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
-               Timestamp(2).internal, Timestamp(0).internal, 0, 0))
+               timestamps[1].internal, delete_ts.internal, 0, 0))
         hashb = md5(text.encode('ascii'), usedforsecurity=False).digest()
         hashc = ''.join(('%02x' % (a ^ b)
                          for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)
-        broker.put_container('b', Timestamp(3).internal,
-                             Timestamp(0).internal, 0, 0,
+        broker.put_container('b', timestamps[2].internal,
+                             delete_ts.internal, 0, 0,
                              POLICIES.default.idx)
         text = '%s-%s' % ('b', "%s-%s-%s-%s" % (
-               Timestamp(3).internal, Timestamp(0).internal, 0, 0))
+               timestamps[2].internal, delete_ts.internal, 0, 0))
         hashb = md5(text.encode('ascii'), usedforsecurity=False).digest()
         hashc = ''.join(('%02x' % (a ^ b)
                          for a, b in zip(hasha, hashb)))
@@ -1120,6 +1124,71 @@ class TestAccountBroker(test_db.TestDbBase):
         # ends in the device name (from the path)
         self.assertFalse(new_broker.get_info()['id'].endswith('d1234'))
         self.assertTrue(new_broker.get_info()['id'].endswith('d5678'))
+
+    def _create_db(self, account='a'):
+        db_file = self.get_db_path()
+        b = AccountBroker(db_file, account=account)
+        b.initialize(Timestamp('1').internal)
+        return db_file
+
+    def test_path_caches_account(self):
+        db_file = self._create_db()
+        b = AccountBroker(db_file)
+        self.assertIsNone(b.account)
+        called = {'n': 0}
+
+        orig_get_info = AccountBroker.get_info
+
+        def capture_get_info(self):
+            called['n'] += 1
+            return orig_get_info(self)
+
+        self.assertEqual(0, called['n'])
+        with mock.patch.object(AccountBroker, 'get_info', capture_get_info):
+            self.assertEqual('a', b.path)
+            # accessing path will call get_info!
+            self.assertEqual(1, called['n'])
+            # and populate the account attribute
+            self.assertEqual('a', b.account)
+            # it's cached
+            for i in range(3):
+                self.assertEqual('a', b.path)
+                self.assertEqual('a', b.account)
+        # we only call get_info once
+        self.assertEqual(1, called['n'])
+
+    def test_path_uses_account_kwag(self):
+        db_file = self._create_db()
+        b = AccountBroker(db_file, account='a')
+        called = {'n': 0}
+
+        orig_get_info = AccountBroker.get_info
+
+        def capture_get_info(self):
+            called['n'] += 1
+            return orig_get_info(self)
+
+        self.assertEqual(0, called['n'])
+        with mock.patch.object(AccountBroker, 'get_info', capture_get_info):
+            self.assertEqual('a', b.path)
+        # we never call get_info
+        self.assertEqual(0, called['n'])
+
+    def test_path_on_uninitialized_broker(self):
+        db_file = self.get_db_path()
+        b = AccountBroker(db_file)
+        self.assertEqual(b.db_file, db_file)
+        with self.assertRaises(DatabaseConnectionError) as ctx:
+            getattr(b, 'path')
+        self.assertIn("DB doesn't exist", str(ctx.exception))
+        self.assertIn(db_file, str(ctx.exception))
+        with self.assertRaises(ValueError) as ctx:
+            b.initialize(next(self.ts))
+        self.assertEqual(
+            'Attempting to create a new database with no account set',
+            str(ctx.exception))
+        b.account = 'a'
+        self.assertEqual('a', b.path)
 
 
 def prespi_AccountBroker_initialize(self, conn, put_timestamp, **kwargs):
@@ -1825,11 +1894,13 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
 
     def test_policy_table_cont_count_update_get_stats(self):
         # add a few container entries
+        ts_zero = Timestamp(0)
         for policy in POLICIES:
             for i in range(0, policy.idx + 1):
                 container_name = 'c%s_0' % policy.idx
                 self.broker.put_container('c%s_%s' % (policy.idx, i),
-                                          0, 0, 0, 0, policy.idx)
+                                          ts_zero.internal, ts_zero.internal,
+                                          0, 0, policy.idx)
         # _commit_puts_stale_ok() called by get_policy_stats()
 
         # calling get_policy_stats() with do_migrations will alter the table
@@ -1864,7 +1935,9 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         # now put them back and make sure things are still cool
         for policy in POLICIES:
             container_name = 'c%s_0' % policy.idx
-            self.broker.put_container(container_name, 0, 0, 0, 0, policy.idx)
+            self.broker.put_container(
+                container_name, ts_zero.internal, ts_zero.internal, 0, 0,
+                policy.idx)
         # _commit_puts_stale_ok() called by get_policy_stats()
 
         # confirm stats reporting back correctly

@@ -60,15 +60,17 @@ def gen_resp_headers(info, is_deleted=False):
     """
     Convert container info dict to headers.
     """
+    ts_zero = Timestamp.zero()
     # backend headers are always included
     headers = {
-        'X-Backend-Timestamp': Timestamp(info.get('created_at', 0)).internal,
-        'X-Backend-PUT-Timestamp': Timestamp(info.get(
-            'put_timestamp', 0)).internal,
+        'X-Backend-Timestamp': Timestamp(
+            info.get('created_at', ts_zero)).internal,
+        'X-Backend-PUT-Timestamp': Timestamp(
+            info.get('put_timestamp', ts_zero)).internal,
         'X-Backend-DELETE-Timestamp': Timestamp(
-            info.get('delete_timestamp', 0)).internal,
+            info.get('delete_timestamp', ts_zero)).internal,
         'X-Backend-Status-Changed-At': Timestamp(
-            info.get('status_changed_at', 0)).internal,
+            info.get('status_changed_at', ts_zero)).internal,
         'X-Backend-Storage-Policy-Index': info.get('storage_policy_index', 0),
     }
     if not is_deleted:
@@ -76,9 +78,9 @@ def gen_resp_headers(info, is_deleted=False):
         headers.update({
             'X-Container-Object-Count': info.get('object_count', 0),
             'X-Container-Bytes-Used': info.get('bytes_used', 0),
-            'X-Timestamp': Timestamp(info.get('created_at', 0)).normal,
+            'X-Timestamp': Timestamp(info.get('created_at', ts_zero)).normal,
             'X-PUT-Timestamp': Timestamp(
-                info.get('put_timestamp', 0)).normal,
+                info.get('put_timestamp', ts_zero)).normal,
             'X-Backend-Sharding-State': info.get('db_state', UNSHARDED),
         })
     return headers
@@ -608,7 +610,7 @@ class ContainerController(BaseStorageServer):
         headers['Content-Type'] = out_content_type
         headers['Content-Length'] = 0
         resp = HTTPNoContent(request=req, headers=headers, charset='utf-8')
-        resp.last_modified = Timestamp(headers['X-PUT-Timestamp']).ceil()
+        resp.last_modified = Timestamp(headers['X-PUT-Timestamp'])
         return resp
 
     def update_shard_record(self, record, shard_record_full=True):
@@ -920,7 +922,7 @@ class ContainerController(BaseStorageServer):
 
         ret = Response(request=req, headers=resp_headers, body=body,
                        content_type=out_content_type, charset='utf-8')
-        ret.last_modified = Timestamp(resp_headers['X-PUT-Timestamp']).ceil()
+        ret.last_modified = Timestamp(resp_headers['X-PUT-Timestamp'])
         if not ret.body:
             ret.status_int = HTTP_NO_CONTENT
         return ret

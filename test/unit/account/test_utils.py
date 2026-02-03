@@ -25,7 +25,7 @@ from swift.common.utils import Timestamp
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_reserved_name
 
-from test.unit import patch_policies, make_timestamp_iter
+from test.unit import patch_policies, make_timestamp_iter, mock_timestamp_now
 from test.unit.common.test_db import TestDbBase
 
 
@@ -33,10 +33,8 @@ class TestFakeAccountBroker(unittest.TestCase):
 
     def test_fake_broker_get_info(self):
         broker = utils.FakeAccountBroker()
-        now = time.time()
-        with mock.patch('time.time', new=lambda: now):
+        with mock_timestamp_now() as timestamp:
             info = broker.get_info()
-        timestamp = Timestamp(now)
         expected = {
             'container_count': 0,
             'object_count': 0,

@@ -8,9 +8,10 @@ Communication
 IRC
     People working on the Swift project may be found in the
     ``#openstack-swift`` channel on OFTC during working hours
-    in their timezone.  The channel is logged, so if you ask a question
-    when no one is around, you can check the log to see if it's been
-    answered: http://eavesdrop.openstack.org/irclogs/%23openstack-swift/
+    in their timezone.  The channel is logged, so if you ask 
+    a question when no one is around, you can 
+    `check the log <http://eavesdrop.openstack.org/irclogs/%23openstack-swift/>`__
+    to see if it's been answered.
 
 weekly meeting
     This is a Swift team meeting. The discussion in this meeting is about
@@ -25,9 +26,7 @@ mailing list
     Use the prefix ``[swift]`` in your subject line (it's a high-volume
     list, so most people use email filters).
 
-    More information about the mailing list, including how to subscribe
-    and read the archives, can be found at:
-    http://lists.openstack.org/cgi-bin/mailman/listinfo/openstack-discuss
+    You can use our `mailing list info page <https://lists.openstack.org/mailman3/lists/openstack-discuss.lists.openstack.org/>`__ to read the archives and subscribe.
 
 Contacting the Core Team
 ------------------------
@@ -54,20 +53,17 @@ free to drop in to ask questions or just to meet us.
 
    Or for more specifically in a Swift context read :doc:`review_guidelines`
 
-You can learn more about the role of core reviewers in the OpenStack
-governance documentation:
-https://docs.openstack.org/contributors/common/governance.html#core-reviewer
-
-The membership list of swift-core is maintained in gerrit:
-https://review.opendev.org/#/admin/groups/24,members
-
-You can also find the members of the swift-core team at the Swift weekly
-meetings.
+You can read about the role of core reviewers in the
+`OpenStack governance documentation
+<https://docs.openstack.org/contributors/common/governance.html#core-reviewer>`_, learn
+more about the swift-core members in our gerrit
+`membership list <https://review.opendev.org/#/admin/groups/24,members>`__, and 
+also find the team at our `Swift weekly meetings <#communication>`__.
 
 Getting Your Patch Merged
 -------------------------
 Understanding how reviewers review and what they look for will help getting
-your code merged. See `Swift Review Guidelines <contributor/review_guidelines>`_
+your code merged. See `Swift Review Guidelines <https://docs.openstack.org/swift/latest/contributor/review_guidelines.html>`_
 for how we review code.
 
 Keep in mind that reviewers are also human; if something feels stalled, then

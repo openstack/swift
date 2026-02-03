@@ -44,7 +44,7 @@ from swift.common.utils import capture_stdio, disable_fallocate, \
     drop_privileges, get_logger, NullLogger, config_true_value, \
     validate_configuration, get_hub, config_auto_int_value, \
     reiterate, clean_up_daemon_hygiene, systemd_notify, NicerInterpolation, \
-    eventlet_disabled
+    set_swift_dir, eventlet_disabled
 
 SIGNUM_TO_NAME = {getattr(signal, n): n for n in dir(signal)
                   if n.startswith('SIG') and '_' not in n}
@@ -437,6 +437,7 @@ def _run_server_eventlet(conf, logger, sock, global_conf=None,
     else:
         protocol_class = SwiftHttpProtocol
 
+    max_request_line = constraints.MAX_REQUEST_LINE
     server_kwargs = {
         'custom_pool': pool,
         'protocol': protocol_class,
@@ -445,6 +446,7 @@ def _run_server_eventlet(conf, logger, sock, global_conf=None,
         # the AWS SDK to work with s3api middleware (it needs an "ETag"
         # header; "Etag" just won't do).
         'capitalize_response_headers': False,
+        'url_length_limit': max_request_line,
     }
     if conf.get('keepalive_timeout'):
         server_kwargs['keepalive'] = float(conf['keepalive_timeout']) or False
@@ -1286,6 +1288,9 @@ def _initrp(conf_path, app_section, *args, **kwargs):
         raise ConfigFileError("Error trying to load config from %s: %s" %
                               (conf_path, e))
 
+    if conf.get('swift_dir'):
+        set_swift_dir(conf['swift_dir'])
+
     validate_configuration()
 
     # pre-configure logger
@@ -1409,7 +1414,7 @@ def make_env(env, method=None, path=None, agent='Swift', query_string=None,
                  'swift.trans_id', 'swift.authorize_override',
                  'swift.authorize', 'HTTP_X_USER_ID', 'HTTP_X_PROJECT_ID',
                  'HTTP_REFERER', 'swift.infocache',
-                 'swift.shard_listing_history'):
+                 'swift.base_labels', 'swift.shard_listing_history'):
         if name in env:
             newenv[name] = env[name]
     if method:

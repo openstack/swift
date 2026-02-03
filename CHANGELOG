@@ -1,3 +1,159 @@
+swift (2.37.0)
+
+    * The s3token middleware now passes service auth tokens to Keystone
+      if credentials are provided. This is required to enable S3 API
+      access for Keystone users when using Keystone >25.0.0, !=26.0.0,
+      !=26.0.1, !=27.0.0, !=28.0.0. See etc/proxy-server.conf-sample for
+      configuration details. For more information, see
+      https://security.openstack.org/ossa/OSSA-2025-002.html and
+      https://bugs.launchpad.net/keystone/+bug/2119646
+
+    * The s3token middleware now caches credential secrets for one minute
+      by default, if credentials are provided. Secret-caching typically
+      reduces the load on Keystone and is required for Keystone users to
+      be able to use signed aws-chunked transfers. To return to prior
+      behavior, explicitly set `secret_cache_duration = 0` in the
+      `[filter:s3api]` section of your proxy-server.conf.
+
+    * Improved checksum validation for S3 API DeleteObjects requests.
+
+    * POST requests are more likely to receive a 503 response in the
+      face of backend inconsistencies.
+
+    * The KMS keymaster now supports selecting the endpoint returned in the
+      Keystone catalog via the `barbican_region_name` configuration option.
+      This may be useful in multi-region deployments which have multiple
+      endpoints.
+
+    * The request line-length limit is now configurable for all WSGI servers
+      via the `max_request_line` option in the `[swift-constraints]` section
+      of swift.conf. By default, continue to use eventlet's default of 8192
+      bytes.
+
+    * Writes to sharded containers are less likely to have their updates
+      sent to the root container. This uses a new cooperative-token
+      mechanism to limit the number of concurrent shard range queries
+      to the root container; see the `[app:proxy-server]` section of
+      etc/proxy-server.conf-sample for configuration options.
+
+    * The following new metrics were added when using labeled metrics:
+
+      * The proxy-logging middleware may now emit real-time transfer metrics.
+        See the `statsd_emit_buffer_xfer_bytes_seconds` option in
+        etc/proxy-server.conf-sample for more information.
+
+      * The proxy-logging middleware now includes an `api` label whose value
+        may be `swift` or `S3` depending on whether the client request is
+        serviced by the swift API or S3 API.
+
+      * The s3api middleware now emits a counter recording the usage of
+        various protocol-related headers.
+
+      * The container-sharder now emits a timing metric for the length of
+        time between shard range creation and cleaving.
+
+    * `swift-manage-shard-ranges` now defaults to committing pending
+      updates before looking for shard range boundaries. A new option,
+      `--skip-commits`, may be used to restore previous behavior.
+
+    * Added a `--clobber-hardlink-collisions` option to `swift-object-relinker`.
+      With this option enabled during the relink phase the relinker will
+      quarantine the colliding file in the new target part dir and retry the
+      relink. During the cleanup phase it will ignore the un-matched inode
+      "collision" and allow the cleanup of the old file in the old part dir
+      similar to tombstones.
+
+    * Fixed the `swift_dir` option for WSGI servers; the file
+      `/etc/swift/swift.conf` no longer needs to exist when that option
+      is set.
+
+    * Fixed an object-server error when there is a part-power increase in
+      progress and there was an issue marking the file in the new partition
+      space as durable.
+
+    * Device names are now included in sharded database IDs, similar to
+      regular databases. This provides more context when examining
+      incoming/outgoing sync tables or sharding CleaveContexts.
+
+    * Database replicators now clean up temporary files older than
+      `reclaim_age`.
+
+    * Removed fallback support using netifaces; `getifaddrs` is now always
+      used to determine available IP addresses.
+
+    * Various other minor bug fixes and improvements.
+
+
+swift (2.36.0, OpenStack Flamingo)
+
+    * S3 API
+
+      * Added support for aws-chunked transfers. Recent AWS clients recently
+        began defaulting to this mode. See also:
+        https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-streaming.html
+
+      * Added support for verifying additional checksums during upload. All
+        algorithms currently supported by AWS are supported: CRC64NVME,
+        CRC32, CRC32C, SHA1, and SHA256. See also:
+        https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
+        Note that some algorithms require the availability of additional
+        libraries: ISA-L or anycrc.
+
+      * Added support for create-without-overwrite conditional writes.
+
+      * Fixed HTTP framing issues when returning errors for a request with
+        `Expect: 100-continue`.
+
+      * Improved various error messages to better imitate AWS responses.
+
+    * Let clients request heartbeats during COPYs by including
+      the query parameter `heartbeat=on`.
+
+      With heartbeating turned on, the proxy will start its response
+      immediately with 202 Accepted then send a single whitespace
+      character periodically until the request completes. At that
+      point, a final summary chunk will be sent which includes a
+      "Response Status" key indicating success or failure.
+
+    * Labeled metrics
+
+      * Added support for emitting labeled statsd metrics in a variety of
+        formats. Middleware authors should see the documentation at
+        https://docs.openstack.org/swift/latest/misc.html#swift.common.statsd_client.LabeledStatsdClient
+        for more information.
+
+      * Instrumented proxy-logging with labeled metrics. See
+        `proxy-server.conf-sample` for more information.
+
+      * Instrumented the object-server with labeled metrics. See
+        `object-server.conf-sample` for more information.
+
+    * Added `access_user_id` logging field; out-of-tree auth middlewares should
+      use `environ['swift.access_logging']['user_id']` to populate this field.
+
+    * Introduced an extensible ring format. This allows both more than 65,536
+      devices and more data structures to be in a ring. For more information,
+      see https://docs.openstack.org/swift/latest/overview_ring_format.html#ring-v2.
+
+    * SSYNC connections are now promptly terminated when subrequests timeout.
+
+    * Python 3.13 (with the GIL enabled) is now supported. Free-threaded
+      builds remain untested.
+
+    * Removed support for Python 3.6. Flamingo (2025.2) will be the final
+      stable release to support Python 3.7 and 3.8.
+
+    * Removed support for pickled ring files. These have not been written
+      since Swift 1.7.0.
+
+    * Fixed a recursion error in the account-quota middleware.
+
+    * Fixed an error in `invalidate_hash` when the partition is deleted while
+      waiting for the partition lock.
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (2.35.0, OpenStack Epoxy)
 
     * Removed the use of `eval` in the xprofile middleware. Note that this

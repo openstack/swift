@@ -31,6 +31,7 @@ MAX_META_VALUE_LENGTH = 256
 MAX_META_COUNT = 90
 MAX_META_OVERALL_SIZE = 4096
 MAX_HEADER_SIZE = 8192
+MAX_REQUEST_LINE = 8192
 MAX_OBJECT_NAME_LENGTH = 1024
 CONTAINER_LISTING_LIMIT = 10000
 ACCOUNT_LISTING_LIMIT = 10000
@@ -51,6 +52,7 @@ DEFAULT_CONSTRAINTS = {
     'max_meta_count': MAX_META_COUNT,
     'max_meta_overall_size': MAX_META_OVERALL_SIZE,
     'max_header_size': MAX_HEADER_SIZE,
+    'max_request_line': MAX_REQUEST_LINE,
     'max_object_name_length': MAX_OBJECT_NAME_LENGTH,
     'container_listing_limit': CONTAINER_LISTING_LIMIT,
     'account_listing_limit': ACCOUNT_LISTING_LIMIT,

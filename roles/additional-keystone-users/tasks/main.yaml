@@ -28,12 +28,33 @@
     option: s3_secret_key
     value: s3-secret1
   become: true
+- name: Add primary S3 user to test.conf for cross-compat tests
+  ini_file:
+    path: /etc/swift/test.conf
+    section: s3api_test
+    option: access_key1
+    value: s3-user1
+  become: true
+- name: Add primary S3 user secret to test.conf for cross-compat tests
+  ini_file:
+    path: /etc/swift/test.conf
+    section: s3api_test
+    option: secret_key1
+    value: s3-secret1
+  become: true
 
 - name: Clear secondary S3 user from test.conf
   ini_file:
     path: /etc/swift/test.conf
     section: func_test
     option: s3_access_key2
+    value: ""
+  become: true
+- name: Clear secondary S3 user from test.conf for cross-compat tests
+  ini_file:
+    path: /etc/swift/test.conf
+    section: s3api_test
+    option: access_key2
     value: ""
   become: true
 
@@ -57,6 +78,20 @@
     path: /etc/swift/test.conf
     section: func_test
     option: s3_secret_key3
+    value: s3-secret3
+  become: true
+- name: Add restricted S3 user to test.conf for cross-compat tests
+  ini_file:
+    path: /etc/swift/test.conf
+    section: s3api_test
+    option: access_key3
+    value: s3-user3
+  become: true
+- name: Add restricted S3 user secret to test.conf for cross-compat tests
+  ini_file:
+    path: /etc/swift/test.conf
+    section: s3api_test
+    option: secret_key3
     value: s3-secret3
   become: true
 

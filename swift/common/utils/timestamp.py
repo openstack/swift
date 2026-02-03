@@ -124,7 +124,17 @@ class Timestamp(object):
 
     @classmethod
     def now(cls, offset=0, delta=0):
+        """
+        Returns an instance of a Timestamp at the current time.
+        """
         return cls(time.time(), offset=offset, delta=delta)
+
+    @classmethod
+    def zero(cls):
+        """
+        Returns an instance of the smallest possible Timestamp.
+        """
+        return cls(0)
 
     def __repr__(self):
         return INTERNAL_FORMAT % (self.timestamp, self.offset)

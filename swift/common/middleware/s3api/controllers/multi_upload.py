@@ -67,7 +67,7 @@ import time
 
 from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
-    wsgi_to_str
+    wsgi_to_str, parse_date_header
 from swift.common.utils import json, public, reiterate, md5, Timestamp
 from swift.common.request_helpers import get_container_update_override_key, \
     get_param
@@ -77,11 +77,11 @@ from urllib.parse import quote, urlparse
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
-    ErrorResponse, MalformedXML, BadDigest, KeyTooLongError, \
-    InvalidPart, BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, \
-    InvalidRequest, HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, \
-    NoSuchBucket, BucketAlreadyOwnedByYou, ServiceUnavailable, \
-    PreconditionFailed, S3NotImplemented
+    ErrorResponse, MalformedXML, KeyTooLongError, InvalidPart, \
+    BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, InvalidRequest, \
+    HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, NoSuchBucket, \
+    BucketAlreadyOwnedByYou, ServiceUnavailable, PreconditionFailed, \
+    S3NotImplemented
 from swift.common.middleware.s3api.utils import unique_id, \
     MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
@@ -203,8 +203,6 @@ class PartController(Controller):
         req.object_name = '%s/%s/%d' % (req.object_name, upload_id,
                                         part_number)
 
-        req_timestamp = S3Timestamp.now()
-        req.headers['X-Timestamp'] = req_timestamp.internal
         source_resp = req.check_copy_source(self.app)
         if 'X-Amz-Copy-Source' in req.headers and \
                 'X-Amz-Copy-Source-Range' in req.headers:
@@ -244,8 +242,10 @@ class PartController(Controller):
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
+            last_modified_ts = S3Timestamp(
+                parse_date_header(resp.headers['Last-Modified']))
             resp.append_copy_resp_body(req.controller_name,
-                                       req_timestamp.s3xmlformat)
+                                       last_modified_ts.s3xmlformat)
 
         resp.status = 200
         return resp
@@ -697,17 +697,12 @@ class UploadController(Controller):
             xml = req.xml(MAX_COMPLETE_UPLOAD_BODY_SIZE)
             if not xml:
                 raise InvalidRequest(msg='You must specify at least one part')
-            if 'content-md5' in req.headers:
-                # If an MD5 was provided, we need to verify it.
-                # Note that S3Request already took care of translating to ETag
-                md5_body = md5(xml, usedforsecurity=False).hexdigest()
-                if req.headers['etag'] != md5_body:
-                    raise BadDigest(
-                        expected_digest=req.headers['content-md5'])
+            # If an MD5 was provided, we need to verify it.
+            if req.check_md5(xml):
                 # We're only interested in the body here, in the
-                # multipart-upload controller -- *don't* let it get
+                # multipart-upload controller -- *don't* let etag get
                 # plumbed down to the object-server
-                del req.headers['etag']
+                req.headers.pop('etag', None)
 
             complete_elem = fromstring(
                 xml, 'CompleteMultipartUpload', self.logger)

@@ -344,12 +344,33 @@ class AccountBroker(DatabaseBroker):
         """
         self._commit_puts_stale_ok()
         with self.get() as conn:
-            return dict(conn.execute('''
+            data = dict(conn.execute('''
                 SELECT account, created_at,  put_timestamp, delete_timestamp,
                        status_changed_at, container_count, object_count,
                        bytes_used, hash, id
                 FROM account_stat
             ''').fetchone())
+        self.account = data['account']
+        return data
+
+    def _populate_instance_cache(self):
+        """
+        Lazily hydrate instance attributes used for logging and other
+        read-mostly flows. Use `self.account is None` as the only
+        indicator that we haven't populated yet.
+        """
+        if self.account is None:
+            self.get_info()
+
+    @property
+    def path(self):
+        """
+        Logical namespace path used for logging.
+
+        For AccountBroker we return just "<account>".
+        """
+        self._populate_instance_cache()
+        return self.account
 
     def list_containers_iter(self, limit, marker, end_marker, prefix,
                              delimiter, reverse=False, allow_reserved=False):

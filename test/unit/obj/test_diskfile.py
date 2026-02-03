@@ -2053,13 +2053,15 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             # Make a couple of (soon-to-be-)expired tombstones
             df1 = self.df_mgr.get_diskfile(
                 self.existing_device, 0, 'a', 'c', 'o1', POLICIES[0])
-            df1.delete(Timestamp(the_time[0]))
+            ts_delete1 = Timestamp(the_time[0])
+            df1.delete(ts_delete1)
             df1_hash = utils.hash_path('a', 'c', 'o1')
             df1_suffix = df1_hash[-3:]
 
             df2 = self.df_mgr.get_diskfile(
                 self.existing_device, 0, 'a', 'c', 'o2', POLICIES[0])
-            df2.delete(Timestamp(the_time[0] + 1))
+            ts_delete2 = Timestamp(the_time[0] + 1)
+            df2.delete(ts_delete2)
             df2_hash = utils.hash_path('a', 'c', 'o2')
             df2_suffix = df2_hash[-3:]
 
@@ -2067,11 +2069,11 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.assertTrue(os.path.exists(os.path.join(
                 self.testdir, self.existing_device, 'objects', '0',
                 df1_suffix, df1_hash,
-                "1525354555.65758.ts")))
+                "%s.ts" % ts_delete1.internal)))
             self.assertTrue(os.path.exists(os.path.join(
                 self.testdir, self.existing_device, 'objects', '0',
                 df2_suffix, df2_hash,
-                "1525354556.65758.ts")))
+                "%s.ts" % ts_delete2.internal)))
 
             # Cache the hashes and expire the tombstones
             self.df_mgr.get_hashes(self.existing_device, '0', [], POLICIES[0])
@@ -2085,11 +2087,11 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self.assertFalse(os.path.exists(os.path.join(
             self.testdir, self.existing_device, 'objects', '0',
             df1_suffix, df1_hash,
-            "1525354555.65758.ts")))
+            "%s.ts" % ts_delete1.internal)))
         self.assertFalse(os.path.exists(os.path.join(
             self.testdir, self.existing_device, 'objects', '0',
             df2_suffix, df2_hash,
-            "1525354556.65758.ts")))
+            "%s.ts" % ts_delete2.internal)))
 
         # The empty hash dirs are gone
         self.assertFalse(os.path.exists(os.path.join(
@@ -2145,7 +2147,8 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         with mock.patch('time.time', mock_time):
             df = self.df_mgr.get_diskfile(
                 self.existing_device, 0, 'a', 'c', 'o', POLICIES[0])
-            df.delete(Timestamp(the_time[0]))
+            ts_delete = Timestamp(the_time[0])
+            df.delete(ts_delete)
             df_hash = utils.hash_path('a', 'c', 'o')
             df_suffix = df_hash[-3:]
 
@@ -2153,7 +2156,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
             self.assertTrue(os.path.exists(os.path.join(
                 self.testdir, self.existing_device, 'objects', '0',
                 df_suffix, df_hash,
-                "1525354555.65758.ts")))
+                "%s.ts" % ts_delete.internal)))
 
             # Expire the tombstone
             the_time[0] += 2 * self.df_mgr.reclaim_age
@@ -5029,19 +5032,18 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         self.assertEqual(raised.exception.errno, errno.EACCES)
 
     def test_create_close_oserror(self):
-        # This is a horrible hack so you can run this test in isolation.
-        # Some of the ctypes machinery calls os.close(), and that runs afoul
-        # of our mock.
-        with mock.patch.object(utils, '_sys_fallocate', None):
-            utils.disable_fallocate()
-
+        err = OSError(errno.EACCES, os.strerror(errno.EACCES))
+        # Disable fallocate for this test. Otherwise, the ctypes machinery may
+        # also call os.close (for example, when this test is run in isolation),
+        # but we're only interested in what diskfile is doing.
+        with mock.patch.object(utils, '_fallocate_enabled', False):
             df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc',
                                           '123', 'xyz', policy=POLICIES.legacy)
-            with mock.patch("swift.obj.diskfile.os.close",
-                            mock.MagicMock(side_effect=OSError(
-                                errno.EACCES, os.strerror(errno.EACCES)))):
-                with df.create(size=200):
-                    pass
+            with mock.patch("swift.obj.diskfile.os.close") as mock_close:
+                mock_close.side_effect = err
+                with df.create(size=200) as dfw:
+                    fd = dfw._fd
+        self.assertEqual([mock.call(fd)], mock_close.call_args_list)
 
     def test_write_metadata(self):
         df, df_data = self._create_test_file(b'1234567890')
@@ -5445,9 +5447,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_open_deleted(self):
         df = self._get_open_disk_file()
-        ts = time()
+        ts = Timestamp.now()
         df.delete(ts)
-        exp_name = '%s.ts' % str(Timestamp(ts).internal)
+        exp_name = '%s.ts' % ts.internal
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
         self.assertIn(exp_name, set(dl))
@@ -5456,9 +5458,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_open_deleted_with_corrupt_tombstone(self):
         df = self._get_open_disk_file()
-        ts = time()
+        ts = Timestamp.now()
         df.delete(ts)
-        exp_name = '%s.ts' % str(Timestamp(ts).internal)
+        exp_name = '%s.ts' % ts.internal
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
         self.assertIn(exp_name, set(dl))
@@ -5591,45 +5593,49 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_ondisk_search_loop_ts_meta_data(self):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=10)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=9)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=8)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=7)
-        self._create_ondisk_file(df, b'B', ext='.data', timestamp=6)
-        self._create_ondisk_file(df, b'A', ext='.data', timestamp=5)
+        ts = [Timestamp(i) for i in range(11)]
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[10])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[9])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[8])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[7])
+        self._create_ondisk_file(df, b'B', ext='.data', timestamp=ts[6])
+        self._create_ondisk_file(df, b'A', ext='.data', timestamp=ts[5])
         df = self._simple_get_diskfile()
         with self.assertRaises(DiskFileDeleted) as raised:
             df.open()
-        self.assertEqual(raised.exception.timestamp, Timestamp(10).internal)
+        self.assertEqual(raised.exception.timestamp, ts[10].internal)
 
     def test_ondisk_search_loop_meta_ts_data(self):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=8)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=7)
-        self._create_ondisk_file(df, b'B', ext='.data', timestamp=6)
-        self._create_ondisk_file(df, b'A', ext='.data', timestamp=5)
+        ts = [Timestamp(i) for i in range(11)]
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[10])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[9])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[8])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[7])
+        self._create_ondisk_file(df, b'B', ext='.data', timestamp=ts[6])
+        self._create_ondisk_file(df, b'A', ext='.data', timestamp=ts[5])
         df = self._simple_get_diskfile()
         with self.assertRaises(DiskFileDeleted) as raised:
             df.open()
-        self.assertEqual(raised.exception.timestamp, Timestamp(8).internal)
+        self.assertEqual(raised.exception.timestamp, ts[8].internal)
 
     def _test_ondisk_search_loop_meta_data_ts(self, legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9)
+        ts = [Timestamp(i) for i in range(11)]
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[10])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[9])
         self._create_ondisk_file(
-            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=8)
+            df, b'B', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[8])
         self._create_ondisk_file(
-            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=7)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=6)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=5)
+            df, b'A', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[7])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[6])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[5])
         df = self._simple_get_diskfile()
         with df.open():
             self.assertIn('X-Timestamp', df._metadata)
-            self.assertEqual(df._metadata['X-Timestamp'],
-                             Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'], ts[10].internal)
             self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_meta_data_ts(self):
@@ -5641,23 +5647,25 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def _test_ondisk_search_loop_multiple_meta_data(self,
                                                     legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10,
+        ts = [Timestamp(i) for i in range(11)]
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[10],
                                  metadata={'X-Object-Meta-User': 'user-meta'})
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9,
-                                 ctype_timestamp=9,
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[9],
+                                 ctype_timestamp=ts[9],
                                  metadata={'Content-Type': 'newest',
                                            'X-Object-Meta-User': 'blah'})
         self._create_ondisk_file(
-            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
+            df, b'B', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[8],
             metadata={'Content-Type': 'newer'})
         self._create_ondisk_file(
-            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=7,
+            df, b'A', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[7],
             metadata={'Content-Type': 'oldest'})
         df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
-            self.assertEqual(df._metadata['X-Timestamp'],
-                             Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'], ts[10].internal)
             self.assertTrue('Content-Type' in df._metadata)
             self.assertEqual(df._metadata['Content-Type'], 'newest')
             self.assertTrue('X-Object-Meta-User' in df._metadata)
@@ -5671,20 +5679,20 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _test_ondisk_search_loop_stale_meta_data(self, legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=10,
+        ts = [Timestamp(i) for i in range(11)]
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[10],
                                  metadata={'X-Object-Meta-User': 'user-meta'})
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=9,
-                                 ctype_timestamp=7,
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[9],
+                                 ctype_timestamp=ts[7],
                                  metadata={'Content-Type': 'older',
                                            'X-Object-Meta-User': 'blah'})
         self._create_ondisk_file(
-            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=8,
-            metadata={'Content-Type': 'newer'})
+            df, b'B', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[8], metadata={'Content-Type': 'newer'})
         df = self._simple_get_diskfile()
         with df.open():
             self.assertTrue('X-Timestamp' in df._metadata)
-            self.assertEqual(df._metadata['X-Timestamp'],
-                             Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'], ts[10].internal)
             self.assertTrue('Content-Type' in df._metadata)
             self.assertEqual(df._metadata['Content-Type'], 'newer')
             self.assertTrue('X-Object-Meta-User' in df._metadata)
@@ -5698,19 +5706,21 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def _test_ondisk_search_loop_data_ts_meta(self, legacy_durable=False):
         df = self._simple_get_diskfile()
+        ts = [Timestamp(i) for i in range(11)]
         self._create_ondisk_file(
-            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
+            df, b'B', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[10])
         self._create_ondisk_file(
-            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=8)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=7)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=6)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=5)
+            df, b'A', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[9])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[8])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[7])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[6])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[5])
         df = self._simple_get_diskfile()
         with df.open():
             self.assertIn('X-Timestamp', df._metadata)
-            self.assertEqual(df._metadata['X-Timestamp'],
-                             Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'], ts[10].internal)
             self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_data_ts_meta(self):
@@ -5722,20 +5732,22 @@ class DiskFileMixin(BaseDiskFileTestMixin):
     def _test_ondisk_search_loop_wayward_files_ignored(self,
                                                        legacy_durable=False):
         df = self._simple_get_diskfile()
-        self._create_ondisk_file(df, b'X', ext='.bar', timestamp=11)
+        ts = [Timestamp(i) for i in range(12)]
+        self._create_ondisk_file(df, b'X', ext='.bar', timestamp=ts[11])
         self._create_ondisk_file(
-            df, b'B', ext='.data', legacy_durable=legacy_durable, timestamp=10)
+            df, b'B', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[10])
         self._create_ondisk_file(
-            df, b'A', ext='.data', legacy_durable=legacy_durable, timestamp=9)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=8)
-        self._create_ondisk_file(df, b'', ext='.ts', timestamp=7)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=6)
-        self._create_ondisk_file(df, b'', ext='.meta', timestamp=5)
+            df, b'A', ext='.data', legacy_durable=legacy_durable,
+            timestamp=ts[9])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[8])
+        self._create_ondisk_file(df, b'', ext='.ts', timestamp=ts[7])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[6])
+        self._create_ondisk_file(df, b'', ext='.meta', timestamp=ts[5])
         df = self._simple_get_diskfile()
         with df.open():
             self.assertIn('X-Timestamp', df._metadata)
-            self.assertEqual(df._metadata['X-Timestamp'],
-                             Timestamp(10).internal)
+            self.assertEqual(df._metadata['X-Timestamp'], ts[10].internal)
             self.assertNotIn('deleted', df._metadata)
 
     def test_ondisk_search_loop_wayward_files_ignored(self):
@@ -5801,9 +5813,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_diskfile_content_length_deleted(self):
         df = self._get_open_disk_file()
-        ts = time()
+        ts = Timestamp.now()
         df.delete(ts)
-        exp_name = '%s.ts' % str(Timestamp(ts).internal)
+        exp_name = '%s.ts' % ts.internal
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
         self.assertIn(exp_name, set(dl))
@@ -5838,9 +5850,9 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
     def test_diskfile_timestamp_deleted(self):
         df = self._get_open_disk_file()
-        ts = time()
+        ts = Timestamp.now()
         df.delete(ts)
-        exp_name = '%s.ts' % str(Timestamp(ts).internal)
+        exp_name = '%s.ts' % ts.internal
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), 1)
         self.assertIn(exp_name, set(dl))
@@ -5952,12 +5964,12 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
         df = self._get_open_disk_file()
         file_count = len(os.listdir(df._datadir))
-        ts = time()
+        ts = Timestamp.now()
         with mock.patch(
                 self._manager_mock('cleanup_ondisk_files'), mock_cleanup):
             # Expect to swallow the OSError
             df.delete(ts)
-        exp_name = '%s.ts' % str(Timestamp(ts).internal)
+        exp_name = '%s.ts' % Timestamp(ts).internal
         dl = os.listdir(df._datadir)
         self.assertEqual(len(dl), file_count + 1)
         self.assertIn(exp_name, set(dl))
@@ -6359,6 +6371,110 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
     def test_commit_raises_DiskFileError_for_fsync_dir_OSError(self):
         self._test_commit_raises_DiskFileError_for_fsync_dir_errors(
             OSError(100, 'Some Error'))
+
+    def test_commit_raises_DiskFileError_for_error_in_ppi_rename(self):
+        df = self._simple_get_diskfile(account='a', container='c',
+                                       obj='o_fsync_dir_err',
+                                       policy=POLICIES.default,
+                                       next_part_power=11)
+
+        orig_rename = os.rename
+        captured_renames = []
+
+        def exploding_rename(*args):
+            captured_renames.append(args)
+            if len(captured_renames) >= 2:
+                raise IOError(21, 'Some IO Error')
+            else:
+                return orig_rename(*args)
+        timestamp = Timestamp.now()
+        with df.create() as writer:
+            metadata = {
+                'ETag': 'bogus_etag',
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': '0',
+            }
+            writer.put(metadata)
+            with mock.patch('swift.obj.diskfile.os.rename',
+                            side_effect=exploding_rename):
+                with self.assertRaises(DiskFileError) as cm:
+                    writer.commit(timestamp)
+        self.assertEqual(2, len(captured_renames))
+        dl = os.listdir(df._datadir)
+        datafile = _make_datafilename(
+            timestamp, POLICIES.default, frag_index=2, durable=True)
+        self.assertEqual([datafile], dl)
+        self.assertIn('Problem making data file durable', str(cm.exception))
+        error_lines = df.manager.logger.get_lines_for_level('error')
+        self.assertEqual(2, len(error_lines), error_lines)
+        self.assertTrue(error_lines[0].startswith('Renaming new path'))
+        self.assertTrue(error_lines[1].startswith(
+            'Problem making data file durable'))
+
+    def test_commit_overwritten_before_ppi_rename(self):
+        df = self._simple_get_diskfile(account='a', container='c',
+                                       obj='o_fsync_dir_err',
+                                       policy=POLICIES.default,
+                                       next_part_power=11)
+
+        orig_rename = os.rename
+        captured_renames = []
+
+        def overwriting_rename(*args):
+            captured_renames.append(args)
+            if len(captured_renames) == 2:
+                # Overwrite!
+                with df.create() as writer:
+                    metadata = {
+                        'ETag': 'also_bogus_etag',
+                        'X-Timestamp': ts2.internal,
+                        'Content-Length': '0',
+                    }
+                    writer.put(metadata)
+                    writer.commit(ts2)
+                os.unlink(args[0])
+            return orig_rename(*args)
+
+        timestamp = Timestamp.now()
+        ts2 = Timestamp(timestamp, delta=1)
+        with df.create() as writer:
+            metadata = {
+                'ETag': 'bogus_etag',
+                'X-Timestamp': timestamp.internal,
+                'Content-Length': '0',
+            }
+            writer.put(metadata)
+            with mock.patch('swift.obj.diskfile.os.rename',
+                            side_effect=overwriting_rename):
+                writer.commit(timestamp)
+        exp_renames = \
+            [(df._manager.make_on_disk_filename(timestamp, '.data', 2,
+                                                durable=False),
+              df._manager.make_on_disk_filename(timestamp, '.data', 2,
+                                                durable=True))
+             ] * 2
+        if not df._manager.use_linkat:
+            # we capture an extra tmp file rename on some platforms
+            exp_renames += \
+                [(mock.ANY,
+                  df._manager.make_on_disk_filename(ts2, '.data', 2,
+                                                    durable=False))]
+        exp_renames += \
+            [(df._manager.make_on_disk_filename(ts2, '.data', 2,
+                                                durable=False),
+              df._manager.make_on_disk_filename(ts2, '.data', 2,
+                                                durable=True))
+             ] * 2
+        self.assertEqual(
+            exp_renames,
+            [(os.path.basename(args[0]), os.path.basename(args[1]))
+             for args in captured_renames])
+        dl = os.listdir(df._datadir)
+        datafile = _make_datafilename(
+            ts2, POLICIES.default, frag_index=2, durable=True)
+        self.assertEqual([datafile], dl)
+        error_lines = df.manager.logger.get_lines_for_level('error')
+        self.assertEqual(0, len(error_lines), error_lines)
 
     def test_data_file_has_frag_index(self):
         policy = POLICIES.default
@@ -7211,7 +7327,8 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
     def test_ondisk_data_info_has_durable_key(self):
         # non-durable; use frag_prefs=[] to allow it to be opened
         df = self._simple_get_diskfile(obj='o1', frag_prefs=[])
-        self._create_ondisk_file(df, b'', ext='.data', timestamp=10,
+        ts_data = Timestamp(10)
+        self._create_ondisk_file(df, b'', ext='.data', timestamp=ts_data,
                                  metadata={'name': '/a/c/o1'}, commit=False)
         with df.open():
             self.assertIn('durable', df._ondisk_info['data_info'])
@@ -7219,7 +7336,7 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 
         # durable
         df = self._simple_get_diskfile(obj='o2')
-        self._create_ondisk_file(df, b'', ext='.data', timestamp=10,
+        self._create_ondisk_file(df, b'', ext='.data', timestamp=ts_data,
                                  metadata={'name': '/a/c/o2'})
         with df.open():
             self.assertIn('durable', df._ondisk_info['data_info'])
@@ -7227,7 +7344,8 @@ class TestECDiskFile(DiskFileMixin, unittest.TestCase):
 
         # legacy durable
         df = self._simple_get_diskfile(obj='o3')
-        self._create_ondisk_file(df, b'', ext='.data', timestamp=10,
+        ts_legacy = Timestamp('10')
+        self._create_ondisk_file(df, b'', ext='.data', timestamp=ts_legacy,
                                  metadata={'name': '/a/c/o3'},
                                  legacy_durable=True)
         with df.open():
@@ -7286,8 +7404,7 @@ class TestSuffixHashes(unittest.TestCase):
             'mount_check': False,
         }
         self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
-        self._ts_iter = (Timestamp(t) for t in
-                         itertools.count(int(time())))
+        self._ts_iter = make_timestamp_iter()
         self.policy = None
 
     def ts(self):
@@ -8486,9 +8603,10 @@ class TestSuffixHashes(unittest.TestCase):
             mkdirs(df._datadir)
             now = time()
             # go behind the scenes and setup a bunch of weird file names
-            for tdiff in [500, 100, 10, 1]:
+            timestamps = [Timestamp(now - tdiff)
+                          for tdiff in [500, 100, 10, 1]]
+            for timestamp in timestamps:
                 for suff in ['.meta', '.data', '.ts']:
-                    timestamp = Timestamp(now - tdiff)
                     filename = timestamp.internal
                     if policy.policy_type == EC_POLICY and suff == '.data':
                         filename += '#%s' % df._frag_index
@@ -8521,14 +8639,15 @@ class TestSuffixHashes(unittest.TestCase):
         now = time()
         timestamp = None
         # go behind the scenes and setup a bunch of weird file names
-        for tdiff in [500, 100, 10, 1]:
+        timestamps = [Timestamp(now - tdiff)
+                      for tdiff in [500, 100, 10, 1]]
+        for i, timestamp in enumerate(timestamps):
             suffs = ['.meta', '.data']
-            if tdiff > 50:
+            if i < 2:
                 suffs.append('.ts')
             if policy.policy_type == EC_POLICY and legacy_durable:
                 suffs.append('.durable')
             for suff in suffs:
-                timestamp = Timestamp(now - tdiff)
                 if suff == '.data':
                     filename = _make_datafilename(
                         timestamp, policy, frag_index,

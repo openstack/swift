@@ -33,7 +33,7 @@ from swift.common.swob import Request, HTTPException, str_to_wsgi, \
     bytes_to_wsgi
 from swift.common.utils import quote, closing_if_possible, close_if_possible, \
     parse_content_type, iter_multipart_mime_documents, parse_mime_headers, \
-    Timestamp, md5
+    Timestamp, md5, normalize_delete_at_timestamp
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -133,7 +133,13 @@ class TestSloMiddleware(SloTestCase):
         self.app.register('PUT', path, swob.HTTPCreated, {})
         resp_iter = self.slo(req.environ, start_response)
         self.assertEqual(b'', b''.join(resp_iter))
-        self.assertEqual(self.app.calls, [('PUT', path)])
+        self.assertEqual([
+            ('PUT', path, {
+                'Host': 'localhost:80',
+                'Content-Length': str(len(body)),
+                'X-Static-Large-Object': 'true',
+            }),
+        ], self.app.calls_with_headers)
         self.assertEqual(body, self.app.uploaded[path][1])
         self.assertEqual(resp_status[0], '201 Created')
 
@@ -1641,19 +1647,20 @@ class TestSloDeleteManifest(SloTestCase):
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
+        t_delete_at = normalize_delete_at_timestamp(now, high_precision=True)
         self.assertEqual(json.loads(self.app.call_list[1].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
-             'name': '%s-AUTH_test/deltest/b_2' % now.internal,
+             'name': '%s-AUTH_test/deltest/b_2' % t_delete_at,
              'size': 0,
              'storage_policy_index': 0},
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
-             'name': '%s-AUTH_test/deltest/c_3' % now.internal,
+             'name': '%s-AUTH_test/deltest/c_3' % t_delete_at,
              'size': 0,
              'storage_policy_index': 0},
         ])
@@ -1715,19 +1722,21 @@ class TestSloDeleteManifest(SloTestCase):
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
+        t_delete_at = normalize_delete_at_timestamp(now, high_precision=True)
         self.assertEqual(json.loads(self.app.call_list[-2].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
-             'name': u'%s-%s/\N{SNOWMAN}/b_2' % (now.internal, unicode_acct),
+             'name': u'%s-%s/\N{SNOWMAN}/b_2' % (t_delete_at, unicode_acct),
              'size': 0,
              'storage_policy_index': 0},
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
-             'name': u'%s-%s/\N{SNOWMAN}/c_3' % (now.internal, unicode_acct),
+             'name': u'%s-%s/\N{SNOWMAN}/c_3'
+                     % (t_delete_at, unicode_acct),
              'size': 0,
              'storage_policy_index': 0},
         ])
@@ -1785,19 +1794,20 @@ class TestSloDeleteManifest(SloTestCase):
             msg = 'Expected %s header to be %r, not %r'
             self.assertEqual(value, expected, msg % (header, expected, value))
 
+        t_delete_at = normalize_delete_at_timestamp(now, high_precision=True)
         self.assertEqual(json.loads(self.app.call_list[-2].body), [
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
-             'name': u'%s-%s/\N{SNOWMAN}/b_2' % (now.internal, unicode_acct),
+             'name': u'%s-%s/\N{SNOWMAN}/b_2' % (t_delete_at, unicode_acct),
              'size': 0,
              'storage_policy_index': 0},
             {'content_type': 'application/async-deleted',
              'created_at': now.internal,
              'deleted': 0,
              'etag': 'd41d8cd98f00b204e9800998ecf8427e',
-             'name': u'%s-%s/\N{SNOWMAN}/c_3' % (now.internal, unicode_acct),
+             'name': u'%s-%s/\N{SNOWMAN}/c_3' % (t_delete_at, unicode_acct),
              'size': 0,
              'storage_policy_index': 0},
         ])
@@ -6777,7 +6787,7 @@ class TestRespAttrs(unittest.TestCase):
         attrs = slo.RespAttrs(None, None, None, None, None)
         # types are correct, values are default/place-holders
         self.assertTrue(attrs.is_slo is False)  # not None!
-        self.assertEqual(0, attrs.timestamp)
+        self.assertEqual(Timestamp.zero(), attrs.timestamp)
         self.assertIsInstance(attrs.timestamp, Timestamp)
         self.assertEqual('', attrs.json_md5)
         self.assertEqual('', attrs.slo_etag)
@@ -6790,7 +6800,7 @@ class TestRespAttrs(unittest.TestCase):
         now = Timestamp.now()
         attrs = slo.RespAttrs(True, now.normal, None, None, None)
         self.assertTrue(attrs.is_slo)
-        self.assertEqual(now, attrs.timestamp)
+        self.assertEqual(Timestamp(now.normal), attrs.timestamp)
         self.assertIsInstance(attrs.timestamp, Timestamp)
         self.assertEqual('', attrs.json_md5)
         self.assertEqual('', attrs.slo_etag)
@@ -6815,7 +6825,7 @@ class TestRespAttrs(unittest.TestCase):
     def test_from_empty_headers(self):
         attrs = slo.RespAttrs.from_headers([])
         self.assertFalse(attrs.is_slo)
-        self.assertEqual(0, attrs.timestamp)
+        self.assertEqual(Timestamp.zero(), attrs.timestamp)
         self.assertEqual('', attrs.json_md5)
         self.assertEqual('', attrs.slo_etag)
         self.assertEqual(-1, attrs.slo_size)
@@ -6927,7 +6937,7 @@ class TestRespAttrs(unittest.TestCase):
     def test_from_regular_object(self):
         now = Timestamp.now()
         attrs = slo.RespAttrs.from_headers(
-            [('X-Backend-Timestamp', now.normal),
+            [('X-Backend-Timestamp', now.internal),
              ('Etag', 'object-etag')])
         self.assertFalse(attrs.is_slo)
         self.assertEqual(now, attrs.timestamp)

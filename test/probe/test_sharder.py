@@ -2288,9 +2288,12 @@ class TestContainerSharding(BaseAutoContainerSharding):
                                          'meta_timestamp': mock.ANY,
                                          'node_index': 0,
                                          'object_count': len(obj_names),
+                                         'tombstones': -1,
                                          'container': mock.ANY,
                                          'path': mock.ANY,
-                                         'root': mock.ANY}]}
+                                         'root': mock.ANY,
+                                         'processing_time': mock.ANY,
+                                         }]}
         actual = recon['sharding_stats']['sharding']['sharding_in_progress']
         self.assertEqual(expected_in_progress, actual)
 
@@ -2365,9 +2368,14 @@ class TestContainerSharding(BaseAutoContainerSharding):
                                          'meta_timestamp': mock.ANY,
                                          'node_index': 0,
                                          'object_count': len(obj_names),
+                                         'tombstones': -1,
                                          'container': mock.ANY,
                                          'path': mock.ANY,
-                                         'root': mock.ANY}]}
+                                         'root': mock.ANY,
+                                         'processing_time': mock.ANY,
+                                         'total_sharding_time': mock.ANY,
+                                         'total_replicate_time': mock.ANY
+                                         }]}
         actual = recon['sharding_stats']['sharding']['sharding_in_progress']
         self.assertEqual(expected_in_progress, actual)
 

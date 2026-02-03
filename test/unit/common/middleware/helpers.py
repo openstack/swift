@@ -193,8 +193,9 @@ class FakeSwift(object):
     container_existence_skip_cache = 0.0
     account_existence_skip_cache = 0.0
 
-    def __init__(self, capture_unexpected_calls=True):
+    def __init__(self, capture_unexpected_calls=True, test_read_size=-1):
         self.capture_unexpected_calls = capture_unexpected_calls
+        self.read_size = test_read_size
         self._calls = []
         self._unclosed_req_keys = defaultdict(int)
         self._unread_req_paths = defaultdict(int)
@@ -202,6 +203,7 @@ class FakeSwift(object):
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
         self._sticky_headers = {}
+        self._default_responses = {}
         self.logger = debug_logger('fake-swift')
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
@@ -217,7 +219,11 @@ class FakeSwift(object):
 
     def _find_response(self, method, path):
         path = normalize_path(path)
-        resps = self._responses[(method, path)]
+        try:
+            resps = self._responses[(method, path)]
+        except KeyError:
+            resps = [self._default_responses[method]]
+
         if len(resps) == 1:
             # we'll return the last registered response forever
             return resps[0]
@@ -325,7 +331,14 @@ class FakeSwift(object):
 
         if (cont and not obj and method == 'UPDATE') or (
                 obj and method == 'PUT'):
-            call.body = b''.join(iter(env['wsgi.input'].read, b''))
+            if self.read_size < 0:
+                call.body = b''.join(iter(env['wsgi.input'].read, b''))
+            else:
+                call.body = b''
+                buf = env['wsgi.input'].read(self.read_size)
+                while buf:
+                    call.body += buf
+                    buf = env['wsgi.input'].read(self.read_size)
 
         # simulate object PUT
         if method == 'PUT' and obj:
@@ -377,7 +390,7 @@ class FakeSwift(object):
             resolve_ignore_range_header(req, headers)
 
         # range requests ought to work, hence conditional_response=True
-        if isinstance(body, list):
+        if not isinstance(body, (bytes, str)):
             resp = resp_class(
                 req=req, headers=headers, app_iter=body,
                 conditional_response=req.method in ('GET', 'HEAD'),
@@ -469,6 +482,10 @@ class FakeSwift(object):
         sticky_headers.update(headers)
 
     def register(self, method, path, response_class, headers, body=b''):
+        """
+        Register a response that will match any request with the given method
+        and path
+        """
         path = normalize_path(path)
         self._responses[(method, path)] = [(response_class, headers, body)]
 
@@ -477,6 +494,12 @@ class FakeSwift(object):
         resp_key = (method, normalize_path(path))
         next_resp = (response_class, headers, body)
         self._responses.setdefault(resp_key, []).append(next_resp)
+
+    def register_default(self, method, response_class, headers, body=b''):
+        """
+        Register a response that will match any request with the given method.
+        """
+        self._default_responses[method] = (response_class, headers, body)
 
 
 class FakeAppThatExcepts(object):

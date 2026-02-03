@@ -194,103 +194,87 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         self.policy = POLICIES[1]
 
-        # most of the reconstructor test methods require that there be
-        # real objects in place, not just part dirs, so we'll create them
-        # all here....
-        # part 0: 3C1/hash/xxx#1#d.data  <-- job: sync_only - partners (FI 1)
-        #         061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
-        #                 /xxx#2#d.data  <-- job: sync_revert to index 2
-        # part_nodes: ['sda0', 'sda1', 'sda2', 'sda3', 'sda4']
-
-        # part 1: 3C1/hash/xxx#0#d.data  <-- job: sync_revert to index 0
-        #                 /xxx#1#d.data  <-- job: sync_revert to index 1
-        #         061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
-        # part_nodes: ['sda5', 'sda6', 'sda7', 'sda0', 'sda1']
-
-        # part 2: 3C1/hash/xxx#2#d.data  <-- job: sync_revert to index 2
-        #         061/hash/xxx#0#d.data  <-- job: sync_revert to index 0
-        # part_nodes: ['sda2', 'sda3', 'sda4', 'sda5', 'sda6']
-
-        def _create_frag_archives(policy, obj_path, local_id, obj_set):
-            # we'll create 2 sets of objects in different suffix dirs
-            # so we cover all the scenarios we want (3 of them)
-            # 1) part dir with all FI's matching the local node index
-            # 2) part dir with one local and mix of others
-            # 3) part dir with no local FI and one or more others
-            def part_0(set):
-                if set == 0:
-                    # just the local
-                    return local_id
-                else:
-                    # one local and all of another
-                    if obj_num == 0:
-                        return local_id
-                    else:
-                        return (local_id + 1) % 3
-
-            def part_1(set):
-                if set == 0:
-                    # one local and all of another
-                    if obj_num == 0:
-                        return local_id
-                    else:
-                        return (local_id + 2) % 3
-                else:
-                    # just the local node
-                    return local_id
-
-            def part_2(set):
-                # this part is a handoff in our config (always)
-                # so lets do a set with indices from different nodes
-                if set == 0:
-                    return (local_id + 1) % 3
-                else:
-                    return (local_id + 2) % 3
-
-            # function dictionary for defining test scenarios base on set #
-            scenarios = {'0': part_0,
-                         '1': part_1,
-                         '2': part_2}
-
-            for part_num in self.part_nums:
-                # create 3 unique objects per part, each part
-                # will then have a unique mix of FIs for the
-                # possible scenarios
-                for obj_num in range(0, 3):
-                    self._create_diskfile(
-                        part=part_num, object_name='o' + str(obj_set),
-                        policy=policy, frag_index=scenarios[part_num](obj_set),
-                        timestamp=utils.Timestamp(t))
-
-        ips = utils.whataremyips(self.reconstructor.ring_ip)
+        # just in case someone messes with patched policies...
         for policy in [p for p in POLICIES if p.policy_type == EC_POLICY]:
             self.ec_policy = policy
             self.ec_obj_ring = self.reconstructor.load_object_ring(
                 self.ec_policy)
-            data_dir = diskfile.get_data_dir(self.ec_policy)
-            for local_dev in [dev for dev in self.ec_obj_ring.devs
-                              if dev and dev['replication_ip'] in ips and
-                              dev['replication_port'] ==
-                              self.reconstructor.port]:
-                self.ec_local_dev = local_dev
-                dev_path = os.path.join(self.reconstructor.devices_dir,
-                                        self.ec_local_dev['device'])
-                self.ec_obj_path = os.path.join(dev_path, data_dir)
-                # create a bunch of FA's to test
-                t = 1421181937.70054  # time.time()
-                with mock.patch('swift.obj.diskfile.time') as mock_time:
-                    # since (a) we are using a fixed time here to create
-                    # frags which corresponds to all the hardcoded hashes and
-                    # (b) the EC diskfile will delete its .data file right
-                    # after creating if it has expired, use this horrible hack
-                    # to prevent the reclaim happening
-                    mock_time.time.return_value = 0.0
-                    _create_frag_archives(self.ec_policy, self.ec_obj_path,
-                                          self.ec_local_dev['id'], 0)
-                    _create_frag_archives(self.ec_policy, self.ec_obj_path,
-                                          self.ec_local_dev['id'], 1)
-                break
             break
+        else:
+            self.fail('Failed to find an EC policy')
+        self.assertEqual(int(self.policy), int(self.ec_policy))
+
+        data_dir = diskfile.get_data_dir(self.ec_policy)
+        ips = utils.whataremyips(self.reconstructor.ring_ip)
+        for local_dev in [dev for dev in self.ec_obj_ring.devs
+                          if dev and dev['replication_ip'] in ips and
+                          dev['replication_port'] ==
+                          self.reconstructor.port]:
+            self.ec_local_dev = local_dev
+            dev_path = os.path.join(self.reconstructor.devices_dir,
+                                    self.ec_local_dev['device'])
+            self.ec_obj_path = os.path.join(dev_path, data_dir)
+            break
+        else:
+            self.fail('Failed to find an EC local device')
+
+        # the local device is 'sda1'...
+        self.assertEqual('sda1', self.ec_local_dev['device'])
+
+        # most of the reconstructor test methods require that there be real
+        # object fragments in place, not just part dirs, so we'll create them
+        # all here....
+        t = 1421181937.70054  # time.time()
+        ts = utils.Timestamp(t)
+        with mock.patch('swift.obj.diskfile.time') as mock_time:
+            # since (a) we are using a fixed time here to create
+            # frags which corresponds to all the hardcoded hashes and
+            # (b) the EC diskfile will delete its .data file right
+            # after creating if it has expired, use this horrible hack
+            # to prevent the reclaim happening
+            mock_time.time.return_value = 0.0
+            # part 0:
+            # sda1 is assigned frag index 1 for objs in part 0...
+            self.assertEqual(
+                ['sda0', 'sda1', 'sda2', 'sda3', 'sda4'],
+                [n['device'] for n in self.ec_obj_ring.get_part_nodes(0)])
+            #   3c1/hash/xxx#1#d.data  <-- job: sync_only - partners (FI 1)
+            #   061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
+            #           /xxx#2#d.data  <-- job: sync_revert to index 2
+            self._create_diskfile(part=0, object_name='o0', frag_index=1,
+                                  policy=policy, timestamp=ts)
+            self._create_diskfile(part=0, object_name='o1', frag_index=1,
+                                  policy=policy, timestamp=ts)
+            self._create_diskfile(part=0, object_name='o1', frag_index=2,
+                                  policy=policy, timestamp=ts)
+            # part 1:
+            # sda1 is assigned frag index 4 for objs in part 1...
+            self.assertEqual(
+                ['sda5', 'sda6', 'sda7', 'sda0', 'sda1'],
+                [n['device'] for n in self.ec_obj_ring.get_part_nodes(1)])
+            #   3c1/hash/xxx#0#d.data  <-- job: sync_revert to index 0
+            #           /xxx#1#d.data  <-- job: sync_revert to index 1
+            #   061/hash/xxx#1#d.data  <-- included in earlier job (FI 1)
+            self._create_diskfile(part=1, object_name='o0', frag_index=0,
+                                  policy=policy, timestamp=ts)
+            self._create_diskfile(part=1, object_name='o0', frag_index=1,
+                                  policy=policy, timestamp=ts)
+            self._create_diskfile(part=1, object_name='o1', frag_index=1,
+                                  policy=policy, timestamp=ts)
+            # part 2:
+            # sda1 is a handoff for objs in part 2...
+            self.assertEqual(
+                ['sda2', 'sda3', 'sda4', 'sda5', 'sda6'],
+                [n['device'] for n in self.ec_obj_ring.get_part_nodes(2)])
+            #   3c1/hash/xxx#2#d.data  <-- job: sync_revert to index 2
+            #   061/hash/xxx#0#d.data  <-- job: sync_revert to index 0
+            self._create_diskfile(part=2, object_name='o0', frag_index=2,
+                                  policy=policy, timestamp=ts)
+            self._create_diskfile(part=2, object_name='o1', frag_index=0,
+                                  policy=policy, timestamp=ts)
+        self.frag_hash = md5(ts.internal.encode('utf-8')).hexdigest()
+        self.durable_hash = md5(
+            (ts.internal + '.durable').encode('utf-8')).hexdigest()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -354,13 +338,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        2: self.frag_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }, {
@@ -419,13 +403,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'hashes':
                 {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229'
+                        None: self.durable_hash,
+                        2: self.frag_hash,
+                        1: self.frag_hash
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }]
@@ -465,13 +449,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'hashes':
                 {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        0: self.frag_hash,
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }, {
@@ -506,13 +490,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        0: self.frag_hash,
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }, {
@@ -570,13 +554,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        0: self.frag_hash,
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
 
@@ -616,12 +600,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5'
+                        0: self.frag_hash,
+                        None: self.durable_hash
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229'
+                        None: self.durable_hash,
+                        2: self.frag_hash
                     },
                 },
             }, {
@@ -656,12 +640,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5'
+                        0: self.frag_hash,
+                        None: self.durable_hash
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229'
+                        None: self.durable_hash,
+                        2: self.frag_hash
                     },
                 },
             }]

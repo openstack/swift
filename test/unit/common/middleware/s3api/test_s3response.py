@@ -103,6 +103,46 @@ class TestResponse(unittest.TestCase):
             # but only s3api sysmeta remains in the response sysmeta_headers
             self.assertEqual(expected_headers, s3resp.sysmeta_headers)
 
+    def test_response_x_delete_at_to_x_amz_expiration(self):
+        # Test basic X-Delete-At to x-amz-expiration translation
+        # 1769114566 = Thu, 22 Jan 2026 20:42:46 GMT
+        resp = Response(headers={
+            'X-Delete-At': '1769114566',
+            'X-Object-Meta-Custom': 'value',
+            'Etag': 'theetag',
+            'Content-Type': 'application/json',
+            'Content-Length': '100',
+        })
+        s3resp = S3Response.from_swift_resp(resp)
+        self.assertIn('x-amz-expiration', s3resp.headers)
+        self.assertEqual(
+            'expiry-date="Thu, 22 Jan 2026 20:42:46 GMT", '
+            'rule-id="swift-object-expiration"',
+            s3resp.headers['x-amz-expiration'])
+        self.assertEqual('"theetag"', s3resp.headers['ETag'])
+        self.assertEqual('value', s3resp.headers['x-amz-meta-custom'])
+        self.assertEqual('application/json', s3resp.headers['Content-Type'])
+        self.assertEqual('100', s3resp.headers['Content-Length'])
+
+    def test_response_x_delete_at_invalid_value(self):
+        # Invalid X-Delete-At should be silently ignored
+        resp = Response(headers={
+            'X-Delete-At': 'not-a-number',
+            'Etag': 'theetag',
+        })
+        s3resp = S3Response.from_swift_resp(resp)
+        self.assertNotIn('x-amz-expiration', s3resp.headers)
+        self.assertEqual('"theetag"', s3resp.headers['ETag'])
+
+    def test_response_x_delete_at_empty_value(self):
+        resp = Response(headers={
+            'X-Delete-At': '',
+            'Etag': 'theetag',
+        })
+        s3resp = S3Response.from_swift_resp(resp)
+        self.assertNotIn('x-amz-expiration', s3resp.headers)
+        self.assertEqual('"theetag"', s3resp.headers['ETag'])
+
 
 class DummyErrorResponse(ErrorResponse):
     _status = "418 I'm a teapot"

@@ -34,7 +34,7 @@ not have to scramble to add a bunch of code branches all over the
 place to keep Swift working every time webob decides some interface
 needs to change.
 """
-
+import calendar
 from collections import defaultdict
 from collections.abc import MutableMapping
 import time
@@ -134,12 +134,52 @@ class WsgiBytesIO(BytesIO):
         pass
 
 
+DATE_HEADER_FORMAT_STRING = "%a, %d %b %Y %H:%M:%S GMT"
+
+
+def date_header_format(value):
+    """
+    Given a Timestamp or numeric epoch, return a string in the IMF-fixdate
+    format specified by RFC7231 [1] and defined in RFC5322 [2], e.g.:
+
+        Sun, 06 Nov 1994 08:49:37 GMT
+
+    This format should be used for headers such as Date, Last-Modified,
+    If-Modified-Since and If-Unmodified-Since.
+
+    If ``value`` is a Timestamp instance then ``value.ceil()`` is used as the
+    numeric epoch.
+
+    [1] https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.1.1
+    [2] https://datatracker.ietf.org/doc/html/rfc5322
+
+    :param value: a Timestamp or numeric epoch
+    :returns: an RFC5322 format HTTP date string.
+    """
+    if isinstance(value, Timestamp):
+        value = value.ceil()
+    return time.strftime(DATE_HEADER_FORMAT_STRING, time.gmtime(value))
+
+
+def parse_date_header(value):
+    """
+    Given a string in the IMF-fixdate format specified by RFC7231 [1] and
+    defined in RFC5322 [2], return seconds since Unix epoch.
+
+        Sun, 06 Nov 1994 08:49:37 GMT
+
+    :param value: a string in the IMF-fixdate format.
+    :returns: integer seconds since Unix epoch.
+    """
+    return calendar.timegm(time.strptime(value, DATE_HEADER_FORMAT_STRING))
+
+
 def _datetime_property(header):
     """
     Set and retrieve the datetime value of self.headers[header]
     (Used by both request and response)
     The header is parsed on retrieval and a datetime object is returned.
-    The header can be set using a datetime, numeric value, or str.
+    The header can be set using a datetime, numeric value, Timestamp, or str.
     If a value of None is given, the header is deleted.
 
     :param header: name of the header, e.g. "Content-Length"
@@ -154,11 +194,10 @@ def _datetime_property(header):
                 return None
 
     def setter(self, value):
-        if isinstance(value, (float, int)):
-            self.headers[header] = time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT", time.gmtime(value))
+        if isinstance(value, (float, int, Timestamp)):
+            self.headers[header] = date_header_format(value)
         elif isinstance(value, datetime):
-            self.headers[header] = value.strftime("%a, %d %b %Y %H:%M:%S GMT")
+            self.headers[header] = value.strftime(DATE_HEADER_FORMAT_STRING)
         else:
             self.headers[header] = value
 

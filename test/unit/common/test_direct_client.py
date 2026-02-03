@@ -33,6 +33,7 @@ from swift.common.swob import RESPONSE_REASONS
 from swift.common.storage_policy import POLICIES
 from http.client import HTTPException
 
+from test import BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import patch_policies
 
@@ -96,9 +97,10 @@ def mocked_http_conn(*args, **kwargs):
 
 
 @patch_policies
-class TestDirectClient(unittest.TestCase):
+class TestDirectClient(BaseTestCase):
 
     def setUp(self):
+        super().setUp()
         self.node = json.loads(json.dumps({  # json roundtrip to ring-like
             'ip': '1.2.3.4', 'port': '6200', 'device': 'sda',
             'replication_ip': '1.2.3.5', 'replication_port': '7000'}))
@@ -131,19 +133,10 @@ class TestDirectClient(unittest.TestCase):
     def test_gen_headers(self):
         stub_user_agent = 'direct-client %s' % os.getpid()
 
-        headers = direct_client.gen_headers(add_ts=False)
+        headers = direct_client.gen_headers()
         self.assertEqual(dict(headers), {
             'User-Agent': stub_user_agent,
             'X-Backend-Allow-Reserved-Names': 'true',
-        })
-
-        with mock.patch('swift.common.utils.Timestamp.now',
-                        return_value=Timestamp('123.45')):
-            headers = direct_client.gen_headers()
-        self.assertEqual(dict(headers), {
-            'User-Agent': stub_user_agent,
-            'X-Backend-Allow-Reserved-Names': 'true',
-            'X-Timestamp': '0000000123.45000',
         })
 
         headers = direct_client.gen_headers(hdrs_in={'x-timestamp': '15'})
@@ -153,55 +146,28 @@ class TestDirectClient(unittest.TestCase):
             'X-Timestamp': '15',
         })
 
-        with mock.patch('swift.common.utils.Timestamp.now',
-                        return_value=Timestamp('12345.6789')):
-            headers = direct_client.gen_headers(hdrs_in={'foo-bar': '63'})
+        headers = direct_client.gen_headers(hdrs_in={'foo-bar': '63'})
         self.assertEqual(dict(headers), {
             'User-Agent': stub_user_agent,
             'Foo-Bar': '63',
             'X-Backend-Allow-Reserved-Names': 'true',
-            'X-Timestamp': '0000012345.67890',
         })
 
-        hdrs_in = {'foo-bar': '55'}
-        headers = direct_client.gen_headers(hdrs_in, add_ts=False)
-        self.assertEqual(dict(headers), {
-            'User-Agent': stub_user_agent,
-            'Foo-Bar': '55',
-            'X-Backend-Allow-Reserved-Names': 'true',
-        })
-
-        with mock.patch('swift.common.utils.Timestamp.now',
-                        return_value=Timestamp('12345')):
-            headers = direct_client.gen_headers(hdrs_in={'user-agent': '32'})
+        headers = direct_client.gen_headers(hdrs_in={'user-agent': '32'})
         self.assertEqual(dict(headers), {
             'User-Agent': '32',
-            'X-Backend-Allow-Reserved-Names': 'true',
-            'X-Timestamp': '0000012345.00000',
-        })
-
-        hdrs_in = {'user-agent': '47'}
-        headers = direct_client.gen_headers(hdrs_in, add_ts=False)
-        self.assertEqual(dict(headers), {
-            'User-Agent': '47',
             'X-Backend-Allow-Reserved-Names': 'true',
         })
 
         for policy in POLICIES:
-            for add_ts in (True, False):
-                with mock.patch('swift.common.utils.Timestamp.now',
-                                return_value=Timestamp('123456789')):
-                    headers = direct_client.gen_headers(
-                        {'X-Backend-Storage-Policy-Index': policy.idx},
-                        add_ts=add_ts)
-                expected = {
-                    'User-Agent': stub_user_agent,
-                    'X-Backend-Storage-Policy-Index': str(policy.idx),
-                    'X-Backend-Allow-Reserved-Names': 'true',
-                }
-                if add_ts:
-                    expected['X-Timestamp'] = '0123456789.00000'
-                self.assertEqual(dict(headers), expected)
+            headers = direct_client.gen_headers(
+                {'X-Backend-Storage-Policy-Index': policy.idx})
+            expected = {
+                'User-Agent': stub_user_agent,
+                'X-Backend-Storage-Policy-Index': str(policy.idx),
+                'X-Backend-Allow-Reserved-Names': 'true',
+            }
+            self.assertEqual(dict(headers), expected)
 
     def test_direct_get_account(self):
         def do_test(req_params):
@@ -314,6 +280,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual('/sda/0/a', path)
             headers = args[4]
             self.assertIn('X-Timestamp', headers)
+            self.assert_valid_timestamp(headers['X-Timestamp'])
             self.assertIn('User-Agent', headers)
 
     def test_direct_delete_account_replication_net(self):
@@ -339,6 +306,7 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual('/sda/0/a', path)
             headers = args[4]
             self.assertIn('X-Timestamp', headers)
+            self.assert_valid_timestamp(headers['X-Timestamp'])
             self.assertIn('User-Agent', headers)
 
     def test_direct_delete_account_failure(self):
@@ -353,6 +321,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual('DELETE', conn.method)
             self.assertEqual('/sda/0/a', conn.path)
             self.assertIn('X-Timestamp', conn.req_headers)
+            self.assert_valid_timestamp(
+                conn.req_headers['X-Timestamp'])
             self.assertIn('User-Agent', conn.req_headers)
             self.assertEqual(raised.exception.http_status, 500)
 
@@ -516,6 +486,7 @@ class TestDirectClient(unittest.TestCase):
         expected_params = dict(marker='my-marker', prefix='my-prefix',
                                delimiter='my-delimiter', limit=10,
                                end_marker='my-endmarker', reverse='on')
+        do_test(req_params, expected_params)
 
         req_params = dict(marker='my-marker', prefix='my-prefix',
                           delimiter='my-delimiter',
@@ -575,6 +546,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
 
     def test_direct_delete_container_replication_net(self):
         with mocked_http_conn(200) as conn:
@@ -587,6 +560,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertNotEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
 
     def test_direct_delete_container_with_timestamp(self):
         # ensure timestamp is different from any that might be auto-generated
@@ -613,6 +588,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.container_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
 
         self.assertEqual(raised.exception.http_status, 500)
         self.assertTrue('DELETE' in str(raised.exception))
@@ -636,7 +613,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.req_headers['Content-Type'],
                              'application/json')
             self.assertEqual(conn.req_headers['User-Agent'], 'my UA')
-            self.assertTrue('x-timestamp' in conn.req_headers)
+            self.assertIn('x-timestamp', conn.req_headers)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
             self.assertEqual(
                 md5(body, usedforsecurity=False).hexdigest(),
@@ -658,7 +637,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.req_headers['Transfer-Encoding'], 'chunked')
             self.assertEqual(conn.req_headers['Content-Type'],
                              'application/json')
-            self.assertTrue('x-timestamp' in conn.req_headers)
+            self.assertIn('x-timestamp', conn.req_headers)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
             self.assertNotIn('Content-Length', conn.req_headers)
             expected_sent = b'%0x\r\n%s\r\n0\r\n\r\n' % (len(body), body)
@@ -692,7 +673,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
-            self.assertTrue('x-timestamp' in conn.req_headers)
+            self.assertIn('x-timestamp', conn.req_headers)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
 
         self.assertIsNone(rv)
@@ -724,7 +707,9 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.method, 'POST')
             self.assertEqual(conn.path, self.container_path)
             self.assertEqual(conn.req_headers['User-Agent'], 'my UA')
-            self.assertTrue('x-timestamp' in conn.req_headers)
+            self.assertIn('x-timestamp', conn.req_headers)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
             self.assertEqual('bar', conn.req_headers.get('x-foo'))
         self.assertEqual(204, resp.status)
 
@@ -736,6 +721,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
 
         self.assertIsNone(rv)
 
@@ -750,6 +737,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
 
         self.assertEqual(raised.exception.http_status, 500)
         self.assertTrue('DELETE' in str(raised.exception))
@@ -855,9 +844,27 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'POST')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
 
         for header in headers:
             self.assertEqual(conn.req_headers[header], headers[header])
+
+    def test_direct_post_object_retains_existing_timestamp(self):
+        ts = Timestamp.now()
+        self.assert_valid_timestamp(ts)
+        headers = {'Key': 'value',
+                   'X-Timestamp': ts.internal}
+
+        resp_headers = []
+
+        with mocked_http_conn(200, resp_headers) as conn:
+            direct_client.direct_post_object(
+                self.node, self.part, self.account, self.container, self.obj,
+                headers)
+            actual_ts = Timestamp(conn.req_headers.get('X-Timestamp'))
+            actual_ts = self.assert_valid_timestamp(actual_ts)
+            self.assertEqual(ts, actual_ts)
 
     def test_direct_post_object_error(self):
         headers = {'Key': 'value'}
@@ -887,6 +894,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
         self.assertIsNone(resp)
 
     def test_direct_delete_object_with_timestamp(self):
@@ -912,6 +921,8 @@ class TestDirectClient(unittest.TestCase):
                     self.obj)
             self.assertEqual(conn.method, 'DELETE')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
         self.assertEqual(raised.exception.http_status, 503)
         self.assertTrue('DELETE' in str(raised.exception))
 
@@ -960,6 +971,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
         self.assertEqual(
             md5(b'123456', usedforsecurity=False).hexdigest(),
             resp)
@@ -976,6 +989,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
         self.assertEqual(raised.exception.http_status, 500)
 
     def test_direct_put_object_chunked(self):
@@ -989,6 +1004,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(conn.port, self.node['port'])
             self.assertEqual(conn.method, 'PUT')
             self.assertEqual(conn.path, self.obj_path)
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
         self.assertEqual(
             md5(b'6\r\n123456\r\n0\r\n\r\n',
                 usedforsecurity=False).hexdigest(),
@@ -1007,6 +1024,8 @@ class TestDirectClient(unittest.TestCase):
             self.assertEqual(self.obj_path, conn.path)
             self.assertEqual(conn.req_headers['Content-Length'], '0')
             self.assertEqual(conn.req_headers['Content-Type'], 'Text')
+            self.assert_valid_timestamp(
+                conn.req_headers.get('X-Timestamp'))
         self.assertEqual(
             md5(b'0\r\n\r\n', usedforsecurity=False).hexdigest(),
             resp)

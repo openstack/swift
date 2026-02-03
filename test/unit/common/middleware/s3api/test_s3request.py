@@ -2066,6 +2066,7 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(S3InputChecksumMismatch):
             sigv4_req.environ['wsgi.input'].read()
 
+    @requires_crc32c
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_unsupported(self):
         body = 'a\r\nabcdefghij\r\n' \
@@ -2118,6 +2119,118 @@ class TestRequest(S3ApiTestCase):
             SigV4Request(req.environ)
         self.assertIn('Value for x-amz-sdk-checksum-algorithm header is '
                       'invalid.', str(cm.exception.body))
+
+    def _make_sig_v4_unsgnd_pyld_multi_delete_req(self, body, extra_headers):
+        environ = {
+            'HTTP_HOST': 's3.test.com',
+            'REQUEST_METHOD': 'POST',
+            'RAW_PATH_INFO': '/test/file',
+            'QUERY_STRING': 'delete=true'}
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20220330/us-east-1/s3/aws4_request,'
+                'SignedHeaders=content-length;host;x-amz-content-sha256;'
+                'x-amz-date,'
+                'Signature=6829034c62cb588ce44e41788851a6acdc22f0d0e5f68e4f733'
+                'e56bb29687cb8',
+            'Content-Length': len(body),
+            'Host': 's3.test.com',
+            'X-Amz-Content-SHA256': 'UNSIGNED-PAYLOAD',
+            'X-Amz-Date': '20220330T095351Z',
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+        return Request.blank(environ['RAW_PATH_INFO'], environ=environ,
+                             headers=headers, body=body)
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_sig_v4_unsgnd_pyld_multi_delete_crc32_ok(self):
+        body = (b"<?xml version='1.0' encoding='UTF-8'?>\n"
+                b"<Delete><Object><Key>object</Key></Object></Delete>")
+        crc = base64.b64encode(checksum.crc32(body).digest())
+        extra_headers = {'X-Amz-Checksum-Crc32': crc}
+        req = self._make_sig_v4_unsgnd_pyld_multi_delete_req(
+            body, extra_headers)
+        sigv4_req = SigV4Request(req.environ)
+        # Verify header signature
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
+        resp_body = sigv4_req.environ['wsgi.input'].read()
+        self.assertEqual(body, resp_body)
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_sig_v4_unsgnd_pyld_multi_delete_crc32_mismatch(self):
+        body = (b"<?xml version='1.0' encoding='UTF-8'?>\n"
+                b"<Delete><Object><Key>object</Key></Object></Delete>")
+        crc = base64.b64encode(checksum.crc32c(b'not-the-body').digest())
+        extra_headers = {'X-Amz-Checksum-Crc32': crc}
+        req = self._make_sig_v4_unsgnd_pyld_multi_delete_req(
+            body, extra_headers)
+        sigv4_req = SigV4Request(req.environ)
+        # Verify header signature
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
+        # the crc is verified for a multi-delete POST
+        with self.assertRaises(S3InputChecksumMismatch):
+            sigv4_req.environ['wsgi.input'].read()
+
+    def _make_sig_v4_unsgnd_pyld_multi_upload_req(self, body, extra_headers):
+        environ = {
+            'HTTP_HOST': 's3.test.com',
+            'REQUEST_METHOD': 'POST',
+            'RAW_PATH_INFO': '/test/file',
+            'QUERY_STRING': 'uploadId=foo'}
+        headers = {
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/20220330/us-east-1/s3/aws4_request,'
+                'SignedHeaders=content-length;host;x-amz-content-sha256;'
+                'x-amz-date,'
+                'Signature=66a9a5a4d7ce7775da0741740a679b4a75598607b8600bba86f'
+                '3d6122e397bef',
+            'Content-Length': len(body),
+            'Host': 's3.test.com',
+            'X-Amz-Content-SHA256': 'UNSIGNED-PAYLOAD',
+            'X-Amz-Date': '20220330T095351Z',
+        }
+        if extra_headers:
+            headers.update(extra_headers)
+        return Request.blank(environ['RAW_PATH_INFO'], environ=environ,
+                             headers=headers, body=body)
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_sig_v4_unsgnd_pyld_multi_upload_crc32_ok(self):
+        body = (b"<?xml version='1.0' encoding='UTF-8'?>\n"
+                b'<CompleteMultipartUpload><Part>'
+                b'<PartNumber>1</PartNumber>'
+                b'<ETag>0123456789abcdef0123456789abcdef</ETag>'
+                b'</Part></CompleteMultipartUpload>')
+        crc = base64.b64encode(checksum.crc32(body).digest())
+        extra_headers = {'X-Amz-Checksum-Crc32': crc}
+        req = self._make_sig_v4_unsgnd_pyld_multi_upload_req(
+            body, extra_headers)
+        sigv4_req = SigV4Request(req.environ)
+        # Verify header signature
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
+        resp_body = sigv4_req.environ['wsgi.input'].read()
+        self.assertEqual(body, resp_body)
+
+    @patch.object(S3Request, '_validate_dates', lambda *a: None)
+    def test_sig_v4_unsgnd_pyld_multi_upload_crc32_mismatch(self):
+        body = (b"<?xml version='1.0' encoding='UTF-8'?>\n"
+                b'<CompleteMultipartUpload><Part>'
+                b'<PartNumber>1</PartNumber>'
+                b'<ETag>0123456789abcdef0123456789abcdef</ETag>'
+                b'</Part></CompleteMultipartUpload>')
+        crc = base64.b64encode(checksum.crc32c(b'not-the-body').digest())
+        extra_headers = {'X-Amz-Checksum-Crc32': crc}
+        req = self._make_sig_v4_unsgnd_pyld_multi_upload_req(
+            body, extra_headers)
+        sigv4_req = SigV4Request(req.environ)
+        # Verify header signature
+        self.assertTrue(sigv4_req.sig_checker.check_signature('secret'))
+        # the crc is not verified for a multi-upload complete POST
+        resp_body = sigv4_req.environ['wsgi.input'].read()
+        self.assertEqual(body, resp_body)
 
 
 class TestSigV4Request(S3ApiTestCase):
@@ -2892,9 +3005,19 @@ class TestModuleFunctions(unittest.TestCase):
             self.assertEqual(crc, hasher.name)
 
         do_test('crc32')
-        do_test('crc32c')
         do_test('sha1')
         do_test('sha256')
+
+        try:
+            checksum._select_crc32c_impl()
+        except NotImplementedError:
+            # This *should* always have a kernel implementation available as
+            # a fallback, but debian packaging (at least) has bumped into
+            # issues with even *that* not being available before
+            pass
+        else:
+            do_test('crc32c')
+
         try:
             checksum._select_crc64nvme_impl()
         except NotImplementedError:

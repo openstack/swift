@@ -28,8 +28,10 @@ from swift.common.middleware.s3api.s3api import filter_factory
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     Grant, User, ACL, PERMISSIONS, AllUsers, AuthenticatedUsers
+from test import BaseTestCase
 
 from test.unit.common.middleware.helpers import FakeSwift
+from test.debug_logger import FakeLabeledStatsdClient
 
 
 class FakeAuthApp(object):
@@ -85,7 +87,7 @@ class FakeAuthApp(object):
         return self.app(env, start_response)
 
 
-class S3ApiTestCase(unittest.TestCase):
+class S3ApiTestCase(BaseTestCase):
 
     def __init__(self, name):
         unittest.TestCase.__init__(self, name)
@@ -94,6 +96,7 @@ class S3ApiTestCase(unittest.TestCase):
         return FakeAuthApp(app)
 
     def setUp(self):
+        super().setUp()
         # setup default config dict
         self.conf = {
             'allow_no_owner': False,
@@ -118,8 +121,11 @@ class S3ApiTestCase(unittest.TestCase):
         self.swift = FakeSwift()
         self.app = self._wrap_app(self.swift)
         self.app._pipeline_final_app = self.swift
-        self.s3api = filter_factory({}, **self.conf)(self.app)
+        with mock.patch('swift.common.statsd_client.LabeledStatsdClient',
+                        FakeLabeledStatsdClient):
+            self.s3api = filter_factory({}, **self.conf)(self.app)
         self.logger = self.s3api.logger = self.swift.logger
+        self.statsd = self.s3api.statsd
 
         # if you change the registered acl response for /bucket or
         # /bucket/object tearDown will complain at you; you can set this to

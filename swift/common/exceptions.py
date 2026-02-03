@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import swift.common.utils
+from swift.common.utils.timestamp import Timestamp
 
 from swift.common.utils import eventlet_disabled
 if not eventlet_disabled():
@@ -122,8 +122,8 @@ class DiskFileDeleted(DiskFileNotExist):
 
     def __init__(self, metadata=None):
         self.metadata = metadata or {}
-        self.timestamp = swift.common.utils.Timestamp(
-            self.metadata.get('X-Timestamp', 0))
+        self.timestamp = Timestamp(
+            self.metadata.get('X-Timestamp', Timestamp.zero()))
 
 
 class DiskFileExpired(DiskFileDeleted):

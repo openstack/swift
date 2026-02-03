@@ -77,8 +77,8 @@ class TestCrossDomain(unittest.TestCase):
         for method in ['HEAD', 'PUT', 'POST', 'COPY', 'OPTIONS']:
             req = Request.blank('/crossdomain.xml',
                                 environ={'REQUEST_METHOD': method})
-        resp = self.app(req.environ, start_response)
-        self.assertEqual(resp, b'FAKE APP')
+            resp = self.app(req.environ, start_response)
+            self.assertEqual(resp, b'FAKE APP')
 
 
 if __name__ == '__main__':

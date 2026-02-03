@@ -27,6 +27,7 @@ from swiftclient import client
 from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.utils import readconf
+from swift.common.utils.timestamp import Timestamp
 from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server
 
@@ -91,7 +92,7 @@ class TestContainerFailures(ReplProbeTest):
             exp_hdrs = hdrs
         self.assertIsNotNone(exp_hdrs)
         self.assertIn('Last-Modified', exp_hdrs)
-        put_time = float(exp_hdrs['X-Backend-Put-Timestamp'])
+        put_time = float(Timestamp(exp_hdrs['X-Backend-Put-Timestamp']))
 
         # Post to only one replica of container1 at least 1 second after the
         # put (to reveal any unexpected change in Last-Modified which is

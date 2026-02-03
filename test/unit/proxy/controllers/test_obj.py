@@ -16,7 +16,6 @@
 
 import collections
 import itertools
-import math
 import random
 import time
 import unittest
@@ -26,6 +25,7 @@ from contextlib import contextmanager
 import json
 
 from unittest import mock
+import eventlet
 from eventlet import Timeout, sleep
 from eventlet.queue import Empty
 
@@ -46,8 +46,10 @@ from swift.proxy.controllers.base import \
     NodeIter
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
-from swift.common.swob import Request, wsgi_to_str
-from test.debug_logger import debug_logger
+from swift.common.swob import Request, Response, wsgi_to_str, \
+    date_header_format
+from test import BaseTestCase
+from test.debug_logger import debug_logger, debug_labeled_statsd_client
 from test.unit import (
     FakeRing, fake_http_connect, patch_policies, SlowBody, FakeStatus,
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub,
@@ -197,8 +199,7 @@ class BaseObjectControllerMixin(object):
         # default policy and ring references
         self.policy = POLICIES.default
         self.obj_ring = self.policy.object_ring
-        self._ts_iter = (utils.Timestamp(t) for t in
-                         itertools.count(int(time.time())))
+        self._ts_iter = make_timestamp_iter()
 
     def _make_app(self):
         self.app = PatchedObjControllerApp(
@@ -1080,9 +1081,8 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_HEAD_x_newest_different_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         num_expected_requests = 2 * self.replicas()
-        timestamps = [next(ts) for i in range(num_expected_requests)]
+        timestamps = [self.ts() for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
         random.shuffle(timestamps)
         backend_response_headers = [{
@@ -1098,11 +1098,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_HEAD_x_newest_with_two_vector_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp.now(offset=offset)
-              for offset in itertools.count())
+        # constant float part, varying offset...
+        now = Timestamp.now()
+        ts = (Timestamp(now, offset) for offset in itertools.count())
         num_expected_requests = 2 * self.replicas()
         timestamps = [next(ts) for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
+        self.assertGreater(newest_timestamp, timestamps[0])
         random.shuffle(timestamps)
         backend_response_headers = [{
             'X-Backend-Timestamp': t.internal,
@@ -1113,15 +1115,14 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['x-backend-timestamp'],
-                         newest_timestamp.internal)
+                         newest_timestamp.internal, timestamps)
 
     def test_HEAD_x_newest_with_some_missing(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         request_count = self.app.request_node_count(self.obj_ring.replicas)
         backend_response_headers = [{
-            'x-timestamp': next(ts).normal,
+            'x-timestamp': self.ts().normal,
         } for i in range(request_count)]
         responses = [404] * (request_count - 1)
         responses.append(200)
@@ -1166,14 +1167,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], '2')
 
     def test_container_sync_delete(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             req = swob.Request.blank(
                 '/v1/a/c/o', method='DELETE', headers={
-                    'X-Timestamp': next(ts).internal})
+                    'X-Timestamp': self.ts().internal})
             codes = [409] * self.obj_ring.replicas
-            ts_iter = itertools.repeat(next(ts).internal)
+            ts_iter = itertools.repeat(self.ts().internal)
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 409)
@@ -1413,10 +1413,16 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_POST_all_primaries_succeed(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
         primary_codes = [202] * self.replicas()
-        with mocked_http_conn(*primary_codes):
+        with mocked_http_conn(*primary_codes) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(202, resp.status_int,
                          'replicas = %s' % self.replicas())
+
+        timestamps = [captured['headers'].get('X-Timestamp')
+                      for captured in mock_conn.requests]
+        self.assertEqual(self.replicas(), len(timestamps))
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_POST_sufficient_primaries_succeed_others_404(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
@@ -1443,15 +1449,72 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(202, resp.status_int,
                          'replicas = %s' % self.replicas())
 
-    def test_POST_insufficient_primaries_succeed_others_404(self):
+    def test_POST_mixed_primaries_with_handoff_success(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
         primary_success = quorum_size(self.replicas()) - 1
         primary_failure = self.replicas() - primary_success
         primary_codes = [404] * primary_failure + [202] * primary_success
-        with mocked_http_conn(*primary_codes):
+        handoff_codes = [202] * primary_failure
+        codes = primary_codes + handoff_codes
+        with mocked_http_conn(*codes):
             resp = req.get_response(self.app)
-        # TODO: should this be a 503?
-        self.assertEqual(404, resp.status_int,
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+
+    def test_POST_mixed_primaries_with_partial_handoff_success(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
+        primary_success = quorum_size(self.replicas()) - 1
+        primary_failure = self.replicas() - primary_success
+        primary_codes = [404] * primary_failure + [202] * primary_success
+        handoff_codes = [404] * (primary_failure // 2) + \
+                        [202] * (primary_failure - primary_failure // 2)
+        codes = primary_codes + handoff_codes
+        # object-server POST responses have no backend timestamps anyway, but
+        # it's important the handoffs don't have timestamps so that
+        # is_useful_response replaces them with 503s
+        headers = [{'x-backend-timestamp': None}] * len(codes)
+        with mocked_http_conn(*codes, headers=headers) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+        requested_nodes = [r['ip'] for r in log.requests]
+        self.assertEqual(len(requested_nodes), len(set(requested_nodes)))
+
+    def test_POST_mixed_primaries_with_handoff_missing(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
+        primary_success = quorum_size(self.replicas()) - 1
+        primary_failure = self.replicas() - primary_success
+        primary_codes = [404] * primary_failure + [202] * primary_success
+        handoff_codes = [404] * primary_failure
+        codes = primary_codes + handoff_codes
+        # object-server POST responses have no backend timestamps anyway, but
+        # it's important the handoffs don't have timestamps so that
+        # is_useful_response replaces them with 503s
+        headers = [{'x-backend-timestamp': None}] * len(codes)
+        with mocked_http_conn(*codes, headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
 
     def test_POST_insufficient_primaries_others_fail_handoffs_404(self):
@@ -1469,6 +1532,27 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
+
+    def test_POST_primary_timeout_mixed_handoff(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        primary_success = 1
+        primary_failure = min(self.replicas() - 1, 1)
+        primary_missing = max(self.replicas() - 2, 0)
+        primary_codes = ([Timeout()] * primary_failure
+                         + [202] * primary_success
+                         + [404] * primary_missing)
+        handoff_codes = [404] * primary_failure + [202] * primary_missing
+        # make sure handoff 404 doesn't have a timestamp
+        headers = ([{}] * len(primary_codes)
+                   + [{'x-backend-timestamp': None}] * len(handoff_codes))
+        with mocked_http_conn(*(primary_codes + handoff_codes),
+                              headers=headers) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+        # we want to make sure we don't double up requests to any handoffs
+        requested_nodes = [r['ip'] for r in log.requests]
+        self.assertEqual(len(requested_nodes), len(set(requested_nodes)))
 
     def test_POST_insufficient_primaries_others_fail_handoffs_fail(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
@@ -1513,16 +1597,21 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
 @patch_policies()
 class TestReplicatedObjController(CommonObjectControllerMixin,
-                                  unittest.TestCase):
+                                  BaseTestCase):
 
     controller_cls = obj.ReplicatedObjectController
 
     def test_PUT_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         req.headers['content-length'] = '0'
-        with set_http_connect(201, 201, 201):
+        with mocked_http_conn(201, 201, 201) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+        timestamps = [captured['headers'].get('X-Timestamp')
+                      for captured in mock_conn.requests]
+        self.assertEqual(3, len(timestamps))
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_PUT_error_with_footers(self):
         footers_callback = make_footers_callback(b'')
@@ -1581,9 +1670,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
             'Etag': etag,
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop())),
         })
         for connection_id, info in put_requests.items():
             body = b''.join(info['chunks'])
@@ -2003,11 +2091,28 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(200, headers={'Connection': 'close'}):
+        with mocked_http_conn(
+                200, headers={'Connection': 'close'}) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
+        self.assertEqual('GET', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
+
+    def test_HEAD_simple(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        req.method = 'HEAD'
+        with mocked_http_conn(
+                200, headers={'Connection': 'close'}) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
+        self.assertEqual('HEAD', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
 
     def test_GET_slow_read(self):
         self.app.recoverable_node_timeout = 0.01
@@ -2778,29 +2883,27 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_older(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             self.app.container_info['storage_policy'] = policy_index
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': next(ts).internal})
-            ts_iter = itertools.repeat(next(ts).internal)
+                    'X-Timestamp': self.ts().internal})
+            ts_iter = itertools.repeat(self.ts().internal)
             codes = [409] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_newer(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            orig_timestamp = next(ts).internal
+            orig_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': next(ts).internal})
+                    'X-Timestamp': self.ts().internal})
             ts_iter = itertools.repeat(orig_timestamp)
             codes = [201] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
@@ -2808,23 +2911,21 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 201)
 
     def test_put_x_timestamp_conflict(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [201] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_missing_backend_timestamp(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
+                'X-Timestamp': self.ts().internal})
         ts_iter = iter([None, None, None])
         codes = [409] * self.obj_ring.replicas
         with set_http_connect(*codes, timestamps=ts_iter):
@@ -2832,35 +2933,32 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_other_weird_success_response(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [(201, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_if_none_match(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
                 'If-None-Match': '*',
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [(412, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 412)
 
     def test_container_sync_put_x_timestamp_race(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = next(ts).internal
+            put_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -2877,10 +2975,9 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_unsynced_race(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = next(ts).internal
+            put_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -2954,7 +3051,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
     fake_ring_args=[
         {'replicas': 1}, {'replicas': 4}, {'replicas': 8}, {'replicas': 15}])
 class TestReplicatedObjControllerVariousReplicas(CommonObjectControllerMixin,
-                                                 unittest.TestCase):
+                                                 BaseTestCase):
     controller_cls = obj.ReplicatedObjectController
 
     def test_DELETE_with_write_affinity(self):
@@ -2984,7 +3081,7 @@ class TestReplicatedObjControllerVariousReplicas(CommonObjectControllerMixin,
 
 @patch_policies()
 class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
-                                            unittest.TestCase):
+                                            BaseTestCase):
     # tests specific to PUTs using a MimePutter
     expect_headers = {
         'X-Obj-Metadata-Footer': 'yes'
@@ -3046,9 +3143,8 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
             'Etag': 'resp_etag',
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop())),
         })
         for connection_id, info in put_requests.items():
             body = unchunk_body(b''.join(info['chunks']))
@@ -3267,7 +3363,7 @@ class ECObjectControllerMixin(CommonObjectControllerMixin):
 
 
 @patch_policies(with_ec_default=True)
-class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
+class TestECObjController(ECObjectControllerMixin, BaseTestCase):
     container_info = {
         'status': 200,
         'read_acl': None,
@@ -3333,13 +3429,34 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             'Connection': 'close',
             'X-Object-Sysmeta-Ec-Scheme': self.policy.ec_scheme_description,
         }] * self.policy.ec_ndata
-        with set_http_connect(*get_statuses, headers=get_hdrs):
+        with mocked_http_conn(*get_statuses, headers=get_hdrs) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
         self.assertFalse([h for h in resp.headers
                           if h.lower().startswith('x-object-sysmeta-ec-')])
+        self.assertEqual('GET', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
+
+    def test_HEAD_simple(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o',
+                                              {'REQUEST_METHOD': 'HEAD'})
+        resp_hdrs = {
+            'Connection': 'close',
+            'X-Object-Sysmeta-Ec-Scheme': self.policy.ec_scheme_description,
+        }
+        with mocked_http_conn(200, headers=resp_hdrs) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
+        self.assertFalse([h for h in resp.headers
+                          if h.lower().startswith('x-object-sysmeta-ec-')])
+        self.assertEqual('HEAD', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
 
     def test_GET_disconnect(self):
         self.app.recoverable_node_timeout = 0.01
@@ -6618,7 +6735,7 @@ class TestECFunctions(unittest.TestCase):
                  StoragePolicy(1, name='unu')],
                 fake_ring_args=[{'replicas': 28}, {}])
 class TestECDuplicationObjController(
-        ECObjectControllerMixin, unittest.TestCase):
+        ECObjectControllerMixin, BaseTestCase):
     container_info = {
         'status': 200,
         'read_acl': None,
@@ -7254,7 +7371,7 @@ class ECCommonPutterMixin(object):
 @patch_policies(with_ec_default=True)
 class TestECObjControllerMimePutter(BaseObjectControllerMixin,
                                     ECCommonPutterMixin,
-                                    unittest.TestCase):
+                                    BaseTestCase):
     # tests specific to the older PUT protocol using a MimePutter
     expect_headers = {
         'X-Obj-Metadata-Footer': 'yes',
@@ -7270,9 +7387,15 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
                                               body=b'')
         codes = [201] * self.replicas()
-        with set_http_connect(*codes, expect_headers=self.expect_headers):
+        with mocked_http_conn(*codes,
+                              expect_headers=self.expect_headers) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+        timestamps = [captured['headers'].get('X-Timestamp')
+                      for captured in mock_conn.requests]
+        self.assertEqual(self.replicas(), len(timestamps))
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_PUT_with_body_and_bad_etag(self):
         segment_size = self.policy.ec_segment_size
@@ -7458,9 +7581,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop())),
             'Etag': etag,
         })
         frag_archives = []
@@ -7592,9 +7714,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             self.assertEqual(dict(resp.headers), {
                 'Content-Type': 'text/html; charset=UTF-8',
                 'Content-Length': '0',
-                'Last-Modified': time.strftime(
-                    "%a, %d %b %Y %H:%M:%S GMT",
-                    time.gmtime(math.ceil(float(timestamps.pop())))),
+                'Last-Modified':
+                    date_header_format(Timestamp(timestamps.pop())),
                 'Etag': etag,
             })
             for connection_id, info in put_requests.items():
@@ -8014,9 +8135,11 @@ class TestGetUpdateShard(BaseObjectControllerMixin, unittest.TestCase):
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 
     def test_get_update_shard_cache_not_available(self):
-        # verify case when memcache is not available
+        # when memcache is not available, object controller will only need to
+        # retrieve a specific shard range from the container server to send the
+        # update request to.
         req = Request.blank('/v1/a/c/o', method='PUT')
-        body, resp_headers = self._create_response_data(self.shard_ranges)
+        body, resp_headers = self._create_response_data([self.shard_ranges[1]])
         with mocked_http_conn(
                 200, 200, body_iter=iter([b'', body]),
                 headers=resp_headers) as fake_conn:
@@ -8031,7 +8154,9 @@ class TestGetUpdateShard(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual('a/c', captured[1]['path'][7:])
         params = sorted(captured[1]['qs'].split('&'))
         self.assertEqual(
-            ['format=json', 'states=updating'], params)
+            ['format=json', 'includes=' + quote(self.item), 'states=updating'],
+            params
+        )
         captured_hdrs = captured[1]['headers']
         self.assertEqual('shard', captured_hdrs.get('X-Backend-Record-Type'))
         self.assertEqual('namespace',
@@ -8039,7 +8164,7 @@ class TestGetUpdateShard(BaseObjectControllerMixin, unittest.TestCase):
         self.assertIsNone(self.memcache.get('shard-updating-v2/a/c'))
         exp_ns = Namespace(self.shard_ranges[1].name,
                            self.shard_ranges[1].lower,
-                           self.shard_ranges[2].lower)
+                           self.shard_ranges[1].upper)
         self.assertEqual(exp_ns, actual)
         self.assertFalse(self.app.logger.get_lines_for_level('error'))
 
@@ -8116,7 +8241,7 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
         resp_headers = {'X-Backend-Record-Type': 'shard'}
         with mocked_http_conn(200, 200, body_iter=iter([b'', body]),
                               headers=resp_headers):
-            actual, resp = self.ctrl._get_updating_namespaces(
+            actual, resp = self.ctrl._do_get_updating_namespaces(
                 req, 'a', 'c', '1_test')
         self.assertEqual(200, resp.status_int)
         self.assertIsNone(actual)
@@ -8174,7 +8299,7 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
         body = json.dumps([dict(sr)]).encode('ascii')
         with mocked_http_conn(
                 200, 200, body_iter=iter([b'', body])):
-            actual, resp = self.ctrl._get_updating_namespaces(
+            actual, resp = self.ctrl._do_get_updating_namespaces(
                 req, 'a', 'c', '1_test')
         self.assertEqual(200, resp.status_int)
         self.assertIsNone(actual)
@@ -8192,7 +8317,7 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
         with mocked_http_conn(
                 200, 200, body_iter=iter([b'', body]),
                 headers=headers):
-            actual, resp = self.ctrl._get_updating_namespaces(
+            actual, resp = self.ctrl._do_get_updating_namespaces(
                 req, 'a', 'c', '1_test')
         self.assertEqual(200, resp.status_int)
         self.assertIsNone(actual)
@@ -8205,7 +8330,7 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
     def test_get_namespaces_request_failed(self):
         req = Request.blank('/v1/a/c/o', method='PUT')
         with mocked_http_conn(200, 404, 404, 404):
-            actual, resp = self.ctrl._get_updating_namespaces(
+            actual, resp = self.ctrl._do_get_updating_namespaces(
                 req, 'a', 'c', '1_test')
         self.assertEqual(404, resp.status_int)
         self.assertIsNone(actual)
@@ -8222,6 +8347,857 @@ class TestGetUpdatingNamespacesErrors(BaseObjectControllerMixin,
                          actual_params)
         self.assertEqual('404', status_txn[:3])
         self.assertFalse(warning_lines[1:])
+
+
+@patch_policies([
+    StoragePolicy(0, 'zero', is_default=True, object_ring=FakeRing()),
+    StoragePolicy(1, 'one', object_ring=FakeRing()),
+])
+class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
+    """
+    Test suite for cooperative token functionality in object controllers
+    """
+
+    def setUp(self):
+        super(TestCooperativeToken, self).setUp()
+        conf = {
+            'log_statsd_host': 'host',
+            'log_statsd_port': 8125,
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_legacy': True,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
+        # Reset the application with statsd
+        self.app = PatchedObjControllerApp(
+            conf, account_ring=FakeRing(),
+            container_ring=FakeRing(), logger=self.logger)
+        self.app.statsd = self.statsd
+        self.logger.clear()
+
+    def _check_request(self, request, method=None, path=None, headers=None,
+                       params=None):
+        """Helper method to check request attributes"""
+        if method:
+            self.assertEqual(request['method'], method)
+        if path:
+            self.assertEqual(request['path'], path)
+        if headers:
+            for header, value in headers.items():
+                self.assertEqual(request['headers'][header], value)
+        if params:
+            actual_params = dict(parse_qsl(request['qs'],
+                                           keep_blank_values=True))
+            self.assertEqual(actual_params, params)
+
+    def test_get_backend_updating_shard_with_cooperative_token_configs(self):
+        conf = {}
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.assertEqual(self.app.namespace_avg_backend_fetch_time, 0.3)
+        self.assertEqual(self.app.namespace_cache_tokens_per_session, 3)
+
+        conf = {'namespace_cache_tokens_per_session': '0'}
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.assertEqual(self.app.namespace_avg_backend_fetch_time, 0.3)
+        self.assertEqual(self.app.namespace_cache_tokens_per_session, 0)
+
+        conf = {'namespace_avg_backend_fetch_time': 0.2,
+                'namespace_cache_tokens_per_session': 1}
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.assertEqual(self.app.namespace_avg_backend_fetch_time, 0.2)
+        self.assertEqual(self.app.namespace_cache_tokens_per_session, 1)
+
+        conf = {'namespace_avg_backend_fetch_time': 0.2,
+                'namespace_cache_tokens_per_session': 1}
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.assertEqual(self.app.namespace_avg_backend_fetch_time, 0.2)
+        self.assertEqual(self.app.namespace_cache_tokens_per_session, 1)
+
+    def test_get_backend_updating_shard_with_cooperative_token_acquired(self):
+        # verify that the request to get updating shard from the container
+        # backend works with cooperative token acquired.
+        # reset the router post patch_policies
+        conf = {}
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            statsd=self.statsd,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+
+        def do_test(method, sharding_state):
+            self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
+            req = Request.blank(
+                '/v1/a/c/o', {'swift.cache': FakeMemcache()},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+
+            cache_key = 'shard-updating-v2/a/c'
+            token_key = "_cache_token/%s" % cache_key
+            if not random.choice([True, False]):
+                # Add some randomization to this test case. If True, this
+                # request which gets updating shard will be the first to
+                # acquire a token; otherwise, it would be the second one.
+                req.environ['swift.cache'].incr(token_key)
+
+            # we want the container_info response to say policy index of 1 and
+            # sharding state
+            # acc HEAD, cont HEAD, cont shard GET, obj POSTs
+            status_codes = (200, 200, 200, 202, 202, 202)
+            resp_headers = {'X-Backend-Storage-Policy-Index': 1,
+                            'x-backend-sharding-state': sharding_state,
+                            'X-Backend-Record-Type': 'shard'}
+            shard_ranges = [
+                utils.ShardRange(
+                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                utils.ShardRange(
+                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                utils.ShardRange(
+                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+            ]
+            body = json.dumps([
+                dict(shard_range)
+                for shard_range in shard_ranges]).encode('ascii')
+            with mocked_http_conn(*status_codes, headers=resp_headers,
+                                  body=body) as fake_conn:
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.statsd_client.get_stats_counts()
+            self.assertEqual(
+                {
+                    "account.info.cache.miss.200": 1,
+                    "account.info.infocache.hit": 2,
+                    "container.info.cache.miss.200": 1,
+                    "container.info.infocache.hit": 1,
+                    "object.shard_updating.cache.miss.200": 1,
+                    "object.shard_updating.cache.set": 1,
+                },
+                stats,
+            )
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set'),
+                    ('token', 'with_token'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
+            self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+            info_lines = self.logger.get_lines_for_level('info')
+            self.assertIn(
+                'Caching updating shards for shard-updating-v2/a/c (3 shards)'
+                ' with a finished token',
+                info_lines)
+
+            backend_requests = fake_conn.requests
+            account_request = backend_requests[0]
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
+            container_request = backend_requests[1]
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
+            container_request_shard = backend_requests[2]
+            self._check_request(
+                container_request_shard, method='GET', path='/sda/0/a/c',
+                params={'states': 'updating', 'format': 'json'},
+                headers={'X-Backend-Record-Type': 'shard'})
+
+            self.assertIn(cache_key, req.environ['swift.cache'].store)
+            cached_namespaces = NamespaceBoundList.parse(shard_ranges)
+            self.assertEqual(
+                req.environ['swift.cache'].store[cache_key],
+                cached_namespaces.bounds)
+            self.assertIn(cache_key, req.environ.get('swift.infocache'))
+            self.assertEqual(
+                req.environ['swift.infocache'][cache_key].bounds,
+                cached_namespaces.bounds)
+
+            # make sure backend requests included expected container headers
+            for (i, device), request in zip(
+                    enumerate(['sda', 'sdb', 'sdc']), backend_requests[3:]):
+                expectations = {
+                    'method': method,
+                    'path': f'/{device}/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Host': 'localhost:80',
+                        'Referer': '%s http://localhost/v1/a/c/o' % method,
+                        'X-Backend-Storage-Policy-Index': '1',
+                        'X-Backend-Quoted-Container-Path':
+                            shard_ranges[1].name,
+                        'X-Container-Device': device,
+                        'X-Container-Host': '10.0.0.%d:100%d' % (i, i),
+                    },
+                }
+                self._check_request(request, **expectations)
+
+        do_test('POST', 'sharding')
+        do_test('POST', 'sharded')
+        do_test('DELETE', 'sharding')
+        do_test('DELETE', 'sharded')
+        do_test('PUT', 'sharding')
+        do_test('PUT', 'sharded')
+
+    def test_get_backend_updating_shard_wo_cooperative_token_acquired(self):
+        # verify that the request to get updating shard from the container
+        # backend will be served out of memcached when other requests have
+        # grabbed all available cooperative tokens and filled the updating
+        # shard ranges into the memcache.
+        # reset the router post patch_policies
+        conf = {
+            'namespace_cache_tokens_per_session': 2,
+            'namespace_avg_backend_fetch_time': 0.05,
+        }
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            statsd=self.statsd,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+        cache_key = 'shard-updating-v2/a/c'
+        token_key = "_cache_token/%s" % cache_key
+
+        def do_test(method, sharding_state):
+            retries = 0
+
+            class CustomizedFakeCache(FakeMemcache):
+                def get(self, key, raise_on_error=False):
+                    nonlocal retries
+                    if key != cache_key:
+                        return super(CustomizedFakeCache, self).get(key)
+
+                    retries += 1
+                    if retries < 4:
+                        return super(CustomizedFakeCache, self).get(
+                            "NOT_EXISTED_YET")
+                    else:
+                        return super(CustomizedFakeCache, self).get(key)
+
+            self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
+            req = Request.blank(
+                '/v1/a/c/o', {'swift.cache': CustomizedFakeCache()},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+
+            # we want the container_info response to say policy index of 1 and
+            # sharding state
+            # acc HEAD, cont HEAD, obj POSTs
+            status_codes = (200, 200, 202, 202, 202)
+            resp_headers = {'X-Backend-Storage-Policy-Index': 1,
+                            'x-backend-sharding-state': sharding_state,
+                            'X-Backend-Record-Type': 'shard'}
+            shard_ranges = [
+                utils.ShardRange(
+                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                utils.ShardRange(
+                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                utils.ShardRange(
+                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+            ]
+            cached_namespaces = NamespaceBoundList.parse(shard_ranges)
+            body = json.dumps([
+                dict(shard_range)
+                for shard_range in shard_ranges]).encode('ascii')
+
+            # Preset 'token_key' to be value of 3, then make this request of
+            # getting updating shard to not able to acquire a token.
+            req.environ['swift.cache'].incr(token_key, 3)
+            # Preset the cache value, but only available after 4 retries.
+            req.environ['swift.cache'].set(cache_key, cached_namespaces.bounds)
+
+            with mock.patch('swift.common.utils.eventlet.sleep'), \
+                    mocked_http_conn(*status_codes, headers=resp_headers,
+                                     body=body) as fake_conn:
+                resp = req.get_response(self.app)
+
+            self.assertEqual(4, retries)
+            self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.statsd_client.get_stats_counts()
+            self.assertEqual({'account.info.cache.miss.200': 1,
+                              'account.info.infocache.hit': 1,
+                              'container.info.cache.miss.200': 1,
+                              'container.info.infocache.hit': 1,
+                              'object.shard_updating.cache.miss': 1,
+                              },
+                             stats)
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'cache_served'),
+                    ('token', 'no_token'),
+                    ('lack_retries', False)),
+                )): 1,
+            }, stats)
+            self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+
+            backend_requests = fake_conn.requests
+            account_request = backend_requests[0]
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
+            container_request = backend_requests[1]
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
+
+            self.assertIn(cache_key, req.environ['swift.cache'].store)
+            self.assertEqual(
+                req.environ['swift.cache'].store[cache_key],
+                cached_namespaces.bounds)
+
+            # make sure backend requests included expected container headers
+            for (i, device), request in zip(
+                    enumerate(['sda', 'sdb', 'sdc']), backend_requests[2:]):
+                expectations = {
+                    'method': method,
+                    'path': f'/{device}/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Host': 'localhost:80',
+                        'Referer': '%s http://localhost/v1/a/c/o' % method,
+                        'X-Backend-Storage-Policy-Index': '1',
+                        'X-Backend-Quoted-Container-Path':
+                            shard_ranges[1].name,
+                        'X-Container-Device': device,
+                        'X-Container-Host': '10.0.0.%d:100%d' % (i, i),
+                    },
+                }
+                self._check_request(request, **expectations)
+
+        do_test('POST', 'sharding')
+        do_test('POST', 'sharded')
+        do_test('DELETE', 'sharding')
+        do_test('DELETE', 'sharded')
+        do_test('PUT', 'sharding')
+        do_test('PUT', 'sharded')
+
+    def test_get_backend_updating_shard_wo_token_lack_retries(self):
+        # verify that the request to get updating shard from the container
+        # backend will be served out of memcached when other requests have
+        # grabbed all available cooperative tokens. Due to simulated busy
+        # eventlet scheduler, this request would be underserved and only get
+        # two normal retries during the token session, but eventually get data
+        # from cache by use of the forced retry.
+        # reset the router post patch_policies
+        conf = {
+            'namespace_avg_backend_fetch_time': 0.005,
+        }
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            statsd=self.statsd,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
+        self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+        self.app.recheck_updating_shard_ranges = 3600
+        cache_key = 'shard-updating-v2/a/c'
+        token_key = "_cache_token/%s" % cache_key
+
+        def do_test(method, sharding_state):
+            retries = 0
+
+            class CustomizedFakeCache(FakeMemcache):
+                def get(self, key, raise_on_error=False):
+                    nonlocal retries
+                    if key != cache_key:
+                        return super(CustomizedFakeCache, self).get(key)
+
+                    retries += 1
+                    if retries < 3:
+                        return super(CustomizedFakeCache, self).get(
+                            "NOT_EXISTED_YET")
+                    else:
+                        return super(CustomizedFakeCache, self).get(key)
+
+            self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
+            req = Request.blank(
+                '/v1/a/c/o', {'swift.cache': CustomizedFakeCache()},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+
+            # we want the container_info response to say policy index of 1 and
+            # sharding state
+            # acc HEAD, cont HEAD, obj POSTs
+            status_codes = (200, 200, 202, 202, 202)
+            resp_headers = {'X-Backend-Storage-Policy-Index': 1,
+                            'x-backend-sharding-state': sharding_state,
+                            'X-Backend-Record-Type': 'shard'}
+            shard_ranges = [
+                utils.ShardRange(
+                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                utils.ShardRange(
+                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                utils.ShardRange(
+                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+            ]
+            cached_namespaces = NamespaceBoundList.parse(shard_ranges)
+            body = json.dumps([
+                dict(shard_range)
+                for shard_range in shard_ranges]).encode('ascii')
+
+            # Preset 'token_key' to be value of 3, then make this request of
+            # getting updating shard to not able to acquire a token.
+            req.environ['swift.cache'].incr(token_key, 3)
+            # Preset the cache value, but only available after 4 retries.
+            req.environ['swift.cache'].set(cache_key, cached_namespaces.bounds)
+
+            with mock.patch(
+                    'swift.proxy.controllers.obj.time.time') as mock_time, \
+                mock.patch('swift.common.utils.sleep') as mock_sleep, \
+                mocked_http_conn(
+                    *status_codes, headers=resp_headers, body=body) \
+                    as fake_conn:
+                mock_time.side_effect = itertools.count(4000.99, 1.0)
+                resp = req.get_response(self.app)
+
+            # our populator only sleeps once, when it wakes up we're past the
+            # deadline and make one more try!
+            self.assertEqual([mock.call(0.005 * 1.5)],
+                             mock_sleep.call_args_list)
+            # N.B. one of these memcache.get "attempts" happens *before*
+            # coop-populator; it's very first "retry" is already after cuttoff!
+            self.assertEqual(3, retries)
+            self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.statsd_client.get_stats_counts()
+            self.assertEqual({'account.info.cache.miss.200': 1,
+                              'account.info.infocache.hit': 1,
+                              'container.info.cache.miss.200': 1,
+                              'container.info.infocache.hit': 1,
+                              'object.shard_updating.cache.miss': 1},
+                             stats)
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'cache_served'),
+                    ('token', 'no_token'),
+                    ('lack_retries', True)),
+                )): 1,
+            }, stats)
+            self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+
+            backend_requests = fake_conn.requests
+            account_request = backend_requests[0]
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
+            container_request = backend_requests[1]
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
+
+            self.assertIn(cache_key, req.environ['swift.cache'].store)
+            self.assertEqual(
+                req.environ['swift.cache'].store[cache_key],
+                cached_namespaces.bounds)
+
+            # make sure backend requests included expected container headers
+            for (i, device), request in zip(
+                    enumerate(['sda', 'sdb', 'sdc']), backend_requests[2:]):
+                expectations = {
+                    'method': method,
+                    'path': f'/{device}/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Host': 'localhost:80',
+                        'Referer': '%s http://localhost/v1/a/c/o' % method,
+                        'X-Backend-Storage-Policy-Index': '1',
+                        'X-Backend-Quoted-Container-Path':
+                            shard_ranges[1].name,
+                        'X-Container-Device': device,
+                        'X-Container-Host': '10.0.0.%d:100%d' % (i, i),
+                    },
+                }
+                self._check_request(request, **expectations)
+
+        do_test('POST', 'sharding')
+        do_test('POST', 'sharded')
+        do_test('DELETE', 'sharding')
+        do_test('DELETE', 'sharded')
+        do_test('PUT', 'sharding')
+        do_test('PUT', 'sharded')
+
+    def test_get_backend_updating_shard_with_cooperative_token_timeout(self):
+        # verify that the request to get updating shard from the container
+        # backend works with cooperative token timeout.
+        conf = {
+            'namespace_avg_backend_fetch_time': 0.01,
+        }
+        self.app = proxy_server.Application(
+            conf,
+            logger=self.logger,
+            statsd=self.statsd,
+            account_ring=FakeRing(),
+            container_ring=FakeRing())
+        self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
+        self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+        self.app.recheck_updating_shard_ranges = 3600
+        cache_key = 'shard-updating-v2/a/c'
+        token_key = "_cache_token/%s" % cache_key
+
+        def do_test(method, sharding_state):
+
+            class CustomizedFakeCache(FakeMemcache):
+                def get(self, key, raise_on_error=False):
+                    if key != cache_key:
+                        return super(CustomizedFakeCache, self).get(key)
+                    # all fail forever - just like real memcache!
+                    return super(CustomizedFakeCache, self).get(
+                        "NOT_EXISTED_YET")
+
+            self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
+            req = Request.blank(
+                '/v1/a/c/o', {'swift.cache': CustomizedFakeCache()},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+
+            # Preset 'token_key' to be value of 3+, then make this request of
+            # getting updating shard to not able to acquire a token.
+            req.environ['swift.cache'].incr(token_key, 30)
+
+            # we want the container_info response to say policy index of 1 and
+            # sharding state
+            # acc HEAD, cont HEAD, cont shard GET, obj POSTs
+            status_codes = (200, 200, 200, 202, 202, 202)
+            resp_headers = {'X-Backend-Storage-Policy-Index': 1,
+                            'x-backend-sharding-state': sharding_state,
+                            'X-Backend-Record-Type': 'shard'}
+            shard_ranges = [
+                utils.ShardRange(
+                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                utils.ShardRange(
+                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                utils.ShardRange(
+                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+            ]
+            body = json.dumps([
+                dict(shard_range)
+                for shard_range in shard_ranges]).encode('ascii')
+            with mocked_http_conn(*status_codes, headers=resp_headers,
+                                  body=body) as fake_conn:
+                resp = req.get_response(self.app)
+
+            self.assertEqual(resp.status_int, 202)
+            stats = self.app.logger.statsd_client.get_stats_counts()
+            self.assertEqual(
+                {
+                    'account.info.cache.miss.200': 1,
+                    'account.info.infocache.hit': 2,
+                    'container.info.cache.miss.200': 1,
+                    'container.info.infocache.hit': 1,
+                    'object.shard_updating.cache.miss.200': 1,
+                    'object.shard_updating.cache.set': 1,
+                },
+                stats
+            )
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('token', 'no_token'),
+                    ('lack_retries', False),
+                    ('set_cache_state', 'set'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
+            self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+            info_lines = self.logger.get_lines_for_level('info')
+            self.assertIn(
+                'Caching updating shards for shard-updating-v2/a/c (3 shards)',
+                info_lines)
+
+            backend_requests = fake_conn.requests
+            account_request = backend_requests[0]
+            self._check_request(
+                account_request, method='HEAD', path='/sda/0/a')
+            container_request = backend_requests[1]
+            self._check_request(
+                container_request, method='HEAD', path='/sda/0/a/c')
+            container_request_shard = backend_requests[2]
+            self._check_request(
+                container_request_shard, method='GET', path='/sda/0/a/c',
+                params={'states': 'updating', 'format': 'json'},
+                headers={'X-Backend-Record-Type': 'shard'})
+
+            self.assertIn(cache_key, req.environ['swift.cache'].store)
+            cached_namespaces = NamespaceBoundList.parse(shard_ranges)
+            self.assertEqual(
+                req.environ['swift.cache'].store[cache_key],
+                cached_namespaces.bounds)
+            self.assertIn(cache_key, req.environ.get('swift.infocache'))
+            self.assertEqual(
+                req.environ['swift.infocache'][cache_key].bounds,
+                cached_namespaces.bounds)
+
+            # make sure backend requests included expected container headers
+            for (i, device), request in zip(
+                    enumerate(['sda', 'sdb', 'sdc']), backend_requests[3:]):
+                expectations = {
+                    'method': method,
+                    'path': f'/{device}/0/a/c/o',
+                    'headers': {
+                        'X-Container-Partition': '0',
+                        'Host': 'localhost:80',
+                        'Referer': '%s http://localhost/v1/a/c/o' % method,
+                        'X-Backend-Storage-Policy-Index': '1',
+                        'X-Backend-Quoted-Container-Path':
+                            shard_ranges[1].name,
+                        'X-Container-Device': device,
+                        'X-Container-Host': '10.0.0.%d:100%d' % (i, i),
+                    },
+                }
+                self._check_request(request, **expectations)
+
+        do_test('POST', 'sharding')
+        do_test('POST', 'sharded')
+        do_test('DELETE', 'sharding')
+        do_test('DELETE', 'sharded')
+        do_test('PUT', 'sharding')
+        do_test('PUT', 'sharded')
+
+    def test_get_backend_updating_shard_concurrent_reqs_cooperatively(self):
+        self.memcache = FakeMemcache()
+        self.logger.clear()
+        self.statsd.clear()
+        conf = {
+            'namespace_cache_use_token': 'True',
+            'namespace_avg_backend_fetch_time': 0.003,
+        }
+        shard_ranges = [
+            utils.ShardRange(
+                '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+            utils.ShardRange(
+                '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+            utils.ShardRange(
+                '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+        ]
+        cache_key = 'shard-updating-v2/a/c'
+
+        def delayed_fetch_backend(self):
+            eventlet.sleep(0.0005)
+            body = json.dumps([
+                dict(shard_range)
+                for shard_range in shard_ranges]).encode('ascii')
+            resp = Response(body=body, status=200)
+            return NamespaceBoundList.parse(shard_ranges), resp
+
+        def worker(method, unique_path):
+            app = proxy_server.Application(
+                conf,
+                logger=self.logger,
+                statsd=self.statsd,
+                account_ring=FakeRing(),
+                container_ring=FakeRing())
+            app.obj_controller_router = proxy_server.ObjectControllerRouter()
+            app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+            app.recheck_updating_shard_ranges = 3600
+            req = Request.blank(
+                unique_path, {'swift.cache': self.memcache},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+            resp = req.get_response(app)
+            self.assertEqual(resp.status_int, 200)
+
+        num_processes = 10
+        status_codes = (200, 200, 200, 200, 200) * num_processes
+        # we want the container_info response to say policy index of 1 and
+        # sharding state
+        resp_headers = {
+            'X-Backend-Storage-Policy-Index': 1,
+            'x-backend-sharding-state': 'sharding',
+            'X-Backend-Record-Type': 'shard'
+        }
+        with mocked_http_conn(*status_codes, headers=resp_headers), \
+            mock.patch(
+                'swift.proxy.controllers.obj.'
+                'CooperativeNamespaceCachePopulator.do_fetch_backend',
+                delayed_fetch_backend):
+            pool = eventlet.GreenPool()
+            for i in range(num_processes):
+                pool.spawn(worker, 'POST', '/v1/a/c/o' + str(i))
+            pool.waitall()
+
+        stats = self.app.logger.statsd_client.get_stats_counts()
+        self.assertEqual(
+            {
+                "account.info.cache.miss.200": num_processes,
+                "account.info.infocache.hit": num_processes,
+                "container.info.cache.miss.200": num_processes,
+                "container.info.infocache.hit": num_processes,
+                "object.shard_updating.cache.set": 3,
+                "object.shard_updating.cache.miss.200": 3,
+                'object.shard_updating.cache.miss': num_processes - 3,
+            },
+            stats,
+        )
+        stats = self.app.statsd.get_labeled_stats_counts()
+        self.assertEqual({
+            ('swift_coop_cache', frozenset((
+                ('account', 'a'),
+                ('container', 'c'),
+                ('resource', 'shard_updating'),
+                ('event', 'backend_reqs'),
+                ('token', 'with_token'),
+                ('set_cache_state', 'set'),
+                ('status', 200)),
+            )): 3,
+            ('swift_coop_cache', frozenset((
+                ('account', 'a'),
+                ('container', 'c'),
+                ('resource', 'shard_updating'),
+                ('event', 'cache_served'),
+                ('token', 'no_token'),
+                ('lack_retries', False)),
+            )): num_processes - 3
+        }, stats)
+        self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+        self.assertIn(cache_key, self.memcache.store)
+        cached_namespaces = NamespaceBoundList.parse(shard_ranges)
+        self.assertEqual(
+            self.memcache.store[cache_key], cached_namespaces.bounds)
+
+    def test_get_backend_updating_shard_concurrent_reqs_with_failures(self):
+        # Tests token-based cooperative caching resilience when 1-2 of the 3
+        # token winners fail to fetch shard ranges (503 errors) during 100
+        # concurrent requests. Verifies that other token winners successfully
+        # retry and cache results, serving the remaining 97-99 requests from
+        # cache without additional backend calls, demonstrating proper failure
+        # handling.
+        self.memcache = FakeMemcache()
+        self.logger.clear()
+        conf = {'namespace_cache_use_token': 'True'}
+        shard_ranges = [
+            utils.ShardRange(
+                '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+            utils.ShardRange(
+                '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+            utils.ShardRange(
+                '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+        ]
+        cache_key = 'shard-updating-v2/a/c'
+        failures = random.randint(1, 2)
+        failures_injected = 0
+
+        def delayed_fetch_backend(self):
+            nonlocal failures_injected
+            eventlet.sleep(0.2)
+            body = json.dumps([
+                dict(shard_range)
+                for shard_range in shard_ranges]).encode('ascii')
+            resp = Response(body=body, status=200)
+            if failures_injected < failures:
+                failures_injected += 1
+                return None, Response(status=503)
+            else:
+                return NamespaceBoundList.parse(shard_ranges), resp
+
+        def worker(method, unique_path):
+            app = proxy_server.Application(
+                conf,
+                logger=self.logger,
+                statsd=self.statsd,
+                account_ring=FakeRing(),
+                container_ring=FakeRing())
+            app.obj_controller_router = proxy_server.ObjectControllerRouter()
+            app.sort_nodes = lambda nodes, *args, **kwargs: nodes
+            app.recheck_updating_shard_ranges = 3600
+            req = Request.blank(
+                unique_path, {'swift.cache': self.memcache},
+                method=method, body='', headers={'Content-Type': 'text/plain'})
+            resp = req.get_response(app)
+            self.assertEqual(resp.status_int, 200)
+
+        num_processes = 100
+        status_codes = ([200, 200, 200, 200, 200] * num_processes)
+        # we want the container_info response to say policy index of 1 and
+        # sharding state
+        resp_headers = {
+            'X-Backend-Storage-Policy-Index': 1,
+            'x-backend-sharding-state': 'sharding',
+            'X-Backend-Record-Type': 'shard'
+        }
+        with mocked_http_conn(*status_codes, headers=resp_headers), \
+                mock.patch(
+                    'swift.proxy.controllers.obj.'
+                    'CooperativeNamespaceCachePopulator.do_fetch_backend',
+                    delayed_fetch_backend):
+            pool = eventlet.GreenPool()
+            for i in range(num_processes):
+                pool.spawn(worker, 'POST', '/v1/a/c/o' + str(i))
+            pool.waitall()
+
+        stats = self.app.logger.statsd_client.get_stats_counts()
+        expected = {
+            'account.info.cache.miss.200': num_processes,
+            'account.info.infocache.hit': num_processes,
+            'container.info.cache.miss.200': num_processes,
+            'container.info.infocache.hit': num_processes,
+            'object.shard_updating.cache.miss.503': failures,
+            'object.shard_updating.cache.set': 3 - failures,
+            'object.shard_updating.cache.miss.200': 3 - failures,
+            'object.shard_updating.cache.miss': num_processes - 3,
+        }
+        self.assertEqual(expected, stats)
+
+        stats = self.app.statsd.get_labeled_stats_counts()
+        self.assertEqual({
+            ('swift_coop_cache', frozenset((
+                ('account', 'a'),
+                ('container', 'c'),
+                ('resource', 'shard_updating'),
+                ('event', 'backend_reqs'),
+                ('token', 'with_token'),
+                ('status', 503)),
+            )): failures,
+            ('swift_coop_cache', frozenset((
+                ('account', 'a'),
+                ('container', 'c'),
+                ('resource', 'shard_updating'),
+                ('event', 'backend_reqs'),
+                ('set_cache_state', 'set'),
+                ('token', 'with_token'),
+                ('status', 200)),
+            )): 3 - failures,
+            ('swift_coop_cache', frozenset((
+                ('account', 'a'),
+                ('container', 'c'),
+                ('resource', 'shard_updating'),
+                ('event', 'cache_served'),
+                ('token', 'no_token'),
+                ('lack_retries', False)),
+            )): num_processes - 3
+        }, stats)
+        self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
+        self.assertIn(cache_key, self.memcache.store)
+        cached_namespaces = NamespaceBoundList.parse(shard_ranges)
+        self.assertEqual(
+            self.memcache.store[cache_key], cached_namespaces.bounds)
 
 
 if __name__ == '__main__':

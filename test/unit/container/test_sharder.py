@@ -47,7 +47,7 @@ from swift.common.utils import ShardRange, Timestamp, hash_path, \
     encode_timestamps, parse_db_filename, quorum_size, Everything, md5, \
     ShardName, Namespace
 
-from test.debug_logger import debug_logger
+from test.debug_logger import debug_logger, debug_labeled_statsd_client
 from test.unit import FakeRing, make_timestamp_iter, unlink_files, \
     mocked_http_conn, mock_timestamp_now, mock_timestamp_now_with_iter, \
     attach_fake_replication_rpc
@@ -58,6 +58,13 @@ class BaseTestSharder(unittest.TestCase):
         self.tempdir = mkdtemp()
         self.ts_iter = make_timestamp_iter()
         self.logger = debug_logger('sharder-test')
+        conf = {
+            'log_statsd_host': 'host',
+            'log_statsd_port': 8125,
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_legacy': True,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
 
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
@@ -68,19 +75,32 @@ class BaseTestSharder(unittest.TestCase):
 
     def _make_broker(self, account='a', container='c', epoch=None,
                      device='sda', part=0, hash_=None, put_timestamp=None):
+        """
+        Make a ContainerBroker.
+
+        :param account: account name
+        :param container: container name
+        :param epoch: epoch; a Timestamp instance
+        :param device: device name
+        :param part: partition number
+        :param hash_: hash of container name
+        :param put_timestamp: put timestamp; a Timestamp instance
+        :return: a ContainerBroker instance
+        """
         hash_ = hash_ or md5(
             container.encode('utf-8'), usedforsecurity=False).hexdigest()
         datadir = os.path.join(
             self.tempdir, device, 'containers', str(part), hash_[-3:], hash_)
         if epoch:
-            filename = '%s_%s.db' % (hash_, epoch)
+            filename = '%s_%s.db' % (hash_, epoch.normal)
         else:
             filename = hash_ + '.db'
         db_file = os.path.join(datadir, filename)
         broker = ContainerBroker(
             db_file, account=account, container=container,
             logger=self.logger)
-        broker.initialize(put_timestamp=put_timestamp)
+        put_ts_str = None if put_timestamp is None else put_timestamp.internal
+        broker.initialize(put_timestamp=put_ts_str)
         return broker
 
     def _make_old_style_sharding_broker(self, account='a', container='c',
@@ -150,6 +170,8 @@ class TestSharder(BaseTestSharder):
         logger = self.logger if use_logger else None
         if logger:
             logger.clear()
+            self.statsd.clear()
+
         with mock.patch(
                 'swift.container.sharder.internal_client.InternalClient') \
                 as mock_ic:
@@ -410,101 +432,6 @@ class TestSharder(BaseTestSharder):
         _do_test_init_ic_log_name({'log_name': 'container-sharder-6021'},
                                   'container-sharder-6021-ic')
 
-    def test_log_broker(self):
-        broker = self._make_broker(container='c@d')
-
-        def do_test(level):
-            with self._mock_sharder() as sharder:
-                func = getattr(sharder, level)
-                func(broker, 'bonjour %s %s', 'mes', 'amis')
-                func(broker, 'hello my %s', 'friend%04ds')
-                func(broker, 'greetings friend%04ds')
-
-            self.assertEqual(
-                ['bonjour mes amis, path: a/c%40d, db: ' + broker.db_file,
-                 'hello my friend%04ds, path: a/c%40d, db: ' + broker.db_file,
-                 'greetings friend%04ds, path: a/c%40d, db: ' + broker.db_file
-                 ], sharder.logger.get_lines_for_level(level))
-
-            for log_level, lines in sharder.logger.all_log_lines().items():
-                if log_level == level:
-                    continue
-                else:
-                    self.assertFalse(lines)
-
-        do_test('debug')
-        do_test('info')
-        do_test('warning')
-        do_test('error')
-
-    def test_log_broker_exception(self):
-        broker = self._make_broker()
-
-        with self._mock_sharder() as sharder:
-            try:
-                raise ValueError('test')
-            except ValueError as err:
-                sharder.exception(broker, 'exception: %s', err)
-
-        self.assertEqual(
-            ['exception: test, path: a/c, db: %s: ' % broker.db_file],
-            sharder.logger.get_lines_for_level('error'))
-
-        for log_level, lines in sharder.logger.all_log_lines().items():
-            if log_level == 'error':
-                continue
-            else:
-                self.assertFalse(lines)
-
-    def test_log_broker_levels(self):
-        # verify that the broker is not queried if the log level is not enabled
-        broker = self._make_broker()
-        # erase cached properties...
-        broker.account = broker.container = None
-
-        with self._mock_sharder() as sharder:
-            with mock.patch.object(sharder.logger, 'isEnabledFor',
-                                   return_value=False):
-                sharder.debug(broker, 'test')
-                sharder.info(broker, 'test')
-                sharder.warning(broker, 'test')
-                sharder.error(broker, 'test')
-
-        # cached properties have not been set...
-        self.assertIsNone(broker.account)
-        self.assertIsNone(broker.container)
-        self.assertFalse(sharder.logger.all_log_lines())
-
-    def test_log_broker_exception_while_logging(self):
-        broker = self._make_broker()
-
-        def do_test(level):
-            with self._mock_sharder() as sharder:
-                func = getattr(sharder, level)
-            with mock.patch.object(broker, '_populate_instance_cache',
-                                   side_effect=Exception()):
-                func(broker, 'bonjour %s %s', 'mes', 'amis')
-            broker._db_files = None
-            with mock.patch.object(broker, 'reload_db_files',
-                                   side_effect=Exception()):
-                func(broker, 'bonjour %s %s', 'mes', 'amis')
-
-            self.assertEqual(
-                ['bonjour mes amis, path: , db: %s' % broker.db_file,
-                 'bonjour mes amis, path: a/c, db: '],
-                sharder.logger.get_lines_for_level(level))
-
-            for log_level, lines in sharder.logger.all_log_lines().items():
-                if log_level == level:
-                    continue
-                else:
-                    self.assertFalse(lines)
-
-        do_test('debug')
-        do_test('info')
-        do_test('warning')
-        do_test('error')
-
     def test_periodic_warning(self):
         now = [time.time()]
 
@@ -521,11 +448,11 @@ class TestSharder(BaseTestSharder):
                     sharder.periodic_warning(broker1, 'periodic warning 1a')
                     sharder.periodic_warning(broker2, 'periodic warning 2')
                     now[0] += 1
-                sharder.warning(broker1, 'normal warning')
+                sharder.db_logger.warning(broker1, 'normal warning')
                 sharder.periodic_warning(broker1, 'periodic warning 1')
                 sharder.periodic_warning(broker1, 'periodic warning 1a')
                 sharder.periodic_warning(broker2, 'periodic warning 2')
-                sharder.warning(broker1, 'normal warning')
+                sharder.db_logger.warning(broker1, 'normal warning')
                 for i in range(10):
                     sharder.periodic_warning(broker1, 'periodic warning 1')
                     sharder.periodic_warning(broker1, 'periodic warning 1a')
@@ -562,6 +489,16 @@ class TestSharder(BaseTestSharder):
             recon = json.load(fd)
         stats = recon['sharding_stats']['sharding'].get(category)
         self.assertEqual(expected, stats)
+
+    def assert_labeled_timing_since_stats(self, exp_metrics_values_labels):
+        statsd_calls = self.statsd.calls['timing_since']
+        exp_calls = []
+        for metric, value, labels in exp_metrics_values_labels:
+            exp_calls.append(((metric, mock.ANY), {'labels': labels}))
+        self.assertEqual(exp_calls, statsd_calls)
+        for i, (metric, value, labels) in enumerate(exp_metrics_values_labels):
+            self.assertAlmostEqual(
+                value, statsd_calls[i][0][1], places=4, msg=i)
 
     def test_increment_stats(self):
         with self._mock_sharder() as sharder:
@@ -632,24 +569,24 @@ class TestSharder(BaseTestSharder):
                                'num_overlap': 0, "has_overlap": 0},
                 'audit_shard': {'attempted': 2, 'success': 2, 'failure': 0},
             }
-            # NB these are time increments not absolute times...
-            fake_periods = [1, 2, 3, 3600, 4, 15, 15, 0]
-            fake_periods_iter = iter(fake_periods)
+            time_progression = [1, 2, 3, 3600, 4, 15, 15, 0]
             recon_data = []
             fake_process_broker_calls = []
+            MAX_BROKER_CALLS = 8
 
             def mock_dump_recon_cache(data, *args):
                 recon_data.append(deepcopy(data))
 
             with mock.patch('swift.container.sharder.time.time') as fake_time:
                 def fake_process_broker(broker, *args, **kwargs):
-                    # increment time and inject some fake stats
                     fake_process_broker_calls.append((broker, args, kwargs))
-                    try:
-                        fake_time.return_value += next(fake_periods_iter)
-                    except StopIteration:
-                        # bail out
-                        fake_time.side_effect = Exception('Test over')
+
+                    if len(fake_process_broker_calls) == MAX_BROKER_CALLS:
+                        mock_sleep.side_effect = Exception('Test over')
+                    else:
+                        fake_time.return_value += time_progression[
+                            len(fake_process_broker_calls)]
+
                     sharder.stats['sharding'].update(fake_stats)
 
                 with mock.patch(
@@ -660,7 +597,7 @@ class TestSharder(BaseTestSharder):
                         with mock.patch(
                                 'swift.container.sharder.dump_recon_cache',
                                 mock_dump_recon_cache):
-                            fake_time.return_value = next(fake_periods_iter)
+                            fake_time.return_value = time_progression[0]
                             sharder._is_sharding_candidate = lambda x: True
                             sharder._process_broker = fake_process_broker
                             with self.assertRaises(Exception) as cm:
@@ -672,10 +609,10 @@ class TestSharder(BaseTestSharder):
             self.assertEqual(8, len(fake_process_broker_calls))
             # expect initial random sleep then one sleep between first and
             # second pass
-            self.assertEqual(2, mock_sleep.call_count)
+            self.assertEqual(3, mock_sleep.call_count)
             self.assertLessEqual(mock_sleep.call_args_list[0][0][0], 30)
             self.assertLessEqual(mock_sleep.call_args_list[1][0][0],
-                                 30 - fake_periods[0])
+                                 30 - time_progression[1])
 
             lines = sharder.logger.get_lines_for_level('info')
             categories = ('visited', 'scanned', 'created', 'cleaved',
@@ -698,18 +635,15 @@ class TestSharder(BaseTestSharder):
                 self.assertIn('Container sharder cycle completed: %.02fs' %
                               cycle_time, lines.pop(0))
 
-            check_logs(sum(fake_periods[1:3]), fake_periods[0])
-            check_logs(sum(fake_periods[3:5]), sum(fake_periods[:3]),
+            check_logs(sum(time_progression[1:3]), time_progression[0])
+            check_logs(sum(time_progression[3:5]), sum(time_progression[:3]),
                        expect_periodic_stats=True)
-            check_logs(sum(fake_periods[5:7]), sum(fake_periods[:5]))
-            # final cycle start but then exception pops to terminate test
-            self.assertIn('Container sharder cycle starting', lines.pop(0))
-            self.assertFalse(lines)
+            check_logs(sum(time_progression[5:7]), sum(time_progression[0:5]))
+            check_logs(sum(time_progression[7:9]), sum(time_progression[:7]))
             lines = sharder.logger.get_lines_for_level('error')
-            self.assertIn(
-                'Unhandled exception while dumping progress', lines[0])
-            self.assertIn('path: a/c', lines[0])  # match one of the brokers
-            self.assertIn('Test over', lines[0])
+            # there is no exception handling around our Test Over "exit" during
+            # the interval sleep of run_forever
+            self.assertEqual([], lines)
 
             def check_recon(data, time, last, expected_stats):
                 self.assertEqual(time, data['sharding_time'])
@@ -719,6 +653,7 @@ class TestSharder(BaseTestSharder):
 
             def stats_for_candidate(broker):
                 return {'object_count': 0,
+                        'tombstones': -1,
                         'account': broker.account,
                         'meta_timestamp': mock.ANY,
                         'container': broker.container,
@@ -727,7 +662,7 @@ class TestSharder(BaseTestSharder):
                         'root': broker.path,
                         'node_index': 0}
 
-            self.assertEqual(4, len(recon_data))
+            self.assertEqual(5, len(recon_data))
             # stats report at end of first cycle
             fake_stats.update({'visited': {'attempted': 2, 'skipped': 0,
                                            'success': 2, 'failure': 0,
@@ -745,8 +680,8 @@ class TestSharder(BaseTestSharder):
                     'top': []
                 }
             })
-            check_recon(recon_data[0], sum(fake_periods[1:3]),
-                        sum(fake_periods[:3]), fake_stats)
+            check_recon(recon_data[0], sum(time_progression[1:3]),
+                        sum(time_progression[:3]), fake_stats)
             # periodic stats report after first broker has been visited during
             # second cycle - one candidate identified so far this cycle
             fake_stats.update({'visited': {'attempted': 1, 'skipped': 0,
@@ -759,8 +694,8 @@ class TestSharder(BaseTestSharder):
                             for call in fake_process_broker_calls[2:3]]
                 }
             })
-            check_recon(recon_data[1], fake_periods[3],
-                        sum(fake_periods[:4]), fake_stats)
+            check_recon(recon_data[1], time_progression[3],
+                        sum(time_progression[:4]), fake_stats)
             # stats report at end of second cycle - both candidates reported
             fake_stats.update({'visited': {'attempted': 2, 'skipped': 0,
                                            'success': 2, 'failure': 0,
@@ -772,8 +707,8 @@ class TestSharder(BaseTestSharder):
                             for call in fake_process_broker_calls[2:4]]
                 }
             })
-            check_recon(recon_data[2], sum(fake_periods[3:5]),
-                        sum(fake_periods[:5]), fake_stats)
+            check_recon(recon_data[2], sum(time_progression[3:5]),
+                        sum(time_progression[:5]), fake_stats)
             # stats report at end of third cycle
             fake_stats.update({'visited': {'attempted': 2, 'skipped': 0,
                                            'success': 2, 'failure': 0,
@@ -785,8 +720,8 @@ class TestSharder(BaseTestSharder):
                             for call in fake_process_broker_calls[4:6]]
                 }
             })
-            check_recon(recon_data[3], sum(fake_periods[5:7]),
-                        sum(fake_periods[:7]), fake_stats)
+            check_recon(recon_data[3], sum(time_progression[5:7]),
+                        sum(time_progression[:7]), fake_stats)
 
     def test_one_shard_cycle(self):
         conf = {'recon_cache_path': self.tempdir,
@@ -849,8 +784,8 @@ class TestSharder(BaseTestSharder):
             self._assert_recon_stats(expected_stats, sharder, 'visited')
             expected_candidate_stats = {
                 'found': 1,
-                'top': [{'object_count': 10, 'account': 'a', 'container': 'c1',
-                         'meta_timestamp': mock.ANY,
+                'top': [{'object_count': 10, 'tombstones': -1, 'account': 'a',
+                         'container': 'c1', 'meta_timestamp': mock.ANY,
                          'file_size': os.stat(brokers[1].db_file).st_size,
                          'path': brokers[1].db_file, 'root': 'a/c1',
                          'node_index': 1}]}
@@ -860,15 +795,30 @@ class TestSharder(BaseTestSharder):
 
             # enable and progress container a/c1 by giving it shard ranges
             now = next(self.ts_iter)
+            own_shard_range_0 = ShardRange(
+                'a/c0', now, '', '', state=ShardRange.SHARDING)
+            own_shard_range_0.epoch = now
+            # Add 5 tombstones to c0
+            for i in range(5):
+                brokers[0].put_object('tombstone_%d' % i,
+                                      next(self.ts_iter).internal,
+                                      1, 'text/plain', 'etag', 0)
+            for i in range(5):
+                brokers[0].delete_object('tombstone_%d' % i,
+                                         next(self.ts_iter).internal)
+            own_shard_range_0.update_tombstones(5)
+            own_shard_range_1 = ShardRange(
+                'a/c1', now, '', '', state=ShardRange.SHARDING)
+            own_shard_range_1.epoch = now
             brokers[0].merge_shard_ranges(
-                [ShardRange('a/c0', now, '', '', state=ShardRange.SHARDING),
+                [own_shard_range_0,
                  ShardRange('.s_a/1', now, '', 'b', state=ShardRange.ACTIVE),
                  ShardRange('.s_a/2', now, 'b', 'c', state=ShardRange.CLEAVED),
                  ShardRange('.s_a/3', now, 'c', 'd', state=ShardRange.CREATED),
                  ShardRange('.s_a/4', now, 'd', 'e', state=ShardRange.CREATED),
                  ShardRange('.s_a/5', now, 'e', '', state=ShardRange.FOUND)])
             brokers[1].merge_shard_ranges(
-                [ShardRange('a/c1', now, '', '', state=ShardRange.SHARDING),
+                [own_shard_range_1,
                  ShardRange('.s_a/6', now, '', 'b', state=ShardRange.ACTIVE),
                  ShardRange('.s_a/7', now, 'b', 'c', state=ShardRange.ACTIVE),
                  ShardRange('.s_a/8', now, 'c', 'd', state=ShardRange.CLEAVED),
@@ -912,23 +862,25 @@ class TestSharder(BaseTestSharder):
             self._assert_recon_stats(expected_stats, sharder, 'visited')
             expected_candidate_stats = {
                 'found': 1,
-                'top': [{'object_count': 11, 'account': 'a', 'container': 'c2',
-                         'meta_timestamp': mock.ANY,
+                'top': [{'object_count': 11, 'tombstones': -1, 'account': 'a',
+                         'container': 'c2', 'meta_timestamp': mock.ANY,
                          'file_size': os.stat(brokers[1].db_file).st_size,
                          'path': brokers[2].db_file, 'root': 'a/c2',
                          'node_index': 2}]}
             self._assert_recon_stats(
                 expected_candidate_stats, sharder, 'sharding_candidates')
             expected_in_progress_stats = {
-                'all': [{'object_count': 0, 'account': 'a', 'container': 'c0',
+                'all': [{'object_count': 0, 'tombstones': 5, 'account': 'a',
+                         'container': 'c0',
                          'meta_timestamp': mock.ANY,
                          'file_size': os.stat(brokers[0].db_file).st_size,
                          'path': brokers[0].db_file, 'root': 'a/c0',
                          'node_index': 0,
                          'found': 1, 'created': 2, 'cleaved': 1, 'active': 1,
                          'state': 'sharding', 'db_state': 'unsharded',
-                         'error': None},
-                        {'object_count': 10, 'account': 'a', 'container': 'c1',
+                         'error': None, 'processing_time': mock.ANY},
+                        {'object_count': 10, 'tombstones': -1, 'account': 'a',
+                         'container': 'c1',
                          'meta_timestamp': mock.ANY,
                          'file_size': os.stat(brokers[1].db_file).st_size,
                          'path': brokers[1].db_file, 'root': 'a/c1',
@@ -987,7 +939,8 @@ class TestSharder(BaseTestSharder):
                          'node_index': 0,
                          'found': 1, 'created': 0, 'cleaved': 3, 'active': 1,
                          'state': 'sharding', 'db_state': 'sharding',
-                         'error': None},
+                         'error': None, 'processing_time': mock.ANY,
+                         'tombstones': 5},
                         {'object_count': 0, 'account': 'a', 'container': 'c1',
                          'meta_timestamp': mock.ANY,
                          'file_size': os.stat(brokers[1].db_file).st_size,
@@ -995,7 +948,8 @@ class TestSharder(BaseTestSharder):
                          'node_index': 1,
                          'found': 0, 'created': 2, 'cleaved': 1, 'active': 2,
                          'state': 'sharding', 'db_state': 'unsharded',
-                         'error': None}]}
+                         'error': None, 'processing_time': mock.ANY,
+                         'tombstones': -1}]}
             self._assert_stats(
                 expected_in_progress_stats, sharder, 'sharding_in_progress')
 
@@ -1019,6 +973,7 @@ class TestSharder(BaseTestSharder):
                 sharder._local_device_ids = {999: {}}
                 sharder._one_shard_cycle(Everything(), Everything())
 
+            self.maxDiff = None
             expected_in_progress_stats = {
                 'all': [{'object_count': 0, 'account': 'a', 'container': 'c0',
                          'meta_timestamp': mock.ANY,
@@ -1027,7 +982,10 @@ class TestSharder(BaseTestSharder):
                          'node_index': 0,
                          'found': 0, 'created': 0, 'cleaved': 4, 'active': 1,
                          'state': 'sharded', 'db_state': 'sharded',
-                         'error': None},
+                         'error': None, 'processing_time': mock.ANY,
+                         'tombstones': 5,
+                         'total_sharding_time': mock.ANY,
+                         'total_replicate_time': mock.ANY},
                         {'object_count': 0, 'account': 'a', 'container': 'c1',
                          'meta_timestamp': mock.ANY,
                          'file_size': os.stat(brokers[1].db_file).st_size,
@@ -1035,7 +993,8 @@ class TestSharder(BaseTestSharder):
                          'node_index': 1,
                          'found': 0, 'created': 2, 'cleaved': 1, 'active': 2,
                          'state': 'sharding', 'db_state': 'unsharded',
-                         'error': None}]}
+                         'error': None, 'processing_time': mock.ANY,
+                         'tombstones': -1}]}
             self._assert_stats(
                 expected_in_progress_stats, sharder, 'sharding_in_progress')
 
@@ -1069,7 +1028,8 @@ class TestSharder(BaseTestSharder):
                          'node_index': 1,
                          'found': 0, 'created': 2, 'cleaved': 1, 'active': 2,
                          'state': 'sharding', 'db_state': 'unsharded',
-                         'error': None}]}
+                         'error': None, 'processing_time': mock.ANY,
+                         'tombstones': -1}]}
             self._assert_stats(
                 expected_in_progress_stats, sharder, 'sharding_in_progress')
 
@@ -1146,6 +1106,7 @@ class TestSharder(BaseTestSharder):
     @contextmanager
     def _mock_sharder(self, conf=None, replicas=3):
         self.logger.clear()
+        self.statsd.clear()
         conf = conf or {}
         conf['devices'] = self.tempdir
         fake_ring = FakeRing(replicas=replicas, separate_replication=True)
@@ -1154,7 +1115,8 @@ class TestSharder(BaseTestSharder):
             with mock.patch(
                     'swift.common.db_replicator.ring.Ring',
                     return_value=fake_ring):
-                sharder = ContainerSharder(conf, logger=self.logger)
+                sharder = ContainerSharder(conf, logger=self.logger,
+                                           statsd=self.statsd)
                 sharder._local_device_ids = {dev['id']: dev
                                              for dev in fake_ring.devs}
                 sharder._replicate_object = mock.MagicMock(
@@ -1507,6 +1469,31 @@ class TestSharder(BaseTestSharder):
                          [[o['name'] for o in objs] for objs, _, _ in yielded])
         self.assertEqual([orig_info] * 4, [info for _, _, info in yielded])
 
+    def test_fresh_db_id_has_device_suffix(self):
+        broker = self._make_broker()
+        objects = [
+            ('o%02d' % i, self.ts_encoded(), 10, 'text/plain', 'etag_a',
+             i % 2, 0) for i in range(30)]
+        for obj in objects:
+            broker.put_object(*obj)
+        broker.enable_sharding(Timestamp.now())
+        dest_ranges = [
+            ShardRange('shard/0', Timestamp.now(), upper='o09'),
+            ShardRange('shard/1', Timestamp.now(), lower='o09', upper='o19'),
+            ShardRange('shard/2', Timestamp.now(), lower='o19'),
+        ]
+        broker.merge_shard_ranges(dest_ranges)
+        self.assertTrue(broker.set_sharding_state())
+
+        # In sharding state let's confirm retiring and fresh dbs were
+        # generated correctly. They both should have the device "sda" as a
+        # a suffix, as it's in their path.
+        # First retiring broker
+        self.assertTrue(
+            broker.get_brokers()[0].get_info()['id'].endswith('sda'))
+        self.assertTrue(
+            broker.get_brokers()[1].get_info()['id'].endswith('sda'))
+
     def _check_cleave_root(self, conf=None):
         broker = self._make_broker()
         objects = [
@@ -1580,6 +1567,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(9, context.max_row)
         self.assertEqual(0, context.ranges_done)
         self.assertEqual(4, context.ranges_todo)
+        self.assertEqual(0, context.replication_time)
 
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_not_called()
@@ -1765,6 +1753,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(9, context.max_row)
         self.assertEqual(3, context.ranges_done)
         self.assertEqual(1, context.ranges_todo)
+        self.assertGreater(context.replication_time, 0)
 
         unlink_files(expected_shard_dbs)
 
@@ -1828,6 +1817,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(9, context.max_row)
         self.assertEqual(4, context.ranges_done)
         self.assertEqual(0, context.ranges_todo)
+        self.assertGreater(context.replication_time, 0)
 
         unlink_files(expected_shard_dbs)
 
@@ -1900,6 +1890,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(9, context.max_row)
         self.assertEqual(5, context.ranges_done)
         self.assertEqual(0, context.ranges_todo)
+        self.assertGreater(context.replication_time, 0)
 
         with self._mock_sharder(conf=conf) as sharder:
             self.assertTrue(sharder._cleave(broker))
@@ -2313,7 +2304,7 @@ class TestSharder(BaseTestSharder):
                 db_hash = hash_path(acceptor.account,
                                     acceptor.container)
                 # NB expected cleaved db name includes acceptor epoch
-                db_name = '%s_%s.db' % (db_hash, acceptor_epoch.internal)
+                db_name = '%s_%s.db' % (db_hash, acceptor_epoch.normal)
                 expected_acceptor_dbs.append(
                     os.path.join(self.tempdir, 'sda', 'containers', '0',
                                  db_hash[-3:], db_hash, db_name))
@@ -2629,7 +2620,7 @@ class TestSharder(BaseTestSharder):
             % broker.db_file, lines[0])
         self.assertIn(
             'Completed cleaving, DB set to sharded state, path: a/c, db: %s'
-            % broker.db_file, lines[1:])
+            % broker.db_file, lines)
 
         self.assertTrue(self.logger.statsd_client.calls['timing_since'])
         self.assertEqual(
@@ -2652,6 +2643,13 @@ class TestSharder(BaseTestSharder):
             self.logger.statsd_client.calls['timing_since'][-1][0][0])
         self.assertGreater(
             self.logger.statsd_client.calls['timing_since'][-1][0][1], 0)
+
+        self.assert_labeled_timing_since_stats([
+            ('swift_container_sharder_time_to_first_cleave', mock.ANY,
+             {'account': 'a', 'container': 'c', 'ranges_todo': 2}),
+            ('swift_container_sharder_time_to_last_cleave', mock.ANY,
+             {'account': 'a', 'container': 'c', 'ranges_done': 2}),
+        ])
 
         # check shard ranges were updated to ACTIVE
         self.assertEqual([ShardRange.ACTIVE] * 2,
@@ -3482,7 +3480,7 @@ class TestSharder(BaseTestSharder):
 
         with self._mock_sharder() as sharder:
             with mock.patch.object(sharder, '_append_stat') as mocked:
-                sharder._record_sharding_progress(broker, {}, None)
+                sharder._record_sharding_progress(broker, {}, None, 0.5)
         mocked.assert_called_once_with('sharding_in_progress', 'all', mock.ANY)
 
         # clear the contexts then run _record_sharding_progress
@@ -3491,8 +3489,23 @@ class TestSharder(BaseTestSharder):
 
         with self._mock_sharder() as sharder:
             with mock.patch.object(sharder, '_append_stat') as mocked:
-                sharder._record_sharding_progress(broker, {}, None)
+                sharder._record_sharding_progress(broker, {}, None, 0.5)
         mocked.assert_not_called()
+
+    def test_sharded_record_sharding_progress_tolerates_timestamp_offset(self):
+        # CleavingContext metadata might one day have timestamps with offset,
+        # so verify they can be sorted...
+        ts_iter_with_offset = (Timestamp(float(ts) + i, offset=i)
+                               for i, ts in enumerate(self.ts_iter, start=1))
+        with mock.patch('swift.common.utils.Timestamp.now',
+                        side_effect=ts_iter_with_offset):
+            broker = self._check_complete_sharding(
+                'a', 'c', (('', 'mid'), ('mid', '')))
+
+        with self._mock_sharder() as sharder:
+            with mock.patch.object(sharder, '_append_stat') as mocked:
+                sharder._record_sharding_progress(broker, {}, None, 1234)
+        mocked.assert_called_once_with('sharding_in_progress', 'all', mock.ANY)
 
     def test_incomplete_sharding_progress_warning_log(self):
         # test to verify sharder will print warning logs if sharding has been
@@ -3513,13 +3526,13 @@ class TestSharder(BaseTestSharder):
         with mock.patch(
                 'swift.container.sharder.time.time',
                 return_value=future_time), self._mock_sharder() as sharder:
-            sharder._record_sharding_progress(broker, {}, None)
+            sharder._record_sharding_progress(broker, {}, None, 0.5)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         future_time = 172800 + float(own_shard_range.epoch)
         with mock.patch(
                 'swift.container.sharder.time.time',
                 return_value=future_time), self._mock_sharder() as sharder:
-            sharder._record_sharding_progress(broker, {}, None)
+            sharder._record_sharding_progress(broker, {}, None, 0.5)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
 
         # advance time beyond 'container_sharding_timeout'.
@@ -3527,7 +3540,7 @@ class TestSharder(BaseTestSharder):
         with mock.patch(
                 'swift.container.sharder.time.time',
                 return_value=future_time), self._mock_sharder() as sharder:
-            sharder._record_sharding_progress(broker, {}, None)
+            sharder._record_sharding_progress(broker, {}, None, 0.5)
         warning_lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn(
             'Cleaving has not completed in %.2f seconds since %s. DB state: '
@@ -3557,13 +3570,13 @@ class TestSharder(BaseTestSharder):
         with mock.patch(
                 'swift.container.sharder.time.time',
                 return_value=future_time), self._mock_sharder() as sharder:
-            sharder._record_sharding_progress(broker, {}, None)
+            sharder._record_sharding_progress(broker, {}, None, 0.5)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         future_time = 172800 + float(own_shard_range.epoch)
         with mock.patch(
                 'swift.container.sharder.time.time',
                 return_value=future_time), self._mock_sharder() as sharder:
-            sharder._record_sharding_progress(broker, {}, None)
+            sharder._record_sharding_progress(broker, {}, None, 0.5)
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
 
         # advance time beyond 'container_sharding_timeout'.
@@ -3571,7 +3584,7 @@ class TestSharder(BaseTestSharder):
         with mock.patch(
                 'swift.container.sharder.time.time',
                 return_value=future_time), self._mock_sharder() as sharder:
-            sharder._record_sharding_progress(broker, {}, None)
+            sharder._record_sharding_progress(broker, {}, None, 0.5)
         warning_lines = sharder.logger.get_lines_for_level('warning')
         self.assertIn(
             'Cleaving has not completed in %.2f seconds since %s.' %
@@ -3623,6 +3636,7 @@ class TestSharder(BaseTestSharder):
                    'container': 'c000',
                    'root': 'a/c',
                    'object_count': 100,
+                   'tombstones': -1,
                    'meta_timestamp': now.internal,
                    'file_size': os.stat(brokers[0].db_file).st_size}
         self.assertEqual([stats_0], sharder.sharding_candidates)
@@ -3677,6 +3691,7 @@ class TestSharder(BaseTestSharder):
                    'container': 'c000',
                    'root': 'a/c',
                    'object_count': 100,
+                   'tombstones': -1,
                    'meta_timestamp': now.internal,
                    'file_size': os.stat(brokers[0].db_file).st_size}
         self.assertEqual([stats_0], sharder.sharding_candidates)
@@ -3699,6 +3714,7 @@ class TestSharder(BaseTestSharder):
                      'container': 'c000',
                      'root': 'a/c',
                      'object_count': 100,
+                     'tombstones': -1,
                      'meta_timestamp': now.internal,
                      'file_size': None}
         self.assertEqual([stats_0_b], sharder.sharding_candidates)
@@ -3740,6 +3756,7 @@ class TestSharder(BaseTestSharder):
                    'container': 'c002',
                    'root': 'a/c',
                    'object_count': 50,
+                   'tombstones': -1,
                    'meta_timestamp': now.internal,
                    'file_size': os.stat(brokers[2].db_file).st_size}
         self.assertEqual([stats_0, stats_2], sharder.sharding_candidates)
@@ -3780,6 +3797,7 @@ class TestSharder(BaseTestSharder):
                    'container': 'c005',
                    'root': 'a/c',
                    'object_count': 150,
+                   'tombstones': -1,
                    'meta_timestamp': now.internal,
                    'file_size': os.stat(brokers[5].db_file).st_size}
         self.assertEqual([stats_0, stats_2, stats_5],
@@ -3827,6 +3845,7 @@ class TestSharder(BaseTestSharder):
                    'container': 'c004',
                    'root': 'a/c',
                    'object_count': 153,
+                   'tombstones': -1,
                    'meta_timestamp': now.internal,
                    'file_size': os.stat(brokers[4].db_file).st_size}
         stats_3 = {'path': brokers[3].db_file,
@@ -3835,6 +3854,7 @@ class TestSharder(BaseTestSharder):
                    'container': 'c003',
                    'root': 'a/c',
                    'object_count': 152,
+                   'tombstones': -1,
                    'meta_timestamp': now.internal,
                    'file_size': os.stat(brokers[3].db_file).st_size}
         stats_1 = {'path': brokers[1].db_file,
@@ -3843,6 +3863,7 @@ class TestSharder(BaseTestSharder):
                    'container': 'c001',
                    'root': 'a/c',
                    'object_count': 151,
+                   'tombstones': -1,
                    'meta_timestamp': now.internal,
                    'file_size': os.stat(brokers[1].db_file).st_size}
 
@@ -5400,6 +5421,10 @@ class TestSharder(BaseTestSharder):
             with self._mock_sharder(replicas=replicas) as sharder:
                 with mocked_http_conn(*resp_codes, give_send=on_send) as conn:
                     with mock_timestamp_now() as now:
+                        # we don't expect these PUTs to have offsets but it's
+                        # used here to verify that the internal format of the
+                        # Timestamp is used for X-Timestamp
+                        now.offset = 1
                         res = sharder._send_shard_ranges(
                             broker, 'a', 'c', shard_ranges)
 
@@ -5796,7 +5821,7 @@ class TestSharder(BaseTestSharder):
 
     def test_process_broker_leader_auto_shard(self):
         # verify conditions for acting as auto-shard leader
-        broker = self._make_broker(put_timestamp=next(self.ts_iter).internal)
+        broker = self._make_broker(put_timestamp=next(self.ts_iter))
         objects = [
             ['obj%3d' % i, self.ts_encoded(), i, 'text/plain',
              'etag%s' % i, 0] for i in range(10)]
@@ -5849,7 +5874,7 @@ class TestSharder(BaseTestSharder):
                 'rows_per_shard': 5,
                 'shrink_threshold': 1,
                 'auto_shard': True}
-        broker = self._make_broker(put_timestamp=next(self.ts_iter).internal)
+        broker = self._make_broker(put_timestamp=next(self.ts_iter))
         broker.delete_db(next(self.ts_iter).internal)
         self.assertTrue(broker.is_deleted())  # sanity check
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
@@ -6061,7 +6086,7 @@ class TestSharder(BaseTestSharder):
 
     def test_audit_root_container_reset_epoch(self):
         epoch = next(self.ts_iter)
-        broker = self._make_broker(epoch=epoch.normal)
+        broker = self._make_broker(epoch=epoch)
         shard_bounds = (('', 'j'), ('j', 'k'), ('k', 's'),
                         ('s', 'y'), ('y', ''))
         shard_ranges = self._make_shard_ranges(shard_bounds,
@@ -8034,6 +8059,7 @@ class TestSharder(BaseTestSharder):
                 'top': [
                     {
                         'object_count': 500000,
+                        'tombstones': -1,
                         'account': brokers[C3].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C3].container,
@@ -8044,6 +8070,7 @@ class TestSharder(BaseTestSharder):
                         'compactible_ranges': 3
                     }, {
                         'object_count': 2500000,
+                        'tombstones': -1,
                         'account': brokers[C2].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C2].container,
@@ -8054,6 +8081,7 @@ class TestSharder(BaseTestSharder):
                         'compactible_ranges': 2
                     }, {
                         'object_count': 2999999,
+                        'tombstones': -1,
                         'account': brokers[C1].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C1].container,
@@ -8096,6 +8124,7 @@ class TestSharder(BaseTestSharder):
                 'top': [
                     {
                         'object_count': mock.ANY,
+                        'tombstones': -1,
                         'account': brokers[C3].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C3].container,
@@ -8106,6 +8135,7 @@ class TestSharder(BaseTestSharder):
                         'compactible_ranges': 3
                     }, {
                         'object_count': mock.ANY,
+                        'tombstones': -1,
                         'account': brokers[C1].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C1].container,
@@ -8132,6 +8162,7 @@ class TestSharder(BaseTestSharder):
                 'top': [
                     {
                         'object_count': mock.ANY,
+                        'tombstones': -1,
                         'account': brokers[C1].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C1].container,
@@ -8165,6 +8196,7 @@ class TestSharder(BaseTestSharder):
                 'top': [
                     {
                         'object_count': mock.ANY,
+                        'tombstones': -1,
                         'account': brokers[C3].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C3].container,
@@ -8175,6 +8207,7 @@ class TestSharder(BaseTestSharder):
                         'compactible_ranges': 2
                     }, {
                         'object_count': mock.ANY,
+                        'tombstones': -1,
                         'account': brokers[C1].account,
                         'meta_timestamp': mock.ANY,
                         'container': brokers[C1].container,
@@ -8251,7 +8284,7 @@ class TestCleavingContext(BaseTestSharder):
         self.assertFalse(ctx.cleaving_done)
 
     def test_iter(self):
-        ctx = CleavingContext('test', 'curs', 12, 11, 10, False, True, 0, 4)
+        ctx = CleavingContext('test', 'curs', 12, 11, 10, False, True, 0, 4, 0)
         expected = {'ref': 'test',
                     'cursor': 'curs',
                     'max_row': 12,
@@ -8260,7 +8293,8 @@ class TestCleavingContext(BaseTestSharder):
                     'cleaving_done': False,
                     'misplaced_done': True,
                     'ranges_done': 0,
-                    'ranges_todo': 4}
+                    'ranges_todo': 4,
+                    'replication_time': 0}
         self.assertEqual(expected, dict(ctx))
 
     def test_cursor(self):
@@ -8280,6 +8314,7 @@ class TestCleavingContext(BaseTestSharder):
                     'misplaced_done': True,
                     'ranges_done': 0,
                     'ranges_todo': 0,
+                    'replication_time': 0,
                     'ref': ref,
                 })
                 self.assertEqual(expected, ctx.cursor)
@@ -8307,7 +8342,8 @@ class TestCleavingContext(BaseTestSharder):
                   'cleaving_done': False,
                   'misplaced_done': True,
                   'ranges_done': 2,
-                  'ranges_todo': 4}
+                  'ranges_todo': 4,
+                  'replication_time': 0.5}
         key = 'X-Container-Sysmeta-Shard-Context-%s' % db_id
         broker.update_metadata(
             {key: (json.dumps(params), Timestamp.now().internal)})
@@ -8322,6 +8358,7 @@ class TestCleavingContext(BaseTestSharder):
         self.assertFalse(ctx.cleaving_done)
         self.assertEqual(2, ctx.ranges_done)
         self.assertEqual(4, ctx.ranges_todo)
+        self.assertEqual(0.5, ctx.replication_time)
 
     def test_load_all(self):
         broker = self._make_broker()
@@ -8405,7 +8442,8 @@ class TestCleavingContext(BaseTestSharder):
         broker = self._make_old_style_sharding_broker()
         old_db_id = broker.get_brokers()[0].get_info()['id']
         last_mod = Timestamp.now()
-        ctx = CleavingContext(old_db_id, 'curs', 12, 11, 2, True, True, 2, 4)
+        ctx = CleavingContext(old_db_id, 'curs', 12, 11, 2, True, True, 2, 4,
+                              0.5)
         with mock_timestamp_now(last_mod):
             ctx.store(broker)
         key = 'X-Container-Sysmeta-Shard-Context-%s' % old_db_id
@@ -8418,7 +8456,8 @@ class TestCleavingContext(BaseTestSharder):
                     'cleaving_done': True,
                     'misplaced_done': True,
                     'ranges_done': 2,
-                    'ranges_todo': 4}
+                    'ranges_todo': 4,
+                    'replication_time': 0.5}
         self.assertEqual(expected, data)
         # last modified is the metadata timestamp
         self.assertEqual(broker.metadata[key][1], last_mod.internal)
@@ -8515,7 +8554,8 @@ class TestCleavingContext(BaseTestSharder):
         broker = self._make_sharding_broker()
         old_db_id = broker.get_brokers()[0].get_info()['id']
         last_mod = Timestamp.now()
-        ctx = CleavingContext(old_db_id, 'curs', 12, 11, 2, True, True, 2, 4)
+        ctx = CleavingContext(old_db_id, 'curs', 12, 11, 2, True, True, 2, 4,
+                              0.5)
         with mock_timestamp_now(last_mod):
             ctx.store(broker)
         key = 'X-Container-Sysmeta-Shard-Context-%s' % old_db_id
@@ -8528,7 +8568,8 @@ class TestCleavingContext(BaseTestSharder):
                     'cleaving_done': True,
                     'misplaced_done': True,
                     'ranges_done': 2,
-                    'ranges_todo': 4}
+                    'ranges_todo': 4,
+                    'replication_time': 0.5}
         self.assertEqual(expected, data)
         # last modified is the metadata timestamp
         self.assertEqual(broker.metadata[key][1], last_mod.internal)
@@ -8622,7 +8663,9 @@ class TestCleavingContext(BaseTestSharder):
         self.assertTrue(ctx.misplaced_done)
 
     def test_reset(self):
-        ctx = CleavingContext('test', 'curs', 12, 11, 2, True, True)
+        ctx = CleavingContext('test', 'curs', 12, 11, 2, True, True,
+                              ranges_done=5, ranges_todo=3,
+                              replication_time=5.5)
 
         def check_context():
             self.assertEqual('test', ctx.ref)
@@ -8634,6 +8677,7 @@ class TestCleavingContext(BaseTestSharder):
             self.assertFalse(ctx.cleaving_done)
             self.assertEqual(0, ctx.ranges_done)
             self.assertEqual(0, ctx.ranges_todo)
+            self.assertEqual(0, ctx.replication_time)
         ctx.reset()
         check_context()
         # check idempotency
@@ -8641,7 +8685,9 @@ class TestCleavingContext(BaseTestSharder):
         check_context()
 
     def test_start(self):
-        ctx = CleavingContext('test', 'curs', 12, 11, 2, True, True)
+        ctx = CleavingContext('test', 'curs', 12, 11, 2, True, True,
+                              ranges_done=5, ranges_todo=3,
+                              replication_time=5.5)
 
         def check_context():
             self.assertEqual('test', ctx.ref)
@@ -8653,6 +8699,8 @@ class TestCleavingContext(BaseTestSharder):
             self.assertFalse(ctx.cleaving_done)
             self.assertEqual(0, ctx.ranges_done)
             self.assertEqual(0, ctx.ranges_todo)
+            self.assertEqual(0, ctx.replication_time)
+
         ctx.start()
         check_context()
         # check idempotency

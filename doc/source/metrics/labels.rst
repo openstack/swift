@@ -49,7 +49,7 @@ for each metric can be found in the sections of the :doc:`all` page.
    ================ ==========================================================
    Label Name       Value
    ---------------- ----------------------------------------------------------
-   ``type``         The type of resource associated with the metric
+   ``resource``     The type of resource associated with the metric
                     i.e. ``account``, ``container`` or ``object``.
    ``account``      The quoted account name associated with the metric.
    ``container``    The quoted container name associated with the metric.

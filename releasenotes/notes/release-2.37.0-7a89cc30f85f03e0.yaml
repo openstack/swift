@@ -1,0 +1,102 @@
+---
+features:
+  - |
+    The s3token middleware now passes service auth tokens to Keystone
+    if credentials are provided. This is required to enable S3 API
+    access for Keystone users when using Keystone >25.0.0, !=26.0.0,
+    !=26.0.1, !=27.0.0, !=28.0.0. See etc/proxy-server.conf-sample for
+    configuration details. For more information, see
+    `OSSA-2025-002 <https://security.openstack.org/ossa/OSSA-2025-002.html>`__ and
+    `bug #2119646 <https://bugs.launchpad.net/keystone/+bug/2119646>`__.
+
+  - |
+    The s3token middleware now caches credential secrets for one minute
+    by default, if credentials are provided. Secret-caching typically
+    reduces the load on Keystone and is required for Keystone users to
+    be able to use signed aws-chunked transfers. To return to prior
+    behavior, explicitly set ``secret_cache_duration = 0`` in the
+    ``[filter:s3api]`` section of your proxy-server.conf.
+
+  - |
+    The KMS keymaster now supports selecting the endpoint returned in the
+    Keystone catalog via the ``barbican_region_name`` configuration option.
+    This may be useful in multi-region deployments which have multiple
+    endpoints.
+
+  - |
+    The request line-length limit is now configurable for all WSGI servers
+    via the ``max_request_line`` option in the ``[swift-constraints]`` section
+    of swift.conf. By default, continue to use eventlet's default of 8192
+    bytes.
+
+  - |
+    The following new metrics were added when using labeled metrics:
+
+      * The proxy-logging middleware may now emit real-time transfer metrics.
+        See the ``statsd_emit_buffer_xfer_bytes_seconds`` option in
+        etc/proxy-server.conf-sample for more information.
+
+      * The proxy-logging middleware now includes an ``api`` label whose value
+        may be ``swift`` or ``S3`` depending on whether the client request is
+        serviced by the swift API or S3 API.
+
+      * The s3api middleware now emits a counter recording the usage of
+        various protocol-related headers.
+
+      * The container-sharder now emits a timing metric for the length of
+        time between shard range creation and cleaving.
+
+  - |
+    ``swift-manage-shard-ranges`` now defaults to committing pending
+    updates before looking for shard range boundaries. A new option,
+    ``--skip-commits``, may be used to restore previous behavior.
+
+  - |
+    Added a ``--clobber-hardlink-collisions`` option to ``swift-object-relinker``.
+    With this option enabled during the relink phase the relinker will
+    quarantine the colliding file in the new target part dir and retry the
+    relink. During the cleanup phase it will ignore the un-matched inode
+    "collision" and allow the cleanup of the old file in the old part dir
+    similar to tombstones.
+
+upgrade:
+  - |
+    Removed fallback support using netifaces; ``getifaddrs`` is now always
+    used to determine available IP addresses.
+
+fixes:
+  - |
+    Improved checksum validation for S3 API DeleteObjects requests.
+
+  - |
+    POST requests are more likely to receive a 503 response in the
+    face of backend inconsistencies.
+
+  - |
+    Writes to sharded containers are less likely to have their updates
+    sent to the root container. This uses a new cooperative-token
+    mechanism to limit the number of concurrent shard range queries
+    to the root container; see the ``[app:proxy-server]`` section of
+    etc/proxy-server.conf-sample for configuration options.
+
+  - |
+    Fixed the ``swift_dir`` option for WSGI servers; the file
+    ``/etc/swift/swift.conf`` no longer needs to exist when that option
+    is set.
+
+  - |
+    Fixed an object-server error when there is a part-power increase in
+    progress and there was an issue marking the file in the new partition
+    space as durable.
+
+  - |
+    Device names are now included in sharded database IDs, similar to
+    regular databases. This provides more context when examining
+    incoming/outgoing sync tables or sharding CleaveContexts.
+
+  - |
+    Database replicators now clean up temporary files older than
+    ``reclaim_age``.
+
+  - |
+    Various other minor bug fixes and improvements.

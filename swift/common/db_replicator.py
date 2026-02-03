@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+import logging
 import os
 import random
 import math
@@ -33,7 +34,9 @@ from swift.common.utils import get_logger, whataremyips, storage_directory, \
     renamer, mkdirs, lock_parent_directory, config_true_value, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
     parse_override_options, round_robin_iter, Everything, get_db_files, \
-    parse_db_filename, quote, RateLimitedIterator, config_auto_int_value
+    parse_db_filename, quote, RateLimitedIterator, config_auto_int_value, \
+    listdir, unlink_paths_older_than
+
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
 from swift.common.http import HTTP_NOT_FOUND, HTTP_INSUFFICIENT_STORAGE, \
@@ -179,6 +182,60 @@ class ReplConnection(BufferedHTTPConnection):
             return None
 
 
+class BrokerAnnotatedLogger:
+    """
+    Formats log messages with broker details.
+
+    This class augments messages with the broker's container path and DB
+    file path so that logs are easier to correlate during replication
+    and sharding workflows.
+    """
+    def __init__(self, logger):
+        self.logger = logger
+
+    def _get_broker_details(self, broker):
+        try:
+            db_file = broker.db_file
+        except Exception:  # noqa
+            db_file = ''
+        try:
+            path = broker.path
+        except Exception:  # noqa
+            path = ''
+        return path, db_file
+
+    def _format_log_msg(self, broker, msg, *args):
+        # make best effort to include broker properties...
+        path, db_file = self._get_broker_details(broker)
+        if args:
+            if len(args) == 1 and isinstance(args[0], dict):
+                args = args[0]
+            msg = msg % args
+        return '%s, path: %s, db: %s' % (msg, quote(path), db_file)
+
+    def _log(self, level, broker, msg, *args, **kwargs):
+        if not self.logger.isEnabledFor(level):
+            return
+        self.logger.log(level, self._format_log_msg(broker, msg, *args))
+
+    def debug(self, broker, msg, *args, **kwargs):
+        self._log(logging.DEBUG, broker, msg, *args, **kwargs)
+
+    def info(self, broker, msg, *args, **kwargs):
+        self._log(logging.INFO, broker, msg, *args, **kwargs)
+
+    def warning(self, broker, msg, *args, **kwargs):
+        self._log(logging.WARNING, broker, msg, *args, **kwargs)
+
+    def error(self, broker, msg, *args, **kwargs):
+        self._log(logging.ERROR, broker, msg, *args, **kwargs)
+
+    def exception(self, broker, msg, *args, **kwargs):
+        if not self.logger.isEnabledFor(logging.ERROR):
+            return
+        self.logger.exception(self._format_log_msg(broker, msg, *args))
+
+
 class Replicator(Daemon):
     """
     Implements the logic for directing db replication.
@@ -246,6 +303,7 @@ class Replicator(Daemon):
                 'with replica count %d. Disabling.',
                 self.handoff_delete, self.ring.replica_count)
             self.handoff_delete = 0
+        self.db_logger = BrokerAnnotatedLogger(logger=self.logger)
 
     def _zero_stats(self):
         """Zero out the stats."""
@@ -285,12 +343,12 @@ class Replicator(Daemon):
             failure_devs.setdefault(dev, 0)
             failure_devs[dev] += 1
 
-    def _rsync_file(self, db_file, remote_file, whole_file=True,
+    def _rsync_file(self, broker, remote_file, whole_file=True,
                     different_region=False):
         """
         Sync a single file using rsync. Used by _rsync_db to handle syncing.
 
-        :param db_file: file to be synced
+        :param broker: DB broker object of DB to be synced
         :param remote_file: remote location to sync the DB file to
         :param whole-file: if True, uses rsync's --whole-file flag
         :param different_region: if True, the destination node is in a
@@ -309,12 +367,14 @@ class Replicator(Daemon):
             # a different region than the local one.
             popen_args.append('--compress')
 
-        popen_args.extend([db_file, remote_file])
+        popen_args.extend([broker.db_file, remote_file])
         proc = subprocess.Popen(popen_args)
         proc.communicate()
         if proc.returncode != 0:
-            self.logger.error('ERROR rsync failed with %(code)s: %(args)s',
-                              {'code': proc.returncode, 'args': popen_args})
+            self.db_logger.error(
+                broker,
+                'ERROR rsync failed with %s: %r',
+                proc.returncode, popen_args)
         return proc.returncode == 0
 
     def _rsync_db(self, broker, device, http, local_id,
@@ -336,7 +396,7 @@ class Replicator(Daemon):
         rsync_path = '%s/tmp/%s' % (device['device'], local_id)
         remote_file = '%s/%s' % (rsync_module, rsync_path)
         mtime = os.path.getmtime(broker.db_file)
-        if not self._rsync_file(broker.db_file, remote_file,
+        if not self._rsync_file(broker, remote_file,
                                 different_region=different_region):
             return False
         # perform block-level sync if the db was modified during the first sync
@@ -344,8 +404,7 @@ class Replicator(Daemon):
                 os.path.getmtime(broker.db_file) > mtime:
             # grab a lock so nobody else can modify it
             with broker.lock():
-                if not self._rsync_file(broker.db_file, remote_file,
-                                        whole_file=False,
+                if not self._rsync_file(broker, remote_file, whole_file=False,
                                         different_region=different_region):
                     return False
         with Timeout(replicate_timeout or self.node_timeout):
@@ -377,10 +436,10 @@ class Replicator(Daemon):
         """
         self.stats['diff'] += 1
         self.logger.increment('diffs')
-        self.logger.debug('%s usyncing chunks to %s, starting at row %s',
-                          broker.db_file,
-                          '%(ip)s:%(port)s/%(device)s' % http.node,
-                          point)
+        self.db_logger.debug(
+            broker,
+            'usyncing chunks to %s, starting at row %s',
+            '%(ip)s:%(port)s/%(device)s' % http.node, point)
         start = time.time()
         sync_table = broker.get_syncs()
         objects = broker.get_items_since(point, self.per_diff)
@@ -395,16 +454,19 @@ class Replicator(Daemon):
             point = objects[-1]['ROWID']
             objects = broker.get_items_since(point, self.per_diff)
 
-        self.logger.debug('%s usyncing chunks to %s, finished at row %s (%gs)',
-                          broker.db_file,
-                          '%(ip)s:%(port)s/%(device)s' % http.node,
-                          point, time.time() - start)
+        self.db_logger.debug(
+            broker,
+            'usyncing chunks to %s, finished at row %s (%gs)',
+            '%(ip)s:%(port)s/%(device)s' % http.node,
+            point,
+            time.time() - start
+        )
 
         if objects:
-            self.logger.debug(
-                'Synchronization for %s has fallen more than '
-                '%s rows behind; moving on and will try again next pass.',
-                broker, self.max_diffs * self.per_diff)
+            self.db_logger.debug(
+                broker, 'Synchronization has fallen more than '
+                '%s rows behind; moving on and will try again next pass',
+                self.max_diffs * self.per_diff)
             self.stats['diff_capped'] += 1
             self.logger.increment('diff_caps')
         else:
@@ -509,9 +571,10 @@ class Replicator(Daemon):
     def _choose_replication_mode(self, node, rinfo, info, local_sync, broker,
                                  http, different_region):
         if self._in_sync(rinfo, info, broker, local_sync):
-            self.logger.debug('%s in sync with %s, nothing to do',
-                              broker.db_file,
-                              '%(ip)s:%(port)s/%(device)s' % node)
+            self.db_logger.debug(
+                broker,
+                'in sync with %(ip)s:%(port)s/%(device)s, '
+                'nothing to do', node)
             return True
 
         # if the difference in rowids between the two differs by
@@ -552,15 +615,15 @@ class Replicator(Daemon):
         :return success: returns False if deletion of the database was
             attempted but unsuccessful, otherwise returns True.
         """
-        log_template = 'Not deleting db %s (%%s)' % broker.db_file
+        log_template = 'Not deleting db (%s)'
         max_row_delta = broker.get_max_row() - orig_info['max_row']
         if max_row_delta < 0:
             reason = 'negative max_row_delta: %s' % max_row_delta
-            self.logger.error(log_template, reason)
+            self.db_logger.error(broker, log_template, reason)
             return True
         if max_row_delta:
             reason = '%s new rows' % max_row_delta
-            self.logger.debug(log_template, reason)
+            self.db_logger.debug(broker, log_template, reason)
             return True
         if self.handoff_delete:
             # delete handoff if we have had handoff_delete successes
@@ -570,21 +633,27 @@ class Replicator(Daemon):
             delete_handoff = responses and all(responses)
         if not delete_handoff:
             reason = '%s/%s success' % (responses.count(True), len(responses))
-            self.logger.debug(log_template, reason)
+            self.db_logger.debug(broker, log_template, reason)
             return True
         # If the db has been successfully synced to all of its peers, it can be
         # removed. Callers should have already checked that the db is not on a
         # primary node.
         if not self.delete_db(broker):
-            self.logger.debug(
-                'Failed to delete db %s', broker.db_file)
+            self.db_logger.debug(broker, 'Failed to delete db')
             return False
-        self.logger.debug('Successfully deleted db %s', broker.db_file)
+        self.db_logger.debug(broker, 'Successfully deleted db')
         return True
+
+    def _reclaim_tmp_dbs(self, broker, now):
+        fnames = listdir(broker.db_dir)
+        fnames = [os.path.join(broker.db_dir, fname) for fname in fnames
+                  if fname.endswith('.tmp')]
+        unlink_paths_older_than(fnames, now - self.reclaim_age)
 
     def _reclaim(self, broker, now=None):
         if not now:
             now = time.time()
+        self._reclaim_tmp_dbs(broker, now)
         return broker.reclaim(now - self.reclaim_age,
                               now - (self.reclaim_age * 2))
 
@@ -610,6 +679,7 @@ class Replicator(Daemon):
         self.logger.increment('attempts')
         shouldbehere = True
         responses = []
+        broker = None
         try:
             broker = self.brokerclass(object_file, pending_timeout=30,
                                       logger=self.logger)
@@ -622,18 +692,23 @@ class Replicator(Daemon):
                 # Important to set this false here since the later check only
                 # checks if it's on the proper device, not partition.
                 shouldbehere = False
-                name = '/' + quote(info['account'])
-                if 'container' in info:
-                    name += '/' + quote(info['container'])
-                self.logger.error(
-                    'Found %s for %s when it should be on partition %s; will '
-                    'replicate out and remove.' % (object_file, name, bpart))
+                self.db_logger.error(
+                    broker,
+                    'Found db that should be on partition %s; will '
+                    'replicate out and remove' % bpart)
         except (Exception, Timeout) as e:
             if 'no such table' in str(e):
-                self.logger.error('Quarantining DB %s', object_file)
+                if broker is None:
+                    self.logger.error('Quarantining DB %s', object_file)
+                else:
+                    self.db_logger.error(broker, 'Quarantining DB')
                 quarantine_db(broker.db_file, broker.db_type)
             else:
-                self.logger.exception('ERROR reading db %s', object_file)
+                if broker is None:
+                    self.logger.exception('ERROR reading db from %s',
+                                          object_file)
+                else:
+                    self.db_logger.exception(broker, 'ERROR reading db')
             nodes = self.ring.get_part_nodes(int(partition))
             self._add_failure_stats([(failure_dev['replication_ip'],
                                       failure_dev['device'])
@@ -684,15 +759,18 @@ class Replicator(Daemon):
                 try:
                     repl_nodes.append(next(more_nodes))
                 except StopIteration:
-                    self.logger.error(
+                    self.db_logger.error(
+                        broker,
                         'ERROR There are not enough handoff nodes to reach '
                         'replica count for partition %s',
                         partition)
-                self.logger.error('ERROR Remote drive not mounted %s', node)
+                self.db_logger.error(
+                    broker,
+                    'ERROR Remote drive not mounted %s', node)
             except (Exception, Timeout):
-                self.logger.exception('ERROR syncing %(file)s with node'
-                                      ' %(node)s',
-                                      {'file': object_file, 'node': node})
+                self.db_logger.exception(
+                    broker, "ERROR syncing with %s", node)
+
             if not success:
                 failure_devs_info.add((node['replication_ip'], node['device']))
             self.logger.increment('successes' if success else 'failures')
@@ -700,8 +778,8 @@ class Replicator(Daemon):
         try:
             self._post_replicate_hook(broker, info, responses)
         except (Exception, Timeout):
-            self.logger.exception('UNHANDLED EXCEPTION: in post replicate '
-                                  'hook for %s', broker.db_file)
+            self.db_logger.exception(
+                broker, 'UNHANDLED EXCEPTION: in post replicate hook')
         if not shouldbehere:
             if not self.cleanup_post_replicate(broker, info, responses):
                 failure_devs_info.update(
@@ -737,7 +815,8 @@ class Replicator(Daemon):
                 elif err.errno == errno.ENOENT:
                     continue
                 else:
-                    self.logger.exception(
+                    self.db_logger.exception(
+                        broker,
                         'ERROR while trying to clean up %s', parent_dir)
                     return False
         return True
@@ -874,6 +953,7 @@ class ReplicatorRpc(object):
         self.broker_class = broker_class
         self.mount_check = mount_check
         self.logger = logger or get_logger({}, log_route='replicator-rpc')
+        self.db_logger = BrokerAnnotatedLogger(logger=self.logger)
 
     def _db_file_exists(self, db_path):
         return os.path.exists(db_path)
@@ -962,7 +1042,7 @@ class ReplicatorRpc(object):
                 info = self._get_synced_replication_info(broker, remote_info)
             except (Exception, Timeout) as e:
                 if 'no such table' in str(e):
-                    self.logger.error("Quarantining DB %s", broker)
+                    self.db_logger.error(broker, "Quarantining DB", )
                     quarantine_db(broker.db_file, broker.db_type)
                     return HTTPNotFound()
                 raise

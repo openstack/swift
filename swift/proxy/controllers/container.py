@@ -158,7 +158,7 @@ class ContainerController(Controller):
                         'x-backend-cached-results': 'true'})
         resp = Response(request=req)
         update_headers(resp, headers)
-        resp.last_modified = Timestamp(headers['x-put-timestamp']).ceil()
+        resp.last_modified = Timestamp(headers['x-put-timestamp'])
         resp.environ['swift_x_timestamp'] = headers.get('x-timestamp')
         resp.accept_ranges = 'bytes'
         resp.content_type = 'application/json'
@@ -182,7 +182,7 @@ class ContainerController(Controller):
 
         :param req: the request object.
         :param namespaces:  a list of :class:`~swift.common.utils.Namespace`
-            objects.
+            objects; must be not None or empty.
         :return: a list of :class:`~swift.common.utils.Namespace` objects.
         """
         cache_key = get_cache_key(self.account_name, self.container_name,
@@ -747,12 +747,12 @@ class ContainerController(Controller):
 
     def _backend_requests(self, req, n_outgoing, account_partition, accounts,
                           policy_index=None):
-        additional = {'X-Timestamp': Timestamp.now().internal}
         if policy_index is None:
-            additional['X-Backend-Storage-Policy-Default'] = \
-                int(POLICIES.default)
+            policy_index = int(POLICIES.default)
+            additional = {'X-Backend-Storage-Policy-Default':
+                          str(policy_index)}
         else:
-            additional['X-Backend-Storage-Policy-Index'] = str(policy_index)
+            additional = {'X-Backend-Storage-Policy-Index': str(policy_index)}
         headers = [self.generate_request_headers(req, transfer=True,
                                                  additional=additional)
                    for _junk in range(n_outgoing)]

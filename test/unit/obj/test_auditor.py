@@ -170,6 +170,10 @@ class TestAuditorBase(BaseTestCase):
 @patch_policies(_mocked_policies)
 class TestAuditor(TestAuditorBase):
 
+    def setUp(self):
+        super().setUp()
+        self.ts = make_timestamp_iter()
+
     def test_worker_conf_parms(self):
         def check_common_defaults():
             self.assertEqual(auditor_worker.max_bytes_per_second, 10000000)
@@ -320,18 +324,18 @@ class TestAuditor(TestAuditorBase):
                                                self.rcache, self.devices)
         data = b'0' * 1024
         etag = md5(usedforsecurity=False)
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = next(self.ts)
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
             metadata = {
                 'ETag': etag,
-                'X-Timestamp': timestamp,
+                'X-Timestamp': timestamp.normal,
                 'Content-Length': str(os.fstat(writer._fd).st_size),
             }
             writer.put(metadata)
-            writer.commit(Timestamp(timestamp))
+            writer.commit(timestamp)
             pre_quarantines = auditor_worker.quarantines
 
         # remake so it will have metadata
@@ -343,12 +347,14 @@ class TestAuditor(TestAuditorBase):
                           policy=POLICIES.legacy))
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         etag = md5(b'1' + b'0' * 1023, usedforsecurity=False).hexdigest()
+        ts2 = next(self.ts)
         metadata['ETag'] = etag
+        metadata['X-Timestamp'] = ts2.normal
 
         with self.disk_file.create() as writer:
             writer.write(data)
             writer.put(metadata)
-            writer.commit(Timestamp(timestamp))
+            writer.commit(ts2)
 
         auditor_worker.object_audit(
             AuditLocation(self.disk_file._datadir, 'sda', '0',
@@ -671,7 +677,7 @@ class TestAuditor(TestAuditorBase):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
         auditor_worker.log_time = 0
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = next(self.ts)
         pre_quarantines = auditor_worker.quarantines
         data = b'0' * 1024
 
@@ -680,11 +686,11 @@ class TestAuditor(TestAuditorBase):
                 writer.write(data)
                 metadata = {
                     'ETag': md5(data, usedforsecurity=False).hexdigest(),
-                    'X-Timestamp': timestamp,
+                    'X-Timestamp': timestamp.internal,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
                 writer.put(metadata)
-                writer.commit(Timestamp(timestamp))
+                writer.commit(timestamp)
 
         # policy 0
         write_file(self.disk_file)
@@ -700,17 +706,18 @@ class TestAuditor(TestAuditorBase):
         self.assertEqual(auditor_worker.stats_buckets[10240], 0)
 
         # pick up some additional code coverage, large file
+        ts2 = next(self.ts)
         data = b'0' * 1024 * 1024
         for df in (self.disk_file, self.disk_file_ec):
             with df.create() as writer:
                 writer.write(data)
                 metadata = {
                     'ETag': md5(data, usedforsecurity=False).hexdigest(),
-                    'X-Timestamp': timestamp,
+                    'X-Timestamp': ts2.internal,
                     'Content-Length': str(os.fstat(writer._fd).st_size),
                 }
                 writer.put(metadata)
-                writer.commit(Timestamp(timestamp))
+                writer.commit(ts2)
         auditor_worker.audit_all_objects(device_dirs=['sda', 'sdb'])
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         # still have the 1024 byte object left in policy-1 (plus the

@@ -49,8 +49,9 @@ from io import BytesIO
 
 from urllib.parse import quote, parse_qsl
 
-from test import listen_zero
-from test.debug_logger import debug_logger, FakeStatsdClient
+from test import listen_zero, BaseTestCase
+from test.debug_logger import debug_logger, FakeStatsdClient, \
+    debug_labeled_statsd_client
 from test.unit import (
     connect_tcp, readuntil2crlfs, fake_http_connect, FakeRing,
     FakeMemcache, patch_policies, write_fake_ring, mocked_http_conn,
@@ -66,7 +67,7 @@ from swift.common.middleware import proxy_logging, versioned_writes, \
     copy, listing_formats
 from swift.common.middleware.acl import parse_acl, format_acl
 from swift.common.exceptions import ChunkReadTimeout, DiskFileNotExist, \
-    APIVersionError, ChunkReadError
+    DiskFileDeleted, APIVersionError, ChunkReadError
 from swift.common import utils, constraints, registry
 from swift.common.utils import hash_path, storage_directory, \
     ShardRange, parse_content_type, parse_mime_headers, \
@@ -843,7 +844,8 @@ class TestProxyServer(unittest.TestCase):
 
         req = Request.blank('/v1/account', environ={'REQUEST_METHOD': 'HEAD'})
         baseapp.update_request(req)
-        resp = baseapp.handle_request(req)
+        with mocked_http_conn(Timeout(), Timeout(), Timeout()):
+            resp = baseapp.handle_request(req)
         self.assertEqual(resp.status_int, 503)  # couldn't connect to anything
         exp_timings = {}
         self.assertEqual(baseapp.node_timings, exp_timings)
@@ -2559,7 +2561,7 @@ class BaseTestObjectController(object):
 @patch_policies([StoragePolicy(0, 'zero', True,
                                object_ring=FakeRing(base_port=3000))])
 class TestReplicatedObjectController(
-        BaseTestObjectController, unittest.TestCase):
+        BaseTestObjectController, BaseTestCase):
     """
     Test suite for replication policy
     """
@@ -2568,9 +2570,17 @@ class TestReplicatedObjectController(
         skip_if_no_xattrs()
         _test_servers[0].error_limiter.stats.clear()  # clear out errors
         self.logger = debug_logger('proxy-ut')
+        conf = {
+            'log_statsd_host': 'host',
+            'log_statsd_port': 8125,
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_legacy': True,
+        }
+        self.statsd = debug_labeled_statsd_client(conf)
         self.app = proxy_server.Application(
-            None,
+            conf,
             logger=self.logger,
+            statsd=self.statsd,
             account_ring=FakeRing(),
             container_ring=FakeRing())
         self.policy = POLICIES[0]
@@ -2746,12 +2756,9 @@ class TestReplicatedObjectController(
 
         df = df_mgr.get_diskfile(node['device'], partition, 'a',
                                  'c1', 'wrong-o', policy=POLICIES[2])
-        try:
+        with self.assertRaises(DiskFileDeleted) as cm:
             df.open()
-        except DiskFileNotExist as e:
-            self.assertGreater(float(e.timestamp), 0)
-        else:
-            self.fail('did not raise DiskFileNotExist')
+        self.assertGreater(cm.exception.timestamp, utils.Timestamp.zero())
 
     @unpatch_policies
     def test_GET_newest_large_file(self):
@@ -3488,13 +3495,6 @@ class TestReplicatedObjectController(
 
     def _check_PUT_respects_write_affinity(self, conf, policy,
                                            expected_region):
-        written_to = []
-
-        def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
-            if path == '/a/c/o.jpg':
-                written_to.append((ipaddr, port, device))
-
         # mock shuffle to be a no-op to ensure that the only way nodes would
         # not be used in ring order is if affinity is respected.
         with mock.patch('swift.proxy.server.shuffle', lambda x: x):
@@ -3506,23 +3506,21 @@ class TestReplicatedObjectController(
             with save_globals():
                 object_ring = app.get_object_ring(policy)
                 object_ring.max_more_nodes = 100
-                controller = \
-                    ReplicatedObjectController(
-                        app, 'a', 'c', 'o.jpg')
                 # requests go to acc, con, obj, obj, obj
-                set_http_connect(200, 200, 201, 201, 201,
-                                 give_connect=test_connect)
                 req = Request.blank(
                     '/v1/a/c/o.jpg', method='PUT', body='a',
                     headers={'X-Backend-Storage-Policy-Index': str(policy)})
-                res = controller.PUT(req)
+                with mocked_http_conn(200, 200, 201, 201, 201) as mock_conn:
+                    res = req.get_response(app)
         self.assertTrue(res.status.startswith('201 '))
-        self.assertEqual(3, len(written_to))
-        for ip, port, device in written_to:
-            # this is kind of a hokey test, but in FakeRing, the port is even
-            # when the region is 0, and odd when the region is 1, so this test
-            # asserts that we only wrote to nodes in region 0.
-            self.assertEqual(expected_region, port % 2)
+        self.assertEqual(
+            ['HEAD', 'HEAD', 'PUT', 'PUT', 'PUT'],
+            [req['method'] for req in mock_conn.requests])
+        # this is kind of a hokey test, but in FakeRing, the port is even
+        # when the region is 0, and odd when the region is 1, so this test
+        # asserts that we only wrote to nodes in region 0.
+        written_to = [req['port'] % 2 for req in mock_conn.requests[-3:]]
+        self.assertEqual([expected_region] * 3, written_to)
 
     @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing()),
                      StoragePolicy(1, 'one', False, object_ring=FakeRing())])
@@ -3555,13 +3553,6 @@ class TestReplicatedObjectController(
         self._check_PUT_respects_write_affinity(conf, 1, 0)
 
     def test_PUT_respects_write_affinity_with_507s(self):
-        written_to = []
-
-        def test_connect(ipaddr, port, device, partition, method, path,
-                         headers=None, query_string=None):
-            if path == '/a/c/o.jpg':
-                written_to.append((ipaddr, port, device))
-
         with save_globals():
             def is_r0(node):
                 return node['region'] == 0
@@ -3572,9 +3563,6 @@ class TestReplicatedObjectController(
             policy_options.write_affinity_is_local_fn = is_r0
             policy_options.write_affinity_node_count_fn = lambda r: 3
 
-            controller = \
-                ReplicatedObjectController(
-                    self.app, 'a', 'c', 'o.jpg')
             error_node = object_ring.get_part_nodes(1)[0]
             self.app.error_limit(error_node, 'test')
             self.assertEqual(
@@ -3589,26 +3577,27 @@ class TestReplicatedObjectController(
             self.assertEqual(
                 0, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
-            set_http_connect(200, 200,        # account, container
-                             201, 201, 201,   # 3 working backends
-                             give_connect=test_connect)
-            req = Request.blank('/v1/a/c/o.jpg', {})
+            req = Request.blank('/v1/a/c/o.jpg', {'REQUEST_METHOD': 'PUT'})
             req.content_length = 1
             req.body = 'a'
-            res = controller.PUT(req)
-            self.assertTrue(res.status.startswith('201 '))
+            with mocked_http_conn(200, 200,  # account, container
+                                  201, 201, 201,  # 3 working backends
+                                  ) as mock_conn:
+                res = req.get_response(self.app)
+            self.assertEqual(201, res.status_int)
             # error limited happened during PUT.
             self.assertEqual(
                 1, self.logger.statsd_client.get_stats_counts().get(
                     'error_limiter.is_limited', 0))
+            self.assertEqual(
+                ['HEAD', 'HEAD', 'PUT', 'PUT', 'PUT'],
+                [req['method'] for req in mock_conn.requests])
 
         # this is kind of a hokey test, but in FakeRing, the port is even when
         # the region is 0, and odd when the region is 1, so this test asserts
         # that we wrote to 2 nodes in region 0, then went to 1 non-r0 node.
-        def get_region(x):
-            return x[1] % 2  # it's (ip, port, device)
-
-        self.assertEqual([0, 0, 1], [get_region(x) for x in written_to])
+        written_to = [req['port'] % 2 for req in mock_conn.requests[-3:]]
+        self.assertEqual([0, 0, 1], written_to)
 
     @unpatch_policies
     def test_PUT_no_etag_fallocate(self):
@@ -4012,13 +4001,20 @@ class TestReplicatedObjectController(
                 self.app, 'account', 'container', 'object')
 
             def test_status_map(statuses, expected):
-                set_http_connect(*statuses)
                 req = Request.blank('/v1/a/c/o.jpg', {})
                 req.content_length = 0
                 self.app.update_request(req)
-                res = controller.PUT(req)
+                with mocked_http_conn(*statuses) as mock_conn:
+                    res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
+                self.assertEqual(
+                    ['HEAD', 'HEAD', 'PUT', 'PUT', 'PUT'],
+                    [req['method'] for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
             test_status_map((200, 200, 201, 201, 201), 201)
             test_status_map((200, 200, 201, 201, 500), 201)
             test_status_map((200, 200, 204, 404, 404), 404)
@@ -4124,18 +4120,25 @@ class TestReplicatedObjectController(
     def test_POST(self):
         with save_globals():
             def test_status_map(statuses, expected):
-                set_http_connect(*statuses)
                 req = Request.blank('/v1/a/c/o', {}, method='POST',
                                     headers={'Content-Type': 'foo/bar'})
                 self.app.update_request(req)
-                res = req.get_response(self.app)
+                with mocked_http_conn(*statuses) as mock_conn:
+                    res = req.get_response(self.app)
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
+                self.assertEqual(
+                    ['HEAD', 'HEAD', 'POST', 'POST', 'POST'],
+                    [req['method'] for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
             test_status_map((200, 200, 202, 202, 202), 202)
             test_status_map((200, 200, 202, 202, 500), 202)
             test_status_map((200, 200, 202, 500, 500), 503)
             test_status_map((200, 200, 202, 404, 500), 503)
-            test_status_map((200, 200, 202, 404, 404), 404)
+            test_status_map((200, 200, 202, 404, 404), 503)
             test_status_map((200, 200, 404, 500, 500), 503)
             test_status_map((200, 200, 404, 404, 404), 404)
 
@@ -4380,9 +4383,11 @@ class TestReplicatedObjectController(
         self.app.obj_controller_router = proxy_server.ObjectControllerRouter()
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
         self.app.recheck_updating_shard_ranges = 3600
+        self.app.namespace_cache_tokens_per_session = 0
 
         def do_test(method, sharding_state):
             self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
             req = Request.blank(
                 '/v1/a/c/o', {'swift.cache': FakeMemcache()},
                 method=method, body='', headers={'Content-Type': 'text/plain'})
@@ -4411,13 +4416,26 @@ class TestReplicatedObjectController(
 
             self.assertEqual(resp.status_int, 202)
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.miss.200': 1,
-                              'account.info.infocache.hit': 2,
-                              'container.info.cache.miss.200': 1,
-                              'container.info.infocache.hit': 1,
-                              'object.shard_updating.cache.miss.200': 1,
-                              'object.shard_updating.cache.set': 1},
-                             stats)
+            self.assertEqual(stats, {
+                'account.info.cache.miss.200': 1,
+                'account.info.infocache.hit': 2,
+                'container.info.cache.miss.200': 1,
+                'container.info.infocache.hit': 1,
+                'object.shard_updating.cache.miss.200': 1,
+                'object.shard_updating.cache.set': 1
+            })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
             info_lines = self.logger.get_lines_for_level('info')
             self.assertIn(
@@ -4603,10 +4621,13 @@ class TestReplicatedObjectController(
                 utils.ShardRange(
                     '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
             ]
+            cache = FakeMemcache()
             infocache = {
                 'shard-updating-v2/a/c':
                 NamespaceBoundList.parse(shard_ranges)}
-            req = Request.blank('/v1/a/c/o', {'swift.infocache': infocache},
+            req = Request.blank('/v1/a/c/o',
+                                {'swift.cache': cache,
+                                 'swift.infocache': infocache},
                                 method=method, body='',
                                 headers={'Content-Type': 'text/plain'})
 
@@ -4625,9 +4646,9 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
 
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.disabled.200': 1,
+            self.assertEqual({'account.info.cache.miss.200': 1,
                               'account.info.infocache.hit': 1,
-                              'container.info.cache.disabled.200': 1,
+                              'container.info.cache.miss.200': 1,
                               'container.info.infocache.hit': 1,
                               'object.shard_updating.infocache.hit': 1}, stats)
             # verify statsd prefix is not mutated
@@ -4692,9 +4713,11 @@ class TestReplicatedObjectController(
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
         self.app.recheck_updating_shard_ranges = 3600
         self.app.container_updating_shard_ranges_skip_cache = 0.001
+        self.app.namespace_cache_tokens_per_session = 0
 
         def do_test(method, sharding_state):
             self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
             cached_shard_ranges = [
                 utils.ShardRange(
                     '.shards_a/c_nope', utils.Timestamp.now(), '', 'l'),
@@ -4773,16 +4796,29 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
 
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.miss.200': 1,
-                              'account.info.infocache.hit': 1,
-                              'container.info.cache.miss.200': 1,
-                              'container.info.infocache.hit': 2,
-                              'object.shard_updating.cache.hit': 1,
-                              'container.info.cache.hit': 1,
-                              'account.info.cache.hit': 1,
-                              'object.shard_updating.cache.skip.200': 1,
-                              'object.shard_updating.cache.set': 1},
-                             stats)
+            self.assertEqual(stats, {
+                'account.info.cache.miss.200': 1,
+                'account.info.infocache.hit': 1,
+                'container.info.cache.miss.200': 1,
+                'container.info.infocache.hit': 2,
+                'object.shard_updating.cache.hit': 1,
+                'container.info.cache.hit': 1,
+                'account.info.cache.hit': 1,
+                'object.shard_updating.cache.skip.200': 1,
+                'object.shard_updating.cache.set': 1
+            })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
 
@@ -4854,6 +4890,18 @@ class TestReplicatedObjectController(
                 'object.shard_updating.cache.error.200': 1,
                 'object.shard_updating.cache.set': 2
             })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 2,
+            }, stats)
 
         do_test('POST', 'sharding')
         do_test('POST', 'sharded')
@@ -4874,9 +4922,11 @@ class TestReplicatedObjectController(
         self.app.sort_nodes = lambda nodes, *args, **kwargs: nodes
         self.app.recheck_updating_shard_ranges = 3600
         self.app.container_updating_shard_ranges_skip_cache = 0.001
+        self.app.namespace_cache_tokens_per_session = 0
 
         def do_test(method, sharding_state):
             self.app.logger.clear()  # clean capture state
+            self.app.statsd.clear()
             # simulate memcache error when setting updating namespaces;
             # expect 4 memcache sets: account info, container info, container
             # info again from namespaces GET subrequest, namespaces
@@ -4908,13 +4958,26 @@ class TestReplicatedObjectController(
             self.assertEqual(resp.status_int, 202)
 
             stats = self.app.logger.statsd_client.get_stats_counts()
-            self.assertEqual({'account.info.cache.miss.200': 1,
-                              'account.info.infocache.hit': 2,
-                              'container.info.cache.miss.200': 1,
-                              'container.info.infocache.hit': 1,
-                              'object.shard_updating.cache.skip.200': 1,
-                              'object.shard_updating.cache.set_error': 1},
-                             stats)
+            self.assertEqual(stats, {
+                'account.info.cache.miss.200': 1,
+                'account.info.infocache.hit': 2,
+                'container.info.cache.miss.200': 1,
+                'container.info.infocache.hit': 1,
+                'object.shard_updating.cache.skip.200': 1,
+                'object.shard_updating.cache.set_error': 1
+            })
+            stats = self.app.statsd.get_labeled_stats_counts()
+            self.assertEqual({
+                ('swift_coop_cache', frozenset((
+                    ('resource', 'shard_updating'),
+                    ('account', 'a'),
+                    ('container', 'c'),
+                    ('event', 'backend_reqs'),
+                    ('set_cache_state', 'set_error'),
+                    ('token', 'disabled'),
+                    ('status', 200)),
+                )): 1,
+            }, stats)
             # verify statsd prefix is not mutated
             self.assertEqual([], self.app.logger.log_dict['set_statsd_prefix'])
             # sanity check: namespaces not in cache
@@ -5040,12 +5103,20 @@ class TestReplicatedObjectController(
     def test_DELETE(self):
         with save_globals():
             def test_status_map(statuses, expected):
-                set_http_connect(*statuses)
                 req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'DELETE'})
                 self.app.update_request(req)
-                res = req.get_response(self.app)
+                with mocked_http_conn(*statuses) as mock_conn:
+                    res = req.get_response(self.app)
                 self.assertEqual(res.status[:len(str(expected))],
                                  str(expected))
+                self.assertEqual(
+                    ['HEAD', 'HEAD', 'DELETE', 'DELETE', 'DELETE'],
+                    [req['method'] for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
+
             test_status_map((200, 200, 204, 204, 204), 204)
             test_status_map((200, 200, 204, 204, 500), 204)
             test_status_map((200, 200, 204, 404, 404), 404)
@@ -5056,10 +5127,10 @@ class TestReplicatedObjectController(
     def test_HEAD(self):
         with save_globals():
             def test_status_map(statuses, expected):
-                set_http_connect(*statuses)
                 req = Request.blank('/v1/a/c/o', {'REQUEST_METHOD': 'HEAD'})
                 self.app.update_request(req)
-                res = req.get_response(self.app)
+                with mocked_http_conn(*statuses):
+                    res = req.get_response(self.app)
                 self.assertEqual(res.status[:len(str(expected))],
                                  str(expected))
                 if expected < 400:
@@ -5068,9 +5139,9 @@ class TestReplicatedObjectController(
                     self.assertIn('accept-ranges', res.headers)
                     self.assertEqual(res.headers['accept-ranges'], 'bytes')
 
-            test_status_map((200, 200, 200, 404, 404), 200)
-            test_status_map((200, 200, 200, 500, 404), 200)
-            test_status_map((200, 200, 304, 500, 404), 304)
+            test_status_map((200, 200, 200), 200)
+            test_status_map((200, 200, 500, 404, 200), 200)
+            test_status_map((200, 200, 500, 404, 304), 304)
             test_status_map((200, 200, 404, 404, 404), 404)
             test_status_map((200, 200, 404, 404, 500), 404)
             test_status_map((200, 200, 500, 500, 500), 503)
@@ -7318,8 +7389,7 @@ class TestReplicatedObjectController(
                                                          'x-custom-operator']),
                          exposed)
 
-    def _gather_x_container_headers(self, controller_call, req, *connect_args,
-                                    **kwargs):
+    def _gather_x_container_headers(self, req, *connect_args, **kwargs):
         header_list = kwargs.pop('header_list', ['X-Container-Device',
                                                  'X-Container-Host',
                                                  'X-Container-Partition',
@@ -7338,7 +7408,7 @@ class TestReplicatedObjectController(
 
             set_http_connect(*connect_args, give_connect=capture_headers,
                              **kwargs)
-            resp = controller_call(req)
+            resp = req.get_response(self.app)
             self.assertEqual(2, resp.status_int // 100)  # sanity check
 
             if kwargs.get('no_heads', False):
@@ -7404,11 +7474,8 @@ class TestReplicatedObjectController(
 
             with mock.patch('swift.proxy.controllers.obj.BaseObjectController.'
                             '_get_update_shard', return_value=shardrange):
-                controller = ReplicatedObjectController(
-                    self.app, 'a', 'c', 'o')
                 seen_headers = self._gather_x_container_headers(
-                    controller.PUT, req,
-                    201, 201, 201,  # PUT PUT PUT
+                    req, 201, 201, 201,  # PUT PUT PUT
                     header_list=exp_seen_header_list, no_heads=True)
 
             self.assertEqual(seen_headers, expected_headers)
@@ -7416,11 +7483,8 @@ class TestReplicatedObjectController(
     def test_PUT_x_container_headers_with_equal_replicas(self):
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201)  # HEAD HEAD PUT PUT PUT
         self.assertEqual(
             seen_headers, [
                 {'X-Container-Host': '10.0.0.0:1000',
@@ -7441,11 +7505,8 @@ class TestReplicatedObjectController(
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201)  # HEAD HEAD PUT PUT PUT
 
         self.assertEqual(
             seen_headers, [
@@ -7467,10 +7528,8 @@ class TestReplicatedObjectController(
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
+            req,
             # HEAD HEAD PUT PUT PUT PUT PUT PUT PUT PUT PUT PUT PUT
             200, 200, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201, 201)
 
@@ -7499,11 +7558,8 @@ class TestReplicatedObjectController(
 
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'Content-Length': '5'}, body='12345')
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201)   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201)  # HEAD HEAD PUT PUT PUT
 
         self.assertEqual(
             seen_headers, [
@@ -7526,11 +7582,8 @@ class TestReplicatedObjectController(
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'Content-Type': 'application/stuff'})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.POST, req,
-            200, 200, 200, 200, 200)   # HEAD HEAD POST POST POST
+            req, 200, 200, 200, 200, 200)  # HEAD HEAD POST POST POST
 
         self.assertEqual(
             seen_headers, [
@@ -7553,11 +7606,8 @@ class TestReplicatedObjectController(
         req = Request.blank('/v1/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'Content-Type': 'application/stuff'})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.DELETE, req,
-            200, 200, 200, 200, 200)   # HEAD HEAD DELETE DELETE DELETE
+            req, 200, 200, 200, 200, 200)  # HEAD HEAD DELETE DELETE DELETE
 
         self.maxDiff = None
         self.assertEqual(seen_headers, [
@@ -7586,11 +7636,8 @@ class TestReplicatedObjectController(
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': '0',
                                      'X-Delete-At': str(delete_at_timestamp)})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201,  # HEAD HEAD PUT PUT PUT
             header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
                          'X-Delete-At-Partition', 'X-Delete-At-Container'))
 
@@ -7632,11 +7679,8 @@ class TestReplicatedObjectController(
                             headers={'Content-Type': 'application/stuff',
                                      'Content-Length': 0,
                                      'X-Delete-At': str(delete_at_timestamp)})
-        controller = ReplicatedObjectController(
-            self.app, 'a', 'c', 'o')
         seen_headers = self._gather_x_container_headers(
-            controller.PUT, req,
-            200, 200, 201, 201, 201,   # HEAD HEAD PUT PUT PUT
+            req, 200, 200, 201, 201, 201,  # HEAD HEAD PUT PUT PUT
             header_list=('X-Delete-At-Host', 'X-Delete-At-Device',
                          'X-Delete-At-Partition', 'X-Delete-At-Container'))
         self.assertEqual(seen_headers, [
@@ -9949,10 +9993,11 @@ class TestObjectECRangedGET(unittest.TestCase):
     StoragePolicy(1, 'one', False, object_ring=FakeRing(base_port=3000)),
     StoragePolicy(2, 'two', False, True, object_ring=FakeRing(base_port=3000))
 ])
-class TestContainerController(unittest.TestCase):
+class TestContainerController(BaseTestCase):
     "Test swift.proxy_server.ContainerController"
 
     def setUp(self):
+        super().setUp()
         self.app = proxy_server.Application(
             None,
             account_ring=FakeRing(),
@@ -10208,24 +10253,77 @@ class TestContainerController(unittest.TestCase):
                                                           'container')
 
             def test_status_map(statuses, expected, **kwargs):
-                set_http_connect(*statuses, **kwargs)
-                req = Request.blank('/v1/a/c', {})
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': 'PUT'})
                 req.content_length = 0
                 self.app.update_request(req)
-                res = controller.PUT(req)
+                with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                    res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
+                self.assertEqual(
+                    ['PUT'] * 3, [req['method']
+                                  for req in mock_conn.requests[-3:]])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
 
-            test_status_map((200, 201, 201, 201), 201, missing_container=True)
-            test_status_map((200, 201, 201, 500), 201, missing_container=True)
-            test_status_map((200, 204, 404, 404), 404, missing_container=True)
-            test_status_map((200, 204, 500, 404), 503, missing_container=True)
+            test_status_map((200, 201, 201, 201), 201,
+                            missing_container=True)
+            test_status_map((200, 201, 201, 500), 201,
+                            missing_container=True)
+            test_status_map((200, 204, 404, 404), 404,
+                            missing_container=True)
+            test_status_map((200, 204, 500, 404), 503,
+                            missing_container=True)
+            self.app.account_autocreate = True
+            # put fails
+            test_status_map(
+                (404, 404, 404,  # account_info fails on 404
+                 201, 201, 201,  # PUT account
+                 200,  # account_info success
+                 503, 503, 201),  # put container fail
+                503, missing_container=True)
+            # all goes according to plan
+            test_status_map(
+                (404, 404, 404,  # account_info fails on 404
+                 201, 201, 201,  # PUT account
+                 200,  # account_info success
+                 201, 201, 201),  # put container success
+                201, missing_container=True)
+            test_status_map(
+                (503, 404, 404,  # account_info fails on 404
+                 503, 201, 201,  # PUT account
+                 503, 200,  # account_info success
+                 503, 201, 201),  # put container success
+                201, missing_container=True)
+
+    def test_PUT_when_account_create_fails(self):
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+
+            def test_status_map(statuses, expected, **kwargs):
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': 'PUT'})
+                req.content_length = 0
+                self.app.update_request(req)
+                with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                    res = controller.PUT(req)
+                expected = str(expected)
+                self.assertEqual(res.status[:len(expected)], expected)
+                return mock_conn
+
             self.assertFalse(self.app.account_autocreate)
             test_status_map((404, 404, 404), 404, missing_container=True)
             self.app.account_autocreate = True
             # fail to retrieve account info
             test_status_map(
-                (503, 503, 503),  # account_info fails on 503
+                (503, 503, 503,   # account_info fails on 503
+                 503, 503, 503),  # account PUT fails
+                503, missing_container=True)
+            test_status_map(
+                (503, 503, 404,   # account_info fails on 404
+                 503, 503, 503),  # account PUT fails
                 503, missing_container=True)
             # account fail after creation
             test_status_map(
@@ -10233,31 +10331,6 @@ class TestContainerController(unittest.TestCase):
                  201, 201, 201,   # PUT account
                  404, 404, 404),  # account_info fail
                 404, missing_container=True)
-            test_status_map(
-                (503, 503, 404,   # account_info fails on 404
-                 503, 503, 503,   # PUT account
-                 503, 503, 404),  # account_info fail
-                503, missing_container=True)
-            # put fails
-            test_status_map(
-                (404, 404, 404,   # account_info fails on 404
-                 201, 201, 201,   # PUT account
-                 200,             # account_info success
-                 503, 503, 201),  # put container fail
-                503, missing_container=True)
-            # all goes according to plan
-            test_status_map(
-                (404, 404, 404,   # account_info fails on 404
-                 201, 201, 201,   # PUT account
-                 200,             # account_info success
-                 201, 201, 201),  # put container success
-                201, missing_container=True)
-            test_status_map(
-                (503, 404, 404,   # account_info fails on 404
-                 503, 201, 201,   # PUT account
-                 503, 200,        # account_info success
-                 503, 201, 201),  # put container success
-                201, missing_container=True)
 
     def test_PUT_autocreate_account_with_sysmeta(self):
         # x-account-sysmeta headers in a container PUT request should be
@@ -10337,18 +10410,43 @@ class TestContainerController(unittest.TestCase):
                                                           'container')
 
             def test_status_map(statuses, expected, **kwargs):
-                set_http_connect(*statuses, **kwargs)
-                req = Request.blank('/v1/a/c', {})
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': 'POST'})
                 req.content_length = 0
                 self.app.update_request(req)
-                res = controller.POST(req)
+                with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                    res = controller.POST(req)
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
+                self.assertEqual(
+                    ['HEAD', 'POST', 'POST', 'POST'],
+                    [req['method'] for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
 
             test_status_map((200, 201, 201, 201), 201, missing_container=True)
             test_status_map((200, 201, 201, 500), 201, missing_container=True)
             test_status_map((200, 204, 404, 404), 404, missing_container=True)
             test_status_map((200, 204, 500, 404), 503, missing_container=True)
+
+    def test_POST_when_account_info_fails(self):
+        with save_globals():
+            controller = proxy_server.ContainerController(self.app, 'account',
+                                                          'container')
+
+            def test_status_map(statuses, expected, **kwargs):
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': 'POST'})
+                req.content_length = 0
+                self.app.update_request(req)
+                with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                    res = controller.POST(req)
+                expected = str(expected)
+                self.assertEqual(res.status[:len(expected)], expected)
+                self.assertEqual(
+                    ['HEAD', 'HEAD', 'HEAD'],
+                    [req['method'] for req in mock_conn.requests])
+
             self.assertFalse(self.app.account_autocreate)
             test_status_map((404, 404, 404), 404, missing_container=True)
             self.app.account_autocreate = True
@@ -10513,24 +10611,34 @@ class TestContainerController(unittest.TestCase):
 
     def test_DELETE(self):
         with save_globals():
+            def test_status_map(statuses, expected):
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': 'DELETE'})
+                req.method = 'DELETE'
+                req.content_length = 0
+                self.app.update_request(req)
+                with mocked_http_conn(*statuses) as mock_conn:
+                    res = controller.DELETE(req)
+                expected = str(expected)
+                self.assertEqual(res.status[:len(expected)], expected)
+                self.assertEqual(
+                    ['HEAD', 'DELETE', 'DELETE', 'DELETE'],
+                    [req['method'] for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
+
             controller = proxy_server.ContainerController(self.app, 'account',
                                                           'container')
-            self.assert_status_map(controller.DELETE,
-                                   (200, 204, 204, 204), 204)
-            self.assert_status_map(controller.DELETE,
-                                   (200, 204, 204, 503), 204)
-            self.assert_status_map(controller.DELETE,
-                                   (200, 204, 503, 503), 503)
-            self.assert_status_map(controller.DELETE,
-                                   (200, 204, 404, 404), 404)
-            self.assert_status_map(controller.DELETE,
-                                   (200, 404, 404, 404), 404)
-            self.assert_status_map(controller.DELETE,
-                                   (200, 204, 503, 404), 503)
+            test_status_map((200, 204, 204, 204), 204)
+            test_status_map((200, 204, 204, 503), 204)
+            test_status_map((200, 204, 503, 503), 503)
+            test_status_map((200, 204, 404, 404), 404)
+            test_status_map((200, 404, 404, 404), 404)
+            test_status_map((200, 204, 503, 404), 503)
 
             # 200: Account check, 404x3: Container check
-            self.assert_status_map(controller.DELETE,
-                                   (200, 404, 404, 404), 404)
+            test_status_map((200, 404, 404, 404), 404)
 
     def test_response_get_accept_ranges_header(self):
         with save_globals():
@@ -11188,30 +11296,21 @@ class TestContainerController(unittest.TestCase):
              'X-Account-Device': 'sdc'}
         ])
 
-    def test_PUT_backed_x_timestamp_header(self):
-        timestamps = []
-
-        def capture_timestamps(*args, **kwargs):
-            headers = kwargs['headers']
-            timestamps.append(headers.get('X-Timestamp'))
-
+    def test_PUT_backend_x_timestamp_header(self):
         req = Request.blank('/v1/a/c', method='PUT', headers={'': ''})
         with save_globals():
-            new_connect = set_http_connect(200,  # account existence check
-                                           201, 201, 201,
-                                           give_connect=capture_timestamps)
-            resp = self.app.handle_request(req)
+            with mocked_http_conn(200,  # account existence check
+                                  201, 201, 201) as mock_conn:
+                resp = req.get_response(self.app)
 
-        # sanity
-        with self.assertRaises(StopIteration):
-            next(new_connect.code_iter)
         self.assertEqual(2, resp.status_int // 100)
-
-        timestamps.pop(0)  # account existence check
-        self.assertEqual(3, len(timestamps))
-        for timestamp in timestamps:
-            self.assertEqual(timestamp, timestamps[0])
-            self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
+        self.assertEqual(
+            ['HEAD', 'PUT', 'PUT', 'PUT'],
+            [req['method'] for req in mock_conn.requests])
+        timestamps = [req['headers'].get('X-Timestamp')
+                      for req in mock_conn.requests[-3:]]
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_DELETE_backed_x_timestamp_header(self):
         timestamps = []
@@ -11235,9 +11334,8 @@ class TestContainerController(unittest.TestCase):
 
         timestamps.pop(0)  # account existence check
         self.assertEqual(3, len(timestamps))
-        for timestamp in timestamps:
-            self.assertEqual(timestamp, timestamps[0])
-            self.assertTrue(re.match(r'[0-9]{10}\.[0-9]{5}', timestamp))
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_node_read_timeout_no_retry_to_container(self):
         with save_globals():
@@ -11252,9 +11350,39 @@ class TestContainerController(unittest.TestCase):
             error_lines = self.app.logger.get_lines_for_level('error')
             self.assertEqual(0, len(error_lines))
 
+    def test_UPDATE(self):
+        with save_globals():
+            self.app.allow_account_management = True
+
+            def test_status_map(statuses, expected, **kwargs):
+                req = Request.blank('/v1/a/c', {'REQUEST_METHOD': 'UPDATE'})
+                req.headers['X-Backend-Allow-Private-Methods'] = 'true'
+                req.headers['X-Backend-Storage-Policy-Index'] = '99'
+                req.content_length = 0
+                with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                    res = req.get_response(self.app)
+                expected = str(expected)
+                self.assertEqual(res.status[:len(expected)], expected)
+                self.assertEqual(
+                    ['UPDATE'] * 3,
+                    [req['method'] for req in mock_conn.requests])
+                self.assertEqual(
+                    ['99'] * 3,
+                    [req['headers']['x-backend-storage-policy-index']
+                     for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
+
+            test_status_map((201, 201, 201), 201)
+            test_status_map((201, 201, 500), 201)
+            test_status_map((201, 500, 500), 503)
+            test_status_map((204, 500, 404), 503)
+
 
 @patch_policies([StoragePolicy(0, 'zero', True, object_ring=FakeRing())])
-class TestAccountController(unittest.TestCase):
+class TestAccountController(BaseTestCase):
 
     def setUp(self):
         conf = {'error_suppression_interval': 0}
@@ -11266,24 +11394,25 @@ class TestAccountController(unittest.TestCase):
                           headers=None, **kwargs):
         headers = headers or {}
         with save_globals():
-            set_http_connect(*statuses, **kwargs)
             req = Request.blank('/v1/a', {}, headers=headers)
             self.app.update_request(req)
-            res = method(req)
+            with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                res = method(req)
             self.assertEqual(res.status_int, expected)
             infocache = res.environ.get('swift.infocache', {})
             if env_expected:
                 self.assertEqual(infocache['account/a']['status'],
                                  env_expected)
-            set_http_connect(*statuses)
-            req = Request.blank('/v1/a/', {})
+            req = Request.blank('/v1/a/', {}, headers=headers)
             self.app.update_request(req)
-            res = method(req)
+            with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                res = method(req)
             infocache = res.environ.get('swift.infocache', {})
             self.assertEqual(res.status_int, expected)
             if env_expected:
                 self.assertEqual(infocache['account/a']['status'],
                                  env_expected)
+            return mock_conn
 
     def test_OPTIONS(self):
         with save_globals():
@@ -11399,7 +11528,7 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(controller.HEAD, (503, 503, 200), 200, 200)
             self.assert_status_map(controller.HEAD, (204,), 204, 204)
             self.assert_status_map(controller.HEAD, (503, 204), 204, 204)
-            self.assert_status_map(controller.HEAD, (204, 503, 503), 204, 204)
+            self.assert_status_map(controller.HEAD, (204,), 204, 204)
             self.assert_status_map(controller.HEAD, (204,), 204, 204)
             self.assert_status_map(controller.HEAD, (404, 404, 404), 404, 404)
             self.assert_status_map(controller.HEAD, (404, 404, 200), 200, 200)
@@ -11424,26 +11553,59 @@ class TestAccountController(unittest.TestCase):
             self.assert_status_map(controller.HEAD,
                                    (500, 500, 400), 503)
 
-    def test_POST_autocreate(self):
+    def test_POST_no_autocreate(self):
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'a')
-            # first test with autocreate being False
             self.assertFalse(self.app.account_autocreate)
-            self.assert_status_map(controller.POST,
-                                   (404, 404, 404), 404)
-            # next turn it on and test account being created than updated
+            mock_conn = self.assert_status_map(controller.POST,
+                                               (404, 404, 404), 404)
+            self.assertEqual(['POST'] * 3,
+                             [req['method'] for req in mock_conn.requests])
+            post_timestamps = [req['headers'].get('X-Timestamp')
+                               for req in mock_conn.requests]
+            self.assertEqual(1, len(set(post_timestamps)))
+            self.assert_valid_timestamp(post_timestamps[0])
+
+    def test_POST_autocreate(self):
+        def check_backend_requests(mock_conn):
+            self.assertEqual(
+                ['POST'] * 3 + ['PUT'] * 3 + ['POST'] * 3,
+                [req['method'] for req in mock_conn.requests])
+            post_timestamps = [req['headers'].get('X-Timestamp')
+                               for req in mock_conn.requests[:3]]
+            self.assertEqual(1, len(set(post_timestamps)))
+            self.assert_valid_timestamp(post_timestamps[0])
+            put_timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[3:6]]
+            self.assertEqual(1, len(set(put_timestamps)))
+            self.assert_valid_timestamp(put_timestamps[0])
+            retry_timestamps = [req['headers'].get('X-Timestamp')
+                                for req in mock_conn.requests[:3]]
+            self.assertEqual(1, len(set(retry_timestamps)))
+            self.assertEqual(post_timestamps[0], retry_timestamps[0])
+
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'a')
             controller.app.account_autocreate = True
-            self.assert_status_map(
+            mock_conn = self.assert_status_map(
                 controller.POST,
+                # POST account, PUT account  , POST account
                 (404, 404, 404, 202, 202, 202, 201, 201, 201), 201)
-            # account_info  PUT account  POST account
-            self.assert_status_map(
+            check_backend_requests(mock_conn)
+
+            # quorum success is sufficient...
+            mock_conn = self.assert_status_map(
                 controller.POST,
+                # POST account, PUT account  , POST account
                 (404, 404, 503, 201, 201, 503, 204, 204, 504), 204)
+            check_backend_requests(mock_conn)
+
             # what if create fails
             self.assert_status_map(
                 controller.POST,
+                # POST account, PUT account  , POST account
                 (404, 404, 404, 403, 403, 403, 400, 400, 400), 400)
+            check_backend_requests(mock_conn)
 
     def test_POST_autocreate_with_sysmeta(self):
         with save_globals():
@@ -11454,22 +11616,19 @@ class TestAccountController(unittest.TestCase):
                                    (404, 404, 404), 404)
             # next turn it on and test account being created than updated
             controller.app.account_autocreate = True
-            calls = []
-            callback = _make_callback_func(calls)
             key, value = 'X-Account-Sysmeta-Blah', 'something'
             headers = {key: value}
-            self.assert_status_map(
+            mock_conn = self.assert_status_map(
                 controller.POST,
                 (404, 404, 404, 202, 202, 202, 201, 201, 201), 201,
                 #  POST       , autocreate PUT, POST again
-                headers=headers,
-                give_connect=callback)
-            self.assertEqual(9, len(calls))
-            for call in calls:
-                self.assertIn(key, call['headers'],
+                headers=headers)
+            self.assertEqual(9, len(mock_conn.requests))
+            for request in mock_conn.requests:
+                self.assertIn(key, request['headers'],
                               '%s call, key %s missing in headers %s' %
-                              (call['method'], key, call['headers']))
-                self.assertEqual(value, call['headers'][key])
+                              (request['method'], key, request['headers']))
+                self.assertEqual(value, request['headers'][key])
 
     def test_connection_refused(self):
         self.app.account_ring.get_nodes('account')
@@ -11517,21 +11676,43 @@ class TestAccountController(unittest.TestCase):
     def test_PUT(self):
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
+            self.app.allow_account_management = True
 
             def test_status_map(statuses, expected, **kwargs):
-                set_http_connect(*statuses, **kwargs)
-                req = Request.blank('/v1/a', {})
+                req = Request.blank('/v1/a', {'REQUEST_METHOD': 'PUT'})
                 req.content_length = 0
                 self.app.update_request(req)
-                res = controller.PUT(req)
+                with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                    res = controller.PUT(req)
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
-            test_status_map((201, 201, 201), 405)
-            self.app.allow_account_management = True
+                self.assertEqual(['PUT', 'PUT', 'PUT'],
+                                 [req['method'] for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
+
             test_status_map((201, 201, 201), 201)
             test_status_map((201, 201, 500), 201)
             test_status_map((201, 500, 500), 503)
             test_status_map((204, 500, 404), 503)
+
+    def test_PUT_allow_account_management_false(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+            self.assertFalse(self.app.allow_account_management)
+
+            def test_status_map(statuses, expected, **kwargs):
+                req = Request.blank('/v1/a', {})
+                req.content_length = 0
+                self.app.update_request(req)
+                with mocked_http_conn(*statuses, **kwargs):
+                    res = controller.PUT(req)
+                expected = str(expected)
+                self.assertEqual(res.status[:len(expected)], expected)
+
+            test_status_map((), 405)
 
     def test_PUT_max_account_name_length(self):
         self.app.allow_account_management = True
@@ -11719,21 +11900,44 @@ class TestAccountController(unittest.TestCase):
     def test_DELETE(self):
         with save_globals():
             controller = proxy_server.AccountController(self.app, 'account')
+            self.app.allow_account_management = True
 
             def test_status_map(statuses, expected, **kwargs):
-                set_http_connect(*statuses, **kwargs)
                 req = Request.blank('/v1/a', {'REQUEST_METHOD': 'DELETE'})
                 req.content_length = 0
                 self.app.update_request(req)
-                res = controller.DELETE(req)
+                with mocked_http_conn(*statuses, **kwargs) as mock_conn:
+                    res = controller.DELETE(req)
                 expected = str(expected)
                 self.assertEqual(res.status[:len(expected)], expected)
-            test_status_map((201, 201, 201), 405)
-            self.app.allow_account_management = True
+                self.assertEqual(
+                    ['DELETE'] * 3,
+                    [req['method'] for req in mock_conn.requests])
+                timestamps = [req['headers'].get('X-Timestamp')
+                              for req in mock_conn.requests[-3:]]
+                self.assertEqual(1, len(set(timestamps)))
+                self.assert_valid_timestamp(timestamps[0])
+
             test_status_map((201, 201, 201), 201)
             test_status_map((201, 201, 500), 201)
             test_status_map((201, 500, 500), 503)
             test_status_map((204, 500, 404), 503)
+
+    def test_DELETE_allow_account_management_false(self):
+        with save_globals():
+            controller = proxy_server.AccountController(self.app, 'account')
+            self.assertFalse(self.app.allow_account_management)
+
+            def test_status_map(statuses, expected, **kwargs):
+                req = Request.blank('/v1/a', {'REQUEST_METHOD': 'DELETE'})
+                req.content_length = 0
+                self.app.update_request(req)
+                with mocked_http_conn(*statuses, **kwargs):
+                    res = controller.DELETE(req)
+                expected = str(expected)
+                self.assertEqual(res.status[:len(expected)], expected)
+
+            test_status_map((), 405)
 
     def test_DELETE_with_query_string(self):
         # Extra safety in case someone typos a query string for an
@@ -12114,13 +12318,14 @@ class TestSwiftInfo(unittest.TestCase):
                          constraints.MAX_CONTAINER_NAME_LENGTH)
         self.assertEqual(si['max_object_name_length'],
                          constraints.MAX_OBJECT_NAME_LENGTH)
+        self.assertEqual(si['max_request_line'], constraints.MAX_REQUEST_LINE)
         self.assertIn('strict_cors_mode', si)
         self.assertFalse(si['allow_account_management'])
         self.assertFalse(si['allow_open_expired'])
         self.assertFalse(si['account_autocreate'])
         # this next test is deliberately brittle in order to alert if
         # other items are added to swift info
-        self.assertEqual(len(si), 18)
+        self.assertEqual(len(si), 19)
 
         si = registry.get_swift_info()['swift']
         # Tehse settings is by default excluded by disallowed_sections

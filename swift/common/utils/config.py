@@ -83,6 +83,21 @@ def config_positive_int_value(value):
     return result
 
 
+def config_positive_float_value(value):
+    """
+    Returns positive float value if it can be cast by float() and it's a
+    float > 0. (not including zero) Raises ValueError otherwise.
+    """
+    try:
+        result = float(value)
+        if result <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise ValueError(
+            'Config option must be a positive float number, not "%s".' % value)
+    return result
+
+
 def config_float_value(value, minimum=None, maximum=None):
     try:
         val = float(value)

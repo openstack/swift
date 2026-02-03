@@ -17,13 +17,13 @@ import functools
 import json
 import os
 import time
-from unittest import mock
 import unittest
 import urllib.parse
 from swift.common import swob, utils
 from swift.common.middleware import versioned_writes, copy, symlink, \
     listing_formats
-from swift.common.swob import Request, wsgi_quote, str_to_wsgi
+from swift.common.swob import Request, wsgi_quote, str_to_wsgi, \
+    date_header_format
 from swift.common.middleware.symlink import TGT_OBJ_SYSMETA_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES, SYMLOOP_EXTEND
 from swift.common.middleware.versioned_writes.object_versioning import \
@@ -32,8 +32,10 @@ from swift.common.middleware.versioned_writes.object_versioning import \
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy
 from swift.common.utils import md5
+from swift.common.utils.timestamp import Timestamp
 from swift.proxy.controllers.base import get_cache_key
-from test.unit import patch_policies, FakeMemcache, make_timestamp_iter
+from test.unit import patch_policies, FakeMemcache, make_timestamp_iter, \
+    mock_timestamp_now, BaseUnitTestCase
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -57,7 +59,7 @@ def local_tz(func):
     return wrapper
 
 
-class ObjectVersioningBaseTestCase(unittest.TestCase):
+class ObjectVersioningBaseTestCase(BaseUnitTestCase):
     def setUp(self):
         self.app = FakeSwift()
         conf = {}
@@ -577,16 +579,63 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite(self, mock_time):
+    def test_PUT_overwrite(self):
+        ts_now = Timestamp.now()
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {
             SYSMETA_VERSIONS_SYMLINK: 'true',
             TGT_OBJ_SYSMETA_SYMLINK_HDR: 'c-unique/whatever'}, '')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 2)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(['OV', 'OV', 'OV'], self.app.swift_sources)
+        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT', self.build_versions_path(
+                obj='o', version=(~ts_now).internal)),
+            ('PUT', '/v1/a/c/o'),
+        ])
+
+        calls = self.app.call_list
+        self.assertIn('X-Newest', calls[0].headers)
+        self.assertEqual('True', calls[0].headers['X-Newest'])
+
+        symlink_expected_headers = {
+            SYMLOOP_EXTEND: 'true',
+            ALLOW_RESERVED_NAMES: 'true',
+            TGT_OBJ_SYSMETA_SYMLINK_HDR:
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
+            'x-object-sysmeta-symlink-target-etag': md5(
+                put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
+            'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
+        }
+        symlink_put_headers = self.app.call_list[-1].headers
+        for k, v in symlink_expected_headers.items():
+            self.assertEqual(symlink_put_headers[k], v)
+
+    def test_PUT_timestamp_set_by_object_versioning(self):
+        # verify timestamps set by versioning
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        # the version path depends on the timestamp chosen by versioning mw...
+        self.app.register_default('PUT', swob.HTTPCreated, {}, '')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
         put_body = 'stuff' * 100
@@ -601,44 +650,85 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                      'swift.trans_id': 'fake_trans_id'})
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
-        self.assertEqual(len(self.authorized), 2)
-        self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(['OV', 'OV', 'OV'], self.app.swift_sources)
-        self.assertEqual({'fake_trans_id'}, set(self.app.txn_ids))
-        self.assertEqual(self.app.calls, [
-            ('GET', '/v1/a/c/o?symlink=get'),
-            ('PUT', self.build_versions_path(
-                obj='o', version='9999998765.99999')),
-            ('PUT', '/v1/a/c/o'),
-        ])
-
         calls = self.app.call_list
-        self.assertIn('X-Newest', calls[0].headers)
-        self.assertEqual('True', calls[0].headers['X-Newest'])
+        self.assertEqual(3, len(calls))
+        # GET
+        self.assertEqual(('GET', '/v1/a/c/o?symlink=get'),
+                         (calls[0].method, calls[0].path))
+        # PUT to versions
+        self.assertEqual('PUT', calls[1].method)
+        ts1 = self.assert_valid_timestamp(calls[1].headers.get('X-Timestamp'))
+        self.assertEqual(0, ts1.offset)
+        exp_version = (~ts1).internal
+        self.assertEqual('/v1/a/%s/%s'
+                         % (self.build_container_name('c'),
+                            self.build_object_name('o', exp_version)),
+                         calls[1].path)
+        # symlink PUT
+        self.assertEqual(('PUT', '/v1/a/c/o'),
+                         (calls[2].method, calls[2].path))
+        ts2 = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
+        # XXX it's not clear why the symlink timestamp gets an offset
+        self.assertEqual(1, ts2.offset)
+        self.assertEqual(Timestamp(ts1, offset=1), ts2)
 
-        symlink_expected_headers = {
-            SYMLOOP_EXTEND: 'true',
-            ALLOW_RESERVED_NAMES: 'true',
-            TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
-            'x-object-sysmeta-symlink-target-etag': md5(
-                put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
-            'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
-        }
-        symlink_put_headers = self.app.call_list[-1].headers
-        for k, v in symlink_expected_headers.items():
-            self.assertEqual(symlink_put_headers[k], v)
+    def test_PUT_timestamp_set_by_preceding_middleware(self):
+        # verify that an existing x-timestamp is used by a multipart put
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        ts_req = req.ensure_x_timestamp()
+
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        exp_version = (~ts_req).internal
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_version),
+            swob.HTTPCreated, {}, '')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        calls = self.app.call_list
+        self.assertEqual(3, len(calls))
+        # GET
+        self.assertEqual(('GET', '/v1/a/c/o?symlink=get'),
+                         (calls[0].method, calls[0].path))
+        # PUT to versions
+        self.assertEqual('PUT', calls[1].method)
+        ts = self.assert_valid_timestamp(calls[1].headers.get('X-Timestamp'))
+        self.assertEqual(ts_req, ts)
+        self.assertEqual('/v1/a/%s/%s'
+                         % (self.build_container_name('c'),
+                            self.build_object_name('o', exp_version)),
+                         calls[1].path)
+        # symlink PUT
+        self.assertEqual(('PUT', '/v1/a/c/o'),
+                         (calls[2].method, calls[2].path))
+        ts = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
+        # XXX it's not clear why the symlink timestamp gets an offset
+        self.assertEqual(1, ts.offset)
+        self.assertEqual(Timestamp(ts_req, offset=1), ts)
 
     def test_POST(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'POST',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPAccepted, {}, '')
         self.app.register(
             'POST', '/v1/a/c/o', swob.HTTPTemporaryRedirect, {
                 SYSMETA_VERSIONS_SYMLINK: 'true',
                 'Location': self.build_versions_path(
-                    obj='o', version='9999998765.99999')}, '')
+                    obj='o', version=(~ts_now).internal)}, '')
 
         # TODO: in symlink middleware, swift.leave_relative_location
         # is added by the middleware during the response
@@ -651,7 +741,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             environ={'swift.cache': self.cache_version_on,
                      'swift.leave_relative_location': 'true',
                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '202 Accepted')
 
         self.assertEqual(len(self.authorized), 1)
@@ -661,7 +752,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('POST', '/v1/a/c/o'),
             ('POST', self.build_versions_path(
-                obj='o', version='9999998765.99999')),
+                obj='o', version=(~ts_now).internal)),
         ])
 
         expected_hdrs = {
@@ -675,11 +766,12 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
     def test_POST_mismatched_location(self):
         # This is a defensive chech, ideally a mistmached
         # versions container should never happen.
+        ts_now = Timestamp.now()
         self.app.register(
             'POST', '/v1/a/c/o', swob.HTTPTemporaryRedirect, {
                 SYSMETA_VERSIONS_SYMLINK: 'true',
                 'Location': self.build_versions_path(
-                    cont='mismatched', obj='o', version='9999998765.99999')},
+                    cont='mismatched', obj='o', version=(~ts_now).internal)},
                 '')
 
         # TODO: in symlink middleware, swift.leave_relative_location
@@ -693,7 +785,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             environ={'swift.cache': self.cache_version_on,
                      'swift.leave_relative_location': 'true',
                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '307 Temporary Redirect')
 
         self.assertEqual(len(self.authorized), 1)
@@ -705,6 +798,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         ])
 
     def test_POST_regular_symlink(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'POST', '/v1/a/c/o', swob.HTTPTemporaryRedirect, {
                 'Location': '/v1/a/t/o'}, '')
@@ -720,7 +814,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             environ={'swift.cache': self.cache_version_on,
                      'swift.leave_relative_location': 'true',
                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '307 Temporary Redirect')
 
         self.assertEqual(len(self.authorized), 1)
@@ -757,14 +852,13 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
 
         self.assertEqual(self.app.calls, [])
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite_tombstone(self, mock_time):
+    def test_PUT_overwrite_tombstone(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -778,7 +872,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                      'Content-Length': len(put_body)},
             environ={'swift.cache': self.cache_version_on,
                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         # authorized twice because of pre-flight check on PUT
         self.assertEqual(len(self.authorized), 2)
@@ -789,7 +884,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT', self.build_versions_path(
-                obj='o', version='9999998765.99999')),
+                obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ])
 
@@ -799,7 +894,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
@@ -808,9 +903,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite_object_with_DLO(self, mock_time):
+    def test_PUT_overwrite_object_with_DLO(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
             {'last-modified': 'Thu, 1 Jan 1970 00:01:00 GMT'}, 'old version')
@@ -820,7 +914,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -830,7 +924,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                                      'X-Object-Manifest': 'req/manifest'},
                             environ={'swift.cache': self.cache_version_on,
                                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 2)
         self.assertEqual(4, self.app.call_count)
@@ -842,7 +937,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT',
              self.build_versions_path(obj='o', version='9999999939.99999')),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
 
@@ -857,7 +952,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         symlink_put_headers = calls[-1].headers
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
@@ -866,9 +961,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             self.assertEqual(symlink_put_headers[k], v)
         self.assertNotIn('x-object-manifest', symlink_put_headers)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite_DLO_with_object(self, mock_time):
+    def test_PUT_overwrite_DLO_with_object(self):
+        ts_now = Timestamp.now()
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
                           {'X-Object-Manifest': 'resp/manifest',
                            'last-modified': 'Thu, 1 Jan 1970 00:01:00 GMT'},
@@ -879,7 +973,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -888,7 +982,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                             headers={'Content-Type': 'text/plain'},
                             environ={'swift.cache': self.cache_version_on,
                                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 2)
         self.assertEqual(4, self.app.call_count)
@@ -899,7 +994,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT',
              self.build_versions_path(obj='o', version='9999999939.99999')),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
 
@@ -919,7 +1014,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         symlink_put_headers = calls[-1].headers
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
@@ -928,9 +1023,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             self.assertEqual(symlink_put_headers[k], v)
         self.assertNotIn('x-object-manifest', symlink_put_headers)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite_SLO_with_object(self, mock_time):
+    def test_PUT_overwrite_SLO_with_object(self):
+        ts_now = Timestamp.now()
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk, {
             'X-Static-Large-Object': 'True',
             # N.B. object-sever strips swift_bytes
@@ -948,7 +1042,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -957,7 +1051,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                             headers={'Content-Type': 'text/plain'},
                             environ={'swift.cache': self.cache_version_on,
                                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 2)
         self.assertEqual(4, self.app.call_count)
@@ -968,7 +1063,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT',
              self.build_versions_path(obj='o', version='9999999939.99999')),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ], self.app.calls)
 
@@ -999,7 +1094,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         symlink_put_headers = calls[-1].headers
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
@@ -1008,19 +1103,22 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             self.assertEqual(symlink_put_headers[k], v)
         self.assertNotIn('x-object-manifest', symlink_put_headers)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite_object(self, mock_time):
+    def test_PUT_overwrite_object(self):
+        ts_iter = make_timestamp_iter()
+        ts_old, ts_new = next(ts_iter), next(ts_iter)
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
-            {'last-modified': 'Thu, 1 Jan 1970 00:01:00 GMT'}, 'passed')
+            {'x-timestamp': ts_old.normal,
+             'x-backend-timestamp': ts_old.internal,
+             'last-modified': date_header_format(ts_old)},
+            'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999999939.99999'),
+            self.build_versions_path(obj='o', version=(~ts_old).normal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_new).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -1035,7 +1133,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                      'Content-Length': len(put_body)},
             environ={'swift.cache': self.cache_version_on,
                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_new):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         # authorized twice because of pre-flight check on PUT
         self.assertEqual(len(self.authorized), 2)
@@ -1046,9 +1145,9 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999999939.99999')),
+             self.build_versions_path(obj='o', version=(~ts_old).normal)),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_new).internal)),
             ('PUT', '/v1/a/c/o'),
         ])
 
@@ -1058,7 +1157,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_new).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
@@ -1175,9 +1274,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '200 OK')
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_overwrite_null_marker_versioning_disabled(self, mock_time):
+    def test_PUT_overwrite_null_marker_versioning_disabled(self):
         # During object PUT with a versioning disabled, if the most
         # recent versioned object is a DELETE marker will a *null*
         # version-id, then the DELETE marker should be removed.
@@ -1267,10 +1364,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
         obj_put_headers = self.app.call_list[-1].headers
         self.assertNotIn(SYSMETA_VERSIONS_SYMLINK, obj_put_headers)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_PUT_with_recent_versioned_marker_versioning_disabled(self,
-                                                                  mock_time):
+    def test_PUT_with_recent_versioned_marker_versioning_disabled(self):
         # During object PUT with a versioning disabled, if the most
         # recent versioned object is a DELETE marker will a non-null
         # version-id, then the DELETE marker should not be removed.
@@ -1325,9 +1419,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
         obj_put_headers = self.app.call_list[-1].headers
         self.assertNotIn(SYSMETA_VERSIONS_SYMLINK, obj_put_headers)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_delete_object_with_versioning_disabled(self, mock_time):
+    def test_delete_object_with_versioning_disabled(self):
         # When versioning is disabled, swift will simply issue the
         # original request to the versioned container
         self.app.register(
@@ -1342,15 +1434,16 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
         self.assertRequestEqual(req, self.authorized[0])
 
     def test_POST_symlink(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'POST',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPAccepted, {}, '')
         self.app.register(
             'POST', '/v1/a/c/o', swob.HTTPTemporaryRedirect, {
                 SYSMETA_VERSIONS_SYMLINK: 'true',
                 'Location': self.build_versions_path(
-                    obj='o', version='9999998765.99999')}, '')
+                    obj='o', version=(~ts_now).internal)}, '')
 
         # TODO: in symlink middleware, swift.leave_relative_location
         # is added by the middleware during the response
@@ -1363,7 +1456,8 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
             environ={'swift.cache': self.cache_version_off,
                      'swift.leave_relative_location': 'true',
                      'swift.trans_id': 'fake_trans_id'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '202 Accepted')
 
         self.assertEqual(len(self.authorized), 1)
@@ -1373,7 +1467,7 @@ class ObjectVersioningTestDisabled(ObjectVersioningBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('POST', '/v1/a/c/o'),
             ('POST',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
         ])
 
         expected_hdrs = {
@@ -1440,15 +1534,14 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         self.assertNotIn('GET', called_method)
         self.assertEqual(1, self.app.call_count)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_put_delete_marker_no_object_success(self, mock_time):
+    def test_put_delete_marker_no_object_success(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPNotFound,
             {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
@@ -1458,7 +1551,8 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
             environ={'REQUEST_METHOD': 'DELETE',
                      'swift.cache': self.cache_version_on,
                      'CONTENT_LENGTH': '0'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '404 Not Found')
         self.assertEqual(len(self.authorized), 2)
 
@@ -1470,9 +1564,8 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         self.assertEqual('application/x-deleted;swift_versions_deleted=1',
                          calls[1].headers.get('Content-Type'))
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_delete_marker_over_object_success(self, mock_time):
+    def test_delete_marker_over_object_success(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
             {'last-modified': 'Thu, 1 Jan 1970 00:01:00 GMT'}, 'passed')
@@ -1482,7 +1575,7 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None)
@@ -1492,7 +1585,8 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
             environ={'REQUEST_METHOD': 'DELETE',
                      'swift.cache': self.cache_version_on,
                      'CONTENT_LENGTH': '0'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '204 No Content')
         self.assertEqual(b'', body)
         self.assertEqual(len(self.authorized), 2)
@@ -1509,14 +1603,13 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         self.assertEqual('application/x-deleted;swift_versions_deleted=1',
                          calls[2].headers.get('Content-Type'))
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_delete_marker_over_versioned_object_success(self, mock_time):
+    def test_delete_marker_over_versioned_object_success(self):
+        ts_now = Timestamp.now()
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,
                           {SYSMETA_VERSIONS_SYMLINK: 'true'}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None)
@@ -1526,7 +1619,8 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
             environ={'REQUEST_METHOD': 'DELETE',
                      'swift.cache': self.cache_version_on,
                      'CONTENT_LENGTH': '0'})
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '204 No Content')
         self.assertEqual(b'', body)
         self.assertEqual(len(self.authorized), 2)
@@ -1538,7 +1632,7 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         self.assertEqual(['GET', 'PUT', 'DELETE'],
                          [c.method for c in calls])
         self.assertEqual(
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             calls[1].path)
         self.assertEqual('application/x-deleted;swift_versions_deleted=1',
                          calls[1].headers.get('Content-Type'))
@@ -1560,11 +1654,43 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         self.assertEqual(len(authorize_call), 1)
         self.assertEqual(('DELETE', '/v1/a/c/o'), authorize_call[0])
 
+    def test_DELETE_timestamp_set_by_object_versioning(self):
+        # verify timestamps set by versioning
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        # the version path depends on the timestamp chosen by versioning mw...
+        self.app.register_default('PUT', swob.HTTPCreated, {}, '')
+        self.app.register(
+            'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None)
+        req = Request.blank(
+            '/v1/a/c/o', method='DELETE',
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '204 No Content')
+        calls = self.app.call_list
+        self.assertEqual(3, len(calls))
+        # GET
+        self.assertEqual(('GET', '/v1/a/c/o?symlink=get'),
+                         (calls[0].method, calls[0].path))
+        # PUT to versions
+        self.assertEqual('PUT', calls[1].method)
+        ts1 = self.assert_valid_timestamp(calls[1].headers.get('X-Timestamp'))
+        self.assertEqual(0, ts1.offset)
+        exp_version = (~ts1).internal
+        self.assertEqual('/v1/a/%s/%s'
+                         % (self.build_container_name('c'),
+                            self.build_object_name('o', exp_version)),
+                         calls[1].path)
+        # DELETE
+        self.assertEqual(('DELETE', '/v1/a/c/o'),
+                         (calls[2].method, calls[2].path))
+        ts2 = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
+        self.assertEqual(ts1, ts2)
+
 
 class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_COPY_overwrite_tombstone(self, mock_time):
+    def test_COPY_overwrite_tombstone(self):
+        ts_now = Timestamp.now()
         self.cache_version_on.set(get_cache_key('a', 'src_cont'),
                                   {'status': 200})
         src_body = 'stuff' * 100
@@ -1574,7 +1700,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             'GET', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, src_body)
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -1585,7 +1711,8 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
                      'CONTENT_LENGTH': '100'},
             headers={'Destination': 'c/o'})
 
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 3)
 
@@ -1593,13 +1720,13 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             ('GET', '/v1/a/src_cont/src_obj'),
             ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ])
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),
@@ -1608,9 +1735,8 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_COPY_overwrite_object(self, mock_time):
+    def test_COPY_overwrite_object(self):
+        ts_now = Timestamp.now()
         self.cache_version_on.set(get_cache_key('a', 'src_cont'),
                                   {'status': 200})
         src_body = 'stuff' * 100
@@ -1625,7 +1751,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -1636,7 +1762,8 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
                      'CONTENT_LENGTH': '100'},
             headers={'Destination': 'c/o'})
 
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 3)
 
@@ -1646,13 +1773,13 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             ('PUT',
              self.build_versions_path(obj='o', version='9999999939.99999')),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ])
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),
@@ -1661,9 +1788,8 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_COPY_overwrite_version_symlink(self, mock_time):
+    def test_COPY_overwrite_version_symlink(self):
+        ts_now = Timestamp.now()
         self.cache_version_on.set(get_cache_key('a', 'src_cont'),
                                   {'status': 200})
         src_body = 'stuff' * 100
@@ -1674,7 +1800,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             TGT_OBJ_SYSMETA_SYMLINK_HDR: 'c-unique/whatever'}, '')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -1685,7 +1811,8 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
                      'CONTENT_LENGTH': '100'},
             headers={'Destination': 'c/o'})
 
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 3)
 
@@ -1693,13 +1820,13 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             ('GET', '/v1/a/src_cont/src_obj'),
             ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ])
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),
@@ -1708,9 +1835,8 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
-    @mock.patch('swift.common.middleware.versioned_writes.object_versioning.'
-                'time.time', return_value=1234)
-    def test_copy_new_version_different_account(self, mock_time):
+    def test_copy_new_version_different_account(self):
+        ts_now = Timestamp.now()
         self.cache_version_on.set(get_cache_key('src_acc'),
                                   {'status': 200})
         self.cache_version_on.set(get_cache_key('src_acc', 'src_cont'),
@@ -1723,7 +1849,7 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             TGT_OBJ_SYSMETA_SYMLINK_HDR: 'c-unique/whatever'}, '')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version='9999998765.99999'),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -1735,7 +1861,8 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             headers={'Destination': 'c/o',
                      'Destination-Account': 'a'})
 
-        status, headers, body = self.call_ov(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 3)
 
@@ -1743,13 +1870,13 @@ class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
             ('GET', '/v1/src_acc/src_cont/src_obj'),
             ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT',
-             self.build_versions_path(obj='o', version='9999998765.99999')),
+             self.build_versions_path(obj='o', version=(~ts_now).internal)),
             ('PUT', '/v1/a/c/o'),
         ])
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', '9999998765.99999'),
+            self.build_symlink_path('c', 'o', (~ts_now).internal),
             'x-object-sysmeta-symlink-target-etag': md5(
                 src_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(src_body)),

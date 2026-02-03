@@ -160,7 +160,7 @@ class TestManageShardRanges(unittest.TestCase):
                              func=mock.ANY,
                              rows_per_shard=500000,
                              subcommand='find',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              minimum_shard_size=100000)
         mocked.assert_called_once_with(mock.ANY, expected)
@@ -175,7 +175,7 @@ class TestManageShardRanges(unittest.TestCase):
                              func=mock.ANY,
                              rows_per_shard=600,
                              subcommand='find',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              minimum_shard_size=88)
         mocked.assert_called_once_with(mock.ANY, expected)
@@ -191,7 +191,7 @@ class TestManageShardRanges(unittest.TestCase):
                              func=mock.ANY,
                              rows_per_shard=12345,
                              subcommand='find',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              minimum_shard_size=99)
         mocked.assert_called_once_with(mock.ANY, expected)
@@ -205,7 +205,7 @@ class TestManageShardRanges(unittest.TestCase):
                              path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              max_expanding=-1,
                              max_shrinking=1,
@@ -224,7 +224,7 @@ class TestManageShardRanges(unittest.TestCase):
                              path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              max_expanding=31,
                              max_shrinking=33,
@@ -247,7 +247,7 @@ class TestManageShardRanges(unittest.TestCase):
                              path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              max_expanding=11,
                              max_shrinking=22,
@@ -284,7 +284,7 @@ class TestManageShardRanges(unittest.TestCase):
                              path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              max_expanding=31,
                              max_shrinking=33,
@@ -317,7 +317,7 @@ class TestManageShardRanges(unittest.TestCase):
                              path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              max_expanding=31,
                              max_shrinking=33,
@@ -349,7 +349,7 @@ class TestManageShardRanges(unittest.TestCase):
                              path_to_file=mock.ANY,
                              func=mock.ANY,
                              subcommand='compact',
-                             force_commits=False,
+                             skip_commits=False,
                              verbose=0,
                              max_expanding=31,
                              max_shrinking=33,
@@ -655,7 +655,8 @@ class TestManageShardRanges(unittest.TestCase):
                     '  "misplaced_done": false,',
                     '  "ranges_done": 0,',
                     '  "ranges_todo": 0,',
-                    '  "ref": "%s"' % retiring_db_id,
+                    '  "ref": "%s",' % retiring_db_id,
+                    '  "replication_time": 0',
                     '}',
                     'Metadata:',
                     '  X-Container-Sysmeta-Sharding = True']
@@ -2928,3 +2929,31 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertIn(
             "argument --yes/-y: not allowed with argument --dry-run/-n",
             err_lines[-2], err_lines)
+
+    def test_skip_commits_and_force_commits_args(self):
+        broker = self._make_broker()
+
+        with mock.patch('swift.cli.manage_shard_ranges.find_ranges',
+                        return_value=0) as mocked:
+            ret = main([broker.db_file, '--skip-commits', 'find'])
+        self.assertEqual(0, ret)
+        args = mocked.call_args[0][1]
+        self.assertTrue(args.skip_commits,
+                        '--skip-commits should set skip_commits to True')
+
+        with mock.patch('swift.cli.manage_shard_ranges.find_ranges',
+                        return_value=0) as mocked:
+            ret = main([broker.db_file, '--force-commits', 'find'])
+        self.assertEqual(0, ret)
+        args = mocked.call_args[0][1]
+        self.assertFalse(args.skip_commits,
+                         '--force-commits should set skip_commits to False')
+
+        # default (no flag) sets skip_commits to False
+        with mock.patch('swift.cli.manage_shard_ranges.find_ranges',
+                        return_value=0) as mocked:
+            ret = main([broker.db_file, 'find'])
+        self.assertEqual(0, ret)
+        args = mocked.call_args[0][1]
+        self.assertFalse(args.skip_commits,
+                         'default should set skip_commits to False')

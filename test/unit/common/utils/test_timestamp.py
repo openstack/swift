@@ -14,6 +14,7 @@
 # limitations under the License.
 
 """Tests for swift.common.utils.timestamp"""
+import os
 import random
 import time
 import unittest
@@ -25,12 +26,25 @@ from swift.common.utils import timestamp
 
 class TestTimestamp(unittest.TestCase):
     """Tests for swift.common.utils.timestamp.Timestamp"""
+    def test_zero(self):
+        ts_zero = timestamp.Timestamp.zero()
+        self.assertEqual(0.0, float(ts_zero))
+        self.assertEqual(0, ts_zero.offset)
+        self.assertEqual(timestamp.Timestamp.zero(),
+                         timestamp.Timestamp(timestamp.Timestamp.zero()))
+        self.assertEqual(ts_zero.internal, '0000000000.00000')
+        # for now this is true...
+        self.assertEqual(timestamp.Timestamp(0), ts_zero)
 
     def test_invalid_input(self):
         with self.assertRaises(ValueError):
             timestamp.Timestamp(time.time(), offset=-1)
         with self.assertRaises(ValueError):
             timestamp.Timestamp('123.456_78_90')
+        with self.assertRaises(ValueError):
+            timestamp.Timestamp('')
+        with self.assertRaises(TypeError):
+            timestamp.Timestamp(None)
 
     def test_invalid_string_conversion(self):
         t = timestamp.Timestamp.now()
@@ -906,3 +920,144 @@ class TestTimestampEncoding(unittest.TestCase):
             for test in self.decodings:
                 actual = timestamp.decode_timestamps(test[0], explicit)
                 self._assertEqual(test[1], actual, test[0])
+
+
+class TestModuleFunctions(unittest.TestCase):
+    def test_normalize_timestamp(self):
+        # Test swift.common.utils.timestamp.normalize_timestamp
+        self.assertEqual(timestamp.normalize_timestamp('1253327593.48174'),
+                         "1253327593.48174")
+        self.assertEqual(timestamp.normalize_timestamp(1253327593.48174),
+                         "1253327593.48174")
+        self.assertEqual(timestamp.normalize_timestamp('1253327593.48'),
+                         "1253327593.48000")
+        self.assertEqual(timestamp.normalize_timestamp(1253327593.48),
+                         "1253327593.48000")
+        self.assertEqual(timestamp.normalize_timestamp('253327593.48'),
+                         "0253327593.48000")
+        self.assertEqual(timestamp.normalize_timestamp(253327593.48),
+                         "0253327593.48000")
+        self.assertEqual(timestamp.normalize_timestamp('1253327593'),
+                         "1253327593.00000")
+        self.assertEqual(timestamp.normalize_timestamp(1253327593),
+                         "1253327593.00000")
+        self.assertRaises(ValueError, timestamp.normalize_timestamp, '')
+        self.assertRaises(ValueError, timestamp.normalize_timestamp, 'abc')
+
+    def test_normalize_delete_at_timestamp(self):
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(1253327593),
+            '1253327593')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(1253327593.67890),
+            '1253327593')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('1253327593'),
+            '1253327593')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('1253327593.67890'),
+            '1253327593')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(-1253327593),
+            '0000000000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(-1253327593.67890),
+            '0000000000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('-1253327593'),
+            '0000000000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('-1253327593.67890'),
+            '0000000000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(71253327593),
+            '9999999999')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(71253327593.67890),
+            '9999999999')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('71253327593'),
+            '9999999999')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('71253327593.67890'),
+            '9999999999')
+        with self.assertRaises(TypeError):
+            timestamp.normalize_delete_at_timestamp(None)
+        with self.assertRaises(ValueError):
+            timestamp.normalize_delete_at_timestamp('')
+        with self.assertRaises(ValueError):
+            timestamp.normalize_delete_at_timestamp('abc')
+
+    def test_normalize_delete_at_timestamp_high_precision(self):
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(1253327593, True),
+            '1253327593.00000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(1253327593.67890, True),
+            '1253327593.67890')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('1253327593', True),
+            '1253327593.00000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('1253327593.67890', True),
+            '1253327593.67890')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(-1253327593, True),
+            '0000000000.00000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(-1253327593.67890, True),
+            '0000000000.00000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('-1253327593', True),
+            '0000000000.00000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('-1253327593.67890', True),
+            '0000000000.00000')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(71253327593, True),
+            '9999999999.99999')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp(71253327593.67890, True),
+            '9999999999.99999')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('71253327593', True),
+            '9999999999.99999')
+        self.assertEqual(
+            timestamp.normalize_delete_at_timestamp('71253327593.67890', True),
+            '9999999999.99999')
+        with self.assertRaises(TypeError):
+            timestamp.normalize_delete_at_timestamp(None, True)
+        with self.assertRaises(ValueError):
+            timestamp.normalize_delete_at_timestamp('', True)
+        with self.assertRaises(ValueError):
+            timestamp.normalize_delete_at_timestamp('abc', True)
+
+    def test_last_modified_date_to_timestamp(self):
+        expectations = {
+            '1970-01-01T00:00:00.000000': timestamp.Timestamp.zero(),
+            '2014-02-28T23:22:36.698390':
+                timestamp.Timestamp(1393629756.698390),
+            '2011-03-19T04:03:00.604554':
+                timestamp.Timestamp(1300507380.604554),
+        }
+        for last_modified, ts in expectations.items():
+            real = timestamp.last_modified_date_to_timestamp(last_modified)
+            self.assertEqual(real, ts, "failed for %s" % last_modified)
+
+    def test_last_modified_date_to_timestamp_when_system_not_UTC(self):
+        try:
+            old_tz = os.environ.get('TZ')
+            # Western Argentina Summer Time. Found in glibc manual; this
+            # timezone always has a non-zero offset from UTC, so this test is
+            # always meaningful.
+            os.environ['TZ'] = 'WART4WARST,J1/0,J365/25'
+
+            self.assertEqual(timestamp.last_modified_date_to_timestamp(
+                '1970-01-01T00:00:00.000000'),
+                timestamp.Timestamp.zero())
+
+        finally:
+            if old_tz is not None:
+                os.environ['TZ'] = old_tz
+            else:
+                os.environ.pop('TZ')

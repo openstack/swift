@@ -1,6 +1,6 @@
 ===========================
-2024.1 Series Release Notes
+2025.2 Series Release Notes
 ===========================
 
 .. release-notes::
-   :branch: unmaintained/2024.1
+   :branch: stable/2025.2

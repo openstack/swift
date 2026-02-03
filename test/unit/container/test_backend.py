@@ -233,8 +233,9 @@ class TestContainerBroker(test_db.TestDbBase):
             (now_time, 100, now_time - 150, now_time - 150, False),
             # good case, reclaim > delete_ts > put_ts
             (now_time, 100, now_time - 150, now_time - 125, True))
-        for test in tests:
-            do_test(*test)
+        for i, test in enumerate(tests):
+            with self.subTest(test=(i, test)):
+                do_test(*test)
 
     @with_tempdir
     def test_is_reclaimable(self, tempdir):
@@ -1845,39 +1846,40 @@ class TestContainerBroker(test_db.TestDbBase):
         hsh = hash_path(acct, cont)
         db_file = "%s.db" % hsh
         db_path = os.path.join(tempdir, db_file)
-        ts = Timestamp(0).normal
+        put_ts = next(self.ts)
 
         broker = ContainerBroker(db_path, account=acct, container=cont)
-        broker.initialize(ts, 0)
+        broker.initialize(put_ts.internal, 0)
 
         # add some metadata but include both types of root path
         broker.update_metadata({
-            'foo': ('bar', ts),
-            'icecream': ('sandwich', ts),
-            'X-Container-Sysmeta-Some': ('meta', ts),
-            'X-Container-Sysmeta-Sharding': ('yes', ts),
-            'X-Container-Sysmeta-Shard-Quoted-Root': ('a/c', ts),
-            'X-Container-Sysmeta-Shard-Root': ('a/c', ts)})
+            'foo': ('bar', put_ts.internal),
+            'icecream': ('sandwich', put_ts.internal),
+            'X-Container-Sysmeta-Some': ('meta', put_ts.internal),
+            'X-Container-Sysmeta-Sharding': ('yes', put_ts.internal),
+            'X-Container-Sysmeta-Shard-Quoted-Root': ('a/c', put_ts.internal),
+            'X-Container-Sysmeta-Shard-Root': ('a/c', put_ts.internal)})
 
         self.assertEqual('a/c', broker.root_path)
 
         # now let's delete the db. All meta
-        delete_ts = Timestamp(1).normal
-        broker.delete_db(delete_ts)
+        delete_ts = next(self.ts)
+        broker.delete_db(delete_ts.internal)
 
         # ensure that metadata was cleared except for root paths
         def check_metadata(broker):
             meta = broker.metadata
-            self.assertEqual(meta['X-Container-Sysmeta-Some'], ['', delete_ts])
-            self.assertEqual(meta['icecream'], ['', delete_ts])
-            self.assertEqual(meta['foo'], ['', delete_ts])
+            self.assertEqual(meta['X-Container-Sysmeta-Some'],
+                             ['', delete_ts.internal])
+            self.assertEqual(meta['icecream'], ['', delete_ts.internal])
+            self.assertEqual(meta['foo'], ['', delete_ts.internal])
             self.assertEqual(meta['X-Container-Sysmeta-Shard-Quoted-Root'],
-                             ['a/c', ts])
+                             ['a/c', put_ts.internal])
             self.assertEqual(meta['X-Container-Sysmeta-Shard-Root'],
-                             ['a/c', ts])
+                             ['a/c', put_ts.internal])
             self.assertEqual('a/c', broker.root_path)
             self.assertEqual(meta['X-Container-Sysmeta-Sharding'],
-                             ['yes', ts])
+                             ['yes', put_ts.internal])
             self.assertFalse(broker.is_root_container())
 
         check_metadata(broker)
@@ -2057,7 +2059,7 @@ class TestContainerBroker(test_db.TestDbBase):
         # content-type change with same timestamp is ignored
         t_encoded = encode_timestamps(t[0], t[1], t[2])
         broker.put_object('obj_name', t[0].internal, 456,
-                          'application/x-test-3',
+                          'application/x-test-ignored',
                           '1234567890abcdeffedcba0987654321',
                           ctype_timestamp=t[1].internal,
                           meta_timestamp=t[2].internal)
@@ -2330,13 +2332,14 @@ class TestContainerBroker(test_db.TestDbBase):
                                  container='test2')
 
         # initialize with no storage_policy_index argument
-        broker.initialize(Timestamp(1).internal)
+        ts_put = Timestamp.now()
+        broker.initialize(ts_put.internal)
 
         info = broker.get_info()
         self.assertEqual(info['account'], 'test1')
         self.assertEqual(info['container'], 'test2')
         self.assertEqual(info['hash'], '00000000000000000000000000000000')
-        self.assertEqual(info['put_timestamp'], Timestamp(1).internal)
+        self.assertEqual(info['put_timestamp'], ts_put.internal)
         self.assertEqual(info['delete_timestamp'], '0')
 
         info = broker.get_info()
@@ -2367,13 +2370,14 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.get_info
         broker = ContainerBroker(self.get_db_path(), account='test1',
                                  container='test2')
-        broker.initialize(Timestamp('1').internal, 0)
+        ts_put = Timestamp.now()
+        broker.initialize(ts_put.internal, 0)
 
         info = broker.get_info()
         self.assertEqual(info['account'], 'test1')
         self.assertEqual(info['container'], 'test2')
         self.assertEqual(info['hash'], '00000000000000000000000000000000')
-        self.assertEqual(info['put_timestamp'], Timestamp(1).internal)
+        self.assertEqual(info['put_timestamp'], ts_put.internal)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (
                 TestContainerBrokerBeforeMetadata,
@@ -2384,8 +2388,7 @@ class TestContainerBroker(test_db.TestDbBase):
                 TestContainerBrokerBeforeShardRangeTombstonesColumn):
             self.assertEqual(info['status_changed_at'], '0')
         else:
-            self.assertEqual(info['status_changed_at'],
-                             Timestamp(1).internal)
+            self.assertEqual(info['status_changed_at'], ts_put.internal)
 
         info = broker.get_info()
         self.assertEqual(info['object_count'], 0)
@@ -2696,7 +2699,7 @@ class TestContainerBroker(test_db.TestDbBase):
                                  container='c')
         broker.initialize(Timestamp('1').internal, 0)
         objects_0 = [{'name': 'obj_0_%d' % i,
-                      'created_at': next(self.ts).normal,
+                      'created_at': next(self.ts).internal,
                       'content_type': 'text/plain',
                       'etag': 'etag_%d' % i,
                       'size': 1024 * i,
@@ -2704,7 +2707,7 @@ class TestContainerBroker(test_db.TestDbBase):
                       'storage_policy_index': 0
                       } for i in range(1, 8)]
         objects_1 = [{'name': 'obj_1_%d' % i,
-                      'created_at': next(self.ts).normal,
+                      'created_at': next(self.ts).internal,
                       'content_type': 'text/plain',
                       'etag': 'etag_%d' % i,
                       'size': 1024 * i,
@@ -3493,17 +3496,18 @@ class TestContainerBroker(test_db.TestDbBase):
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
         broker.initialize(Timestamp('1').internal, 0)
-        broker.put_object('a', Timestamp(1).internal, 0,
+        timestamps = [next(self.ts) for _ in range(3)]
+        broker.put_object('a', timestamps[0].internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker.put_object('b', Timestamp(2).internal, 0,
+        broker.put_object('b', timestamps[1].internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        hasha = md5_str('%s-%s' % ('a', Timestamp(1).internal))
-        hashb = md5_str('%s-%s' % ('b', Timestamp(2).internal))
+        hasha = md5_str('%s-%s' % ('a', timestamps[0].internal))
+        hashb = md5_str('%s-%s' % ('b', timestamps[1].internal))
         hashc = '%032x' % (int(hasha, 16) ^ int(hashb, 16))
         self.assertEqual(broker.get_info()['hash'], hashc)
-        broker.put_object('b', Timestamp(3).internal, 0,
+        broker.put_object('b', timestamps[2].internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        hashb = md5_str('%s-%s' % ('b', Timestamp(3).internal))
+        hashb = md5_str('%s-%s' % ('b', timestamps[2].internal))
         hashc = '%032x' % (int(hasha, 16) ^ int(hashb, 16))
         self.assertEqual(broker.get_info()['hash'], hashc)
 
@@ -3617,20 +3621,21 @@ class TestContainerBroker(test_db.TestDbBase):
         snowman = u'\N{SNOWMAN}'
         broker1 = ContainerBroker(self.get_db_path(), account='a',
                                   container='c')
-        broker1.initialize(Timestamp('1').internal, 0)
+        timestamps = [next(self.ts) for _ in range(4)]
+        broker1.initialize(timestamps[0].internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(self.get_db_path(),
                                   account='a', container='c')
-        broker2.initialize(Timestamp('1').internal, 0)
-        broker1.put_object(snowman, Timestamp(2).internal, 0,
+        broker2.initialize(timestamps[0].internal, 0)
+        broker1.put_object(snowman, timestamps[1].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker1.put_object('b', Timestamp(3).internal, 0,
+        broker1.put_object('b', timestamps[2].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         # commit pending file into db
         broker1._commit_puts()
         broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
             broker2.get_sync(id), 1000))), id)
-        broker1.put_object(snowman, Timestamp(4).internal, 0, 'text/plain',
+        broker1.put_object(snowman, timestamps[3].internal, 0, 'text/plain',
                            'd41d8cd98f00b204e9800998ecf8427e')
         broker1._commit_puts()
         broker2.merge_items(json.loads(json.dumps(broker1.get_items_since(
@@ -3640,28 +3645,29 @@ class TestContainerBroker(test_db.TestDbBase):
                          sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == snowman:
-                self.assertEqual(rec['created_at'], Timestamp(4).internal)
+                self.assertEqual(rec['created_at'], timestamps[3].internal)
             if rec['name'] == 'b':
-                self.assertEqual(rec['created_at'], Timestamp(3).internal)
+                self.assertEqual(rec['created_at'], timestamps[2].internal)
 
     def test_merge_items_overwrite(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(self.get_db_path(), account='a',
                                   container='c')
-        broker1.initialize(Timestamp('1').internal, 0)
+        timestamps = [next(self.ts) for _ in range(5)]
+        broker1.initialize(timestamps[0].internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(self.get_db_path(),
                                   account='a', container='c')
-        broker2.initialize(Timestamp('1').internal, 0)
-        broker1.put_object('a', Timestamp(2).internal, 0,
+        broker2.initialize(timestamps[1].internal, 0)
+        broker1.put_object('a', timestamps[2].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker1.put_object('b', Timestamp(3).internal, 0,
+        broker1.put_object('b', timestamps[3].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         # commit pending file into db
         broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
-        broker1.put_object('a', Timestamp(4).internal, 0,
+        broker1.put_object('a', timestamps[4].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
@@ -3670,28 +3676,29 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEqual(rec['created_at'], Timestamp(4).internal)
+                self.assertEqual(rec['created_at'], timestamps[4].internal)
             if rec['name'] == 'b':
-                self.assertEqual(rec['created_at'], Timestamp(3).internal)
+                self.assertEqual(rec['created_at'], timestamps[3].internal)
 
     def test_merge_items_post_overwrite_out_of_order(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(self.get_db_path(), account='a',
                                   container='c')
-        broker1.initialize(Timestamp('1').internal, 0)
+        timestamps = [next(self.ts) for _ in range(6)]
+        broker1.initialize(timestamps[1].internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(self.get_db_path(),
                                   account='a', container='c')
-        broker2.initialize(Timestamp('1').internal, 0)
-        broker1.put_object('a', Timestamp(2).internal, 0,
+        broker2.initialize(timestamps[1].internal, 0)
+        broker1.put_object('a', timestamps[2].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
-        broker1.put_object('b', Timestamp(3).internal, 0,
+        broker1.put_object('b', timestamps[3].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         # commit pending file into db
         broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
             broker2.get_sync(id), 1000), id)
-        broker1.put_object('a', Timestamp(4).internal, 0,
+        broker1.put_object('a', timestamps[4].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
@@ -3700,18 +3707,18 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEqual(rec['created_at'], Timestamp(4).internal)
+                self.assertEqual(rec['created_at'], timestamps[4].internal)
             if rec['name'] == 'b':
-                self.assertEqual(rec['created_at'], Timestamp(3).internal)
+                self.assertEqual(rec['created_at'], timestamps[3].internal)
                 self.assertEqual(rec['content_type'], 'text/plain')
         items = broker2.get_items_since(-1, 1000)
         self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEqual(rec['created_at'], Timestamp(4).internal)
+                self.assertEqual(rec['created_at'], timestamps[4].internal)
             if rec['name'] == 'b':
-                self.assertEqual(rec['created_at'], Timestamp(3).internal)
-        broker1.put_object('b', Timestamp(5).internal, 0,
+                self.assertEqual(rec['created_at'], timestamps[3].internal)
+        broker1.put_object('b', timestamps[5].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
         broker1._commit_puts()
         broker2.merge_items(broker1.get_items_since(
@@ -3720,9 +3727,9 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(['a', 'b'], sorted([rec['name'] for rec in items]))
         for rec in items:
             if rec['name'] == 'a':
-                self.assertEqual(rec['created_at'], Timestamp(4).internal)
+                self.assertEqual(rec['created_at'], timestamps[4].internal)
             if rec['name'] == 'b':
-                self.assertEqual(rec['created_at'], Timestamp(5).internal)
+                self.assertEqual(rec['created_at'], timestamps[5].internal)
                 self.assertEqual(rec['content_type'], 'text/plain')
 
     def test_set_storage_policy_index(self):
@@ -3935,7 +3942,7 @@ class TestContainerBroker(test_db.TestDbBase):
         hsh = hash_path('a', 'c3')
         expected_path = os.path.join(
             tempdir, 'containers', '0', hsh[-3:],
-            hsh, '%s_%s.db' % (hsh, epoch.internal))
+            hsh, '%s_%s.db' % (hsh, epoch.normal))
         self.assertEqual(expected_path, broker.db_file)
         self.assertTrue(init)
 
@@ -4931,7 +4938,7 @@ class TestContainerBroker(test_db.TestDbBase):
                 in enumerate(expected_bounds, start_index)]
 
             with mock.patch('swift.common.utils.time.time',
-                            return_value=float(ts_now.normal)):
+                            return_value=float(ts_now)):
                 ranges, last_found = broker.find_shard_ranges(
                     shard_size, limit=limit, existing_ranges=existing,
                     minimum_shard_size=minimum_size)
@@ -5085,7 +5092,7 @@ class TestContainerBroker(test_db.TestDbBase):
             in enumerate(expected_bounds)]
 
         with mock.patch('swift.common.utils.time.time',
-                        return_value=float(ts_now.normal)):
+                        return_value=float(ts_now)):
             actual_shard_ranges, last_found = broker.find_shard_ranges(2, -1)
         self.assertEqual(expected_shard_ranges, actual_shard_ranges)
 
@@ -5128,7 +5135,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
         # load up the broker with some objects
         objects = [{'name': 'obj_%d' % i,
-                    'created_at': next(self.ts).normal,
+                    'created_at': next(self.ts).internal,
                     'content_type': 'text/plain',
                     'etag': 'etag_%d' % i,
                     'size': 1024 * i,
@@ -5141,9 +5148,9 @@ class TestContainerBroker(test_db.TestDbBase):
 
         # Add some metadata
         meta = {
-            'X-Container-Meta-Color': ['Blue', next(self.ts).normal],
-            'X-Container-Meta-Cleared': ['', next(self.ts).normal],
-            'X-Container-Sysmeta-Shape': ['Circle', next(self.ts).normal],
+            'X-Container-Meta-Color': ['Blue', next(self.ts).internal],
+            'X-Container-Meta-Cleared': ['', next(self.ts).internal],
+            'X-Container-Sysmeta-Shape': ['Circle', next(self.ts).internal],
         }
         broker.update_metadata(meta)
 
@@ -5324,7 +5331,7 @@ class TestContainerBroker(test_db.TestDbBase):
                                  logger=debug_logger())
         broker.initialize(next(self.ts).internal, 0)
         broker.merge_items([{'name': 'obj_%d' % i,
-                             'created_at': next(self.ts).normal,
+                             'created_at': next(self.ts).internal,
                              'content_type': 'text/plain',
                              'etag': 'etag_%d' % i,
                              'size': 1024 * i,
@@ -5369,7 +5376,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(db_path, broker.db_files[0])
         fresh_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash',
-            'container_%s.db' % epoch.internal)
+            'container_%s.db' % epoch.normal)
         self.assertEqual(fresh_db_path, broker.db_files[1])
 
     @with_tempdir
@@ -5418,7 +5425,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(db_path, broker.db_files[0])
         fresh_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash',
-            'container_%s.db' % epoch.internal)
+            'container_%s.db' % epoch.normal)
         self.assertEqual(fresh_db_path, broker.db_files[1])
 
     @with_tempdir
@@ -5865,7 +5872,6 @@ class ContainerBrokerMigrationMixin(test_db.TestDbBase):
             ContainerBroker.create_shard_range_table = \
                 self.OverrideCreateShardRangesTable(
                     ContainerBroker.create_shard_range_table)
-        self.ts = make_timestamp_iter()
 
     @classmethod
     @contextmanager
@@ -6679,17 +6685,17 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
 
 class TestUpdateNewItemFromExisting(unittest.TestCase):
     # TODO: add test scenarios that have swift_bytes in content_type
-    t0 = '1234567890.00000'
-    t1 = '1234567890.00001'
-    t2 = '1234567890.00002'
-    t3 = '1234567890.00003'
-    t4 = '1234567890.00004'
-    t5 = '1234567890.00005'
-    t6 = '1234567890.00006'
-    t7 = '1234567890.00007'
-    t8 = '1234567890.00008'
-    t20 = '1234567890.00020'
-    t30 = '1234567890.00030'
+    t0 = Timestamp(1234567890.00000)
+    t1 = Timestamp(1234567890.00001)
+    t2 = Timestamp(1234567890.00002)
+    t3 = Timestamp(1234567890.00003)
+    t4 = Timestamp(1234567890.00004)
+    t5 = Timestamp(1234567890.00005)
+    t6 = Timestamp(1234567890.00006)
+    t7 = Timestamp(1234567890.00007)
+    t8 = Timestamp(1234567890.00008)
+    t20 = Timestamp(1234567890.00020)
+    t30 = Timestamp(1234567890.00030)
 
     base_new_item = {'etag': 'New_item',
                      'size': 'nEw_item',
@@ -6701,12 +6707,12 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
                      'deleted': '0'}
     #
     # each scenario is a tuple of:
-    #    (existing time, new item times, expected updated item)
+    #    (existing timestamp str, new item timestamps, expected updated item)
     #
     #  e.g.:
-    # existing -> ({'created_at': t5},
+    # existing -> ({'created_at': t5.internal},
     # new_item -> {'created_at': t, 'ctype_timestamp': t, 'meta_timestamp': t},
-    # expected -> {'created_at': t,
+    # expected -> {'created_at': t.internal,
     #              'etag': <val>, 'size': <val>, 'content_type': <val>})
     #
     scenarios_when_all_existing_wins = (
@@ -6715,111 +6721,151 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         # existing has attrs at single time
         #
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t0,
+          'meta_timestamp': t0},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t1},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t0,
+          'meta_timestamp': t1},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t1},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t1,
+          'meta_timestamp': t1},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t2},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t1,
+          'meta_timestamp': t2},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t1, 'meta_timestamp': t3},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t1,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t0, 'ctype_timestamp': t3, 'meta_timestamp': t3},
-         {'created_at': t3,
+        ({'created_at': t3.internal},
+         {'created_at': t0,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
+        ({'created_at': t3.internal},
          {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal,
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
         #
         # existing has attrs at multiple times:
         # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
         #
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t0, 'ctype_timestamp': t0, 'meta_timestamp': t0},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t0,
+          'ctype_timestamp': t0,
+          'meta_timestamp': t0},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t3},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t3},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t7},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t7},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t5},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t6},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t5, 'meta_timestamp': t7},
-         {'created_at': t3 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t7},
+         {'created_at': t3.internal + '+2+2',
          'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
     )
 
     scenarios_when_all_new_item_wins = (
         # no existing record
         (None,
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
          {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t4.internal,
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         (None,
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t4 + '+0+1',
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+0+1',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         (None,
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t4 + '+1+0',
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+1+0',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         (None,
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+1',
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+1+1',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         #
@@ -6827,53 +6873,71 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         # existing has attrs at single time
         #
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t4},
+        ({'created_at': t3.internal},
          {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t4.internal,
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t4 + '+0+1',
+        ({'created_at': t3.internal},
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+0+1',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t5},
-         {'created_at': t4 + '+1+0',
+        ({'created_at': t3.internal},
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t5},
+         {'created_at': t4.internal + '+1+0',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t4, 'ctype_timestamp': t5, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+1',
+        ({'created_at': t3.internal},
+         {'created_at': t4,
+          'ctype_timestamp': t5,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+1+1',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
         #
         # existing has attrs at multiple times:
         # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
         #
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t4 + '+2+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t8},
+         {'created_at': t4.internal + '+2+2',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t6, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t6 + '+0+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t6,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t8},
+         {'created_at': t6.internal + '+0+2',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t8, 'meta_timestamp': t8},
-         {'created_at': t4 + '+4+0',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t8,
+          'meta_timestamp': t8},
+         {'created_at': t4.internal + '+4+0',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t6, 'ctype_timestamp': t8, 'meta_timestamp': t8},
-         {'created_at': t6 + '+2+0',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t6,
+          'ctype_timestamp': t8,
+          'meta_timestamp': t8},
+         {'created_at': t6.internal + '+2+0',
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t8, 'ctype_timestamp': t8, 'meta_timestamp': t8},
+        ({'created_at': t3.internal + '+2+2'},
          {'created_at': t8,
+          'ctype_timestamp': t8,
+          'meta_timestamp': t8},
+         {'created_at': t8.internal,
          'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
     )
 
@@ -6883,54 +6947,72 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         #
         # existing has attrs at single time
         #
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t4},
-         {'created_at': t3 + '+0+1',
+        ({'created_at': t3.internal},
+         {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t4},
+         {'created_at': t3.internal + '+0+1',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t4},
-         {'created_at': t3 + '+1+0',
+        ({'created_at': t3.internal},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t4},
+         {'created_at': t3.internal + '+1+0',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3},
-         {'created_at': t3, 'ctype_timestamp': t4, 'meta_timestamp': t5},
-         {'created_at': t3 + '+1+1',
+        ({'created_at': t3.internal},
+         {'created_at': t3,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t5},
+         {'created_at': t3.internal + '+1+1',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
 
         #
         # existing has attrs at multiple times:
         # data @ t3, ctype @ t5, meta @t7 -> existing created_at = t3+2+2
         #
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t3, 'meta_timestamp': t8},
-         {'created_at': t3 + '+2+3',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t3,
+          'meta_timestamp': t8},
+         {'created_at': t3.internal + '+2+3',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t3, 'ctype_timestamp': t6, 'meta_timestamp': t8},
-         {'created_at': t3 + '+3+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t3,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t8},
+         {'created_at': t3.internal + '+3+2',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t6},
-         {'created_at': t4 + '+1+2',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+1+2',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t6, 'meta_timestamp': t6},
-         {'created_at': t4 + '+2+1',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t6,
+          'meta_timestamp': t6},
+         {'created_at': t4.internal + '+2+1',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'neW_item'}),
 
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t4, 'ctype_timestamp': t4, 'meta_timestamp': t8},
-         {'created_at': t4 + '+1+3',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t4,
+          'ctype_timestamp': t4,
+          'meta_timestamp': t8},
+         {'created_at': t4.internal + '+1+3',
           'etag': 'New_item', 'size': 'nEw_item', 'content_type': 'exIsting'}),
 
         # this scenario is to check that the deltas are in hex
-        ({'created_at': t3 + '+2+2'},
-         {'created_at': t2, 'ctype_timestamp': t20, 'meta_timestamp': t30},
-         {'created_at': t3 + '+11+a',
+        ({'created_at': t3.internal + '+2+2'},
+         {'created_at': t2,
+          'ctype_timestamp': t20,
+          'meta_timestamp': t30},
+         {'created_at': t3.internal + '+11+a',
           'etag': 'Existing', 'size': 'eXisting', 'content_type': 'neW_item'}),
     )
 
@@ -6944,7 +7026,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
 
         # this is the new item to update
         new_item = dict(self.base_new_item)
-        new_item.update(new_item_times)
+        new_item.update({k: v.internal for k, v in new_item_times.items()})
 
         # this is the expected result of the update
         expected = dict(new_item)
@@ -6958,7 +7040,7 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
         except AssertionError as e:
             msg = ('Scenario: existing %s, new_item %s, expected %s.'
                    % scenario)
-            msg = '%s Failed with: %s' % (msg, e.message)
+            msg = '%s Failed with: %s' % (msg, e)
             raise AssertionError(msg)
 
     def test_update_new_item_from_existing(self):
@@ -7181,7 +7263,6 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
 
     def setUp(self):
         super(TestExpirerBytesCtypeTimestamp, self).setUp()
-        self.ts = make_timestamp_iter()
         self.policy = POLICIES.default
 
     def _get_broker(self):

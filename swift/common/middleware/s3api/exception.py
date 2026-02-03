@@ -26,6 +26,18 @@ class ACLError(S3Exception):
     pass
 
 
+class InvalidBucketNameParseError(S3Exception):
+
+    def __init__(self, bucket):
+        self.bucket_name = bucket
+
+
+class InvalidURIParseError(S3Exception):
+
+    def __init__(self, uri):
+        self.uri = uri
+
+
 class InvalidSubresource(S3Exception):
     def __init__(self, resource, cause):
         self.resource = resource

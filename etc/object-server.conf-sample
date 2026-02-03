@@ -793,3 +793,14 @@ use = egg:swift#xprofile
 #
 # stats_interval = 300.0
 # recon_cache_path = /var/cache/swift
+#
+# Highly concurrent PUTs can result in timestamp collisions; see
+# https://bugs.launchpad.net/swift/+bug/1971686 and
+# https://bugs.launchpad.net/swift/+bug/2127779 for more information.
+# This can lead to relinker errors which may be benign; use this option to
+# handle such errors.  With this option enabled during the relink phase
+# we'll quarantine the colliding file in the new target part dir and retry
+# the relink.  During the cleanup phase we ignore the un-matched inode
+# "collision" and allow the cleanup of the old file in the old part dir
+# same as tombstones.
+# clobber_hardlink_collisions = false

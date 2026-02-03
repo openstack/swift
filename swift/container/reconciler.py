@@ -77,7 +77,7 @@ def cmp_policy_info(info, remote_info):
 
     def has_been_recreated(info):
         return (info['put_timestamp'] > info['delete_timestamp'] >
-                Timestamp(0))
+                Timestamp.zero())
 
     remote_recreated = has_been_recreated(remote_info)
     recreated = has_been_recreated(info)
@@ -112,7 +112,7 @@ def incorrect_policy_index(info, remote_info):
 
 
 def translate_container_headers_to_info(headers):
-    default_timestamp = Timestamp(0).internal
+    default_timestamp = Timestamp.zero().internal
     return {
         'storage_policy_index': int(headers['X-Backend-Storage-Policy-Index']),
         'put_timestamp': headers.get('x-backend-put-timestamp',
@@ -538,7 +538,8 @@ class ContainerReconciler(Daemon):
                            'determine the destination timestamp, if any',
                            path, q_ts)
             return False
-        dest_ts = Timestamp(dest_obj.get('x-backend-timestamp', 0))
+        dest_ts = Timestamp(
+            dest_obj.get('x-backend-timestamp', Timestamp.zero()))
         if dest_ts >= q_ts:
             self.stats_log('found_object', '%r (%f) in policy_index %s '
                            'is newer than queue (%f)', path, dest_ts,
@@ -566,7 +567,8 @@ class ContainerReconciler(Daemon):
             source_obj_info = {}
             source_obj_iter = None
 
-        source_ts = Timestamp(source_obj_info.get('x-backend-timestamp', 0))
+        source_ts = Timestamp(
+            source_obj_info.get('x-backend-timestamp', Timestamp.zero()))
         if source_obj_status == 404 and q_op == 'DELETE':
             return self.ensure_tombstone_in_right_location(
                 q_policy_index, account, container, obj, q_ts, path,
