@@ -274,23 +274,25 @@ class TestContainerController(BaseTestContainerController):
         sys_meta_key = '%stest' % get_sys_meta_prefix('container')
         sys_meta_key = sys_meta_key.title()
         user_meta_key = 'X-Container-Meta-Test'
-        controller = proxy_server.ContainerController(self.app, 'a', 'c')
-
-        context = {}
-        callback = self._make_callback_func(context)
+        ts = next(self.ts_iter)
         hdrs_in = {sys_meta_key: 'foo',
                    user_meta_key: 'bar',
-                   'x-timestamp': '1.0'}
+                   'x-timestamp': ts.internal,
+                   'x-foo': 'ignored'}
         req = Request.blank('/v1/a/c', headers=hdrs_in)
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(200, 200, give_connect=callback)):
-            controller.PUT(req)
-        self.assertEqual(context['method'], 'PUT')
-        self.assertIn(sys_meta_key, context['headers'])
-        self.assertEqual(context['headers'][sys_meta_key], 'foo')
-        self.assertIn(user_meta_key, context['headers'])
-        self.assertEqual(context['headers'][user_meta_key], 'bar')
-        self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
+        req.method = 'PUT'
+        with mocked_http_conn(*[200] * self.CONTAINER_REPLICAS) as mock_conn:
+            req.get_response(self.app)
+        self.assertEqual(
+            ['PUT'] * self.CONTAINER_REPLICAS,
+            [req['method'] for req in mock_conn.requests])
+        for req in mock_conn.requests:
+            self.assertIn(sys_meta_key, req['headers'])
+            self.assertEqual(req['headers'][sys_meta_key], 'foo')
+            self.assertIn(user_meta_key, req['headers'])
+            self.assertEqual(req['headers'][user_meta_key], 'bar')
+            self.assertEqual(req['headers']['x-timestamp'], ts.internal)
+            self.assertNotIn('x-foo', req['headers'])
 
     def test_sys_meta_headers_POST(self):
         # check that headers in sys meta namespace make it through
@@ -298,22 +300,25 @@ class TestContainerController(BaseTestContainerController):
         sys_meta_key = '%stest' % get_sys_meta_prefix('container')
         sys_meta_key = sys_meta_key.title()
         user_meta_key = 'X-Container-Meta-Test'
-        controller = proxy_server.ContainerController(self.app, 'a', 'c')
-        context = {}
-        callback = self._make_callback_func(context)
+        ts = next(self.ts_iter)
         hdrs_in = {sys_meta_key: 'foo',
                    user_meta_key: 'bar',
-                   'x-timestamp': '1.0'}
+                   'x-timestamp': ts.internal,
+                   'x-foo': 'ignored'}
         req = Request.blank('/v1/a/c', headers=hdrs_in)
-        with mock.patch('swift.proxy.controllers.base.http_connect',
-                        fake_http_connect(200, 200, give_connect=callback)):
-            controller.POST(req)
-        self.assertEqual(context['method'], 'POST')
-        self.assertIn(sys_meta_key, context['headers'])
-        self.assertEqual(context['headers'][sys_meta_key], 'foo')
-        self.assertIn(user_meta_key, context['headers'])
-        self.assertEqual(context['headers'][user_meta_key], 'bar')
-        self.assertNotEqual(context['headers']['x-timestamp'], '1.0')
+        req.method = 'POST'
+        with mocked_http_conn(*[200] * self.CONTAINER_REPLICAS) as mock_conn:
+            req.get_response(self.app)
+        self.assertEqual(
+            ['POST'] * self.CONTAINER_REPLICAS,
+            [req['method'] for req in mock_conn.requests])
+        for req in mock_conn.requests:
+            self.assertIn(sys_meta_key, req['headers'])
+            self.assertEqual(req['headers'][sys_meta_key], 'foo')
+            self.assertIn(user_meta_key, req['headers'])
+            self.assertEqual(req['headers'][user_meta_key], 'bar')
+            self.assertEqual(req['headers']['x-timestamp'], ts.internal)
+            self.assertNotIn('x-foo', req['headers'])
 
     def test_node_errors(self):
         self.app.sort_nodes = lambda n, *args, **kwargs: n

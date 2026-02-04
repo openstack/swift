@@ -20,7 +20,8 @@ from shutil import rmtree
 from tempfile import mkdtemp
 
 from io import StringIO
-from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs
+from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs, \
+    make_timestamp_iter
 
 from swift.common import ring, utils
 from swift.common.swob import Request
@@ -42,6 +43,7 @@ from swift.obj.diskfile import write_metadata
 class TestCliInfoBase(unittest.TestCase):
     def setUp(self):
         skip_if_no_xattrs()
+        self.ts_iter = make_timestamp_iter()
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
         utils.HASH_PATH_PREFIX = b'info'
         utils.HASH_PATH_SUFFIX = b'info'
@@ -240,12 +242,13 @@ No system metadata found in db file
                          sorted(exp_out.split('\n')))
 
     def test_print_db_info_metadata_with_shard_ranges(self):
-
+        timestamps = [utils.Timestamp(i) for i in range(4)]
         shard_ranges = [utils.ShardRange(
             name='.sharded_a/shard_range_%s' % i,
-            timestamp=utils.Timestamp(i), lower='%da' % i,
+            timestamp=timestamps[i], lower='%da' % i,
             upper='%dz' % i, object_count=i, bytes_used=i,
-            meta_timestamp=utils.Timestamp(i)) for i in range(1, 4)]
+            meta_timestamp=timestamps[i])
+            for i in range(1, 4)]
         shard_ranges[0].state = utils.ShardRange.CLEAVED
         shard_ranges[1].state = utils.ShardRange.CREATED
 
@@ -304,19 +307,22 @@ Shard Ranges (3):
   Name: .sharded_a/shard_range_1
     lower: '1a', upper: '1z'
     Object Count: 1, Bytes Used: 1, State: cleaved (30)
-    Created at: 1970-01-01T00:00:01.000000 (0000000001.00000)
-    Meta Timestamp: 1970-01-01T00:00:01.000000 (0000000001.00000)
+    Created at: 1970-01-01T00:00:01.000000 (%s)
+    Meta Timestamp: 1970-01-01T00:00:01.000000 (%s)
   Name: .sharded_a/shard_range_2
     lower: '2a', upper: '2z'
     Object Count: 2, Bytes Used: 2, State: created (20)
-    Created at: 1970-01-01T00:00:02.000000 (0000000002.00000)
-    Meta Timestamp: 1970-01-01T00:00:02.000000 (0000000002.00000)
+    Created at: 1970-01-01T00:00:02.000000 (%s)
+    Meta Timestamp: 1970-01-01T00:00:02.000000 (%s)
   Name: .sharded_a/shard_range_3
     lower: '3a', upper: '3z'
     Object Count: 3, Bytes Used: 3, State: found (10)
-    Created at: 1970-01-01T00:00:03.000000 (0000000003.00000)
-    Meta Timestamp: 1970-01-01T00:00:03.000000 (0000000003.00000)''' %\
-                  POLICIES[0].name
+    Created at: 1970-01-01T00:00:03.000000 (%s)
+    Meta Timestamp: 1970-01-01T00:00:03.000000 (%s)''' % \
+                  (POLICIES[0].name,
+                   timestamps[1].internal, timestamps[1].internal,
+                   timestamps[2].internal, timestamps[2].internal,
+                   timestamps[3].internal, timestamps[3].internal)
         self.assertEqual(out.getvalue().strip().split('\n'),
                          exp_out.strip().split('\n'))
 
@@ -390,12 +396,12 @@ Shard Ranges (19):
                          exp_out.strip().split('\n'))
 
     def test_print_db_info_metadata_with_shard_ranges_bis(self):
-
+        timestamps = [utils.Timestamp(i) for i in range(4)]
         shard_ranges = [utils.ShardRange(
             name='.sharded_a/shard_range_%s' % i,
-            timestamp=utils.Timestamp(i), lower=u'%d\u30a2' % i,
+            timestamp=timestamps[i], lower=u'%d\u30a2' % i,
             upper=u'%d\u30e4' % i, object_count=i, bytes_used=i,
-            meta_timestamp=utils.Timestamp(i)) for i in range(1, 4)]
+            meta_timestamp=timestamps[i]) for i in range(1, 4)]
         shard_ranges[0].state = utils.ShardRange.CLEAVED
         shard_ranges[1].state = utils.ShardRange.CREATED
 
@@ -456,19 +462,25 @@ Shard Ranges (3):
   Name: .sharded_a/shard_range_1
     lower: '1%s', upper: '1%s'
     Object Count: 1, Bytes Used: 1, State: cleaved (30)
-    Created at: 1970-01-01T00:00:01.000000 (0000000001.00000)
-    Meta Timestamp: 1970-01-01T00:00:01.000000 (0000000001.00000)
+    Created at: 1970-01-01T00:00:01.000000 (%s)
+    Meta Timestamp: 1970-01-01T00:00:01.000000 (%s)
   Name: .sharded_a/shard_range_2
     lower: '2%s', upper: '2%s'
     Object Count: 2, Bytes Used: 2, State: created (20)
-    Created at: 1970-01-01T00:00:02.000000 (0000000002.00000)
-    Meta Timestamp: 1970-01-01T00:00:02.000000 (0000000002.00000)
+    Created at: 1970-01-01T00:00:02.000000 (%s)
+    Meta Timestamp: 1970-01-01T00:00:02.000000 (%s)
   Name: .sharded_a/shard_range_3
     lower: '3%s', upper: '3%s'
     Object Count: 3, Bytes Used: 3, State: found (10)
-    Created at: 1970-01-01T00:00:03.000000 (0000000003.00000)
-    Meta Timestamp: 1970-01-01T00:00:03.000000 (0000000003.00000)''' %\
-                  (POLICIES[0].name, s_a, s_ya, s_a, s_ya, s_a, s_ya)
+    Created at: 1970-01-01T00:00:03.000000 (%s)
+    Meta Timestamp: 1970-01-01T00:00:03.000000 (%s)''' %\
+                  (POLICIES[0].name,
+                   s_a, s_ya,
+                   timestamps[1].internal, timestamps[1].internal,
+                   s_a, s_ya,
+                   timestamps[2].internal, timestamps[2].internal,
+                   s_a, s_ya,
+                   timestamps[3].internal, timestamps[3].internal,)
         self.assertEqual(out.getvalue().strip().split('\n'),
                          exp_out.strip().split('\n'))
 
@@ -1419,12 +1431,13 @@ class TestPrintObjFullMeta(TestCliInfoBase):
     def test_print_obj_metadata(self):
         self.assertRaisesMessage(ValueError, 'Metadata is None',
                                  print_obj_metadata, [])
+        ts_data = utils.Timestamp(106.3)
 
         def get_metadata(items):
             md = {
                 'name': '/AUTH_admin/c/dummy',
                 'Content-Type': 'application/octet-stream',
-                'X-Timestamp': 106.3,
+                'X-Timestamp': ts_data.internal,
             }
             md.update(items)
             return md
@@ -1447,8 +1460,7 @@ Transient System Metadata:
 User Metadata:
   X-Object-Meta-Mtime: 107.3
 Other Metadata:
-  No metadata found''' % (
-            utils.Timestamp(106.3).internal)
+  No metadata found''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
@@ -1474,8 +1486,7 @@ Transient System Metadata:
 User Metadata:
   No metadata found
 Other Metadata:
-  No metadata found''' % (
-            utils.Timestamp(106.3).internal)
+  No metadata found''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
@@ -1501,8 +1512,7 @@ Transient System Metadata:
 User Metadata:
   X-Object-Meta-Mtime: 107.3
 Other Metadata:
-  X-Object-Mtime: 107.3''' % (
-            utils.Timestamp(106.3).internal)
+  X-Object-Mtime: 107.3''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
@@ -1524,8 +1534,7 @@ Transient System Metadata:
 User Metadata:
   No metadata found
 Other Metadata:
-  No metadata found''' % (
-            utils.Timestamp(106.3).internal)
+  No metadata found''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
@@ -1549,8 +1558,7 @@ Transient System Metadata:
 User Metadata:
   Mtime: 107.3
 Other Metadata:
-  No metadata found''' % (
-            utils.Timestamp(106.3).internal)
+  No metadata found''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
@@ -1573,8 +1581,7 @@ Transient System Metadata:
 User Metadata:
   X-Object-Meta-Mtime: 107.3
 Other Metadata:
-  No metadata found''' % (
-            utils.Timestamp(106.3).internal)
+  No metadata found''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
@@ -1624,8 +1631,7 @@ Transient System Metadata:
 User Metadata:
   X-Object-Meta-Mtime: 107.3
 Other Metadata:
-  X-Object-Mtime: 104.3''' % (
-            utils.Timestamp(106.3).internal)
+  X-Object-Mtime: 104.3''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 
@@ -1652,8 +1658,7 @@ Transient System Metadata:
 User Metadata:
   Mtime: 107.3
 Other Metadata:
-  X-Object-Mtime: 104.3''' % (
-            utils.Timestamp(106.3).internal)
+  X-Object-Mtime: 104.3''' % ts_data.internal
 
         self.assertEqual(out.getvalue().strip(), exp_out)
 

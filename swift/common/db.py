@@ -180,8 +180,9 @@ def chexor(old, name, timestamp):
 
     :param old: hex representation of the current DB hash
     :param name: name of the object or container being inserted
-    :param timestamp: internalized timestamp of the new record
-    :returns: a hex representation of the new hash value
+    :param timestamp: a string representation of attributes of the item being
+        inserted, for example the string representation of the item's
+        timestamp.
     """
     if name is None:
         raise Exception('name is None!')
@@ -252,7 +253,7 @@ class TombstoneReclaimer(object):
         ''' % self.broker.db_contains_type
         self.clean_batch_query = '''
             DELETE FROM %s WHERE deleted = 1
-            AND name >= ? AND %s < %s
+            AND name >= ? AND %s < '%s'
         ''' % (self.broker.db_contains_type, self.broker.db_reclaim_timestamp,
                self.age_timestamp)
 
@@ -412,7 +413,7 @@ class DatabaseBroker(object):
             END;
         """)
         if not put_timestamp:
-            put_timestamp = Timestamp(0).internal
+            put_timestamp = Timestamp.zero().internal
         self._initialize(conn, put_timestamp,
                          storage_policy_index=storage_policy_index)
         conn.commit()
@@ -1001,11 +1002,11 @@ class DatabaseBroker(object):
     def update_metadata(self, metadata_updates, validate_metadata=False):
         """
         Updates the metadata dict for the database. The metadata dict values
-        are tuples of (value, timestamp) where the timestamp indicates when
-        that key was set to that value. Key/values will only be overwritten if
-        the timestamp is newer. To delete a key, set its value to ('',
-        timestamp). These empty keys will eventually be removed by
-        :func:`reclaim`
+        are tuples of (value, timestamp) where the timestamp is an internalized
+        timestamp string that indicates when that key was set to that value.
+        Key/values will only be overwritten if the timestamp is newer. To
+        delete a key, set its value to ('', timestamp). These empty keys will
+        eventually be removed by :func:`reclaim`
         """
         old_metadata = self.metadata
         if set(metadata_updates).issubset(set(old_metadata)):
@@ -1053,8 +1054,10 @@ class DatabaseBroker(object):
 
         Subclasses may reclaim other items by overriding :meth:`_reclaim`.
 
-        :param age_timestamp: max created_at timestamp of object rows to delete
-        :param sync_timestamp: max update_at timestamp of sync rows to delete
+        :param age_timestamp: (float) the max created_at timestamp of object
+            rows to delete
+        :param sync_timestamp: (float) the max update_at timestamp of sync rows
+            to delete
         """
         if not self._skip_commit_puts():
             with lock_parent_directory(self.pending_file,
@@ -1072,11 +1075,22 @@ class DatabaseBroker(object):
         """
         This is only called once at the end of reclaim after tombstone reclaim
         has been completed.
+
+        :param conn: db connection
+        :param age_timestamp: (float) the max created_at timestamp of object
+            rows to delete
+        :param sync_timestamp: (float) the max update_at timestamp of sync rows
+            to delete
         """
         self._reclaim_sync(conn, sync_timestamp)
         self._reclaim_metadata(conn, age_timestamp)
 
     def _reclaim_sync(self, conn, sync_timestamp):
+        """
+        :param conn: db connection
+        :param sync_timestamp: (float) the max update_at timestamp of sync rows
+            to delete
+        """
         try:
             conn.execute('''
                 DELETE FROM outgoing_sync WHERE updated_at < ?
@@ -1098,7 +1112,7 @@ class DatabaseBroker(object):
         from other related functions.
 
         :param conn: Database connection to reclaim metadata within.
-        :param timestamp: Empty metadata items last updated before this
+        :param timestamp: (float) Empty metadata items last updated before this
                           timestamp will be removed.
         :returns: True if conn.commit() should be called
         """

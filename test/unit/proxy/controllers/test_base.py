@@ -14,6 +14,7 @@
 # limitations under the License.
 import operator
 import os
+import random
 from argparse import Namespace
 import itertools
 import json
@@ -40,7 +41,8 @@ from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, patch_policies,
-    FakeSource, StubResponse, CaptureIteratorFactory)
+    FakeSource, StubResponse, CaptureIteratorFactory, make_timestamp_iter,
+    BaseUnitTestCase)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -183,9 +185,10 @@ class FakeCache(FakeMemcache):
         return self.stub or super(FakeCache, self).get(key, raise_on_error)
 
 
-class BaseTest(unittest.TestCase):
+class BaseTest(BaseUnitTestCase):
 
     def setUp(self):
+        super().setUp()
         self.logger = debug_logger()
         self.cache = FakeCache()
         self.conf = {}
@@ -1313,18 +1316,21 @@ class TestFuncs(BaseTest):
 
     def test_generate_request_headers(self):
         base = Controller(self.app)
+        ts = next(self.ts_iter)
+
         src_headers = {'x-remove-base-meta-owner': 'x',
                        'x-base-meta-size': '151M',
                        'x-base-sysmeta-mysysmeta': 'myvalue',
                        'x-Backend-No-Timestamp-Update': 'true',
                        'X-Backend-Storage-Policy-Index': '3',
+                       'X-Timestamp': ts.internal,
                        'x-backendoftheworld': 'ignored',
                        'new-owner': 'Kun'}
         req = Request.blank('/v1/a/c/o', headers=src_headers)
         dst_headers = base.generate_request_headers(req)
         expected_headers = {'x-backend-no-timestamp-update': 'true',
                             'x-backend-storage-policy-index': '3',
-                            'x-timestamp': mock.ANY,
+                            'x-timestamp': ts.internal,
                             'x-trans-id': '-',
                             'Referer': 'GET http://localhost/v1/a/c/o',
                             'connection': 'close',
@@ -1366,13 +1372,14 @@ class TestFuncs(BaseTest):
 
         # with additional, verify precedence
         req = Request.blank('/v1/a/c/o', headers=src_headers)
+        ts_additional = next(self.ts_iter)
         dst_headers = base.generate_request_headers(
             req, transfer=False,
             additional={'X-Backend-Storage-Policy-Index': '2',
-                        'X-Timestamp': '1234.56789'})
+                        'X-Timestamp': ts_additional.internal})
         expected_headers = {'x-backend-no-timestamp-update': 'true',
                             'x-backend-storage-policy-index': '2',
-                            'x-timestamp': '1234.56789',
+                            'x-timestamp': ts_additional.internal,
                             'x-trans-id': '-',
                             'Referer': 'GET http://localhost/v1/a/c/o',
                             'connection': 'close',
@@ -1415,21 +1422,6 @@ class TestFuncs(BaseTest):
             self.assertEqual(v, dst_headers[k.lower()])
         for k, v in bad_hdrs.items():
             self.assertNotIn(k.lower(), dst_headers)
-
-    def test_generate_request_headers_with_no_orig_req(self):
-        base = Controller(self.app)
-        src_headers = {'x-remove-base-meta-owner': 'x',
-                       'x-base-meta-size': '151M',
-                       'new-owner': 'Kun'}
-        dst_headers = base.generate_request_headers(None,
-                                                    additional=src_headers,
-                                                    transfer=True)
-        expected_headers = {'x-base-meta-size': '151M',
-                            'connection': 'close'}
-        for k, v in expected_headers.items():
-            self.assertIn(k, dst_headers)
-            self.assertEqual(v, dst_headers[k])
-        self.assertEqual('', dst_headers['Referer'])
 
     def test_bytes_to_skip(self):
         # if you start at the beginning, skip nothing
@@ -1603,6 +1595,7 @@ class TestGetterSource(unittest.TestCase):
         self.node = {'ip': '1.2.3.4', 'port': '999'}
         self.headers = {'X-Timestamp': '1234567.12345'}
         self.resp = StubResponse(200, headers=self.headers)
+        self.ts_iter = make_timestamp_iter()
 
     def test_init(self):
         src = GetterSource(self.app, self.resp, self.node)
@@ -1615,38 +1608,60 @@ class TestGetterSource(unittest.TestCase):
         headers = {}
         src = self._make_source(headers, self.node)
         self.assertIsInstance(src.timestamp, Timestamp)
-        self.assertEqual(Timestamp(0), src.timestamp)
+        self.assertEqual(Timestamp.zero(), src.timestamp)
         # now x-timestamp
         headers = dict(self.headers)
         src = self._make_source(headers, self.node)
         self.assertIsInstance(src.timestamp, Timestamp)
-        self.assertEqual(Timestamp(1234567.12345), src.timestamp)
+        self.assertEqual(Timestamp(headers['X-Timestamp']), src.timestamp)
         headers['x-put-timestamp'] = '1234567.11111'
         src = self._make_source(headers, self.node)
         self.assertIsInstance(src.timestamp, Timestamp)
-        self.assertEqual(Timestamp(1234567.11111), src.timestamp)
+        self.assertEqual(Timestamp('1234567.11111'), src.timestamp)
         headers['x-backend-timestamp'] = '1234567.22222'
         src = self._make_source(headers, self.node)
         self.assertIsInstance(src.timestamp, Timestamp)
-        self.assertEqual(Timestamp(1234567.22222), src.timestamp)
+        self.assertEqual(Timestamp('1234567.22222'), src.timestamp)
         headers['x-backend-data-timestamp'] = '1234567.33333'
         src = self._make_source(headers, self.node)
         self.assertIsInstance(src.timestamp, Timestamp)
-        self.assertEqual(Timestamp(1234567.33333), src.timestamp)
+        self.assertEqual(Timestamp('1234567.33333'), src.timestamp)
+        ts_data = Timestamp.now(offset=123)
+        headers['x-backend-data-timestamp'] = ts_data.internal
+        src = self._make_source(headers, self.node)
+        self.assertIsInstance(src.timestamp, Timestamp)
+        self.assertEqual(ts_data, src.timestamp)
 
-    def test_sort(self):
+    def test_sort_by_x_timestamp(self):
         # verify sorting by timestamp
         srcs = [
-            self._make_source({'X-Timestamp': '12345.12345'},
+            self._make_source(
+                {'X-Timestamp': next(self.ts_iter).normal,
+                 'X-Put-Timestamp': next(self.ts_iter).normal},
+                {'ip': '1.2.3.9', 'port': '7'}),
+            self._make_source({'X-Timestamp': next(self.ts_iter).normal},
                               {'ip': '1.2.3.7', 'port': '9'}),
-            self._make_source({'X-Timestamp': '12345.12346'},
+            self._make_source({'X-Timestamp': next(self.ts_iter).normal},
                               {'ip': '1.2.3.8', 'port': '8'}),
-            self._make_source({'X-Timestamp': '12345.12343',
-                               'X-Put-Timestamp': '12345.12344'},
-                              {'ip': '1.2.3.9', 'port': '7'}),
         ]
-        actual = sorted(srcs, key=operator.attrgetter('timestamp'))
-        self.assertEqual([srcs[2], srcs[0], srcs[1]], actual)
+        actual = sorted(random.sample(srcs, k=len(srcs)),
+                        key=operator.attrgetter('timestamp'))
+        self.assertEqual(srcs, actual)
+
+    def test_sort_by_x_backend_timestamp(self):
+        # verify x-backend-timestamp is preferred over x-timestamp
+        src_headers = [{'X-Backend-Timestamp': next(self.ts_iter).internal}
+                       for _ in range(3)]
+        for headers in reversed(src_headers):
+            headers['X-Timestamp'] = next(self.ts_iter).normal
+        srcs = [
+            self._make_source(headers,
+                              {'ip': '1.2.3.%d' % i, 'port': '%d' % i})
+            for i, headers in enumerate(src_headers)
+        ]
+        actual = sorted(random.sample(srcs, k=len(srcs)),
+                        key=operator.attrgetter('timestamp'))
+        self.assertEqual(srcs, actual)
 
     def test_close(self):
         # verify close is robust...

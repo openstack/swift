@@ -178,6 +178,29 @@ class TestFakeSwift(unittest.TestCase):
             req.get_response(swift)
         self.assertEqual([], swift.calls)
 
+    def test_register_default_response_does_match(self):
+        def do_test(method):
+            swift = FakeSwift()
+            swift.register_default('GET', HTTPOk, {'X-Foo': 'Bar'}, b'stuff')
+            req = Request.blank('/v1/a/c/o')
+            req.method = method
+            resp = req.get_response(swift)
+            self.assertEqual(200, resp.status_int)
+            self.assertEqual('Bar', resp.headers.get('X-Foo'))
+            self.assertEqual((method, '/v1/a/c/o'), swift.calls[-1])
+
+        do_test('GET')
+        # HEAD matches GET...
+        do_test('HEAD')
+
+    def test_register_default_response_does_not_match(self):
+        swift = FakeSwift()
+        swift.register_default('GET', HTTPOk, {'X-Foo': 'Bar'}, b'stuff')
+        req = Request.blank('/v1/a/c/o')
+        req.method = 'PUT'
+        with self.assertRaises(KeyError):
+            req.get_response(swift)
+
     def test_GET_registered(self):
         # verify that a single registered GET response is sufficient to handle
         # GETs and HEADS, with and without query strings

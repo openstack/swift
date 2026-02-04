@@ -785,17 +785,6 @@ auth_uri = http://keystonehost:5000/v3
 # Connect/read timeout (in seconds) to use when communicating with Keystone
 http_timeout = 10.0
 
-# Number of seconds to cache the S3 secret. By setting this to a positive
-# number, the S3 authorization validation checks can happen locally.
-# secret_cache_duration = 0
-
-# If S3 secret caching is enabled, Keystone auth credentials to be used to
-# validate S3 authorization must be provided here. The appropriate options
-# are the same as used in the authtoken middleware above. The values are
-# likely the same as used in the authtoken middleware.
-# Note that the Keystone auth credentials used by s3token will need to be
-# able to view all project credentials too.
-
 # SSL-related options
 # insecure = False
 # certfile =
@@ -805,11 +794,15 @@ http_timeout = 10.0
 # log_name = s3token
 
 # Secrets may be cached to reduce latency for the client and load on Keystone.
-# Set this to some number of seconds greater than zero to enable caching.
-# secret_cache_duration = 0
+# This configures the duration that secrets may be cached; set to zero to
+# disable caching and prevent Swift from retrieving secrets from Keystone.
+# secret_cache_duration = 60
+# Note that caching is required to enable signed aws-chunked transfers.
 
-# Secret caching requires Keystone credentials similar to the authtoken middleware;
-# these credentials require access to view all project credentials.
+# Recent Keystone deployments require credentials similar to the authtoken
+# middleware; these credentials require access to the s3tokens endpoint.
+# Additionally, if secret caching is enabled, the credentials should have
+# access to view all project credentials.
 # auth_url = http://keystonehost:5000
 # auth_type = password
 # project_domain_id = default
@@ -1128,7 +1121,19 @@ use = egg:swift#proxy_logging
 # will be substituted with the appropriate values. For more information, see
 # https://docs.openstack.org/swift/latest/logs.html
 # log_msg_template = {client_ip} {remote_addr} {end_time.datetime} {method} {path} {protocol} {status_int} {referer} {user_agent} {auth_token} {bytes_recvd} {bytes_sent} {client_etag} {transaction_id} {headers} {request_time} {source} {log_info} {start_time} {end_time} {policy_index} {access_user_id}
-
+# The proxy_logging middleware attempts to translate s3api request paths to
+# swift paths. To do so it needs to know which, if any, storage domains are
+# configured for virtual-hosted style requests. This option should be a
+# comma-separated list of host names, exactly the same as that set for the
+# s3api middleware.
+# storage_domain =
+#
+# A float value in seconds for how often the proxy server should emit statsd
+# real-time buffer transfer bytes counter metrics for WSGI input or output.
+# Negative value for not emitting such metrics. 0 for always emitting such
+# metrics on every input or output call. Default is -1.
+# statsd_emit_buffer_xfer_bytes_seconds = -1
+#
 # Note: Put before both ratelimit and auth in the pipeline.
 [filter:bulk]
 use = egg:swift#bulk

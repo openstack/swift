@@ -93,6 +93,15 @@ def translate_swift_to_s3(key, val):
         return key, ', '.join(methods)
     elif _key.startswith('access-control-'):
         return key, val
+    elif _key == 'x-delete-at':
+        try:
+            delete_at = int(val)
+            expiry_date = swob.date_header_format(delete_at)
+            rule_id = 'swift-object-expiration'
+            return 'x-amz-expiration', \
+                'expiry-date="%s", rule-id="%s"' % (expiry_date, rule_id)
+        except (ValueError, TypeError):
+            pass
     # else, drop the header
     return None
 

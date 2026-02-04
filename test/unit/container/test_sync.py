@@ -970,6 +970,7 @@ class TestContainerSync(unittest.TestCase):
             sync.uuid = FakeUUID
             ts_data = Timestamp(1.1)
             timestamp = Timestamp(1.2)
+            timestamp2 = Timestamp(1.3)
             put_object_calls = []
 
             def fake_put_object(*args, **kwargs):
@@ -981,7 +982,11 @@ class TestContainerSync(unittest.TestCase):
                 self.assertEqual(sync_to, 'http://sync/to/path')
                 self.assertEqual(name, 'object')
                 expected_headers = {
-                    'x-timestamp': timestamp.internal,
+                    # x-timestamp here is normal, because it's forwarding
+                    # the response x-timestamp header it got from getting
+                    # the source object. This might be going to a different
+                    # cluster, so normal is probably the right call.
+                    'x-timestamp': timestamp.normal,
                     'etag': 'etagvalue',
                     'other-header': 'other header value',
                     'content-type': 'text/plain'}
@@ -1016,14 +1021,15 @@ class TestContainerSync(unittest.TestCase):
                 return (200,
                         {'other-header': 'other header value',
                          'etag': '"etagvalue"',
-                         'x-timestamp': timestamp.internal,
+                         'x-timestamp': timestamp.normal,
                          'content-type': 'text/plain; swift_bytes=123'},
                         iter([b'contents']))
 
             cs.swift.get_object = fake_get_object
             # Success as everything says it worked.
             # simulate a row with data at 1.1 and later ctype, meta times
-            created_at = ts_data.internal + '+1388+1388'  # last modified = 1.2
+            # ts_data + 0.5s + 0.5s i.e. last_modified = 1.2
+            created_at = ts_data.internal + '+1388+1388'
 
             def fake_object_in_rcontainer(row, sync_to, user_key,
                                           broker, realm, realm_key):
@@ -1055,7 +1061,7 @@ class TestContainerSync(unittest.TestCase):
                 return (200,
                         {'date': 'date value',
                          'last-modified': 'last modified value',
-                         'x-timestamp': timestamp.internal,
+                         'x-timestamp': timestamp.normal,
                          'other-header': 'other header value',
                          'etag': '"etagvalue"',
                          'content-type': 'text/plain; swift_bytes=123'},
@@ -1088,7 +1094,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': '1.1',
+                 'created_at': ts_data.internal,
                  'size': 60}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
@@ -1108,7 +1114,7 @@ class TestContainerSync(unittest.TestCase):
                 return (200,
                         {'date': 'date value',
                          'last-modified': 'last modified value',
-                         'x-timestamp': timestamp.internal,
+                         'x-timestamp': timestamp.normal,
                          'other-header': 'other header value',
                          'etag': '"etagvalue"',
                          'x-static-large-object': 'true',
@@ -1123,7 +1129,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertTrue(cs.container_sync_row(
                 {'deleted': False,
                  'name': 'object',
-                 'created_at': '1.1',
+                 'created_at': ts_data.internal,
                  'size': 60}, 'http://sync/to/path',
                 'key', FakeContainerBroker('broker'),
                 {'account': 'a', 'container': 'c', 'storage_policy_index': 0},
@@ -1194,7 +1200,7 @@ class TestContainerSync(unittest.TestCase):
                 self.assertEqual(headers['X-Backend-Storage-Policy-Index'],
                                  '0')
                 return (200, {'other-header': 'other header value',
-                              'x-timestamp': timestamp.internal,
+                              'x-timestamp': timestamp.normal,
                               'etag': '"etagvalue"'},
                         iter([b'contents']))
 
@@ -1277,7 +1283,7 @@ class TestContainerSync(unittest.TestCase):
                 actual_puts.append((args, kwargs))
 
             def fake_head_object(*args, **kwargs):
-                return ({'x-timestamp': '1.2'}, '')
+                return ({'x-timestamp': timestamp.normal}, '')
 
             sync.put_object = fake_put_object
             sync.head_object = fake_head_object
@@ -1293,7 +1299,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertEqual(cs.container_failures, excepted_failure_count)
 
             def fake_head_object(*args, **kwargs):
-                return ({'x-timestamp': '1.3'}, '')
+                return ({'x-timestamp': timestamp2.normal}, '')
 
             sync.head_object = fake_head_object
             self.assertTrue(cs.container_sync_row(
@@ -1349,7 +1355,7 @@ class TestContainerSync(unittest.TestCase):
             self.assertEqual(cs.container_failures, excepted_failure_count)
 
             def fake_head_object(*args, **kwargs):
-                return ({'x-timestamp': '1.1'}, '')
+                return ({'x-timestamp': ts_data.normal}, '')
 
             sync.head_object = fake_head_object
             self.assertTrue(cs.container_sync_row(

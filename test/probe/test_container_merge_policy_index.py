@@ -508,13 +508,17 @@ class TestContainerMergePolicyIndex(BaseTestContainerMergePolicyIndex):
                 server.once(number=self.config_number(node))
 
         # verify entry in the queue for the "misplaced" new_policy
-        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
-            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
-                                               container['name']):
-                expected = '%d:/%s/%s/%s' % (new_policy, self.account,
-                                             self.container_name,
-                                             self.object_name)
-                self.assertEqual(obj['name'], expected)
+        misplaced = [
+            obj['name']
+            for container in int_client.iter_containers(
+                MISPLACED_OBJECTS_ACCOUNT)
+            for obj in int_client.iter_objects(
+                MISPLACED_OBJECTS_ACCOUNT, container['name'])
+        ]
+        expected = '%d:/%s/%s/%s' % (new_policy, self.account,
+                                     self.container_name,
+                                     self.object_name)
+        self.assertIn(expected, misplaced)
 
         Manager(['container-reconciler']).once()
 
@@ -532,13 +536,17 @@ class TestContainerMergePolicyIndex(BaseTestContainerMergePolicyIndex):
         self.get_to_final_state()
 
         # verify entry in the queue
-        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
-            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
-                                               container['name']):
-                expected = '%d:/%s/%s/%s' % (old_policy, self.account,
-                                             self.container_name,
-                                             self.object_name)
-                self.assertEqual(obj['name'], expected)
+        misplaced = [
+            obj['name']
+            for container in int_client.iter_containers(
+                MISPLACED_OBJECTS_ACCOUNT)
+            for obj in int_client.iter_objects(
+                MISPLACED_OBJECTS_ACCOUNT, container['name'])
+        ]
+        expected = '%d:/%s/%s/%s' % (old_policy, self.account,
+                                     self.container_name,
+                                     self.object_name)
+        self.assertIn(expected, misplaced)
 
         Manager(['container-reconciler']).once()
 
@@ -553,10 +561,18 @@ class TestContainerMergePolicyIndex(BaseTestContainerMergePolicyIndex):
 
         # make sure the queue is settled
         self.get_to_final_state()
-        for container in int_client.iter_containers(MISPLACED_OBJECTS_ACCOUNT):
-            for obj in int_client.iter_objects(MISPLACED_OBJECTS_ACCOUNT,
-                                               container['name']):
-                self.fail('Found unexpected object %r in the queue' % obj)
+        misplaced = [
+            obj['name']
+            for container in int_client.iter_containers(
+                MISPLACED_OBJECTS_ACCOUNT)
+            for obj in int_client.iter_objects(
+                MISPLACED_OBJECTS_ACCOUNT, container['name'])
+        ]
+        unexpected = '/%s/%s/%s' % (self.account,
+                                    self.container_name,
+                                    self.object_name)
+        self.assertFalse(any(unexpected in name for name in misplaced),
+                         f"Found {unexpected} record in {misplaced}")
 
         # verify that the object data read by external client is correct
         headers, data = self._get_object_patiently(int(new_policy))

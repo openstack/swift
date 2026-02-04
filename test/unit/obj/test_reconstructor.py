@@ -272,6 +272,9 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                                   policy=policy, timestamp=ts)
             self._create_diskfile(part=2, object_name='o1', frag_index=0,
                                   policy=policy, timestamp=ts)
+        self.frag_hash = md5(ts.internal.encode('utf-8')).hexdigest()
+        self.durable_hash = md5(
+            (ts.internal + '.durable').encode('utf-8')).hexdigest()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -335,13 +338,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        2: self.frag_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }, {
@@ -400,13 +403,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'hashes':
                 {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229'
+                        None: self.durable_hash,
+                        2: self.frag_hash,
+                        1: self.frag_hash
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }]
@@ -446,13 +449,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 'hashes':
                 {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        0: self.frag_hash,
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }, {
@@ -487,13 +490,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        0: self.frag_hash,
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
             }, {
@@ -551,13 +554,13 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                     '3c1': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5',
-                        1: '0e6e8d48d801dc89fd31904ae3b31229',
+                        0: self.frag_hash,
+                        None: self.durable_hash,
+                        1: self.frag_hash,
                     },
                 },
 
@@ -597,12 +600,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5'
+                        0: self.frag_hash,
+                        None: self.durable_hash
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229'
+                        None: self.durable_hash,
+                        2: self.frag_hash
                     },
                 },
             }, {
@@ -637,12 +640,12 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
                 },
                 'hashes': {
                     '061': {
-                        0: '0e6e8d48d801dc89fd31904ae3b31229',
-                        None: '85b02a5283704292a511078a5c483da5'
+                        0: self.frag_hash,
+                        None: self.durable_hash
                     },
                     '3c1': {
-                        None: '85b02a5283704292a511078a5c483da5',
-                        2: '0e6e8d48d801dc89fd31904ae3b31229'
+                        None: self.durable_hash,
+                        2: self.frag_hash
                     },
                 },
             }]

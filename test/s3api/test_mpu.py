@@ -127,39 +127,6 @@ class BaseMultiPartUploadTestCase(BaseS3TestCase):
                     start, end - 1, total_size)
                 self.assertEqual(expected_range, resp['ContentRange'])
 
-    def _verify_copy_parts(self, key_src, key_dest, upload_id):
-        parts = []
-        for part_num, start, end in self._iter_part_num_ranges():
-            copy_range = 'bytes=%d-%d' % (start, end - 1)
-            copy_resp = self.client.\
-                upload_part_copy(Bucket=self.bucket_name,
-                                 Key=key_dest, PartNumber=part_num,
-                                 CopySource={
-                                     'Bucket': self.bucket_name,
-                                     'Key': key_src,
-                                 }, CopySourceRange=copy_range,
-                                 UploadId=upload_id)
-            self.assertEqual(200, copy_resp[
-                'ResponseMetadata']['HTTPStatusCode'])
-            self.assertTrue(copy_resp['CopyPartResult']['ETag'])
-            self.assertTrue(copy_resp['CopyPartResult']['LastModified'])
-            parts.append({
-                'ETag': copy_resp['CopyPartResult']['ETag'],
-                'PartNumber': part_num,
-            })
-
-        complete_mpu_resp = self.client.complete_multipart_upload(
-            Bucket=self.bucket_name, Key=key_dest,
-            MultipartUpload={
-                'Parts': parts,
-            },
-            UploadId=upload_id,
-        )
-        self.assertEqual(200, complete_mpu_resp[
-            'ResponseMetadata']['HTTPStatusCode'])
-
-        return complete_mpu_resp['ETag']
-
 
 class TestMultiPartUpload(BaseMultiPartUploadTestCase):
 
@@ -618,6 +585,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
 
     def test_upload_part_copy(self):
         self.num_parts = 4
+        # create a source object to copy from...
         key_src = self.create_name('part-copy-src')
         key_dest = self.create_name('part-copy-dest')
         mpu_etag_src = self.upload_mpu(key_src)
@@ -625,14 +593,54 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             self.client.get_object, key_src, mpu_etag_src)
         self._verify_part_num_response(
             self.client.head_object, key_src, mpu_etag_src)
+        src_head_resp = self.client.head_object(
+            Bucket=self.bucket_name,
+            Key=key_src
+        )
+        self.assertEqual(
+            200, src_head_resp['ResponseMetadata']['HTTPStatusCode'])
 
+        # create a destination mpu and copy into its parts from the source...
+        # sleep to ensure distinct last-modified times
+        time.sleep(1)
         create_mpu_dest = self.client.create_multipart_upload(
             Bucket=self.bucket_name, Key=key_dest)
         self.assertEqual(200, create_mpu_dest[
             'ResponseMetadata']['HTTPStatusCode'])
-
         upload_id = create_mpu_dest['UploadId']
-        mpu_etag_dst = self._verify_copy_parts(key_src, key_dest, upload_id)
+        parts = []
+        for part_num, start, end in self._iter_part_num_ranges():
+            copy_range = 'bytes=%d-%d' % (start, end - 1)
+            copy_resp = self.client.\
+                upload_part_copy(Bucket=self.bucket_name,
+                                 Key=key_dest, PartNumber=part_num,
+                                 CopySource={
+                                     'Bucket': self.bucket_name,
+                                     'Key': key_src,
+                                 }, CopySourceRange=copy_range,
+                                 UploadId=upload_id)
+            self.assertEqual(200, copy_resp[
+                'ResponseMetadata']['HTTPStatusCode'])
+            self.assertTrue(copy_resp['CopyPartResult']['ETag'])
+            self.assertTrue(copy_resp['CopyPartResult']['LastModified'])
+            self.assertGreater(
+                copy_resp['CopyPartResult']['LastModified'],
+                src_head_resp['LastModified'])
+            parts.append({
+                'ETag': copy_resp['CopyPartResult']['ETag'],
+                'PartNumber': part_num,
+            })
+
+        complete_mpu_resp = self.client.complete_multipart_upload(
+            Bucket=self.bucket_name, Key=key_dest,
+            MultipartUpload={
+                'Parts': parts,
+            },
+            UploadId=upload_id,
+        )
+        self.assertEqual(200, complete_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        mpu_etag_dst = complete_mpu_resp['ETag']
         self._verify_part_num_response(
             self.client.get_object, key_dest, mpu_etag_dst)
         self._verify_part_num_response(

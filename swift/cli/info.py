@@ -397,7 +397,7 @@ def print_obj_metadata(metadata, drop_prefixes=False):
         raise ValueError('Metadata is None')
     path = metadata.pop('name', '')
     content_type = metadata.pop('Content-Type', '')
-    ts = Timestamp(metadata.pop('X-Timestamp', 0))
+    ts = Timestamp(metadata.pop('X-Timestamp', Timestamp.zero()))
     account = container = obj = obj_hash = None
     if path:
         try:

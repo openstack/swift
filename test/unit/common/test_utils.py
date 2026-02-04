@@ -344,143 +344,6 @@ class TestUtils(unittest.TestCase):
                 success = True
         self.assertTrue(success)
 
-    def test_normalize_timestamp(self):
-        # Test swift.common.utils.normalize_timestamp
-        self.assertEqual(utils.normalize_timestamp('1253327593.48174'),
-                         "1253327593.48174")
-        self.assertEqual(utils.normalize_timestamp(1253327593.48174),
-                         "1253327593.48174")
-        self.assertEqual(utils.normalize_timestamp('1253327593.48'),
-                         "1253327593.48000")
-        self.assertEqual(utils.normalize_timestamp(1253327593.48),
-                         "1253327593.48000")
-        self.assertEqual(utils.normalize_timestamp('253327593.48'),
-                         "0253327593.48000")
-        self.assertEqual(utils.normalize_timestamp(253327593.48),
-                         "0253327593.48000")
-        self.assertEqual(utils.normalize_timestamp('1253327593'),
-                         "1253327593.00000")
-        self.assertEqual(utils.normalize_timestamp(1253327593),
-                         "1253327593.00000")
-        self.assertRaises(ValueError, utils.normalize_timestamp, '')
-        self.assertRaises(ValueError, utils.normalize_timestamp, 'abc')
-
-    def test_normalize_delete_at_timestamp(self):
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(1253327593),
-            '1253327593')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(1253327593.67890),
-            '1253327593')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('1253327593'),
-            '1253327593')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('1253327593.67890'),
-            '1253327593')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(-1253327593),
-            '0000000000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(-1253327593.67890),
-            '0000000000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('-1253327593'),
-            '0000000000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('-1253327593.67890'),
-            '0000000000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(71253327593),
-            '9999999999')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(71253327593.67890),
-            '9999999999')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('71253327593'),
-            '9999999999')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('71253327593.67890'),
-            '9999999999')
-        with self.assertRaises(TypeError):
-            utils.normalize_delete_at_timestamp(None)
-        with self.assertRaises(ValueError):
-            utils.normalize_delete_at_timestamp('')
-        with self.assertRaises(ValueError):
-            utils.normalize_delete_at_timestamp('abc')
-
-    def test_normalize_delete_at_timestamp_high_precision(self):
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(1253327593, True),
-            '1253327593.00000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(1253327593.67890, True),
-            '1253327593.67890')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('1253327593', True),
-            '1253327593.00000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('1253327593.67890', True),
-            '1253327593.67890')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(-1253327593, True),
-            '0000000000.00000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(-1253327593.67890, True),
-            '0000000000.00000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('-1253327593', True),
-            '0000000000.00000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('-1253327593.67890', True),
-            '0000000000.00000')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(71253327593, True),
-            '9999999999.99999')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp(71253327593.67890, True),
-            '9999999999.99999')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('71253327593', True),
-            '9999999999.99999')
-        self.assertEqual(
-            utils.normalize_delete_at_timestamp('71253327593.67890', True),
-            '9999999999.99999')
-        with self.assertRaises(TypeError):
-            utils.normalize_delete_at_timestamp(None, True)
-        with self.assertRaises(ValueError):
-            utils.normalize_delete_at_timestamp('', True)
-        with self.assertRaises(ValueError):
-            utils.normalize_delete_at_timestamp('abc', True)
-
-    def test_last_modified_date_to_timestamp(self):
-        expectations = {
-            '1970-01-01T00:00:00.000000': 0.0,
-            '2014-02-28T23:22:36.698390': 1393629756.698390,
-            '2011-03-19T04:03:00.604554': 1300507380.604554,
-        }
-        for last_modified, ts in expectations.items():
-            real = utils.last_modified_date_to_timestamp(last_modified)
-            self.assertEqual(real, ts, "failed for %s" % last_modified)
-
-    def test_last_modified_date_to_timestamp_when_system_not_UTC(self):
-        try:
-            old_tz = os.environ.get('TZ')
-            # Western Argentina Summer Time. Found in glibc manual; this
-            # timezone always has a non-zero offset from UTC, so this test is
-            # always meaningful.
-            os.environ['TZ'] = 'WART4WARST,J1/0,J365/25'
-
-            self.assertEqual(utils.last_modified_date_to_timestamp(
-                '1970-01-01T00:00:00.000000'),
-                0.0)
-
-        finally:
-            if old_tz is not None:
-                os.environ['TZ'] = old_tz
-            else:
-                os.environ.pop('TZ')
-
     def test_drain_and_close(self):
         utils.drain_and_close([])
         utils.drain_and_close(iter([]))
@@ -2281,17 +2144,17 @@ cluster_dfw1 = http://dfw1.host/v1/
     def test_make_db_file_path(self):
         epoch = utils.Timestamp.now()
         actual = utils.make_db_file_path('hash.db', epoch)
-        self.assertEqual('hash_%s.db' % epoch.internal, actual)
+        self.assertEqual('hash_%s.db' % epoch.normal, actual)
 
         actual = utils.make_db_file_path('hash_oldepoch.db', epoch)
-        self.assertEqual('hash_%s.db' % epoch.internal, actual)
+        self.assertEqual('hash_%s.db' % epoch.normal, actual)
 
         actual = utils.make_db_file_path('/path/to/hash.db', epoch)
-        self.assertEqual('/path/to/hash_%s.db' % epoch.internal, actual)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.normal, actual)
 
         epoch = utils.Timestamp.now()
         actual = utils.make_db_file_path(actual, epoch)
-        self.assertEqual('/path/to/hash_%s.db' % epoch.internal, actual)
+        self.assertEqual('/path/to/hash_%s.db' % epoch.normal, actual)
 
         # None strips epoch
         self.assertEqual('hash.db', utils.make_db_file_path('hash.db', None))
@@ -5975,19 +5838,16 @@ class TestShardName(unittest.TestCase):
         self.assertEqual('r1', parsed.root_container)
         self.assertEqual('7c92cf1eee8d99cc85f8355a3d6e4b86',
                          parsed.parent_container_hash)
-        self.assertEqual(utils.Timestamp(1662475499), parsed.timestamp)
+        self.assertEqual(utils.Timestamp('1662475499'), parsed.timestamp)
         self.assertEqual(1, parsed.index)
 
-        parsed = utils.ShardName('.shards_a', 'c', 'hash',
-                                 utils.Timestamp(1234), 42)
-        self.assertEqual(
-            '.shards_a/c-hash-0000001234.00000-42',
-            str(parsed))
+        ts = utils.Timestamp(1234)
+        parsed = utils.ShardName('.shards_a', 'c', 'hash', ts, 42)
+        self.assertEqual('.shards_a/c-hash-%s-42' % ts.internal, str(parsed))
 
-        parsed = utils.ShardName.create('.shards_a', 'c', 'c',
-                                        utils.Timestamp(1234), 42)
+        parsed = utils.ShardName.create('.shards_a', 'c', 'c', ts, 42)
         self.assertEqual(
-            '.shards_a/c-4a8a08f09d37b73795649038408b5f33-0000001234.00000-42',
+            '.shards_a/c-4a8a08f09d37b73795649038408b5f33-%s-42' % ts.internal,
             str(parsed))
 
     def test_bad_parse(self):

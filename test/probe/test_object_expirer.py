@@ -76,7 +76,11 @@ class TestObjectExpirer(ReplProbeTest):
         metadata = self.client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             headers={'X-Backend-Storage-Policy-Index': int(old_policy)})
-        create_timestamp = Timestamp(metadata['x-timestamp'])
+        self.assertIn('x-backend-timestamp', metadata)
+        create_timestamp = Timestamp(metadata['x-backend-timestamp'])
+        self.assertIn('x-timestamp', metadata)
+        self.assertEqual(create_timestamp.normal,
+                         Timestamp(metadata['x-timestamp']).normal)
         self.brain.start_primary_half()
         # get the expiring object updates in their queue, while we have all
         # the servers up
@@ -94,7 +98,6 @@ class TestObjectExpirer(ReplProbeTest):
         self.get_to_final_state()
 
         # validate object is expired
-        found_in_policy = None
         metadata = self.client.get_object_metadata(
             self.account, self.container_name, self.object_name,
             acceptable_statuses=(4,),

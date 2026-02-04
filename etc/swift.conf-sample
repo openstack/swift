@@ -157,6 +157,17 @@ aliases = yellow, orange
 #max_header_size = 8192
 
 
+# max_request_line constrains the max number of characters in the request
+# line; a request line '<method> <url> <HTTP/1.1>\r\n' must have less
+# than this number of characters.
+# Using 8192 as default because eventlet use 8192 as default max request line.
+#
+# Note: Request urls are concatenated with the request method to form
+# the Referer header that is sent to backend servers, so it may be
+# necessary to increase max_header_size when increasing max_request_line.
+
+#max_request_line = 8192
+
 # By default the maximum number of allowed headers depends on the number of max
 # allowed metadata settings plus a default value of 36 for swift internally
 # generated headers and regular http headers.  If for some reason this is not

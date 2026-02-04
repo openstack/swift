@@ -790,7 +790,8 @@ class ObjectController(BaseStorageServer):
             return HTTPNotFound(request=request)
         except DiskFileStateChanged:
             return HTTPServiceUnavailable(request=request)
-        orig_timestamp = Timestamp(orig_metadata.get('X-Timestamp', 0))
+        orig_timestamp = Timestamp(
+            orig_metadata.get('X-Timestamp', Timestamp.zero()))
         orig_ctype_timestamp = disk_file.content_type_timestamp
         req_ctype_time = '0'
         req_ctype = request.headers.get('Content-Type')
@@ -948,7 +949,7 @@ class ObjectController(BaseStorageServer):
         except (DiskFileNotExist, DiskFileQuarantined,
                 DiskFileStateChanged):
             orig_metadata = {}
-            orig_timestamp = Timestamp(0)
+            orig_timestamp = Timestamp.zero()
         # Checks for If-None-Match
         if request.if_none_match is not None and orig_metadata:
             if '*' in request.if_none_match:
@@ -1275,7 +1276,7 @@ class ObjectController(BaseStorageServer):
                             key.lower() in self.allowed_headers):
                         response.headers[key] = value
                 response.etag = metadata['ETag']
-                response.last_modified = file_x_ts.ceil()
+                response.last_modified = file_x_ts
                 response.content_length = obj_size
                 try:
                     response.content_encoding = metadata[
@@ -1351,7 +1352,7 @@ class ObjectController(BaseStorageServer):
                 response.headers[key] = value
         response.etag = metadata['ETag']
         ts = Timestamp(metadata['X-Timestamp'])
-        response.last_modified = ts.ceil()
+        response.last_modified = ts
         # Needed for container sync feature
         response.headers['X-Timestamp'] = ts.normal
         response.headers['X-Backend-Timestamp'] = ts.internal
@@ -1417,7 +1418,8 @@ class ObjectController(BaseStorageServer):
             else:
                 response_class = HTTPConflict
         response_timestamp = max(orig_timestamp, req_timestamp)
-        orig_delete_at = Timestamp(orig_metadata.get('X-Delete-At') or 0)
+        orig_delete_at = Timestamp(
+            orig_metadata.get('X-Delete-At') or Timestamp.zero())
         try:
             req_if_delete_at_val = request.headers['x-if-delete-at']
             req_if_delete_at = Timestamp(req_if_delete_at_val)

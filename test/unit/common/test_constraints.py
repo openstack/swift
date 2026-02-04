@@ -497,11 +497,12 @@ class TestConstraints(unittest.TestCase):
                           constraints.valid_timestamp,
                           Request.blank('/', headers={
                               'X-Timestamp': 'asdf'}))
-        timestamp = utils.Timestamp.now()
+        timestamp = utils.Timestamp.now(offset=0xabc)
         req = Request.blank('/', headers={'X-Timestamp': timestamp.internal})
         self.assertEqual(timestamp, constraints.valid_timestamp(req))
         req = Request.blank('/', headers={'X-Timestamp': timestamp.normal})
-        self.assertEqual(timestamp, constraints.valid_timestamp(req))
+        self.assertEqual(utils.Timestamp(timestamp.normal),
+                         constraints.valid_timestamp(req))
 
     def test_check_utf8(self):
         unicode_sample = u'\uc77c\uc601'

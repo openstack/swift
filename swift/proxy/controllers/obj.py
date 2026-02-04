@@ -45,7 +45,7 @@ from swift.common.utils import (
     document_iters_to_http_response_body, parse_content_range,
     quorum_size, reiterate, close_if_possible, safe_json_loads, md5,
     NamespaceBoundList, CooperativeIterator, cache_from_env,
-    CooperativeCachePopulator, split_path)
+    CooperativeCachePopulator, node_to_string, split_path)
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_metadata, check_object_creation
 from swift.common import constraints
@@ -59,7 +59,7 @@ from swift.common.http import (
     is_redirection, HTTP_CONTINUE, HTTP_INTERNAL_SERVER_ERROR,
     HTTP_SERVICE_UNAVAILABLE, HTTP_INSUFFICIENT_STORAGE,
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, HTTP_UNPROCESSABLE_ENTITY,
-    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_NOT_FOUND)
+    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_NOT_FOUND, HTTP_ACCEPTED)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
                                          ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
@@ -473,8 +473,6 @@ class BaseObjectController(Controller):
         error_response = check_metadata(req, 'object')
         if error_response:
             return error_response
-
-        req.ensure_x_timestamp()
 
         req, delete_at_container, delete_at_part, \
             delete_at_nodes = self._config_obj_expiration(req)
@@ -900,6 +898,44 @@ class BaseObjectController(Controller):
                                   node_iterator=node_iterator)
         return resp
 
+    def _post_extra_handoffs(self, req, obj_ring, partition, headers,
+                             responses, handoff_nodes):
+        """
+        Send POST requests to handoff nodes when primary nodes return mixed
+        results.
+
+        :param req: the POST Request
+        :param obj_ring: the object ring
+        :param partition: ring partition number
+        :param headers: request headers to storage nodes
+        :param responses: responses from primary node requests
+        :param handoff_nodes: list of handoff nodes to try
+        :return: list of handoff responses to extend the original responses
+        """
+        node_iter = NodeIter(
+            'object', self.app, obj_ring, partition, self.logger, req,
+            node_iter=handoff_nodes)
+        # we want the backend headers from the *missing* nodes
+        missing_headers = [h for h, r in zip(headers, responses)
+                           if r.status != HTTP_ACCEPTED]
+        # _make_requests will make requests per header, if our handoff_iter is
+        # too short it can *recycle* the nodes (?) and get 409s!?
+        missing_headers = missing_headers[:len(handoff_nodes)]
+        handoff_responses = self._make_requests(
+            req, obj_ring, partition, 'POST',
+            req.swift_entity_path, missing_headers,
+            node_count=len(handoff_nodes),
+            node_iterator=node_iter)
+        return handoff_responses
+
+    def _collect_status_map(self, responses):
+        status_map = collections.defaultdict(list)
+        for resp in responses:
+            if not resp or not resp.node:
+                continue
+            status_map[resp.status].append(node_to_string(resp.node))
+        return status_map
+
     def _post_object(self, req, obj_ring, partition, headers):
         """
         send object POST request to storage nodes.
@@ -910,9 +946,42 @@ class BaseObjectController(Controller):
         :param headers: system headers to storage nodes
         :return: Response object
         """
-        resp = self.make_requests(req, obj_ring, partition,
-                                  'POST', req.swift_entity_path, headers)
-        return resp
+        node_iter = NodeIter(
+            'object', self.app, obj_ring, partition, self.logger, req)
+        responses = self._make_requests(
+            req, obj_ring, partition, 'POST', req.swift_entity_path, headers,
+            node_iterator=node_iter)
+        primary_status_map = self._collect_status_map(responses)
+        # by default best_response quorum is resp length sized, presumably in
+        # order to support fractional replicas
+        quorum = self._quorum_size(len(responses))
+        found_count = len(primary_status_map[HTTP_ACCEPTED])
+        if found_count and found_count < quorum:
+            # ... but quorum is going to be wrong if we make extra requests
+            quorum = self._quorum_size(obj_ring.replica_count)
+            # the make_requests machinery will make extra requests to handoffs
+            # for Timeout/503 primaries, we only have to make up for the 404s
+            extra_requests = len(primary_status_map[HTTP_NOT_FOUND])
+            handoff_nodes = list(itertools.islice(
+                node_iter.handoff_iter, extra_requests))
+            self.logger.debug(
+                'Primary nodes returned mixed results on POST: %r,'
+                ' trying handoffs: %r', dict(primary_status_map),
+                [node_to_string(n) for n in handoff_nodes])
+            handoff_responses = self._post_extra_handoffs(
+                req, obj_ring, partition, headers, responses, handoff_nodes)
+            responses.extend(handoff_responses)
+
+        final_resp = self.best_response(
+            req, responses, headers=True, quorum_size=quorum)
+        if final_resp.status_int == HTTP_NOT_FOUND and found_count > 0:
+            # 404 can't be right, we have an existence proof
+            final_status_map = self._collect_status_map(responses)
+            self.logger.debug(
+                'Unable to resolve mixed results on POST: %r',
+                dict(final_status_map))
+            raise HTTPServiceUnavailable(request=req)
+        return final_resp
 
     @public
     @cors_validation
@@ -950,9 +1019,6 @@ class BaseObjectController(Controller):
 
         # update content type in case it is missing
         update_content_type(req)
-
-        req.ensure_x_timestamp()
-
         # check constraints on object name and request headers
         error_response = check_object_creation(req, self.object_name) or \
             check_content_type(req)
@@ -1007,8 +1073,6 @@ class BaseObjectController(Controller):
             return HTTPNotFound(request=req)
         partition, nodes = obj_ring.get_nodes(
             self.account_name, self.container_name, self.object_name)
-
-        req.ensure_x_timestamp()
 
         # Include local handoff nodes if write-affinity is enabled.
         node_count = len(nodes)
@@ -1186,7 +1250,7 @@ class ReplicatedObjectController(BaseObjectController):
 
         etag = etags.pop() if len(etags) else None
         resp = self.best_response(req, responses, etag=etag)
-        resp.last_modified = Timestamp(req.headers['X-Timestamp']).ceil()
+        resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp
 
 
@@ -2730,7 +2794,8 @@ class ECFragGetter(GetterBase):
         if 'handoff_index' in node and \
                 (is_server_error(possible_source.status) or
                  possible_source.status == HTTP_NOT_FOUND) and \
-                not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                not Timestamp(
+                    src_headers.get('x-backend-timestamp', Timestamp.zero())):
             # throw out 5XX and 404s from handoff nodes unless the data is
             # really on disk and had been DELETEd
             self.logger.debug('Ignoring %s from handoff' %
@@ -3032,7 +3097,9 @@ class ECObjectController(BaseObjectController):
                         t_obj = bad_resp_headers.get(
                             'X-Backend-Timestamp',
                             bad_resp_headers.get('X-Timestamp'))
-                        bad_ts = Timestamp(t_data_file or t_obj or '0')
+                        bad_ts = Timestamp(t_data_file or
+                                           t_obj or
+                                           Timestamp.zero())
                         if bad_ts <= best_bucket.timestamp:
                             # We have reason to believe there's still good data
                             # out there, it's just currently unavailable
@@ -3040,7 +3107,8 @@ class ECObjectController(BaseObjectController):
                     if getter.status:
                         timestamp = Timestamp(getter.headers.get(
                             'X-Backend-Timestamp',
-                            getter.headers.get('X-Timestamp', 0)))
+                            getter.headers.get(
+                                'X-Timestamp', Timestamp.zero())))
                         if (rebalance_missing_suppression_count > 0 and
                                 getter.status == HTTP_NOT_FOUND and
                                 not timestamp):
@@ -3454,5 +3522,5 @@ class ECObjectController(BaseObjectController):
         etag = etag_hasher.hexdigest()
         resp = self.best_response(req, responses, etag=etag,
                                   quorum_size=min_conns)
-        resp.last_modified = Timestamp(req.headers['X-Timestamp']).ceil()
+        resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp

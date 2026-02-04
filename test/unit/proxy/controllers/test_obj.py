@@ -47,7 +47,9 @@ from swift.proxy.controllers.base import \
     NodeIter
 from swift.common.storage_policy import POLICIES, ECDriverError, \
     StoragePolicy, ECStoragePolicy
-from swift.common.swob import Request, Response, wsgi_to_str
+from swift.common.swob import Request, Response, wsgi_to_str, \
+    date_header_format
+from test import BaseTestCase
 from test.debug_logger import debug_logger, debug_labeled_statsd_client
 from test.unit import (
     FakeRing, fake_http_connect, patch_policies, SlowBody, FakeStatus,
@@ -198,8 +200,7 @@ class BaseObjectControllerMixin(object):
         # default policy and ring references
         self.policy = POLICIES.default
         self.obj_ring = self.policy.object_ring
-        self._ts_iter = (utils.Timestamp(t) for t in
-                         itertools.count(int(time.time())))
+        self._ts_iter = make_timestamp_iter()
 
     def _make_app(self):
         self.app = PatchedObjControllerApp(
@@ -1081,9 +1082,8 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_HEAD_x_newest_different_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         num_expected_requests = 2 * self.replicas()
-        timestamps = [next(ts) for i in range(num_expected_requests)]
+        timestamps = [self.ts() for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
         random.shuffle(timestamps)
         backend_response_headers = [{
@@ -1099,11 +1099,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_HEAD_x_newest_with_two_vector_timestamps(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp.now(offset=offset)
-              for offset in itertools.count())
+        # constant float part, varying offset...
+        now = Timestamp.now()
+        ts = (Timestamp(now, offset) for offset in itertools.count())
         num_expected_requests = 2 * self.replicas()
         timestamps = [next(ts) for i in range(num_expected_requests)]
         newest_timestamp = timestamps[-1]
+        self.assertGreater(newest_timestamp, timestamps[0])
         random.shuffle(timestamps)
         backend_response_headers = [{
             'X-Backend-Timestamp': t.internal,
@@ -1114,15 +1116,14 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers['x-backend-timestamp'],
-                         newest_timestamp.internal)
+                         newest_timestamp.internal, timestamps)
 
     def test_HEAD_x_newest_with_some_missing(self):
         req = swob.Request.blank('/v1/a/c/o', method='HEAD',
                                  headers={'X-Newest': 'true'})
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         request_count = self.app.request_node_count(self.obj_ring.replicas)
         backend_response_headers = [{
-            'x-timestamp': next(ts).normal,
+            'x-timestamp': self.ts().normal,
         } for i in range(request_count)]
         responses = [404] * (request_count - 1)
         responses.append(200)
@@ -1167,14 +1168,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], '2')
 
     def test_container_sync_delete(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             req = swob.Request.blank(
                 '/v1/a/c/o', method='DELETE', headers={
-                    'X-Timestamp': next(ts).internal})
+                    'X-Timestamp': self.ts().internal})
             codes = [409] * self.obj_ring.replicas
-            ts_iter = itertools.repeat(next(ts).internal)
+            ts_iter = itertools.repeat(self.ts().internal)
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 409)
@@ -1519,10 +1519,16 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
     def test_POST_all_primaries_succeed(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
         primary_codes = [202] * self.replicas()
-        with mocked_http_conn(*primary_codes):
+        with mocked_http_conn(*primary_codes) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(202, resp.status_int,
                          'replicas = %s' % self.replicas())
+
+        timestamps = [captured['headers'].get('X-Timestamp')
+                      for captured in mock_conn.requests]
+        self.assertEqual(self.replicas(), len(timestamps))
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_POST_sufficient_primaries_succeed_others_404(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
@@ -1549,15 +1555,72 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
         self.assertEqual(202, resp.status_int,
                          'replicas = %s' % self.replicas())
 
-    def test_POST_insufficient_primaries_succeed_others_404(self):
+    def test_POST_mixed_primaries_with_handoff_success(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
         primary_success = quorum_size(self.replicas()) - 1
         primary_failure = self.replicas() - primary_success
         primary_codes = [404] * primary_failure + [202] * primary_success
-        with mocked_http_conn(*primary_codes):
+        handoff_codes = [202] * primary_failure
+        codes = primary_codes + handoff_codes
+        with mocked_http_conn(*codes):
             resp = req.get_response(self.app)
-        # TODO: should this be a 503?
-        self.assertEqual(404, resp.status_int,
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+
+    def test_POST_mixed_primaries_with_partial_handoff_success(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
+        primary_success = quorum_size(self.replicas()) - 1
+        primary_failure = self.replicas() - primary_success
+        primary_codes = [404] * primary_failure + [202] * primary_success
+        handoff_codes = [404] * (primary_failure // 2) + \
+                        [202] * (primary_failure - primary_failure // 2)
+        codes = primary_codes + handoff_codes
+        # object-server POST responses have no backend timestamps anyway, but
+        # it's important the handoffs don't have timestamps so that
+        # is_useful_response replaces them with 503s
+        headers = [{'x-backend-timestamp': None}] * len(codes)
+        with mocked_http_conn(*codes, headers=headers) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+        requested_nodes = [r['ip'] for r in log.requests]
+        self.assertEqual(len(requested_nodes), len(set(requested_nodes)))
+
+    def test_POST_mixed_primaries_with_handoff_missing(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        if self.replicas() == 1:
+            # with single replica, what you get is what you get
+            for status in (404, 202):
+                with mocked_http_conn(status):
+                    resp = req.get_response(self.app)
+                self.assertEqual(status, resp.status_int)
+            return
+        primary_success = quorum_size(self.replicas()) - 1
+        primary_failure = self.replicas() - primary_success
+        primary_codes = [404] * primary_failure + [202] * primary_success
+        handoff_codes = [404] * primary_failure
+        codes = primary_codes + handoff_codes
+        # object-server POST responses have no backend timestamps anyway, but
+        # it's important the handoffs don't have timestamps so that
+        # is_useful_response replaces them with 503s
+        headers = [{'x-backend-timestamp': None}] * len(codes)
+        with mocked_http_conn(*codes, headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
 
     def test_POST_insufficient_primaries_others_fail_handoffs_404(self):
@@ -1575,6 +1638,27 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(503, resp.status_int,
                          'replicas = %s' % self.replicas())
+
+    def test_POST_primary_timeout_mixed_handoff(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
+        primary_success = 1
+        primary_failure = min(self.replicas() - 1, 1)
+        primary_missing = max(self.replicas() - 2, 0)
+        primary_codes = ([Timeout()] * primary_failure
+                         + [202] * primary_success
+                         + [404] * primary_missing)
+        handoff_codes = [404] * primary_failure + [202] * primary_missing
+        # make sure handoff 404 doesn't have a timestamp
+        headers = ([{}] * len(primary_codes)
+                   + [{'x-backend-timestamp': None}] * len(handoff_codes))
+        with mocked_http_conn(*(primary_codes + handoff_codes),
+                              headers=headers) as log:
+            resp = req.get_response(self.app)
+        self.assertEqual(202, resp.status_int,
+                         'replicas = %s' % self.replicas())
+        # we want to make sure we don't double up requests to any handoffs
+        requested_nodes = [r['ip'] for r in log.requests]
+        self.assertEqual(len(requested_nodes), len(set(requested_nodes)))
 
     def test_POST_insufficient_primaries_others_fail_handoffs_fail(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='POST')
@@ -1619,16 +1703,21 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
 @patch_policies()
 class TestReplicatedObjController(CommonObjectControllerMixin,
-                                  unittest.TestCase):
+                                  BaseTestCase):
 
     controller_cls = obj.ReplicatedObjectController
 
     def test_PUT_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
         req.headers['content-length'] = '0'
-        with set_http_connect(201, 201, 201):
+        with mocked_http_conn(201, 201, 201) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+        timestamps = [captured['headers'].get('X-Timestamp')
+                      for captured in mock_conn.requests]
+        self.assertEqual(3, len(timestamps))
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_PUT_error_with_footers(self):
         footers_callback = make_footers_callback(b'')
@@ -1687,9 +1776,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
             'Etag': etag,
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop())),
         })
         for connection_id, info in put_requests.items():
             body = b''.join(info['chunks'])
@@ -2109,11 +2197,28 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
 
     def test_GET_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o')
-        with set_http_connect(200, headers={'Connection': 'close'}):
+        with mocked_http_conn(
+                200, headers={'Connection': 'close'}) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
+        self.assertEqual('GET', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
+
+    def test_HEAD_simple(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o')
+        req.method = 'HEAD'
+        with mocked_http_conn(
+                200, headers={'Connection': 'close'}) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
+        self.assertEqual('HEAD', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
 
     def test_GET_slow_read(self):
         self.app.recoverable_node_timeout = 0.01
@@ -2884,29 +2989,27 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_older(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
             self.app.container_info['storage_policy'] = policy_index
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': next(ts).internal})
-            ts_iter = itertools.repeat(next(ts).internal)
+                    'X-Timestamp': self.ts().internal})
+            ts_iter = itertools.repeat(self.ts().internal)
             codes = [409] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
                 resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_newer(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            orig_timestamp = next(ts).internal
+            orig_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
-                    'X-Timestamp': next(ts).internal})
+                    'X-Timestamp': self.ts().internal})
             ts_iter = itertools.repeat(orig_timestamp)
             codes = [201] * self.obj_ring.replicas
             with set_http_connect(*codes, timestamps=ts_iter):
@@ -2914,23 +3017,21 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 201)
 
     def test_put_x_timestamp_conflict(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [201] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_missing_backend_timestamp(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
+                'X-Timestamp': self.ts().internal})
         ts_iter = iter([None, None, None])
         codes = [409] * self.obj_ring.replicas
         with set_http_connect(*codes, timestamps=ts_iter):
@@ -2938,35 +3039,32 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_other_weird_success_response(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [(201, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 202)
 
     def test_put_x_timestamp_conflict_with_if_none_match(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         req = swob.Request.blank(
             '/v1/a/c/o', method='PUT', headers={
                 'Content-Length': 0,
                 'If-None-Match': '*',
-                'X-Timestamp': next(ts).internal})
-        ts_iter = iter([next(ts).internal, None, None])
+                'X-Timestamp': self.ts().internal})
+        ts_iter = iter([self.ts().internal, None, None])
         codes = [409] + [(412, 'notused')] * (self.obj_ring.replicas - 1)
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 412)
 
     def test_container_sync_put_x_timestamp_race(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = next(ts).internal
+            put_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -2983,10 +3081,9 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, 202)
 
     def test_container_sync_put_x_timestamp_unsynced_race(self):
-        ts = (utils.Timestamp(t) for t in itertools.count(int(time.time())))
         test_indexes = [None] + [int(p) for p in POLICIES]
         for policy_index in test_indexes:
-            put_timestamp = next(ts).internal
+            put_timestamp = self.ts().internal
             req = swob.Request.blank(
                 '/v1/a/c/o', method='PUT', headers={
                     'Content-Length': 0,
@@ -3060,7 +3157,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
     fake_ring_args=[
         {'replicas': 1}, {'replicas': 4}, {'replicas': 8}, {'replicas': 15}])
 class TestReplicatedObjControllerVariousReplicas(CommonObjectControllerMixin,
-                                                 unittest.TestCase):
+                                                 BaseTestCase):
     controller_cls = obj.ReplicatedObjectController
 
     def test_DELETE_with_write_affinity(self):
@@ -3090,7 +3187,7 @@ class TestReplicatedObjControllerVariousReplicas(CommonObjectControllerMixin,
 
 @patch_policies()
 class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
-                                            unittest.TestCase):
+                                            BaseTestCase):
     # tests specific to PUTs using a MimePutter
     expect_headers = {
         'X-Obj-Metadata-Footer': 'yes'
@@ -3152,9 +3249,8 @@ class TestReplicatedObjControllerMimePutter(BaseObjectControllerMixin,
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
             'Etag': 'resp_etag',
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop())),
         })
         for connection_id, info in put_requests.items():
             body = unchunk_body(b''.join(info['chunks']))
@@ -3373,7 +3469,7 @@ class ECObjectControllerMixin(CommonObjectControllerMixin):
 
 
 @patch_policies(with_ec_default=True)
-class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
+class TestECObjController(ECObjectControllerMixin, BaseTestCase):
     container_info = {
         'status': 200,
         'read_acl': None,
@@ -3439,13 +3535,34 @@ class TestECObjController(ECObjectControllerMixin, unittest.TestCase):
             'Connection': 'close',
             'X-Object-Sysmeta-Ec-Scheme': self.policy.ec_scheme_description,
         }] * self.policy.ec_ndata
-        with set_http_connect(*get_statuses, headers=get_hdrs):
+        with mocked_http_conn(*get_statuses, headers=get_hdrs) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
         self.assertIn('Accept-Ranges', resp.headers)
         self.assertNotIn('Connection', resp.headers)
         self.assertFalse([h for h in resp.headers
                           if h.lower().startswith('x-object-sysmeta-ec-')])
+        self.assertEqual('GET', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
+
+    def test_HEAD_simple(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o',
+                                              {'REQUEST_METHOD': 'HEAD'})
+        resp_hdrs = {
+            'Connection': 'close',
+            'X-Object-Sysmeta-Ec-Scheme': self.policy.ec_scheme_description,
+        }
+        with mocked_http_conn(200, headers=resp_hdrs) as mock_conn:
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 200)
+        self.assertIn('Accept-Ranges', resp.headers)
+        self.assertNotIn('Connection', resp.headers)
+        self.assertFalse([h for h in resp.headers
+                          if h.lower().startswith('x-object-sysmeta-ec-')])
+        self.assertEqual('HEAD', mock_conn.requests[0]['method'])
+        timestamp = mock_conn.requests[0]['headers'].get('X-Timestamp')
+        self.assert_valid_timestamp(timestamp)
 
     def test_GET_disconnect(self):
         self.app.recoverable_node_timeout = 0.01
@@ -6726,7 +6843,7 @@ class TestECFunctions(unittest.TestCase):
                  StoragePolicy(1, name='unu')],
                 fake_ring_args=[{'replicas': 28}, {}])
 class TestECDuplicationObjController(
-        ECObjectControllerMixin, unittest.TestCase):
+        ECObjectControllerMixin, BaseTestCase):
     container_info = {
         'status': 200,
         'read_acl': None,
@@ -7362,7 +7479,7 @@ class ECCommonPutterMixin(object):
 @patch_policies(with_ec_default=True)
 class TestECObjControllerMimePutter(BaseObjectControllerMixin,
                                     ECCommonPutterMixin,
-                                    unittest.TestCase):
+                                    BaseTestCase):
     # tests specific to the older PUT protocol using a MimePutter
     expect_headers = {
         'X-Obj-Metadata-Footer': 'yes',
@@ -7378,9 +7495,15 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT',
                                               body=b'')
         codes = [201] * self.replicas()
-        with set_http_connect(*codes, expect_headers=self.expect_headers):
+        with mocked_http_conn(*codes,
+                              expect_headers=self.expect_headers) as mock_conn:
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 201)
+        timestamps = [captured['headers'].get('X-Timestamp')
+                      for captured in mock_conn.requests]
+        self.assertEqual(self.replicas(), len(timestamps))
+        self.assertEqual(1, len(set(timestamps)))
+        self.assert_valid_timestamp(timestamps[0])
 
     def test_PUT_with_body_and_bad_etag(self):
         segment_size = self.policy.ec_segment_size
@@ -7566,9 +7689,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
         self.assertEqual(dict(resp.headers), {
             'Content-Type': 'text/html; charset=UTF-8',
             'Content-Length': '0',
-            'Last-Modified': time.strftime(
-                "%a, %d %b %Y %H:%M:%S GMT",
-                time.gmtime(math.ceil(float(timestamps.pop())))),
+            'Last-Modified':
+                date_header_format(Timestamp(timestamps.pop())),
             'Etag': etag,
         })
         frag_archives = []
@@ -7700,9 +7822,8 @@ class TestECObjControllerMimePutter(BaseObjectControllerMixin,
             self.assertEqual(dict(resp.headers), {
                 'Content-Type': 'text/html; charset=UTF-8',
                 'Content-Length': '0',
-                'Last-Modified': time.strftime(
-                    "%a, %d %b %Y %H:%M:%S GMT",
-                    time.gmtime(math.ceil(float(timestamps.pop())))),
+                'Last-Modified':
+                    date_header_format(Timestamp(timestamps.pop())),
                 'Etag': etag,
             })
             for connection_id, info in put_requests.items():

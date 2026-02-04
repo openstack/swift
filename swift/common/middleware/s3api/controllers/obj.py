@@ -21,7 +21,7 @@ from swift.common.http import HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_NO_CONTENT, \
     is_success
 from swift.common.request_helpers import update_etag_is_at_header
 from swift.common.swob import Range, content_range_header_value, \
-    normalize_etag
+    normalize_etag, parse_date_header
 from swift.common.utils import public, list_from_csv
 from swift.common.registry import get_swift_info
 
@@ -164,9 +164,6 @@ class ObjectController(Controller):
         """
         if len(req.object_name) > constraints.MAX_OBJECT_NAME_LENGTH:
             raise KeyTooLongError()
-        # set X-Timestamp by s3api to use at copy resp body
-        req_timestamp = S3Timestamp.now()
-        req.headers['X-Timestamp'] = req_timestamp.internal
         if all(h in req.headers
                for h in ('X-Amz-Copy-Source', 'X-Amz-Copy-Source-Range')):
             raise InvalidArgument('x-amz-copy-source-range',
@@ -181,8 +178,10 @@ class ObjectController(Controller):
         self._maybe_cleanup_mpu(req, resp)
 
         if 'X-Amz-Copy-Source' in req.headers:
+            last_modified_ts = S3Timestamp(
+                parse_date_header(resp.headers['Last-Modified']))
             resp.append_copy_resp_body(req.controller_name,
-                                       req_timestamp.s3xmlformat)
+                                       last_modified_ts.s3xmlformat)
             # delete object metadata from response
             for key in list(resp.headers.keys()):
                 if key.lower().startswith('x-amz-meta-'):

@@ -451,7 +451,7 @@
     name: swift-multinode-rolling-upgrade-caracal
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2024.1
+      previous_swift_version: 2024.1-eom
       tox_envlist: func-py3
 
 - job:
@@ -466,6 +466,12 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/2025.1
+
+- job:
+    name: swift-multinode-rolling-upgrade-flamingo
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/2025.2
 
 - job:
     name: swift-multinode-rolling-upgrade-master
@@ -484,20 +490,23 @@
 
 # Image building jobs
 - secret:
-    name: swift-dockerhub
+    name: swift-dockerhub-2026
     data:
       username: screamingfrenzy
       password: !encrypted/pkcs1-oaep
-        - ruMizg1iVvKm4ABLQ8GshZMwt3EzxOyjPZsInL20+ZS+TQxhEwRbLFGzSxnrChIOdioyl
-          7TMW1PxQeJ5T/mPIsV7TBsSsnIMKYRcDSbKjnC0hjILpKfQXLFw4/rV/d3jeB6oLDSTW1
-          fIt4NmJqhsjlvst+VwT1JnFHLdrRaGMWYkjRU8rEmH82jDM7Wk7J+selykvTrlRQ7RpQR
-          6huzniL6PJPOZ7I5VsQcCmEWYKwd/u9Ifhe50yjgxmKR7Fi+wl0nBSOzt38f9ZEXTB6So
-          /ks0+RX2sTlgulNgJnnR8FG3p2AHxTJ75fcBnY1KkYlG0+KsdRTzNjxNXs2/Ao0pyJJTs
-          JWniEHWVAq6T5agwD1SsmWAzFctBjGKDstxmTyHaSNNN5c6yoVZewRBrFDfYXMJUikyS+
-          52bel/uihhiq60MnUCzKCiBg/TM1uonwRKA2KkDXWRh80oxBMIxw5nVZCMaHFpx7NW/ls
-          k6aI8jio+/N0cLZlglWqGOsE3EC08Ddd+cqe668/LQVY97UgMjIu6aZRwX9Iwa2NXNDRE
-          zPKQ3UDWYFgl8Za90PmrRD4qYuN/1lqCrLKp5cSJbche+EqdrGolCj701zUWcCdwjHMwz
-          YA5zG1SbWFyC9BidZYTwMNbo/RRz4TtFmW35A4CRE5HYB5Uh5ccpGlBvI9Yv8A=
+        # Updated via `zuul-client --zuul-url https://zuul.opendev.org encrypt --tenant openstack --project openstack/swift --secret-name swift-dockerhub-2026 --infile /tmp/secret --field-name password`
+        # Be careful not to include any trailing newlines in the secret file! It should contain *exactly* the password: no more, no less.
+        # Note that we've seen issues with some special characters causing issues in the ansible plumbing; new passwords should probably avoid using double quotes ("), single quotes ('), and dollar signs ($).
+        - R0AnQRtM0ObjNvqQgc/E9KH1o4CeNwzPB4jUc0ji6BHjHL4zXPi1P29L1BZgc+MlG/Ps/
+          SLHTQPyUJpmrlVyFKBhvQcs+0qpeF56TqHYN1sW0j7IHHRLvfRHzKO5oarWeVWJi34PRx
+          cGdXIT3oYvwWq8D6Lr/XgBOH4eotpfxxR7IYUM7Ti07MHBiVtzZHMvV0/I/YzkaK1oZ2C
+          n5AYmII/h57YtgTpOOM5dHL3Q6qOaQ4s9nkvyia5R7aRjZW+L1MqP9UjpslGF5AXkAoI5
+          xafRwXdCC7L7cwktmvWUgH8mLjoBhVMZR9wn8IqrsrwUI0qs1QvI6N3mC+lIFTdFfDyfx
+          bJy8umeIkdZ5AmuDEstpb/PORW4q+JfRPFtxtBPxj7E5GrYC5AaBId+8/nHy0vQmcYfON
+          RT0/lQ+xTlfEkSu2PkIoQsXG1Xxdmeb+j/dG/eTlxQVCyza1DITzOfCLwwrdvHxJvez8M
+          CvUoS5q0+R+9NRvM1Pc+qTJM7GIe2MNwCn1TcClJd0tspcm2I+uxf/LhX/53qGzs94YrO
+          +ccqWd4W1ejajbIhCI9VmxhudxJfxxly17g5keJkxDH+akKg4vbg78agiS3NhIkFIiKOn
+          zQGlA92Ufvd7VnMXJvH+wzK+9RV822i0f/Vfz1aE53Xq1r0bnUPtYFiNlpgrn0=
 
 - job:
     name: swift-build-image
@@ -519,7 +528,7 @@
     description: Build SAIO docker images and upload to Docker Hub.
     secrets:
       name: docker_credentials
-      secret: swift-dockerhub
+      secret: swift-dockerhub-2026
       pass-to-parent: true
     vars: *swift_image_vars
 
@@ -530,7 +539,7 @@
     description: Promote previously uploaded Docker images.
     secrets:
       name: docker_credentials
-      secret: swift-dockerhub
+      secret: swift-dockerhub-2026
       pass-to-parent: true
     vars: *swift_image_vars
 
@@ -611,8 +620,6 @@
             irrelevant-files: &docker-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(functional|probe)/.*$
-        - swift-build-image-py3:
-            irrelevant-files: *docker-irrelevant-files
 
         # Unit tests
         - swift-tox-py37:
@@ -702,8 +709,6 @@
         # in-tree definitions) dsvm jobs.
         - swift-upload-image:
             irrelevant-files: *docker-irrelevant-files
-        - swift-upload-image-py3:
-            irrelevant-files: *docker-irrelevant-files
         - swift-tox-py37
         - swift-tox-py39
         - swift-tox-py312
@@ -756,6 +761,7 @@
         - swift-multinode-rolling-upgrade-caracal
         - swift-multinode-rolling-upgrade-dalmatian
         - swift-multinode-rolling-upgrade-epoxy
+        - swift-multinode-rolling-upgrade-flamingo
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
@@ -765,4 +771,3 @@
     promote:
       jobs:
         - swift-promote-image
-        - swift-promote-image-py3

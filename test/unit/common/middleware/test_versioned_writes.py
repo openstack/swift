@@ -17,11 +17,12 @@ import functools
 import json
 import os
 import time
-from unittest import mock
 import unittest
 from swift.common import swob, utils, registry
 from swift.common.middleware import versioned_writes, copy
-from swift.common.swob import Request
+from swift.common.swob import Request, date_header_format
+from swift.common.utils import Timestamp
+from test.unit import mock_timestamp_now, make_timestamp_iter
 from test.unit.common.middleware import helpers
 
 
@@ -843,15 +844,14 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertTrue(call.path.startswith('/v1/a/ver_cont/001o/3'))
         self.assertNotIn('x-if-delete-at', [h.lower() for h in call.headers])
 
-    @mock.patch('swift.common.middleware.versioned_writes.legacy.time.time',
-                return_value=1234)
-    def test_history_delete_marker_no_object_success(self, mock_time):
+    def test_history_delete_marker_no_object_success(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPNotFound,
             {}, 'passed')
         self.app.register(
-            'PUT', '/v1/a/ver_cont/001o/0000001234.00000', swob.HTTPCreated,
-            {}, 'passed')
+            'PUT', '/v1/a/ver_cont/001o/%s' % ts_now.internal,
+            swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
 
@@ -861,7 +861,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
                      'CONTENT_LENGTH': '0'})
-        status, headers, body = self.call_vw(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_vw(req)
         self.assertEqual(status, '404 Not Found')
         self.assertEqual(len(self.authorized), 2)
 
@@ -873,9 +874,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
         self.assertEqual('application/x-deleted;swift_versions_deleted=1',
                          calls[1].headers.get('Content-Type'))
 
-    @mock.patch('swift.common.middleware.versioned_writes.legacy.time.time',
-                return_value=123456789.54321)
-    def test_history_delete_marker_over_object_success(self, mock_time):
+    def test_history_delete_marker_over_object_success(self):
+        ts_now = Timestamp.now()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
             {'last-modified': 'Wed, 19 Nov 2014 18:19:02 GMT'}, 'passed')
@@ -883,8 +883,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             'PUT', '/v1/a/ver_cont/001o/1416421142.00000', swob.HTTPCreated,
             {}, 'passed')
         self.app.register(
-            'PUT', '/v1/a/ver_cont/001o/0123456789.54321', swob.HTTPCreated,
-            {}, 'passed')
+            'PUT', '/v1/a/ver_cont/001o/%s' % ts_now.internal,
+            swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None)
 
@@ -894,7 +894,8 @@ class VersionedWritesTestCase(VersionedWritesBaseTestCase):
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE', 'swift.cache': cache,
                      'CONTENT_LENGTH': '0'})
-        status, headers, body = self.call_vw(req)
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_vw(req)
         self.assertEqual(status, '204 No Content')
         self.assertEqual(b'', body)
         self.assertEqual(len(self.authorized), 2)
@@ -1453,6 +1454,42 @@ class VersionedWritesCopyingTestCase(VersionedWritesBaseTestCase):
                      'CONTENT_LENGTH': '100'},
             headers={'Destination': 'tgt_cont/tgt_obj'})
         status, headers, body = self.call_filter(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(len(self.authorized), 3)
+        self.assertEqual('GET', self.authorized[0].method)
+        self.assertEqual('/v1/a/src_cont/src_obj', self.authorized[0].path)
+        self.assertEqual('PUT', self.authorized[1].method)
+        self.assertEqual('/v1/a/tgt_cont/tgt_obj', self.authorized[1].path)
+        self.assertEqual(4, self.app.call_count)
+
+    def test_copy_new_version_x_timestamp(self):
+        # existing object should be moved to versions container
+        ts_iter = make_timestamp_iter()
+        ts_then, ts_now = next(ts_iter), next(ts_iter)
+        self.app.register(
+            'GET', '/v1/a/src_cont/src_obj', swob.HTTPOk, {}, 'passed')
+        self.app.register(
+            'GET', '/v1/a/tgt_cont/tgt_obj', swob.HTTPOk,
+            {'x-timestamp': ts_now.normal,
+             'x-backend-timestamp': ts_now.internal,
+             # we'd expect last-modified to be ts_now as well, but we want the
+             # test to verify that x-timestamp is preferred when it is
+             # available so we deliberately set last-modified to another value
+             'last-modified': date_header_format(ts_then)},
+            'passed')
+        self.app.register(
+            'PUT', '/v1/a/ver_cont/007tgt_obj/%s' % ts_now.normal, swob.HTTPOk,
+            {}, None)
+        self.app.register(
+            'PUT', '/v1/a/tgt_cont/tgt_obj', swob.HTTPCreated, {}, 'passed')
+        cache = FakeCache({'sysmeta': {'versions-location': 'ver_cont'}})
+        req = Request.blank(
+            '/v1/a/src_cont/src_obj',
+            environ={'REQUEST_METHOD': 'COPY', 'swift.cache': cache,
+                     'CONTENT_LENGTH': '100'},
+            headers={'Destination': 'tgt_cont/tgt_obj'})
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_filter(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(len(self.authorized), 3)
         self.assertEqual('GET', self.authorized[0].method)

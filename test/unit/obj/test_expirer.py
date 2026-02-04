@@ -2490,7 +2490,10 @@ class TestObjectExpirer(TestCase):
         a = 'a1'
         c = 'c2'
         o = 'obj1'
-        args = (ts, a, c, o)
+        # ts is normalized such that the hex part is lost, which makes it
+        # equivalent to a v1 timestamp
+        exp_ts = Timestamp(str(float(ts)))
+        args = (exp_ts, a, c, o)
         self.assertEqual(args, expirer.parse_task_obj(
             expirer.build_task_obj(ts, a, c, o)))
         self.assertEqual(args, expirer.parse_task_obj(
@@ -2500,7 +2503,8 @@ class TestObjectExpirer(TestCase):
         a = u'\N{SNOWMAN}'
         c = u'\N{SNOWFLAKE}'
         o = u'\U0001F334'
-        args = (ts, a, c, o)
+        exp_ts = Timestamp(str(float(ts)))
+        args = (exp_ts, a, c, o)
         self.assertNotEqual(args, expirer.parse_task_obj(
             expirer.build_task_obj(ts, a, c, o)))
         self.assertEqual(args, expirer.parse_task_obj(

@@ -150,11 +150,20 @@ def get_s3_client(user=1, signature_version='s3v4', addressing_style='path'):
     )
 
 
+def is_s3_acl_tests_enabled():
+    explicit_opt = get_opt('s3_acl_tests_enabled', None)
+    if explicit_opt is not None:
+        return config_true_value(explicit_opt)
+    else:
+        legacy_opt = get_opt('s3_acl_tests_disabled', 'false')
+        return not config_true_value(legacy_opt)
+
+
 def skip_if_s3_acl_tests_disabled(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        if config_true_value(get_opt('s3_acl_tests_disabled', 'false')):
-            raise unittest.SkipTest('s3_acl_tests_disabled is true')
+        if not is_s3_acl_tests_enabled():
+            raise unittest.SkipTest('s3_acl_tests_enabled is false')
         return func(*args, **kwargs)
     return wrapper
 

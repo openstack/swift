@@ -146,7 +146,7 @@ class ContainerSyncRealms(object):
 
         :param request_method: HTTP method of the request.
         :param path: The path to the resource (url-encoded).
-        :param x_timestamp: The X-Timestamp header value for the request.
+        :param x_timestamp: (str) The X-Timestamp header value for the request.
         :param nonce: A unique value for the request.
         :param realm_key: Shared secret at the cluster operator level.
         :param user_key: Shared secret at the user's container level.

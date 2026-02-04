@@ -391,6 +391,9 @@ class ProbeTest(unittest.TestCase):
     Don't instantiate this directly, use a child class instead.
     """
 
+    def _make_name(self, prefix):
+        return ('%s%s' % (prefix, uuid4())).encode()
+
     def _load_rings_and_configs(self):
         self.ipport2server = {}
         self.configs = defaultdict(dict)
@@ -704,9 +707,6 @@ class ECProbeTest(ProbeTest):
     obj_required_replicas = 6
     obj_required_devices = 8
     policy_requirements = {'policy_type': EC_POLICY}
-
-    def _make_name(self, prefix):
-        return ('%s%s' % (prefix, uuid4())).encode()
 
     def setUp(self):
         super(ECProbeTest, self).setUp()

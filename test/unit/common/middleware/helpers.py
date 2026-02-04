@@ -171,7 +171,7 @@ class ResponseSpec(object):
                   'headers': self.headers,
                   'conditional_response': req.method in ('GET', 'HEAD'),
                   'conditional_etag': conditional_etag}
-        if isinstance(self.body, list):
+        if not isinstance(self.body, (bytes, str)):
             kwargs['app_iter'] = self.body
         else:
             kwargs['body'] = self.body
@@ -236,8 +236,9 @@ class FakeSwift(object):
     container_existence_skip_cache = 0.0
     account_existence_skip_cache = 0.0
 
-    def __init__(self, capture_unexpected_calls=True):
+    def __init__(self, capture_unexpected_calls=True, test_read_size=-1):
         self.capture_unexpected_calls = capture_unexpected_calls
+        self.read_size = test_read_size
         self._calls = []
         self._unclosed_req_keys = defaultdict(int)
         self._unread_req_paths = defaultdict(int)
@@ -245,6 +246,7 @@ class FakeSwift(object):
         # mapping of (method, path) --> (response class, headers, body)
         self._responses = {}
         self._sticky_headers = {}
+        self._default_responses = {}
         self.logger = debug_logger('fake-swift')
         self.account_ring = FakeRing()
         self.container_ring = FakeRing()
@@ -260,7 +262,11 @@ class FakeSwift(object):
 
     def _find_response(self, method, path):
         path = normalize_path(path)
-        resps = self._responses[(method, path)]
+        try:
+            resps = self._responses[(method, path)]
+        except KeyError:
+            resps = [self._default_responses[method]]
+
         if len(resps) == 1:
             # we'll return the last registered response forever
             return resps[0].clone()
@@ -361,7 +367,14 @@ class FakeSwift(object):
 
         if (cont and not obj and method == 'UPDATE') or (
                 obj and method == 'PUT'):
-            call.body = b''.join(iter(env['wsgi.input'].read, b''))
+            if self.read_size < 0:
+                call.body = b''.join(iter(env['wsgi.input'].read, b''))
+            else:
+                call.body = b''
+                buf = env['wsgi.input'].read(self.read_size)
+                while buf:
+                    call.body += buf
+                    buf = env['wsgi.input'].read(self.read_size)
 
         # simulate object PUT
         if method == 'PUT' and obj:
@@ -499,6 +512,10 @@ class FakeSwift(object):
 
     def register(self, method, path, response_class, headers, body=b'',
                  env_updates=None):
+        """
+        Register a response that will match any request with the given method
+        and path
+        """
         resp_key = (method, normalize_path(path))
         self._responses[resp_key] = []
         self.register_next_response(
@@ -509,6 +526,14 @@ class FakeSwift(object):
         resp_key = (method, normalize_path(path))
         next_resp = ResponseSpec(response_class, headers, body, env_updates)
         self._responses.setdefault(resp_key, []).append(next_resp)
+
+    def register_default(self, method, response_class, headers, body=b'',
+                         env_updates=None):
+        """
+        Register a response that will match any request with the given method.
+        """
+        default_resp = ResponseSpec(response_class, headers, body, env_updates)
+        self._default_responses[method] = default_resp
 
 
 class FakeAppThatExcepts(object):

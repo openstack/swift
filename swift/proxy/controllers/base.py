@@ -51,9 +51,8 @@ from swift.common.exceptions import ChunkReadTimeout, ChunkWriteTimeout, \
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
-    HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE, \
-    HTTP_UNAUTHORIZED, HTTP_CONTINUE, HTTP_GONE, \
-    HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+    HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, HTTP_CONTINUE, \
+    HTTP_GONE, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_SERVICE_UNAVAILABLE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, wsgi_unquote, \
@@ -1168,15 +1167,16 @@ class GetterSource(object):
     @property
     def timestamp(self):
         """
-        Provide the timestamp of the swift http response as a floating
-        point value.  Used as a sort key.
+        Provide the timestamp of the swift http response as a Timestamp
+        instance.  Used as a sort key.
 
         :return: an instance of ``utils.Timestamp``
         """
         return Timestamp(self.resp.getheader('x-backend-data-timestamp') or
                          self.resp.getheader('x-backend-timestamp') or
                          self.resp.getheader('x-put-timestamp') or
-                         self.resp.getheader('x-timestamp') or 0)
+                         self.resp.getheader('x-timestamp') or
+                         Timestamp.zero())
 
     @property
     def parts_iter(self):
@@ -1196,19 +1196,20 @@ class ResponseData(object):
     """
     Encapsulate response data.
     """
-    def __init__(self, status, reason='', headers=None, body=None):
+    def __init__(self, status, reason='', headers=None, body=None, node=None):
         self.status = status
         self.reason = reason
         self.headers = HeaderKeyDict(headers)
         self.body = body or b''
+        self.node = node
 
     def getheader(self, key):
         return self.headers.get(key)
 
     @classmethod
-    def from_http_response(cls, http_response, body=None):
+    def from_http_response(cls, http_response, body=None, node=None):
         return cls(http_response.status, http_response.reason,
-                   http_response.getheaders(), body)
+                   http_response.getheaders(), body, node)
 
 
 class ResponseCollection(list):
@@ -1458,7 +1459,7 @@ class GetOrHeadHandler(GetterBase):
         self.used_nodes = []
         self.used_source_etag = None
         self.concurrency = concurrency
-        self.latest_404_timestamp = Timestamp(0)
+        self.latest_404_timestamp = Timestamp.zero()
         policy_options = self.app.get_policy_options(self.policy)
         self.rebalance_missing_suppression_count = min(
             policy_options.rebalance_missing_suppression_count,
@@ -1638,7 +1639,8 @@ class GetOrHeadHandler(GetterBase):
                     src_headers.get('x-backend-data-timestamp') or
                     src_headers.get('x-backend-timestamp') or
                     src_headers.get('x-put-timestamp') or
-                    src_headers.get('x-timestamp') or 0)
+                    src_headers.get('x-timestamp') or
+                    Timestamp.zero())
                 if ps_timestamp >= self.latest_404_timestamp:
                     self.responses.append(
                         ResponseData.from_http_response(possible_source))
@@ -1650,14 +1652,16 @@ class GetOrHeadHandler(GetterBase):
             if 'handoff_index' in node and \
                     (is_server_error(possible_source.status) or
                      possible_source.status == HTTP_NOT_FOUND) and \
-                    not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                    not Timestamp(src_headers.get('x-backend-timestamp',
+                                                  Timestamp.zero())):
                 # throw out 5XX and 404s from handoff nodes unless the data is
                 # really on disk and had been DELETEd
                 return False
 
             if self.rebalance_missing_suppression_count > 0 and \
                     possible_source.status == HTTP_NOT_FOUND and \
-                    not Timestamp(src_headers.get('x-backend-timestamp', 0)):
+                    not Timestamp(src_headers.get('x-backend-timestamp',
+                                                  Timestamp.zero())):
                 self.rebalance_missing_suppression_count -= 1
                 return False
 
@@ -1672,7 +1676,8 @@ class GetOrHeadHandler(GetterBase):
             if self.server_type == 'Object' and \
                     possible_source.status == HTTP_NOT_FOUND:
                 hdrs = HeaderKeyDict(possible_source.getheaders())
-                ts = Timestamp(hdrs.get('X-Backend-Timestamp', 0))
+                ts = Timestamp(hdrs.get('X-Backend-Timestamp',
+                                        Timestamp.zero()))
                 if ts > self.latest_404_timestamp:
                     self.latest_404_timestamp = ts
             self.app.check_response(node, self.server_type, possible_source,
@@ -1992,7 +1997,7 @@ class Controller(object):
                            if k.lower() in self.pass_through_headers or
                            is_sys_or_user_meta(st, k))
 
-    def generate_request_headers(self, orig_req=None, additional=None,
+    def generate_request_headers(self, orig_req, additional=None,
                                  transfer=False):
         """
         Create a dict of headers to be used in backend requests
@@ -2003,20 +2008,17 @@ class Controller(object):
         :returns: a dictionary of headers
         """
         headers = HeaderKeyDict()
-        if orig_req:
-            headers.update((k.lower(), v)
-                           for k, v in orig_req.headers.items()
-                           if k.lower().startswith('x-backend-'))
-            referer = orig_req.as_referer()
-        else:
-            referer = ''
+        headers.update((k.lower(), v)
+                       for k, v in orig_req.headers.items()
+                       if (k.lower().startswith('x-backend-') or
+                           k.lower() == 'x-timestamp'))
+        referer = orig_req.as_referer()
         # additional headers can override x-backend-* headers from orig_req
         if additional:
             headers.update(additional)
-        if orig_req and transfer:
+        if transfer:
             # transfer headers from orig_req can override additional headers
             self.transfer_headers(orig_req.headers, headers)
-        headers.setdefault('x-timestamp', Timestamp.now().internal)
         # orig_req and additional headers cannot override the following...
         headers['x-trans-id'] = self.trans_id
         headers['connection'] = 'close'
@@ -2128,14 +2130,59 @@ class Controller(object):
                                                 method, path)
                             and not is_informational(resp.status)):
                         return ResponseData.from_http_response(
-                            resp, resp.read()), node
+                            resp, resp.read(), node=node)
 
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,
                     'Trying to %(method)s %(path)s' %
                     {'method': method, 'path': path})
-        return None, None
+        return None
+
+    def _make_requests(self, req, ring, part, method, path, headers,
+                       query_string='', node_count=None, node_iterator=None,
+                       body=None):
+        """
+        Internal method that handles the actual request execution and response
+        collection.
+
+        :param req: a request sent by the client
+        :param ring: the ring used for finding backend servers
+        :param part: the partition number
+        :param method: the method to send to the backend
+        :param path: the path to send to the backend
+        :param headers: a list of dicts, where each dict represents one
+                        backend request that should be made.
+        :param query_string: optional query string to send to the backend
+        :param node_count: optional number of nodes to send request to.
+        :param node_iterator: optional node iterator.
+        :param body: byte string to use as the request body.
+        :returns: list of tuples of (resp, body, node)
+        """
+        nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
+            self.server_type.lower(), self.app, ring, part, self.logger, req))
+        node_number = node_count or len(ring.get_part_nodes(part))
+        pile = GreenAsyncPile(node_number)
+
+        for head in headers:
+            pile.spawn(self._make_request, nodes, part, method, path,
+                       head, query_string, body, self.logger.thread_locals)
+        responses = ResponseCollection()
+        for resp in pile:
+            if not is_useful_response(resp, getattr(resp, 'node', None)):
+                continue
+            responses.append(resp)
+            if self.have_quorum(responses.statuses, node_number):
+                break
+        # give any pending requests *some* chance to finish
+        finished_quickly = pile.waitall(self.app.post_quorum_timeout)
+        for resp in finished_quickly:
+            if not is_useful_response(resp, getattr(resp, 'node', None)):
+                continue
+            responses.append(resp)
+        while len(responses) < node_number:
+            responses.append(ResponseData(HTTP_SERVICE_UNAVAILABLE))
+        return responses
 
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string='', overrides=None, node_count=None,
@@ -2162,30 +2209,9 @@ class Controller(object):
                      Try to keep it small.
         :returns: a swob.Response object
         """
-        nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
-            self.server_type.lower(), self.app, ring, part, self.logger, req))
-        node_number = node_count or len(ring.get_part_nodes(part))
-        pile = GreenAsyncPile(node_number)
-
-        for head in headers:
-            pile.spawn(self._make_request, nodes, part, method, path,
-                       head, query_string, body, self.logger.thread_locals)
-        responses = ResponseCollection()
-        for resp, node in pile:
-            if not is_useful_response(resp, node):
-                continue
-            responses.append(resp)
-            if self.have_quorum(responses.statuses, node_number):
-                break
-        # give any pending requests *some* chance to finish
-        finished_quickly = pile.waitall(self.app.post_quorum_timeout)
-        for resp, node in finished_quickly:
-            if not is_useful_response(resp, node):
-                continue
-            responses.append(resp)
-        while len(responses) < node_number:
-            responses.append(ResponseData(HTTP_SERVICE_UNAVAILABLE))
-
+        responses = self._make_requests(
+            req, ring, part, method, path, headers, query_string,
+            node_count, node_iterator, body)
         return self.best_response(req, responses, overrides=overrides,
                                   headers=True)
 

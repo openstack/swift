@@ -35,7 +35,8 @@ from swift.common.utils import get_logger, renamer, write_pickle, \
     dump_recon_cache, config_true_value, RateLimitedIterator, split_path, \
     eventlet_monkey_patch, get_redirect_data, ContextPool, hash_path, \
     non_negative_float, config_positive_int_value, non_negative_int, \
-    EventletRateLimiter, node_to_string, parse_options, load_recon_cache
+    EventletRateLimiter, node_to_string, parse_options, load_recon_cache, \
+    Timestamp
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -234,10 +235,10 @@ class OldestAsyncPendingTracker:
 
         :param account: (str) The account name.
         :param container: (str) The container name.
-        :param timestamp: (float) The timestamp to add or update.
+        :param timestamp: (str) The timestamp to add or update.
         """
         # Ensure the timestamp is a float
-        timestamp = float(timestamp)
+        timestamp = float(Timestamp(timestamp))
 
         ac = (account, container)
 

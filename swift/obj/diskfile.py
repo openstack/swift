@@ -3236,7 +3236,7 @@ class ECDiskFileReader(BaseDiskFileReader):
             # ECInvalidParameter can be returned if the frag violates the input
             # format so for safety, check the input chunk if it's binary to
             # avoid quarantining a valid fragment archive.
-            self._diskfile._logger.warn(
+            self._diskfile._logger.warning(
                 'Unexpected fragment data type (not quarantined) '
                 '%(datadir)s: %(type)s at offset 0x%(offset)x',
                 {'datadir': self._diskfile._datadir,
@@ -3260,7 +3260,7 @@ class ECDiskFileReader(BaseDiskFileReader):
             # to deliver all promised bytes will hang the HTTP connection
             raise DiskFileQuarantined(msg)
         except ECDriverError as err:
-            self._diskfile._logger.warn(
+            self._diskfile._logger.warning(
                 'Problem checking EC fragment %(datadir)s: %(err)s',
                 {'datadir': self._diskfile._datadir, 'err': err})
 

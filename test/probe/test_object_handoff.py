@@ -29,6 +29,7 @@ from swift.common import direct_client
 from swift.common.exceptions import ClientException
 from swift.common.manager import Manager
 from swift.common.utils import md5
+from test.probe.brain import BrainSplitter
 from test.probe.common import (
     Body, get_server_number, kill_server, start_server,
     ReplProbeTest, ECProbeTest)
@@ -621,6 +622,77 @@ class TestECObjectHandoff(ECProbeTest):
             self.assertEqual(err.http_status, 404)
         else:
             self.fail("Expected ClientException but didn't get it")
+
+
+class TestPostObjectHandoff(ReplProbeTest):
+
+    def setUp(self):
+        super().setUp()
+        self.container_name = self._make_name('container-')
+        brain = self._get_brain()
+        brain.put_container(policy_index=int(self.policy))
+
+    def _get_brain(self, object_name=None):
+        if not object_name:
+            service = 'container'
+            policy = None
+        else:
+            service = 'object'
+            policy = self.policy
+        return BrainSplitter(
+            self.url, self.token, self.container_name,
+            object_name, service, policy=policy)
+
+    def test_main(self):
+        object1_name = self._make_name('object1-')
+        object1_brain = self._get_brain(object1_name)
+        # stop 1 primary
+        server_number = random.choice(object1_brain.primary_numbers)
+        object1_brain.servers.stop(number=server_number)
+        # PUT to handoffs
+        object1_brain.put_object()
+        # sanity HEAD
+        object1_brain.head_object()
+        # restart 1 primary
+        object1_brain.servers.start(number=server_number)
+        # sanity HEAD
+        object1_brain.head_object()
+        # POST works just fine
+        object1_brain.post_object(headers={'X-Object-Meta-Test': 'test1'})
+        headers = object1_brain.head_object()
+        self.assertEqual(headers['X-Object-Meta-Test'], 'test1')
+
+        object2_name = self._make_name('object2-')
+        object2_brain = self._get_brain(object2_name)
+        # stop *2* primaries
+        object2_brain.stop_primary_half()
+        # PUT to *multiple* handoffs
+        object2_brain.put_object()
+        # sanity HEAD
+        object2_brain.head_object()
+        # restart primaries
+        object2_brain.start_primary_half()
+        # POST still works
+        object2_brain.post_object(headers={'X-Object-Meta-Test': 'test2'})
+        headers = object2_brain.head_object()
+        self.assertEqual(headers['X-Object-Meta-Test'], 'test2')
+
+    def test_mixed_primaries_with_old_datafile(self):
+        object_name = self._make_name('object-')
+        object_brain = self._get_brain(object_name)
+        # create object on primaries
+        object_brain.put_object()
+        # stop a single primary
+        server_number = random.choice(object_brain.node_numbers)
+        object_brain.servers.stop(number=server_number)
+        # delete object from remaining primaries
+        object_brain.delete_object()
+        # restore old primary
+        object_brain.servers.start(number=server_number)
+        # POST returns 503
+        with self.assertRaises(Exception) as cm:
+            object_brain.post_object()
+        self.assertEqual(cm.exception.http_status, 503)
 
 
 if __name__ == '__main__':

@@ -28,14 +28,14 @@ Then create a local branch off the feature branch into which you will merge
 the master branch, e.g.::
 
       git checkout -b merge-master remotes/origin/feature/mpu
-      git merge remotes/origin/master
+      git merge --signoff remotes/origin/master
 
 If everything merges cleanly then the tip of your local branch will be a commit
 for the merge. However, there may be merge conflicts to resolve. Once you've
 taken care of them, add all the affected files and then commit the merge::
 
       git add
-      git commit -m 'merge master to feature/mpu'
+      git merge --continue
 
 .. note::
       The ``git commit`` is only necessary when there have been merge
@@ -43,7 +43,7 @@ taken care of them, add all the affected files and then commit the merge::
 
 Push the merged branch to gerrit for review, using the ``-R`` option::
 
-      git review -R
+      git review -R -t merge-master
 
 .. note::
       This differs from pushing a typical patchset to gerrit: the additional

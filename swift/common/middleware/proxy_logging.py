@@ -87,22 +87,102 @@ bandwidth usage will want to only sum up logs with no ``swift.source``.
 
 import os
 import time
+from collections import ChainMap
 
 from swift.common.constraints import valid_api_version
 from swift.common.middleware.catch_errors import ByteEnforcer
+from swift.common.middleware.s3api.utils import extract_bucket_and_key, \
+    is_s3_req
 from swift.common.request_helpers import get_log_info
 from swift.common.swob import Request
 from swift.common.utils import (get_logger, get_remote_client,
                                 config_true_value, reiterate,
                                 close_if_possible, cap_length,
-                                InputProxy, list_from_csv, get_policy_index,
-                                split_path, StrAnonymizer, StrFormatTime,
-                                LogStringFormatter)
+                                InputProxy, list_from_csv,
+                                get_policy_index, LogStringFormatter,
+                                split_path, StrAnonymizer, StrFormatTime)
 from swift.common.statsd_client import get_labeled_statsd_client
 
 from swift.common.storage_policy import POLICIES
 from swift.common.registry import get_sensitive_headers, \
     get_sensitive_params, register_sensitive_header
+
+
+def statsd_metric_resp_labels(base_labels, status_int=None, policy_index=None):
+    # compose labels used for response metrics
+    extra_labels = {}
+    if policy_index is not None:
+        extra_labels['policy'] = policy_index
+    if status_int:
+        extra_labels['status'] = status_int
+    labels_source = ChainMap(extra_labels, base_labels)
+    return labels_source
+
+
+class CallbackInputProxy(InputProxy):
+    """
+    :param wsgi_input: file-like object to be wrapped
+    :param callback: a function or a callable that
+        accept args (chunk, eof),
+        and returns chunk or a modified chunk.
+        eof is ``True`` if there are no more bytes to
+        read from the wrapped input, ``False`` otherwise.
+    """
+    def __init__(self, wsgi_input, callback):
+        super().__init__(wsgi_input)
+        self.callback = callback
+
+    def chunk_update(self, chunk, eof, *arg, **kwargs):
+        return self.callback(chunk, eof)
+
+
+class BufferXferEmitCallback(object):
+    def __init__(self, metric_name, labels, statsd,
+                 emit_buffer_xfer_bytes_sec):
+        self.metric_name = metric_name
+        self.labels = labels
+        self.statsd = statsd
+        self.emit_buffer_xfer_bytes_sec = emit_buffer_xfer_bytes_sec
+        self.emit_bytes = 0
+        self.next_emit_time = 0
+        if self.emit_buffer_xfer_bytes_sec > 0:
+            self.next_emit_time = (time.time() +
+                                   self.emit_buffer_xfer_bytes_sec)
+
+    def __call__(self, buffer, eof=False):
+        self._maybe_emit_stat(buffer, eof)
+        return buffer
+
+    def _maybe_emit_stat(self, buffer, eof=False):
+        """
+           Accumulate the length of ``buffer`` and periodically emit a stat
+           with the accumulated length.
+
+           :param buffer: the buffer that has been read.
+           :param eof: if True, a stat is emitted immediately; otherwise a
+               stat will be emitted when ``next_emit_time`` has been reached.
+           """
+
+        if self.emit_buffer_xfer_bytes_sec < 0:
+            return
+        buffer_len = len(buffer)
+        self.emit_bytes += buffer_len
+        if not self.labels.get('account', None):
+            # tolerate no account, maybe it'll be there in time for next stat
+            return
+
+        now = time.time()
+        if eof is False and self.next_emit_time > now:
+            return
+
+        if self.emit_bytes != 0:
+            self.statsd.update_stats(
+                self.metric_name,
+                self.emit_bytes,
+                labels=self.labels,
+            )
+        self.emit_bytes = 0
+        self.next_emit_time = (now + self.emit_buffer_xfer_bytes_sec)
 
 
 class ProxyLoggingMiddleware(object):
@@ -126,6 +206,7 @@ class ProxyLoggingMiddleware(object):
         # convert it now to prevent useless convertion later.
         self.anonymization_method = conf.get('log_anonymization_method', 'md5')
         self.anonymization_salt = conf.get('log_anonymization_salt', '')
+        self.storage_domains = list_from_csv(conf.get('storage_domain', ''))
         self.log_hdrs = config_true_value(conf.get(
             'access_log_headers',
             conf.get('log_headers', 'no')))
@@ -167,6 +248,8 @@ class ProxyLoggingMiddleware(object):
         self.reveal_sensitive_prefix = int(
             conf.get('reveal_sensitive_prefix', 16))
         self.check_log_msg_template_validity()
+        self.emit_buffer_xfer_bytes_sec = float(
+            conf.get('statsd_emit_buffer_xfer_bytes_seconds', -1))
 
     def check_log_msg_template_validity(self):
         replacements = {
@@ -200,7 +283,7 @@ class ProxyLoggingMiddleware(object):
             'method': 'GET',
             'protocol': '',
             'status_int': '0',
-            'auth_token': '1234...',
+            'auth_token': '1234...',  # nosec B105
             'bytes_recvd': '1',
             'bytes_sent': '0',
             'transaction_id': 'tx1234',
@@ -398,9 +481,7 @@ class ProxyLoggingMiddleware(object):
             acc, cont, obj = None, None, None
         return acc, cont, obj
 
-    def get_metric_name_type(self, req):
-        swift_path = req.environ.get('swift.backend_path', req.path)
-        acc, cont, obj = self.get_aco_from_path(swift_path)
+    def get_resource_type_from_aco(self, req, acc, cont, obj):
         if obj:
             return 'object'
         if cont:
@@ -409,23 +490,59 @@ class ProxyLoggingMiddleware(object):
             return 'account'
         return req.environ.get('swift.source') or 'UNKNOWN'
 
+    def get_resource_type(self, req):
+        swift_path = req.environ.get('swift.backend_path', req.path)
+        acc, cont, obj = self.get_aco_from_path(swift_path)
+        return self.get_resource_type_from_aco(req, acc, cont, obj)
+
     def statsd_metric_method(self, method):
         return method if method in self.valid_methods else 'BAD_METHOD'
 
     def statsd_metric_name(self, req, status_int, metric_method):
-        stat_type = self.get_metric_name_type(req)
-        return '.'.join((stat_type, metric_method, str(status_int)))
+        resource_type = self.get_resource_type(req)
+        return '.'.join((resource_type, metric_method, str(status_int)))
+
+    def update_swift_base_labels(self, req):
+        acc, cont, obj = self.get_aco_from_path(req.path)
+        base_labels = req.environ.get('swift.base_labels')
+        if base_labels is None:
+            # expected in the left-most proxy_logging instance
+            if acc is None and is_s3_req(req):
+                cont, obj = extract_bucket_and_key(
+                    req, self.storage_domains, False)
+
+            method = self.method_from_req(req)
+            metric_method = self.statsd_metric_method(method)
+            resource_type = self.get_resource_type_from_aco(
+                req, acc, cont, obj)
+            base_labels = {
+                'method': metric_method,
+            }
+            base_labels['api'] = 'S3' if is_s3_req(req) else 'swift'
+            if resource_type != 'UNKNOWN' or not is_s3_req(req):
+                base_labels['resource'] = resource_type
+            if acc:
+                base_labels['account'] = acc
+            if cont:
+                base_labels['container'] = cont
+            req.environ['swift.base_labels'] = base_labels
+        elif acc:
+            # expected in the right-most proxy_logging instance
+            resource_type = self.get_resource_type_from_aco(
+                req, acc, cont, obj)
+            base_labels.setdefault('account', acc)
+            base_labels.setdefault('resource', resource_type)
 
     def statsd_metric_name_policy(self, req, status_int, metric_method,
                                   policy_index):
         if policy_index is None:
             return None
-        stat_type = self.get_metric_name_type(req)
-        if stat_type == 'object':
+        resource_type = self.get_resource_type(req)
+        if resource_type == 'object':
             # The policy may not exist
             policy = POLICIES.get_by_index(policy_index)
             if policy:
-                return '.'.join((stat_type, 'policy', str(policy_index),
+                return '.'.join((resource_type, 'policy', str(policy_index),
                                  metric_method, str(status_int)))
             else:
                 return None
@@ -434,7 +551,12 @@ class ProxyLoggingMiddleware(object):
 
     def statsd_metric_labels(self, req, status_int, metric_method, acc=None,
                              cont=None, policy_index=None):
-        resource_type = self.get_metric_name_type(req)
+        # overlay freshly derived labels onto base_labels just in case any
+        # changed w.r.t. base labels while the request was being handled (in
+        # particular, container may be different in swift.backend_path)
+        # TODO: remove unnecessary duplication in the overlay e.g. method,
+        # account
+        resource_type = self.get_resource_type(req)
 
         labels = {
             'resource': resource_type,
@@ -449,16 +571,27 @@ class ProxyLoggingMiddleware(object):
                 policy_index is not None and \
                 POLICIES.get_by_index(policy_index) is not None:
             labels['policy'] = policy_index
-        return labels
+        return ChainMap(labels, req.environ['swift.base_labels'])
 
     def __call__(self, env, start_response):
+        req = Request(env)
+        self.update_swift_base_labels(req)
+
         if self.req_already_logged(env):
             return self.app(env, start_response)
 
         self.mark_req_logged(env)
 
         start_response_args = [None]
-        input_proxy = InputProxy(env['wsgi.input'])
+
+        xfer_metric_name = 'swift_proxy_server_request_body_streaming_bytes'
+        base_labels = req.environ.get('swift.base_labels')
+
+        statsd_emit_callback = BufferXferEmitCallback(
+            xfer_metric_name, base_labels, self.statsd,
+            self.emit_buffer_xfer_bytes_sec)
+        input_proxy = CallbackInputProxy(env['wsgi.input'],
+                                         statsd_emit_callback)
         env['wsgi.input'] = input_proxy
         start_time = time.time()
 
@@ -486,7 +619,6 @@ class ProxyLoggingMiddleware(object):
                     start_response_args[0][1].append(
                         ('Content-Length', str(content_length)))
 
-            req = Request(env)
             method = self.method_from_req(req)
             if method == 'HEAD':
                 content_length = 0
@@ -497,10 +629,11 @@ class ProxyLoggingMiddleware(object):
             resp_headers = dict(start_response_args[0][1])
             start_response(*start_response_args[0])
 
+            policy_index = get_policy_index(req.headers, resp_headers)
+
             # Log timing information for time-to-first-byte (GET requests only)
             ttfb = 0.0
             if method == 'GET':
-                policy_index = get_policy_index(req.headers, resp_headers)
                 swift_path = req.environ.get('swift.backend_path', req.path)
                 acc, cont, _ = self.get_aco_from_path(swift_path)
                 labels = self.statsd_metric_labels(
@@ -525,10 +658,19 @@ class ProxyLoggingMiddleware(object):
                     labels=labels,
                 )
 
+            resp_xfer_labels = statsd_metric_resp_labels(
+                base_labels, status_int=wire_status_int,
+                policy_index=policy_index)
+
             bytes_sent = 0
+            statsd_emit_callback = BufferXferEmitCallback(
+                'swift_proxy_server_response_body_streaming_bytes',
+                resp_xfer_labels,
+                self.statsd, self.emit_buffer_xfer_bytes_sec)
             try:
                 for chunk in iterator:
                     bytes_sent += len(chunk)
+                    statsd_emit_callback(chunk)
                     yield chunk
             except GeneratorExit:  # generator was closed before we finished
                 env['swift.proxy_logging_status'] = 499
@@ -537,6 +679,7 @@ class ProxyLoggingMiddleware(object):
                 env['swift.proxy_logging_status'] = 500
                 raise
             finally:
+                statsd_emit_callback(b'', eof=True)
                 env.setdefault('swift.proxy_logging_status', wire_status_int)
                 status_int = status_int_for_logging()
                 self.log_request(

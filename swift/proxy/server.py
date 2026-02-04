@@ -508,7 +508,7 @@ class Application(object):
         :param start_response: WSGI callable
         """
         try:
-            req = self.update_request(Request(env))
+            req = Request(env)
             return self.handle_request(req)(env, start_response)
         except UnicodeError:
             err = HTTPPreconditionFailed(
@@ -520,6 +520,7 @@ class Application(object):
             return [b'Internal server error.\n']
 
     def update_request(self, req):
+        req.ensure_x_timestamp()
         if 'x-storage-token' in req.headers and \
                 'x-auth-token' not in req.headers:
             req.headers['x-auth-token'] = req.headers['x-storage-token']
@@ -540,6 +541,7 @@ class Application(object):
         :param req: swob.Request object
         """
         try:
+            self.update_request(req)
             if req.content_length and req.content_length < 0:
                 self.logger.increment('errors')
                 return HTTPBadRequest(request=req,

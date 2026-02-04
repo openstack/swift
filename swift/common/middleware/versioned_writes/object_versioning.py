@@ -142,10 +142,8 @@ To enable this new mode in a Swift cluster the ``versioned_writes`` and
 the option ``allow_object_versioning`` to ``True``.
 """
 
-import calendar
 import itertools
 import json
-import time
 
 from urllib.parse import unquote
 
@@ -164,7 +162,7 @@ from swift.common.swob import HTTPPreconditionFailed, HTTPServiceUnavailable, \
     HTTPBadRequest, str_to_wsgi, bytes_to_wsgi, wsgi_quote, \
     wsgi_to_str, wsgi_unquote, Request, HTTPNotFound, HTTPException, \
     HTTPRequestEntityTooLarge, HTTPInternalServerError, HTTPNotAcceptable, \
-    HTTPConflict, HTTPLengthRequired
+    HTTPConflict, HTTPLengthRequired, parse_date_header
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import get_logger, Timestamp, drain_and_close, \
     config_true_value, close_if_possible, closing_if_possible, \
@@ -374,9 +372,7 @@ class ObjectContext(ObjectVersioningContext):
             'x-backend-data-timestamp',
             resp.headers.get(
                 'x-timestamp',
-                calendar.timegm(time.strptime(
-                    resp.headers['last-modified'],
-                    '%a, %d %b %Y %H:%M:%S GMT'))))
+                str(parse_date_header(resp.headers['last-modified']))))
         # Drop any offset from ts. Timestamp offsets are never exposed to
         # clients, so Timestamp.normal is sufficient to define a version as
         # perceived by clients.
@@ -646,6 +642,7 @@ class ObjectContext(ObjectVersioningContext):
             'content-length': '0',
             'x-auth-token': req.headers.get('x-auth-token'),
             'X-Backend-Allow-Reserved-Names': 'true',
+            'X-Timestamp': req.timestamp.internal,
         }
         marker_req = make_pre_authed_request(
             req.environ, path=wsgi_quote(marker_path),

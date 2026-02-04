@@ -21,12 +21,12 @@
     value: example.com
   become: true
 
-- name: Turn on s3_acl_tests_disabled in test.conf (for Keystone tests)
+- name: Turn off s3_acl_tests_enabled in test.conf (for Keystone tests)
   ini_file:
     path: /etc/swift/test.conf
     section: s3api_test
-    option: s3_acl_tests_disabled
-    value: true
+    option: s3_acl_tests_enabled
+    value: false
   become: true
 
 - name: Set storage_domain in test/sample.conf (for tempauth tests)
@@ -37,12 +37,12 @@
     value: example.com
   become: true
 
-- name: Turn on s3_acl_tests_disabled in test/sample.conf (for tempauth tests)
+- name: Turn off s3_acl_tests_enabled in test/sample.conf (for tempauth tests)
   ini_file:
     path: "{{ ansible_env.HOME }}/{{ zuul.project.src_dir }}/../swift/test/sample.conf"
     section: s3api_test
-    option: s3_acl_tests_disabled
-    value: true
+    option: s3_acl_tests_enabled
+    value: false
   become: true
 
 - name: Enable object versioning
@@ -59,6 +59,70 @@
     section: filter:s3api
     option: force_swift_request_proxy_log
     value: true
+  become: true
+
+- name: "Configure s3token: auth_url"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: auth_url
+    value: http://localhost/identity
+  become: true
+
+- name: "Configure s3token: project_domain_name"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: project_domain_name
+    value: Default
+  become: true
+
+- name: "Configure s3token: project_name"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: project_name
+    value: service
+  become: true
+
+- name: "Configure s3token: user_domain_name"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: user_domain_name
+    value: Default
+  become: true
+
+- name: "Configure s3token: username"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: username
+    value: swift
+  become: true
+
+- name: "Configure s3token: password"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: password
+    value: secretservice
+  become: true
+
+- name: "Configure s3token: auth_type"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: auth_type
+    value: password
+  become: true
+
+- name: "Configure s3token: interface"
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:s3token
+    option: interface
+    value: public
   become: true
 
 - name: Copy ring for Policy-1

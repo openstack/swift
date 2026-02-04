@@ -251,7 +251,6 @@ ceph_s3:
   s3tests_boto3.functional.test_s3.test_sse_kms_transfer_1kb: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_versioning_bucket_multipart_upload_return_version_id: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_versioning_multi_object_delete_with_marker_create: {status: KNOWN}
-  s3tests_boto3.functional.test_s3.test_versioning_obj_plain_null_version_overwrite: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_account_usage: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_head_bucket_usage: {status: KNOWN}
   s3tests_boto3.functional.test_s3.test_object_set_get_metadata_empty_to_unreadable_infix: {status: KNOWN}

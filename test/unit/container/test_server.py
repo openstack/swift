@@ -35,7 +35,7 @@ from urllib.parse import quote
 from swift import __version__ as swift_version
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent,
-                               bytes_to_wsgi, Response)
+                               bytes_to_wsgi, Response, date_header_format)
 import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
@@ -208,7 +208,7 @@ class TestContainerController(unittest.TestCase):
             last_modified=put_timestamp.ceil()).headers['Last-Modified']
         created_at_timestamp = next(self.ts)
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'x-timestamp': put_timestamp.normal})
+            'x-timestamp': put_timestamp.internal})
         with mock.patch('swift.container.backend.Timestamp.now',
                         return_value=created_at_timestamp):
             resp = req.get_response(self.controller)
@@ -222,11 +222,11 @@ class TestContainerController(unittest.TestCase):
             'Content-Length': '0',
             'Last-Modified': expected_last_modified,
             'X-Backend-Delete-Timestamp': '0000000000.00000',
-            'X-Backend-Put-Timestamp': put_timestamp.normal,
+            'X-Backend-Put-Timestamp': put_timestamp.internal,
             'X-Backend-Sharding-State': 'unsharded',
-            'X-Backend-Status-Changed-At': put_timestamp.normal,
+            'X-Backend-Status-Changed-At': put_timestamp.internal,
             'X-Backend-Storage-Policy-Index': str(int(POLICIES.default)),
-            'X-Backend-Timestamp': created_at_timestamp.normal,
+            'X-Backend-Timestamp': created_at_timestamp.internal,
             'X-Container-Bytes-Used': '0',
             'X-Container-Object-Count': '0',
             'X-Put-Timestamp': put_timestamp.normal,
@@ -234,7 +234,7 @@ class TestContainerController(unittest.TestCase):
         }, dict(headers))
         self.assertEqual(b'', b''.join(body_iter))
 
-    def _test_head(self, start, ts):
+    def _test_head(self, ts_start, ts):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
         response = req.get_response(self.controller)
         self.assertEqual(response.status_int, 204)
@@ -242,7 +242,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(response.headers['x-container-object-count'], '0')
         obj_put_request = Request.blank(
             '/sda1/p/a/c/o', method='PUT', headers={
-                'x-timestamp': next(ts),
+                'x-timestamp': next(ts).internal,
                 'x-size': 42,
                 'x-content-type': 'text/plain',
                 'x-etag': 'x',
@@ -256,45 +256,42 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(response.headers['x-container-bytes-used'], '42')
         self.assertEqual(response.headers['x-container-object-count'], '1')
         # created at time...
-        created_at_header = Timestamp(response.headers['x-timestamp'])
+        ts_created_at = Timestamp(response.headers['x-timestamp'])
         self.assertEqual(response.headers['x-timestamp'],
-                         created_at_header.normal)
-        self.assertTrue(created_at_header >= start)
-        self.assertEqual(response.headers['x-put-timestamp'],
-                         Timestamp(start).normal)
-        time_fmt = "%a, %d %b %Y %H:%M:%S GMT"
-        self.assertEqual(
-            response.last_modified.strftime(time_fmt),
-            time.strftime(time_fmt, time.gmtime(int(start))))
+                         ts_created_at.normal)
+        self.assertTrue(ts_created_at >= ts_start)
+        self.assertEqual(response.headers['x-put-timestamp'], ts_start.normal)
+        self.assertEqual(response.headers['last-modified'],
+                         date_header_format(ts_start))
 
         # backend headers
         self.assertEqual(int(response.headers
                              ['X-Backend-Storage-Policy-Index']),
                          int(POLICIES.default))
         self.assertTrue(
-            Timestamp(response.headers['x-backend-timestamp']) >= start)
+            Timestamp(response.headers['x-backend-timestamp']) >= ts_start)
         self.assertEqual(response.headers['x-backend-put-timestamp'],
-                         Timestamp(start).internal)
+                         ts_start.internal)
+        # the delete timestamp column defaults to the string '0'
         self.assertEqual(response.headers['x-backend-delete-timestamp'],
-                         Timestamp(0).internal)
+                         Timestamp('0').internal)
         self.assertEqual(response.headers['x-backend-status-changed-at'],
-                         Timestamp(start).internal)
+                         ts_start.internal)
 
     def test_HEAD(self):
-        start = int(time.time())
-        ts = (Timestamp(t).internal for t in itertools.count(start))
+        ts_start = next(self.ts)
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'x-timestamp': next(ts)})
+            'x-timestamp': ts_start.internal})
         req.get_response(self.controller)
-        self._test_head(Timestamp(start), ts)
+        self._test_head(ts_start, self.ts)
 
     def test_HEAD_timestamp_with_offset(self):
-        start = int(time.time())
-        ts = (Timestamp(t, offset=1).internal for t in itertools.count(start))
+        ts_iter = (Timestamp(ts, offset=1) for ts in self.ts)
+        ts_start = next(ts_iter)
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'x-timestamp': next(ts)})
+            'x-timestamp': ts_start.internal})
         req.get_response(self.controller)
-        self._test_head(Timestamp(start, offset=1), ts)
+        self._test_head(ts_start, ts_iter)
 
     def test_HEAD_not_found(self):
         req = Request.blank('/sda1/p/a/c', method='HEAD')
@@ -303,13 +300,13 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(int(resp.headers['X-Backend-Storage-Policy-Index']),
                          0)
         self.assertEqual(resp.headers['x-backend-timestamp'],
-                         Timestamp(0).internal)
+                         Timestamp.zero().internal)
         self.assertEqual(resp.headers['x-backend-put-timestamp'],
-                         Timestamp(0).internal)
+                         Timestamp.zero().internal)
         self.assertEqual(resp.headers['x-backend-status-changed-at'],
-                         Timestamp(0).internal)
+                         Timestamp.zero().internal)
         self.assertEqual(resp.headers['x-backend-delete-timestamp'],
-                         Timestamp(0).internal)
+                         Timestamp.zero().internal)
         self.assertIsNone(resp.last_modified)
 
         for header in ('x-container-object-count', 'x-container-bytes-used',
@@ -459,9 +456,9 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 202)
 
     def test_PUT_HEAD_put_timestamp_updates(self):
-        put_ts = Timestamp(1)
+        ts = [next(self.ts) for _ in range(6)]
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
-                            headers={'X-Timestamp': put_ts.internal})
+                            headers={'X-Timestamp': ts[1].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
 
@@ -482,44 +479,40 @@ class TestContainerController(unittest.TestCase):
             return resp.headers
 
         # put timestamp is advanced on PUT with container path
-        put_ts = Timestamp(2)
-        resp_hdrs = do_put_head(put_ts, 'val1',
+        resp_hdrs = do_put_head(ts[2], 'val1',
                                 {'x-backend-no-timestamp-update': 'false'})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val1')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         put_ts.internal)
-        self.assertEqual(resp_hdrs.get('x-put-timestamp'), put_ts.internal)
+                         ts[2].internal)
+        self.assertEqual(resp_hdrs.get('x-put-timestamp'), ts[2].normal)
 
-        put_ts = Timestamp(3)
-        resp_hdrs = do_put_head(put_ts, 'val2',
+        resp_hdrs = do_put_head(ts[3], 'val2',
                                 {'x-backend-no-timestamp-update': 'true'})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val2')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         put_ts.internal)
-        self.assertEqual(resp_hdrs.get('x-put-timestamp'), put_ts.internal)
+                         ts[3].internal)
+        self.assertEqual(resp_hdrs.get('x-put-timestamp'), ts[3].normal)
 
         # put timestamp is NOT updated if record type is shard
-        put_ts = Timestamp(4)
         resp_hdrs = do_put_head(
-            put_ts, 'val3', {'x-backend-record-type': 'shard'},
+            ts[4], 'val3', {'x-backend-record-type': 'shard'},
             body=json.dumps([dict(ShardRange('x/y', 123.4))]))
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         Timestamp(3).internal)
+                         ts[3].internal)
         self.assertEqual(resp_hdrs.get('x-put-timestamp'),
-                         Timestamp(3).internal)
+                         ts[3].normal)
 
         # put timestamp and metadata are NOT updated for request with obj path
-        put_ts = Timestamp(5)
         resp_hdrs = do_put_head(
-            put_ts, 'val4',
+            ts[5], 'val4',
             {'x-content-type': 'plain/text', 'x-size': 0, 'x-etag': 'an-etag'},
             path='a/c/o')
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         Timestamp(3).internal)
+                         ts[3].internal)
         self.assertEqual(resp_hdrs.get('x-put-timestamp'),
-                         Timestamp(3).internal)
+                         ts[3].normal)
 
     def test_PUT_insufficient_space(self):
         conf = {'devices': self.testdir,
@@ -1145,7 +1138,7 @@ class TestContainerController(unittest.TestCase):
         self.assertNotIn(key.lower(), resp.headers)
 
     def test_POST_HEAD_no_timestamp_update(self):
-        put_ts = Timestamp(1)
+        put_ts = next(self.ts)
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': put_ts.internal})
         resp = req.get_response(self.controller)
@@ -1167,34 +1160,33 @@ class TestContainerController(unittest.TestCase):
             return resp.headers
 
         # verify timestamp IS advanced
-        post_ts = Timestamp(2)
-        resp_hdrs = do_post_head(post_ts, 'val1', {})
+        post_ts1 = next(self.ts)
+        resp_hdrs = do_post_head(post_ts1, 'val1', {})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val1')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         post_ts.internal)
+                         post_ts1.internal)
 
-        post_ts = Timestamp(3)
-        resp_hdrs = do_post_head(post_ts, 'val2',
+        post_ts2 = next(self.ts)
+        resp_hdrs = do_post_head(post_ts2, 'val2',
                                  {'x-backend-no-timestamp-update': 'false'})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val2')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         post_ts.internal)
+                         post_ts2.internal)
 
         # verify timestamp IS NOT advanced, but metadata still updated
-        post_ts = Timestamp(4)
-        resp_hdrs = do_post_head(post_ts, 'val3',
+        post_ts3 = next(self.ts)
+        resp_hdrs = do_post_head(post_ts3, 'val3',
                                  {'x-backend-No-timeStamp-update': 'true'})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         Timestamp(3).internal)
+                         post_ts2.internal)
 
         # verify timestamp will not go backwards
-        post_ts = Timestamp(2)
-        resp_hdrs = do_post_head(post_ts, 'val4',
+        resp_hdrs = do_post_head(post_ts1, 'val4',
                                  {'x-backend-no-timestamp-update': 'true'})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
-                         Timestamp(3).internal)
+                         post_ts2.internal)
 
     def test_POST_invalid_partition(self):
         req = Request.blank('/sda1/./a/c', environ={'REQUEST_METHOD': 'POST',
@@ -1352,14 +1344,15 @@ class TestContainerController(unittest.TestCase):
                 return err
             return None
 
+        timestamps = [next(self.ts) for _ in range(5)]
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': Timestamp(1).internal,
+            headers={'X-Timestamp': timestamps[1].internal,
                      'X-Account-Host': '%s:%s' % bindsock.getsockname(),
                      'X-Account-Partition': '123',
                      'X-Account-Device': 'sda1'})
-        event = spawn(accept, 201, Timestamp(1).internal)
+        event = spawn(accept, 201, timestamps[1].internal)
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
@@ -1368,20 +1361,22 @@ class TestContainerController(unittest.TestCase):
             err = event.wait()
             if err:
                 raise Exception(err)
+
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': '2'})
+            headers={'X-Timestamp': timestamps[2].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
+
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': Timestamp(3).internal,
+            headers={'X-Timestamp': timestamps[3].internal,
                      'X-Account-Host': '%s:%s' % bindsock.getsockname(),
                      'X-Account-Partition': '123',
                      'X-Account-Device': 'sda1'})
-        event = spawn(accept, 404, Timestamp(3).internal)
+        event = spawn(accept, 404, timestamps[3].internal)
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
@@ -1390,14 +1385,15 @@ class TestContainerController(unittest.TestCase):
             err = event.wait()
             if err:
                 raise Exception(err)
+
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': Timestamp(5).internal,
+            headers={'X-Timestamp': timestamps[4].internal,
                      'X-Account-Host': '%s:%s' % bindsock.getsockname(),
                      'X-Account-Partition': '123',
                      'X-Account-Device': 'sda1'})
-        event = spawn(accept, 503, Timestamp(5).internal)
+        event = spawn(accept, 503, timestamps[4].internal)
         got_exc = False
         try:
             with Timeout(3):
@@ -1931,13 +1927,14 @@ class TestContainerController(unittest.TestCase):
         self.assertNotIn('X-Backend-Record-Type', resp.headers)
 
     def test_DELETE_PUT_recreate(self):
+        timestamps = [next(self.ts) for _ in range(5)]
         path = '/sda1/p/a/c'
         req = Request.blank(path, method='PUT',
-                            headers={'X-Timestamp': '1'})
+                            headers={'X-Timestamp': timestamps[1].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         req = Request.blank(path, method='DELETE',
-                            headers={'X-Timestamp': '2'})
+                            headers={'X-Timestamp': timestamps[2].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         req = Request.blank(path, method='GET')
@@ -1945,9 +1942,9 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 404)  # sanity
         # backend headers
         expectations = {
-            'x-backend-put-timestamp': Timestamp(1).internal,
-            'x-backend-delete-timestamp': Timestamp(2).internal,
-            'x-backend-status-changed-at': Timestamp(2).internal,
+            'x-backend-put-timestamp': timestamps[1].internal,
+            'x-backend-delete-timestamp': timestamps[2].internal,
+            'x-backend-status-changed-at': timestamps[2].internal,
         }
         for header, value in expectations.items():
             self.assertEqual(resp.headers[header], value,
@@ -1956,28 +1953,28 @@ class TestContainerController(unittest.TestCase):
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self.assertEqual(True, db.is_deleted())
         info = db.get_info()
-        self.assertEqual(info['put_timestamp'], Timestamp('1').internal)
-        self.assertEqual(info['delete_timestamp'], Timestamp('2').internal)
-        self.assertEqual(info['status_changed_at'], Timestamp('2').internal)
+        self.assertEqual(info['put_timestamp'], timestamps[1].internal)
+        self.assertEqual(info['delete_timestamp'], timestamps[2].internal)
+        self.assertEqual(info['status_changed_at'], timestamps[2].internal)
         # recreate
         req = Request.blank(path, method='PUT',
-                            headers={'X-Timestamp': '4'})
+                            headers={'X-Timestamp': timestamps[4].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         db = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
         self.assertEqual(False, db.is_deleted())
         info = db.get_info()
-        self.assertEqual(info['put_timestamp'], Timestamp('4').internal)
-        self.assertEqual(info['delete_timestamp'], Timestamp('2').internal)
-        self.assertEqual(info['status_changed_at'], Timestamp('4').internal)
+        self.assertEqual(info['put_timestamp'], timestamps[4].internal)
+        self.assertEqual(info['delete_timestamp'], timestamps[2].internal)
+        self.assertEqual(info['status_changed_at'], timestamps[4].internal)
         for method in ('GET', 'HEAD'):
             req = Request.blank(path)
             resp = req.get_response(self.controller)
             expectations = {
-                'x-put-timestamp': Timestamp(4).normal,
-                'x-backend-put-timestamp': Timestamp(4).internal,
-                'x-backend-delete-timestamp': Timestamp(2).internal,
-                'x-backend-status-changed-at': Timestamp(4).internal,
+                'x-put-timestamp': timestamps[4].normal,
+                'x-backend-put-timestamp': timestamps[4].internal,
+                'x-backend-delete-timestamp': timestamps[2].internal,
+                'x-backend-status-changed-at': timestamps[4].internal,
             }
             for header, expected in expectations.items():
                 self.assertEqual(resp.headers[header], expected,
@@ -2125,7 +2122,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', headers={
-                'X-Timestamp': Timestamp(0).internal, 'X-Size': 1,
+                'X-Timestamp': Timestamp.zero().internal, 'X-Size': 1,
                 'X-Content-Type': 'text/plain', 'X-Etag': 'x'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
@@ -2151,11 +2148,9 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 404)
 
     def test_object_update_with_offset(self):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time.time())))
         # create container
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(ts)})
+            'X-Timestamp': next(self.ts).internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         # check status
@@ -2165,10 +2160,10 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(int(resp.headers['X-Backend-Storage-Policy-Index']),
                          int(POLICIES.default))
         # create object
-        obj_timestamp = next(ts)
+        obj_timestamp = next(self.ts)
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', headers={
-                'X-Timestamp': obj_timestamp, 'X-Size': 1,
+                'X-Timestamp': obj_timestamp.internal, 'X-Size': 1,
                 'X-Content-Type': 'text/plain', 'X-Etag': 'x'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
@@ -2188,10 +2183,10 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(obj['hash'], 'x')
             self.assertEqual(obj['content_type'], 'text/plain')
         # send an update with an offset
-        offset_timestamp = Timestamp(obj_timestamp, offset=1).internal
+        offset_timestamp = Timestamp(obj_timestamp, offset=1)
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', headers={
-                'X-Timestamp': offset_timestamp, 'X-Size': 2,
+                'X-Timestamp': offset_timestamp.internal, 'X-Size': 2,
                 'X-Content-Type': 'text/html', 'X-Etag': 'y'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
@@ -2211,10 +2206,10 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(obj['hash'], 'y')
             self.assertEqual(obj['content_type'], 'text/html')
         # now overwrite with a newer time
-        delete_timestamp = next(ts)
+        delete_timestamp = next(self.ts)
         req = Request.blank(
             '/sda1/p/a/c/o', method='DELETE', headers={
-                'X-Timestamp': delete_timestamp})
+                'X-Timestamp': delete_timestamp.internal})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
@@ -2228,10 +2223,10 @@ class TestContainerController(unittest.TestCase):
         listing_data = json.loads(resp.body)
         self.assertEqual(0, len(listing_data))
         # recreate with an offset
-        offset_timestamp = Timestamp(delete_timestamp, offset=1).internal
+        offset_timestamp = Timestamp(delete_timestamp, offset=1)
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', headers={
-                'X-Timestamp': offset_timestamp, 'X-Size': 3,
+                'X-Timestamp': offset_timestamp.internal, 'X-Size': 3,
                 'X-Content-Type': 'text/enriched', 'X-Etag': 'z'})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
@@ -2251,10 +2246,10 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(obj['hash'], 'z')
             self.assertEqual(obj['content_type'], 'text/enriched')
         # delete offset with newer offset
-        delete_timestamp = Timestamp(offset_timestamp, offset=1).internal
+        delete_timestamp = Timestamp(offset_timestamp, offset=1)
         req = Request.blank(
             '/sda1/p/a/c/o', method='DELETE', headers={
-                'X-Timestamp': delete_timestamp})
+                'X-Timestamp': delete_timestamp.internal})
         self._update_object_put_headers(req)
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
@@ -2495,19 +2490,21 @@ class TestContainerController(unittest.TestCase):
                 return err
             return None
 
+        timestamps = [next(self.ts) for _ in range(6)]
         req = Request.blank(
             '/sda1/p/a/c',
-            environ={'REQUEST_METHOD': 'PUT'}, headers={'X-Timestamp': '1'})
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': timestamps[1].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': Timestamp(2).internal,
+            headers={'X-Timestamp': timestamps[2].internal,
                      'X-Account-Host': '%s:%s' % bindsock.getsockname(),
                      'X-Account-Partition': '123',
                      'X-Account-Device': 'sda1'})
-        event = spawn(accept, 204, Timestamp(2).internal)
+        event = spawn(accept, 204, timestamps[2].internal)
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
@@ -2518,17 +2515,17 @@ class TestContainerController(unittest.TestCase):
                 raise Exception(err)
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers={
-                'X-Timestamp': Timestamp(2).internal})
+                'X-Timestamp': timestamps[2].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': Timestamp(3).internal,
+            headers={'X-Timestamp': timestamps[3].internal,
                      'X-Account-Host': '%s:%s' % bindsock.getsockname(),
                      'X-Account-Partition': '123',
                      'X-Account-Device': 'sda1'})
-        event = spawn(accept, 404, Timestamp(3).internal)
+        event = spawn(accept, 404, timestamps[3].internal)
         try:
             with Timeout(3):
                 resp = req.get_response(self.controller)
@@ -2539,17 +2536,17 @@ class TestContainerController(unittest.TestCase):
                 raise Exception(err)
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers={
-                'X-Timestamp': Timestamp(4).internal})
+                'X-Timestamp': timestamps[4].internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': Timestamp(5).internal,
+            headers={'X-Timestamp': timestamps[5].internal,
                      'X-Account-Host': '%s:%s' % bindsock.getsockname(),
                      'X-Account-Partition': '123',
                      'X-Account-Device': 'sda1'})
-        event = spawn(accept, 503, Timestamp(5).internal)
+        event = spawn(accept, 503, timestamps[5].internal)
         got_exc = False
         try:
             with Timeout(3):
@@ -5029,7 +5026,7 @@ class TestContainerController(unittest.TestCase):
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': Timestamp(0).internal})
+            'X-Timestamp': Timestamp.zero().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a/c', method='GET')
@@ -5965,10 +5962,11 @@ class TestContainerController(unittest.TestCase):
                 dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
+        ts_put = next(self.ts)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': '12345',
+            headers={'X-Timestamp': ts_put.internal,
                      'X-Account-Partition': '30',
                      'X-Account-Host': '1.2.3.4:5, 6.7.8.9:10',
                      'X-Account-Device': 'sdb1, sdf1'})
@@ -5996,7 +5994,7 @@ class TestContainerController(unittest.TestCase):
                  'x-bytes-used': 0,
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
-                 'x-put-timestamp': Timestamp(12345).internal,
+                 'x-put-timestamp': ts_put.internal,
                  'X-Backend-Storage-Policy-Index': '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
@@ -6014,7 +6012,7 @@ class TestContainerController(unittest.TestCase):
                  'x-bytes-used': 0,
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
-                 'x-put-timestamp': Timestamp(12345).internal,
+                 'x-put-timestamp': ts_put.internal,
                  'X-Backend-Storage-Policy-Index': '%s' % POLICIES.default.idx,
                  'referer': 'PUT http://localhost/sda1/p/a/c',
                  'user-agent': 'container-server %d' % os.getpid(),
