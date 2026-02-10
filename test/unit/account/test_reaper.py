@@ -26,7 +26,7 @@ import eventlet
 from swift.account import reaper
 from swift.account.backend import DATADIR
 from swift.common.exceptions import ClientException
-from swift.common.utils import normalize_timestamp, Timestamp
+from swift.common.utils.timestamp import Timestamp
 
 from test import unit
 from test.debug_logger import debug_logger
@@ -257,17 +257,17 @@ class TestReaper(unittest.TestCase):
             reaper.time = _time
             r = reaper.AccountReaper({'delay_reaping': '10'})
             b = FakeBroker()
-            b.info['delete_timestamp'] = normalize_timestamp(110)
+            b.info['delete_timestamp'] = Timestamp(110).internal
             self.assertFalse(r.reap_account(b, 0, None))
-            b.info['delete_timestamp'] = normalize_timestamp(100)
+            b.info['delete_timestamp'] = Timestamp(100).internal
             self.assertFalse(r.reap_account(b, 0, None))
-            b.info['delete_timestamp'] = normalize_timestamp(90)
+            b.info['delete_timestamp'] = Timestamp(90).internal
             self.assertFalse(r.reap_account(b, 0, None))
             # KeyError raised immediately as reap_account tries to get the
             # account's name to do the reaping.
-            b.info['delete_timestamp'] = normalize_timestamp(89)
+            b.info['delete_timestamp'] = Timestamp(89).internal
             self.assertRaises(KeyError, r.reap_account, b, 0, None)
-            b.info['delete_timestamp'] = normalize_timestamp(1)
+            b.info['delete_timestamp'] = Timestamp(1).internal
             self.assertRaises(KeyError, r.reap_account, b, 0, None)
         finally:
             reaper.time = time_orig

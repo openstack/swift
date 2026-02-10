@@ -22,7 +22,6 @@ that are not yet ported to py34, such wsgi.py which import mimetools.
 """
 import os
 from tempfile import mkdtemp
-import time
 import warnings
 
 from eventlet import spawn, wsgi
@@ -36,7 +35,7 @@ from swift.common.ring import RingData
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 from swift.common.middleware import listing_formats, proxy_logging
 from swift.common import utils
-from swift.common.utils import mkdirs, normalize_timestamp, NullLogger
+from swift.common.utils import mkdirs, NullLogger, Timestamp
 from swift.common.http_protocol import SwiftHttpProtocol
 from swift.container import server as container_server
 from swift.obj import server as object_server
@@ -252,7 +251,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
         (prospa, acc1spa, acc2spa, con1spa, con2spa, obj1spa, obj2spa, obj3spa,
          obj4spa, obj5spa, obj6spa)
     # Create account
-    ts = normalize_timestamp(time.time())
+    ts = Timestamp.now().internal
     partition, nodes = prosrv.account_ring.get_nodes('a')
     for node in nodes:
         conn = swift.proxy.controllers.obj.http_connect(node['ip'],
@@ -265,7 +264,7 @@ def setup_servers(the_object_server=object_server, extra_conf=None):
         assert resp.status == 201
     # Create another account
     # used for account-to-account tests
-    ts = normalize_timestamp(time.time())
+    ts = Timestamp.now().internal
     partition, nodes = prosrv.account_ring.get_nodes('a1')
     for node in nodes:
         conn = swift.proxy.controllers.obj.http_connect(node['ip'],

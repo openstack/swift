@@ -29,7 +29,7 @@ import functools
 import random
 import base64
 
-from time import time, sleep
+from time import sleep
 from shutil import rmtree
 from tempfile import mkdtemp
 from unittest import SkipTest
@@ -41,6 +41,7 @@ from http.client import HTTPException
 from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError
 from swift.common.utils import set_swift_dir
+from swift.common.utils.timestamp import Timestamp
 
 from test import get_config, listen_zero
 
@@ -695,7 +696,7 @@ def in_process_setup(the_object_server=object_server):
 
     # Create accounts "test" and "test2"
     def create_account(act):
-        ts = utils.normalize_timestamp(time())
+        ts = Timestamp.now().internal
         account_ring = Ring(_testdir, ring_name='account')
         partition, nodes = account_ring.get_nodes(act)
         for node in nodes:

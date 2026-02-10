@@ -204,7 +204,7 @@ class TestTimestamp(unittest.TestCase):
             self.assertEqual(timestamp.Timestamp(1402437380.581859).internal,
                              '1402437380.58186')
             self.assertEqual(timestamp.Timestamp(0).internal,
-                             timestamp.normalize_timestamp(0))
+                             '0000000000.00000')
 
     def test_no_force_internal_with_offset(self):
         """Test that internal always includes the offset if significant"""
@@ -941,6 +941,10 @@ class TestModuleFunctions(unittest.TestCase):
                          "1253327593.00000")
         self.assertEqual(timestamp.normalize_timestamp(1253327593),
                          "1253327593.00000")
+        self.assertEqual(timestamp.normalize_timestamp(
+            timestamp.Timestamp(1253327593, offset=0xabcdef).internal),
+            "1253327593.00000")
+        self.assertEqual(timestamp.normalize_timestamp(0), "0000000000.00000")
         self.assertRaises(ValueError, timestamp.normalize_timestamp, '')
         self.assertRaises(ValueError, timestamp.normalize_timestamp, 'abc')
 

@@ -38,11 +38,11 @@ from swift.common.constraints import \
 from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
     GreenDBConnection, PICKLE_PROTOCOL, zero_like, TombstoneReclaimer
-from swift.common.utils import normalize_timestamp, mkdirs, Timestamp, md5
+from swift.common.utils import mkdirs, Timestamp, md5
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
-from test.unit import make_timestamp_iter, generate_db_path
+from test.unit import make_timestamp_iter, generate_db_path, BaseUnitTestCase
 
 
 class TestHelperFunctions(unittest.TestCase):
@@ -99,7 +99,7 @@ class TestDictFactory(unittest.TestCase):
                          {'one': 'def', 'two': 456})
 
 
-class TestChexor(unittest.TestCase):
+class TestChexor(BaseUnitTestCase):
 
     def test_normal_case(self):
         self.assertEqual(
@@ -109,12 +109,12 @@ class TestChexor(unittest.TestCase):
 
     def test_invalid_old_hash(self):
         self.assertRaises(ValueError, chexor, 'oldhash', 'name',
-                          normalize_timestamp(1))
+                          self.ts().internal)
 
     def test_no_name(self):
         self.assertRaises(Exception, chexor,
                           'd41d8cd98f00b204e9800998ecf8427e', None,
-                          normalize_timestamp(1))
+                          self.ts().internal)
 
     def test_chexor(self):
         ts = make_timestamp_iter()
@@ -693,7 +693,7 @@ class TestDatabaseBroker(TestDbBase):
         broker = DatabaseBroker(self.db_path)
         self.assertEqual(broker.db_file, self.db_path)
         self.assertRaises(AttributeError, broker.initialize,
-                          normalize_timestamp('0'))
+                          next(self.ts).internal)
 
     def test_disk_db_init(self):
         db_file = os.path.join(self.testdir, '1.db')
@@ -719,9 +719,10 @@ class TestDatabaseBroker(TestDbBase):
             self.assertEqual(test_size[0], 1024 * 1024)
 
     def test_initialize(self):
+        ts_str = next(self.ts).internal
         self.assertRaises(AttributeError,
                           DatabaseBroker(self.db_path).initialize,
-                          normalize_timestamp('1'))
+                          ts_str)
         stub_dict = {}
 
         def stub(*args, **kwargs):
@@ -730,27 +731,28 @@ class TestDatabaseBroker(TestDbBase):
             stub_dict.update(kwargs)
         broker = DatabaseBroker(self.db_path)
         broker._initialize = stub
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(ts_str)
         self.assertTrue(hasattr(stub_dict['args'][0], 'execute'))
-        self.assertEqual(stub_dict['args'][1], '0000000001.00000')
+        self.assertEqual(stub_dict['args'][1], ts_str)
         with broker.get() as conn:
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
         broker._initialize = stub
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(ts_str)
         self.assertTrue(hasattr(stub_dict['args'][0], 'execute'))
-        self.assertEqual(stub_dict['args'][1], '0000000001.00000')
+        self.assertEqual(stub_dict['args'][1], ts_str)
         with broker.get() as conn:
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
         broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
         broker._initialize = stub
         self.assertRaises(DatabaseAlreadyExists,
-                          broker.initialize, normalize_timestamp('1'))
+                          broker.initialize, ts_str)
 
     def test_delete_db(self):
-        meta = {'foo': ['bar', normalize_timestamp('0')]}
+        timestamps = [next(self.ts) for _ in range(3)]
+        meta = {'foo': ['bar', timestamps[0].internal]}
 
         def init_stub(conn, put_timestamp, **kwargs):
             conn.execute('CREATE TABLE test (one TEXT)')
@@ -773,14 +775,14 @@ class TestDatabaseBroker(TestDbBase):
             broker.db_type = 'test'
             broker._initialize = init_stub
             # Initializes a good broker for us
-            broker.initialize(normalize_timestamp('1'))
+            broker.initialize(timestamps[1].internal)
             info = broker.get_info()
             self.assertEqual('0', info['delete_timestamp'])
             self.assertEqual('', info['status'])
             self.assertIsNotNone(broker.conn)
-            broker.delete_db(normalize_timestamp('2'))
+            broker.delete_db(timestamps[2].internal)
             info = broker.get_info()
-            self.assertEqual(normalize_timestamp('2'),
+            self.assertEqual(timestamps[2].internal,
                              info['delete_timestamp'])
             self.assertEqual('DELETED', info['status'])
 
@@ -793,13 +795,13 @@ class TestDatabaseBroker(TestDbBase):
             broker.delete_meta_whitelist = delete_meta_whitelist
             broker.db_type = 'test'
             broker._initialize = init_stub
-            broker.initialize(normalize_timestamp('1'))
+            broker.initialize(timestamps[1].internal)
             info = broker.get_info()
             self.assertEqual('0', info['delete_timestamp'])
             self.assertEqual('', info['status'])
-            broker.delete_db(normalize_timestamp('2'))
+            broker.delete_db(timestamps[2].internal)
             info = broker.get_info()
-            self.assertEqual(normalize_timestamp('2'),
+            self.assertEqual(timestamps[2].internal,
                              info['delete_timestamp'])
             self.assertEqual('DELETED', info['status'])
 
@@ -808,7 +810,7 @@ class TestDatabaseBroker(TestDbBase):
             self.assertEqual(m2, expected_metadata)
 
         # ensure that metadata was cleared by default
-        do_test({'foo': ['', normalize_timestamp('2')]})
+        do_test({'foo': ['', timestamps[2].internal]})
 
         # If the meta is in the brokers delete_meta_whitelist it wont get
         # cleared up
@@ -816,11 +818,11 @@ class TestDatabaseBroker(TestDbBase):
 
         # delete_meta_whitelist things need to be in lower case, as the keys
         # are lower()'ed before checked
-        meta["X-Container-Meta-Test"] = ['value', normalize_timestamp('0')]
-        meta["X-Something-else"] = ['other', normalize_timestamp('0')]
-        do_test({'foo': ['', normalize_timestamp('2')],
-                 'X-Container-Meta-Test': ['value', normalize_timestamp('0')],
-                 'X-Something-else': ['other', normalize_timestamp('0')]},
+        meta["X-Container-Meta-Test"] = ['value', timestamps[0].internal]
+        meta["X-Something-else"] = ['other', timestamps[0].internal]
+        do_test({'foo': ['', timestamps[2].internal],
+                 'X-Container-Meta-Test': ['value', timestamps[0].internal],
+                 'X-Something-else': ['other', timestamps[0].internal]},
                 ['x-container-meta-test', 'x-something-else'])
 
     def test_get(self):
@@ -843,7 +845,7 @@ class TestDatabaseBroker(TestDbBase):
         def stub(*args, **kwargs):
             pass
         broker._initialize = stub
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(next(self.ts).internal)
         with broker.get() as conn:
             conn.execute('CREATE TABLE test (one TEXT)')
         try:
@@ -942,7 +944,7 @@ class TestDatabaseBroker(TestDbBase):
         def stub(*args, **kwargs):
             pass
         broker._initialize = stub
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(next(self.ts).internal)
         with broker.lock():
             pass
         with broker.lock():
@@ -991,7 +993,7 @@ class TestDatabaseBroker(TestDbBase):
             conn.execute('INSERT INTO test_stat (id) VALUES (?)', (uuid1,))
             conn.commit()
         broker._initialize = _initialize
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(next(self.ts).internal)
         uuid2 = str(uuid4())
         broker.newid(uuid2)
         with broker.get() as conn:
@@ -1042,7 +1044,7 @@ class TestDatabaseBroker(TestDbBase):
             conn.execute('INSERT INTO test (one) VALUES ("3")')
             conn.commit()
         broker._initialize = _initialize
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(next(self.ts).internal)
         self.assertEqual(broker.get_items_since(-1, 10),
                          [{'one': '1'}, {'one': '2'}, {'one': '3'}])
         self.assertEqual(broker.get_items_since(-1, 2),
@@ -1066,7 +1068,7 @@ class TestDatabaseBroker(TestDbBase):
             conn.commit()
             pass
         broker._initialize = _initialize
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(next(self.ts).internal)
 
         for incoming in (True, False):
             # Can't mock out timestamp now, because the update_at in the sync
@@ -1115,7 +1117,7 @@ class TestDatabaseBroker(TestDbBase):
             conn.commit()
             pass
         broker._initialize = _initialize
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(next(self.ts).internal)
         uuid2 = str(uuid4())
         self.assertEqual(broker.get_sync(uuid2), -1)
         broker.newid(uuid2)
@@ -1147,7 +1149,7 @@ class TestDatabaseBroker(TestDbBase):
         def stub(*args, **kwargs):
             pass
         broker._initialize = stub
-        broker.initialize(normalize_timestamp('1'))
+        broker.initialize(next(self.ts).internal)
         uuid2 = str(uuid4())
         broker.merge_syncs([{'sync_point': 1, 'remote_id': uuid2}])
         self.assertEqual(broker.get_sync(uuid2), 1)
@@ -1198,7 +1200,7 @@ class TestDatabaseBroker(TestDbBase):
 
         def _initialize(conn, put_timestamp, **kwargs):
             if put_timestamp is None:
-                put_timestamp = normalize_timestamp(0)
+                put_timestamp = next(self.ts).internal
             conn.executescript('''
                 CREATE TABLE test (
                     ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1370,7 +1372,7 @@ class TestDatabaseBroker(TestDbBase):
         broker.db_type = 'container'
 
         with self.assertRaises(sqlite3.DatabaseError) as raised:
-            broker.update_metadata({'First': ['1', normalize_timestamp(1)]})
+            broker.update_metadata({'First': ['1', next(self.ts).internal]})
         self.assertEqual(
             str(raised.exception),
             'Quarantined %s to %s due to missing row in container_stat table' %
@@ -1400,7 +1402,7 @@ class TestDatabaseBroker(TestDbBase):
     @patch.object(DatabaseBroker, 'validate_metadata')
     def test_validate_metadata_is_called_from_update_metadata(self, mock):
         broker = self.get_replication_info_tester(metadata=True)
-        first_timestamp = normalize_timestamp(1)
+        first_timestamp = next(self.ts).internal
         first_value = '1'
         metadata = {'First': [first_value, first_timestamp]}
         broker.update_metadata(metadata, validate_metadata=True)
@@ -1409,7 +1411,7 @@ class TestDatabaseBroker(TestDbBase):
     @patch.object(DatabaseBroker, 'validate_metadata')
     def test_validate_metadata_is_not_called_from_update_metadata(self, mock):
         broker = self.get_replication_info_tester(metadata=True)
-        first_timestamp = normalize_timestamp(1)
+        first_timestamp = next(self.ts).internal
         first_value = '1'
         metadata = {'First': [first_value, first_timestamp]}
         broker.update_metadata(metadata)
@@ -1417,11 +1419,12 @@ class TestDatabaseBroker(TestDbBase):
 
     def test_metadata_with_max_count(self):
         metadata = {}
+        ts_str = next(self.ts).internal
         for c in range(MAX_META_COUNT):
             key = 'X-Account-Meta-F{0}'.format(c)
-            metadata[key] = ('B', normalize_timestamp(1))
+            metadata[key] = ('B', ts_str)
         key = 'X-Account-Meta-Foo'
-        metadata[key] = ('', normalize_timestamp(1))
+        metadata[key] = ('', ts_str)
         self.assertIsNone(DatabaseBroker.validate_metadata(metadata))
 
     def test_metadata_raises_exception_on_non_utf8(self):
@@ -1429,15 +1432,16 @@ class TestDatabaseBroker(TestDbBase):
             with self.assertRaises(HTTPException) as raised:
                 DatabaseBroker.validate_metadata(metadata)
             self.assertEqual(str(raised.exception), '400 Bad Request')
-        ts = normalize_timestamp(1)
+        ts = next(self.ts).internal
         try_validate({'X-Account-Meta-Foo': (b'\xff', ts)})
         try_validate({b'X-Container-Meta-\xff': ('bar', ts)})
 
     def test_metadata_raises_exception_over_max_count(self):
         metadata = {}
+        ts_str = next(self.ts).internal
         for c in range(MAX_META_COUNT + 1):
             key = 'X-Account-Meta-F{0}'.format(c)
-            metadata[key] = ('B', normalize_timestamp(1))
+            metadata[key] = ('B', ts_str)
         message = ''
         try:
             DatabaseBroker.validate_metadata(metadata)
@@ -1450,16 +1454,15 @@ class TestDatabaseBroker(TestDbBase):
         metadata_value = 'v' * MAX_META_VALUE_LENGTH
         size = 0
         x = 0
+        ts_str = next(self.ts).internal
         while size < (MAX_META_OVERALL_SIZE - 4
                       - MAX_META_VALUE_LENGTH):
             size += 4 + MAX_META_VALUE_LENGTH
-            metadata['X-Account-Meta-%04d' % x] = (metadata_value,
-                                                   normalize_timestamp(1))
+            metadata['X-Account-Meta-%04d' % x] = (metadata_value, ts_str)
             x += 1
         if MAX_META_OVERALL_SIZE - size > 1:
             metadata['X-Account-Meta-k'] = (
-                'v' * (MAX_META_OVERALL_SIZE - size - 1),
-                normalize_timestamp(1))
+                'v' * (MAX_META_OVERALL_SIZE - size - 1), ts_str)
         self.assertIsNone(DatabaseBroker.validate_metadata(metadata))
 
     def test_metadata_raises_exception_over_max_overall_size(self):
@@ -1467,17 +1470,16 @@ class TestDatabaseBroker(TestDbBase):
         metadata_value = 'k' * MAX_META_VALUE_LENGTH
         size = 0
         x = 0
+        ts_str = next(self.ts).internal
         while size < (MAX_META_OVERALL_SIZE - 4
                       - MAX_META_VALUE_LENGTH):
             size += 4 + MAX_META_VALUE_LENGTH
-            metadata['X-Account-Meta-%04d' % x] = (metadata_value,
-                                                   normalize_timestamp(1))
+            metadata['X-Account-Meta-%04d' % x] = (metadata_value, ts_str)
             x += 1
         if MAX_META_OVERALL_SIZE - size > 1:
             metadata['X-Account-Meta-k'] = (
-                'v' * (MAX_META_OVERALL_SIZE - size - 1),
-                normalize_timestamp(1))
-        metadata['X-Account-Meta-k2'] = ('v', normalize_timestamp(1))
+                'v' * (MAX_META_OVERALL_SIZE - size - 1), ts_str)
+        metadata['X-Account-Meta-k2'] = ('v', ts_str)
         message = ''
         try:
             DatabaseBroker.validate_metadata(metadata)

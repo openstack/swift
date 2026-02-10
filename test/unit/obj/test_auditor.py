@@ -27,11 +27,9 @@ from tempfile import mkdtemp
 import textwrap
 from os.path import dirname, basename
 
-from test import BaseTestCase
 from test.debug_logger import debug_logger
-from test.unit import (
-    DEFAULT_TEST_EC_TYPE, make_timestamp_iter, patch_policies,
-    skip_if_no_xattrs)
+from test.unit import (DEFAULT_TEST_EC_TYPE, patch_policies, skip_if_no_xattrs,
+                       BaseUnitTestCase)
 from test.unit.obj.common import write_diskfile
 from swift.obj import auditor, replicator
 from swift.obj.watchers.dark_data import DarkDataWatcher
@@ -40,8 +38,7 @@ from swift.obj.diskfile import (
     DiskFileManager, ECDiskFileManager, AuditLocation, clear_auditor_status,
     get_auditor_status, HASH_FILE, HASH_INVALIDATIONS_FILE)
 from swift.common.exceptions import ClientException
-from swift.common.utils import (
-    mkdirs, normalize_timestamp, Timestamp, readconf, md5)
+from swift.common.utils import mkdirs, Timestamp, readconf, md5
 from swift.common.utils.logs import SwiftLogAdapter
 from swift.common.storage_policy import (
     ECStoragePolicy, StoragePolicy, POLICIES, EC_POLICY)
@@ -106,10 +103,11 @@ class FakeRing2(object):
         return (1, nodes)
 
 
-class TestAuditorBase(BaseTestCase):
+class TestAuditorBase(BaseUnitTestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
+        super().setUp()
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_object_auditor')
         self.devices = os.path.join(self.testdir, 'node')
         self.rcache = os.path.join(self.testdir, 'object.recon')
@@ -170,10 +168,6 @@ class TestAuditorBase(BaseTestCase):
 @patch_policies(_mocked_policies)
 class TestAuditor(TestAuditorBase):
 
-    def setUp(self):
-        super().setUp()
-        self.ts = make_timestamp_iter()
-
     def test_worker_conf_parms(self):
         def check_common_defaults():
             self.assertEqual(auditor_worker.max_bytes_per_second, 10000000)
@@ -217,7 +211,7 @@ class TestAuditor(TestAuditorBase):
                 writer.write(data)
                 etag.update(data)
                 etag = etag.hexdigest()
-                timestamp = str(normalize_timestamp(time.time()))
+                timestamp = self.ts().internal
                 metadata = {
                     'ETag': etag,
                     'X-Timestamp': timestamp,
@@ -262,7 +256,7 @@ class TestAuditor(TestAuditorBase):
             etag = hasher.hexdigest()
             metadata = {
                 'ETag': etag,
-                'X-Timestamp': str(normalize_timestamp(now)),
+                'X-Timestamp': self.ts().internal,
                 'Content-Length': len(data),
                 'Content-Type': 'the old type',
             }
@@ -273,7 +267,7 @@ class TestAuditor(TestAuditorBase):
         post_metadata = metadata.copy()
         post_metadata['Content-Type'] = 'the new type'
         post_metadata['X-Object-Meta-Biff'] = 'buff'
-        post_metadata['X-Timestamp'] = str(normalize_timestamp(now + 1))
+        post_metadata['X-Timestamp'] = self.ts().internal
         disk_file.write_metadata(post_metadata)
 
         file_paths = [os.path.join(disk_file._datadir, fname)
@@ -324,7 +318,7 @@ class TestAuditor(TestAuditorBase):
                                                self.rcache, self.devices)
         data = b'0' * 1024
         etag = md5(usedforsecurity=False)
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
@@ -347,7 +341,7 @@ class TestAuditor(TestAuditorBase):
                           policy=POLICIES.legacy))
         self.assertEqual(auditor_worker.quarantines, pre_quarantines)
         etag = md5(b'1' + b'0' * 1023, usedforsecurity=False).hexdigest()
-        ts2 = next(self.ts)
+        ts2 = self.ts()
         metadata['ETag'] = etag
         metadata['X-Timestamp'] = ts2.normal
 
@@ -367,7 +361,7 @@ class TestAuditor(TestAuditorBase):
         def do_test(data):
             # create diskfile and set ETag and content-length to match the data
             etag = md5(data, usedforsecurity=False).hexdigest()
-            timestamp = str(normalize_timestamp(time.time()))
+            timestamp = self.ts().internal
             with disk_file.create() as writer:
                 writer.write(data)
                 metadata = {
@@ -443,7 +437,7 @@ class TestAuditor(TestAuditorBase):
                       log_lines[0])
 
     def test_object_audit_no_meta(self):
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = self.ts().internal
         path = os.path.join(self.disk_file._datadir, timestamp + '.data')
         mkdirs(self.disk_file._datadir)
         fp = open(path, 'wb')
@@ -459,7 +453,7 @@ class TestAuditor(TestAuditorBase):
         self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
 
     def test_object_audit_will_not_swallow_errors_in_tests(self):
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = self.ts().internal
         path = os.path.join(self.disk_file._datadir, timestamp + '.data')
         mkdirs(self.disk_file._datadir)
         with open(path, 'w') as f:
@@ -476,7 +470,7 @@ class TestAuditor(TestAuditorBase):
                                             policy=POLICIES.legacy))
 
     def test_failsafe_object_audit_will_swallow_errors_in_tests(self):
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = self.ts().internal
         path = os.path.join(self.disk_file._datadir, timestamp + '.data')
         mkdirs(self.disk_file._datadir)
         with open(path, 'w') as f:
@@ -579,7 +573,7 @@ class TestAuditor(TestAuditorBase):
 
         data = b'VERIFY'
         etag = md5(usedforsecurity=False)
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = self.ts().internal
         with self.disk_file.create() as writer:
             writer.write(data)
             etag.update(data)
@@ -653,7 +647,7 @@ class TestAuditor(TestAuditorBase):
                                                self.rcache, self.devices)
         # pretend that we logged (and reset counters) just now
         auditor_worker.last_logged = time.time()
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = self.ts().internal
         pre_errors = auditor_worker.errors
         data = b'0' * 1024
         etag = md5(usedforsecurity=False)
@@ -677,7 +671,7 @@ class TestAuditor(TestAuditorBase):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
         auditor_worker.log_time = 0
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         pre_quarantines = auditor_worker.quarantines
         data = b'0' * 1024
 
@@ -706,7 +700,7 @@ class TestAuditor(TestAuditorBase):
         self.assertEqual(auditor_worker.stats_buckets[10240], 0)
 
         # pick up some additional code coverage, large file
-        ts2 = next(self.ts)
+        ts2 = self.ts()
         data = b'0' * 1024 * 1024
         for df in (self.disk_file, self.disk_file_ec):
             with df.create() as writer:
@@ -827,7 +821,7 @@ class TestAuditor(TestAuditorBase):
     def test_object_run_once_no_sda(self):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = self.ts().internal
         pre_quarantines = auditor_worker.quarantines
         # pretend that we logged (and reset counters) just now
         auditor_worker.last_logged = time.time()
@@ -853,7 +847,7 @@ class TestAuditor(TestAuditorBase):
                                                self.rcache, self.devices)
         # pretend that we logged (and reset counters) just now
         auditor_worker.last_logged = time.time()
-        timestamp = str(normalize_timestamp(time.time()))
+        timestamp = self.ts().internal
         pre_quarantines = auditor_worker.quarantines
         data = b'0' * 10
         etag = md5(usedforsecurity=False)
@@ -897,7 +891,7 @@ class TestAuditor(TestAuditorBase):
             writer.write(data)
             etag.update(data)
             etag = etag.hexdigest()
-            timestamp = str(normalize_timestamp(time.time()))
+            timestamp = self.ts().internal
             metadata = {
                 'ETag': etag,
                 'X-Timestamp': timestamp,
@@ -1003,9 +997,8 @@ class TestAuditor(TestAuditorBase):
 
     def test_with_only_tombstone(self):
         # sanity check that auditor doesn't touch solitary tombstones
-        ts_iter = make_timestamp_iter()
-        self.setup_bad_zero_byte(timestamp=next(ts_iter))
-        self.disk_file.delete(next(ts_iter))
+        self.setup_bad_zero_byte(timestamp=self.ts())
+        self.disk_file.delete(self.ts())
         files = os.listdir(self.disk_file._datadir)
         self.assertEqual(1, len(files))
         self.assertTrue(files[0].endswith('ts'))
@@ -1017,9 +1010,8 @@ class TestAuditor(TestAuditorBase):
     def test_with_tombstone_and_data(self):
         # rsync replication could leave a tombstone and data file in object
         # dir - verify they are both removed during audit
-        ts_iter = make_timestamp_iter()
-        ts_tomb = next(ts_iter)
-        ts_data = next(ts_iter)
+        ts_tomb = self.ts()
+        ts_data = self.ts()
         self.setup_bad_zero_byte(timestamp=ts_data)
         tomb_file_path = os.path.join(self.disk_file._datadir,
                                       '%s.ts' % ts_tomb.internal)

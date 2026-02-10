@@ -15,12 +15,11 @@
 import os
 import shutil
 import tempfile
-import unittest
 
 from swift.common import utils
 from swift.common.storage_policy import POLICIES
-from swift.common.utils import Timestamp, md5
-from test.unit import make_timestamp_iter
+from swift.common.utils import md5
+from test.unit import BaseUnitTestCase
 
 
 def write_diskfile(df, timestamp, data=b'test data', frag_index=None,
@@ -53,8 +52,9 @@ def write_diskfile(df, timestamp, data=b'test data', frag_index=None,
     return metadata
 
 
-class BaseTest(unittest.TestCase):
+class BaseTest(BaseUnitTestCase):
     def setUp(self):
+        super().setUp()
         self.device = 'dev'
         self.partition = '9'
         self.tmpdir = tempfile.mkdtemp()
@@ -67,16 +67,9 @@ class BaseTest(unittest.TestCase):
         }
         # daemon will be set in subclass setUp
         self.daemon = None
-        self._ts_iter = make_timestamp_iter()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def ts(self):
-        """
-        Timestamps - forever.
-        """
-        return next(self._ts_iter)
 
     def _make_diskfile(self, device='dev', partition='9',
                        account='a', container='c', obj='o', body=b'test',
@@ -85,7 +78,7 @@ class BaseTest(unittest.TestCase):
                        commit=True, verify=True, **kwargs):
         policy = policy or POLICIES.legacy
         object_parts = account, container, obj
-        timestamp = Timestamp.now() if timestamp is None else timestamp
+        timestamp = self.ts() if timestamp is None else timestamp
         if df_mgr is None:
             df_mgr = self.daemon._df_router[policy]
         df = df_mgr.get_diskfile(
