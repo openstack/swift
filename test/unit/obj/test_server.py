@@ -47,13 +47,14 @@ from test.debug_logger import debug_logger, FakeStatsdClient, \
 from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
     connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
-    mock_check_drive, FakeRing, BaseUnitTestCase
+    mock_check_drive, FakeRing, BaseUnitTestCase, mock_timestamp_now
 from swift.obj import server as object_server
 from swift.obj import updater, diskfile
 from swift.common import utils, bufferedhttp, http_protocol
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, NullLogger, \
-    storage_directory, public, replication, encode_timestamps, Timestamp, md5
+    storage_directory, public, replication, encode_timestamps, md5
+from swift.common.utils.timestamp import Timestamp
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
 from swift.common.statsd_client import LabeledStatsdClient
@@ -3876,6 +3877,27 @@ class TestObjectController(BaseUnitTestCase):
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(resp.headers['X-Backend-Timestamp'],
                          utils.Timestamp(timestamp).internal)
+
+    def test_GET_invalid_timestamp(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'X-Timestamp': 'bad'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(
+            b"X-Timestamp should be a UNIX timestamp float value; was 'bad'",
+            resp.body)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': '1234567890.12345_0000000000000001_1'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(
+            b"X-Timestamp should be a UNIX timestamp float value; "
+            b"was '1234567890.12345_0000000000000001_1'",
+            resp.body)
 
     def test_GET_range_zero_byte_object(self):
         timestamp = self.ts().internal
@@ -7768,6 +7790,42 @@ class TestObjectController(BaseUnitTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(b'TEST', resp.body)
+
+    def test_GET_but_expired_server_provides_x_timestamp(self):
+        # Verify that object server provides x-timestamp if it is missing from
+        # the GET request
+        ts_now = self.ts()
+        delete_at_seconds = int(ts_now) + 100
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers=self._update_delete_at_headers({
+                'X-Timestamp': ts_now.internal,
+                'X-Delete-At': delete_at_seconds,
+                'Content-Length': '4',
+                'Content-Type': 'application/octet-stream'}))
+        req.body = 'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # not yet expired...
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={})
+        ts_req = Timestamp(float(ts_now), delta=99 * 1e5)
+        with mock_timestamp_now(ts_req):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(ts_req, req.timestamp)
+
+        # expired...
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={})
+        ts_req = Timestamp(float(ts_now), delta=101 * 1e5)
+        with mock_timestamp_now(ts_req):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(ts_req, req.timestamp)
 
     def test_HEAD_but_expired(self):
         # We have an object that expires in the future
