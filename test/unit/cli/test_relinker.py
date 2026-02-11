@@ -276,7 +276,6 @@ class TestRelinker(unittest.TestCase):
                           info_lines[0])
             self.assertIn('Finished relinker (cleanup=True):',
                           info_lines[1])
-            print(info_lines)
             self.logger.clear()
 
         os.mkdir(os.path.join(self.devices, 'sda2'))
