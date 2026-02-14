@@ -211,7 +211,7 @@ class TestRelinker(unittest.TestCase):
     def _mock_relinker(self):
         with mock.patch.object(relinker.logging, 'getLogger',
                                return_value=self.logger), \
-                mock.patch.object(relinker, 'get_logger',
+                mock.patch.object(relinker, 'get_swift_logger',
                                   return_value=self.logger), \
                 mock.patch('swift.cli.relinker.DEFAULT_RECON_CACHE_PATH',
                            self.recon_cache_path):
@@ -263,8 +263,9 @@ class TestRelinker(unittest.TestCase):
             self.assertEqual(pids, {})
             self.assertEqual([], self.logger.get_lines_for_level('error'))
             warning_lines = self.logger.get_lines_for_level('warning')
-            self.assertTrue(
-                warning_lines[0].startswith('Worker (pid=5, devs='))
+            self.assertTrue(warning_lines[0].startswith(
+                '[step=cleanup] Worker (pid=5, devs='),
+            )
             self.assertTrue(
                 warning_lines[0].endswith(msg),
                 'Expected log line to end with %r; got %r'
@@ -272,9 +273,9 @@ class TestRelinker(unittest.TestCase):
             self.assertFalse(warning_lines[1:])
             info_lines = self.logger.get_lines_for_level('info')
             self.assertEqual(2, len(info_lines))
-            self.assertIn('Starting relinker (cleanup=True) using 5 workers:',
+            self.assertIn('[step=cleanup] Starting relinker using 5 workers:',
                           info_lines[0])
-            self.assertIn('Finished relinker (cleanup=True):',
+            self.assertIn('[step=cleanup] Finished relinker:',
                           info_lines[1])
             self.logger.clear()
 
@@ -575,7 +576,7 @@ class TestRelinker(unittest.TestCase):
         # override with cli options...
         logger = debug_logger()
         with mock.patch('swift.cli.relinker.Relinker') as mock_relinker:
-            with mock.patch('swift.cli.relinker.get_logger',
+            with mock.patch('swift.cli.relinker.get_swift_logger',
                             return_value=logger):
                 relinker.main([
                     'relink', conf_file, '--device', 'sdx', '--debug',
@@ -985,7 +986,7 @@ class TestRelinker(unittest.TestCase):
             error_lines = self.logger.get_lines_for_level('error')
             self.assertEqual(len(conflict_file_specs), len(error_lines))
             for err_msg in error_lines:
-                self.assertTrue(err_msg.startswith("Error relinking"))
+                self.assertIn(f"[step={command}] Error relinking", err_msg)
                 self.assertIn("hardlink collision", err_msg)
                 self.assertTrue(err_msg.endswith(
                     "(consider enabling clobber_hardlink_collisions)"))
@@ -1006,7 +1007,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 0),),
                           (('data', 0),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_meta_files(self):
@@ -1015,7 +1016,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 0), ('meta', 1)),
                           (('data', 0), ('meta', 1)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(2 files, 2 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_meta_file(self):
@@ -1024,7 +1025,7 @@ class TestRelinker(unittest.TestCase):
                           (('meta', 0),),
                           (('meta', 0),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_ts_file(self):
@@ -1033,7 +1034,7 @@ class TestRelinker(unittest.TestCase):
                           (('ts', 0),),
                           (('ts', 0),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_meta_ts_files(self):
@@ -1042,7 +1043,7 @@ class TestRelinker(unittest.TestCase):
                           (('ts', 2),),
                           (('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_ts_meta_files(self):
@@ -1051,7 +1052,7 @@ class TestRelinker(unittest.TestCase):
                           (('ts', 1), ('meta', 2)),
                           (('ts', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(2 files, 2 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_ts_data_meta_files(self):
@@ -1060,7 +1061,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 1), ('meta', 2)),
                           (('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(2 files, 2 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_data_meta_files(self):
@@ -1069,7 +1070,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 1), ('meta', 2)),
                           (('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(2 files, 2 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_existing_meta_files(self):
@@ -1078,7 +1079,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 0), ('meta', 1)),
                           (('data', 0), ('meta', 1)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(2 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_meta_existing_newer_data_files(self):
@@ -1087,7 +1088,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 0), ('meta', 2)),
                           (('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_existing_older_data_files_no_cleanup(self):
@@ -1096,7 +1097,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 1),),
                           (('data', 0), ('data', 1)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_existing_older_meta_files(self):
@@ -1105,7 +1106,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 0), ('meta', 2)),
                           (('data', 0), ('meta', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(2 files, 2 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_existing_data_meta_ts_files(self):
@@ -1114,7 +1115,7 @@ class TestRelinker(unittest.TestCase):
                           (('ts', 2),),
                           (('data', 0), ('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 1 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_existing_data_meta_older_ts_files(self):
@@ -1123,7 +1124,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 1), ('meta', 2)),
                           (('ts', 0), ('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(2 files, 2 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_meta_existing_ts_files(self):
@@ -1132,7 +1133,7 @@ class TestRelinker(unittest.TestCase):
                           (('ts', 2),),
                           (('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 0 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_data_meta_existing_newer_ts_files(self):
@@ -1141,7 +1142,7 @@ class TestRelinker(unittest.TestCase):
                           (('data', 0), ('meta', 1)),
                           (('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(0 files, 0 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_ts_existing_newer_data_files(self):
@@ -1150,7 +1151,7 @@ class TestRelinker(unittest.TestCase):
                           (('ts', 0),),
                           (('data', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(0 files, 0 linked, 0 removed, 0 errors)', info_lines)
 
     def test_relink_conflicting_ts_file(self):
@@ -1167,7 +1168,7 @@ class TestRelinker(unittest.TestCase):
         warning_lines = self.logger.get_lines_for_level('warning')
         self.assertEqual([], warning_lines)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
 
@@ -1191,14 +1192,14 @@ class TestRelinker(unittest.TestCase):
 
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual([
-            'Error relinking: hardlink collision: %s to %s '
+            '[step=relink] Error relinking: hardlink collision: %s to %s '
             '(consider enabling clobber_hardlink_collisions)' % (
                 self.objname,
                 self.expected_file,
             ),
         ], error_lines)
         self.assertEqual([
-            '1 hash dirs processed (cleanup=False) '
+            '[step=relink] 1 hash dirs processed '
             '(1 files, 0 linked, 0 removed, 1 errors)',
         ], self.logger.get_lines_for_level('warning'))
 
@@ -1227,13 +1228,14 @@ class TestRelinker(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         clobbering_lines = [
             line for line in info_lines
-            if line.startswith('Relinking: clobbering hardlink collision')]
+            if line.startswith(
+                '[step=relink] Relinking: clobbering hardlink collision')]
         self.assertEqual(1, len(clobbering_lines), info_lines)
         quarantine_dir = os.path.join(
             self.devices, 'sda1', 'quarantined', 'objects')
         self.assertIn(quarantine_dir, clobbering_lines[0])
         self.assertEqual(
-            '1 hash dirs processed (cleanup=False) '
+            '[step=relink] 1 hash dirs processed '
             '(1 files, 1 linked, 0 removed, 0 errors)',
             info_lines[-2])
 
@@ -1268,7 +1270,8 @@ class TestRelinker(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         clobbering_lines = [
             line for line in info_lines
-            if line.startswith('Relinking: clobbering hardlink collision')]
+            if line.startswith(
+                '[step=relink] Relinking: clobbering hardlink collision')]
         self.assertEqual(1, len(clobbering_lines), info_lines)
         self.assertIn('/the/quarantine/dir', clobbering_lines[0])
 
@@ -1276,7 +1279,7 @@ class TestRelinker(unittest.TestCase):
         warning_lines = self.logger.get_lines_for_level('warning')
         collision_lines = [
             line for line in warning_lines
-            if line.startswith('Relinking: hardlink collision')]
+            if line.startswith('[step=relink] Relinking: hardlink collision')]
         self.assertEqual(1, len(collision_lines), warning_lines)
         self.assertIn('persists after quarantine', collision_lines[0])
 
@@ -1284,7 +1287,7 @@ class TestRelinker(unittest.TestCase):
         # does relinker just treat errors as warnings?
         self.assertEqual([], self.logger.get_lines_for_level('error'))
         self.assertEqual(
-            '1 hash dirs processed (cleanup=False) '
+            '[step=relink] 1 hash dirs processed '
             '(1 files, 0 linked, 0 removed, 1 errors)',
             warning_lines[-1])
 
@@ -1313,12 +1316,12 @@ class TestRelinker(unittest.TestCase):
         debug_lines = self.logger.get_lines_for_level('debug')
         relinking_lines = [
             line for line in debug_lines
-            if line.startswith('Relinking (cleanup):')]
+            if line.startswith('[step=cleanup] Relinking:')]
         self.assertEqual(1, len(relinking_lines), debug_lines)
         self.assertIn('tolerating hardlink collision', relinking_lines[0])
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(
-            '1 hash dirs processed (cleanup=True) '
+            '[step=cleanup] 1 hash dirs processed '
             '(1 files, 0 linked, 1 removed, 0 errors)',
             info_lines[-2])
 
@@ -1350,7 +1353,7 @@ class TestRelinker(unittest.TestCase):
         stat_new = os.stat(self.expected_file)
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 0 linked, 0 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1382,7 +1385,7 @@ class TestRelinker(unittest.TestCase):
         self.assertTrue(os.path.isdir(self.expected_dir))
         self.assertFalse(os.path.isfile(self.expected_file))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 1 hash dirs processed '
                       '(1 files, 0 linked, 0 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1395,8 +1398,9 @@ class TestRelinker(unittest.TestCase):
                 '--swift-dir', self.testdir,
                 '--devices', self.devices,
             ]))
-        self.assertEqual(self.logger.get_lines_for_level('warning'),
-                         ['No policy found to increase the partition power.'])
+        self.assertEqual(
+            self.logger.get_lines_for_level('warning'),
+            ['[step=relink] No policy found to increase the partition power.'])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
     def test_relink_not_mounted(self):
@@ -1409,9 +1413,9 @@ class TestRelinker(unittest.TestCase):
                 '--devices', self.devices,
             ]))
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Skipping sda1 as it is not mounted',
-            '1 disks were unmounted',
-            '0 hash dirs processed (cleanup=False) '
+            '[step=relink] Skipping sda1 as it is not mounted',
+            '[step=relink] 1 disks were unmounted',
+            '[step=relink] 0 hash dirs processed '
             '(0 files, 0 linked, 0 removed, 0 errors)',
         ])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
@@ -1428,9 +1432,9 @@ class TestRelinker(unittest.TestCase):
                     '--skip-mount-check'
                 ]))
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Skipping %s because ' % self.objects,
-            'There were 1 errors listing partition directories',
-            '0 hash dirs processed (cleanup=False) '
+            '[step=relink] Skipping %s because ' % self.objects,
+            '[step=relink] There were 1 errors listing partition directories',
+            '[step=relink] 0 hash dirs processed '
             '(0 files, 0 linked, 0 removed, 1 errors)',
         ])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
@@ -1526,15 +1530,15 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.isdir(self.expected_dir))
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(4, len(info_lines))
-        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+        self.assertIn('[step=relink] Starting relinker using 1 workers:',
                       info_lines[0])
         self.assertEqual(
-            ['Processing files for policy platinum under %s (cleanup=False)'
+            ['[step=relink] Processing files for policy platinum under %s'
              % os.path.join(self.devices, 'sda1'),
-             '0 hash dirs processed (cleanup=False) (0 files, 0 linked, '
+             '[step=relink] 0 hash dirs processed (0 files, 0 linked, '
              '0 removed, 0 errors)'], info_lines[1:3]
         )
-        self.assertIn('Finished relinker (cleanup=False):',
+        self.assertIn('[step=relink] Finished relinker:',
                       info_lines[3])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1555,16 +1559,16 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(5, len(info_lines))
-        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+        self.assertIn('[step=relink] Starting relinker using 1 workers:',
                       info_lines[0])
         self.assertEqual(
-            ['Processing files for policy platinum under %s (cleanup=False)'
+            ['[step=relink] Processing files for policy platinum under %s'
              % os.path.join(self.devices, 'sda1'),
-             'Step: relink Device: sda1 Policy: platinum Partitions: 1/3',
-             '1 hash dirs processed (cleanup=False) (1 files, 1 linked, '
+             '[step=relink] Device: sda1 Policy: platinum Partitions: 1/3',
+             '[step=relink] 1 hash dirs processed (1 files, 1 linked, '
              '0 removed, 0 errors)'], info_lines[1:4]
         )
-        self.assertIn('Finished relinker (cleanup=False):',
+        self.assertIn('[step=relink] Finished relinker:',
                       info_lines[4])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1594,17 +1598,17 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(6, len(info_lines))
-        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+        self.assertIn('[step=relink] Starting relinker using 1 workers:',
                       info_lines[0])
         self.assertEqual(
-            ['Processing files for policy platinum under %s (cleanup=False)'
+            ['[step=relink] Processing files for policy platinum under %s'
              % os.path.join(self.devices, 'sda1'),
-             'Step: relink Device: sda1 Policy: platinum Partitions: 2/3',
-             'Step: relink Device: sda1 Policy: platinum Partitions: 3/3',
-             '2 hash dirs processed (cleanup=False) (2 files, 2 linked, '
+             '[step=relink] Device: sda1 Policy: platinum Partitions: 2/3',
+             '[step=relink] Device: sda1 Policy: platinum Partitions: 3/3',
+             '[step=relink] 2 hash dirs processed (2 files, 2 linked, '
              '0 removed, 0 errors)'], info_lines[1:5]
         )
-        self.assertIn('Finished relinker (cleanup=False):',
+        self.assertIn('[step=relink] Finished relinker:',
                       info_lines[5])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1655,15 +1659,15 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.isdir(self.expected_dir))
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(4, len(info_lines))
-        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+        self.assertIn('[step=relink] Starting relinker using 1 workers:',
                       info_lines[0])
         self.assertEqual(
-            ['Processing files for policy platinum under %s/%s (cleanup=False)'
+            ['[step=relink] Processing files for policy platinum under %s/%s'
              % (self.devices, self.existing_device),
-             '0 hash dirs processed (cleanup=False) (0 files, 0 linked, '
+             '[step=relink] 0 hash dirs processed (0 files, 0 linked, '
              '0 removed, 0 errors)'], info_lines[1:3]
         )
-        self.assertIn('Finished relinker (cleanup=False):',
+        self.assertIn('[step=relink] Finished relinker:',
                       info_lines[3])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1685,16 +1689,16 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(5, len(info_lines))
-        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+        self.assertIn('[step=relink] Starting relinker using 1 workers:',
                       info_lines[0])
         self.assertEqual(
-            ['Processing files for policy gold under %s/%s (cleanup=False)'
+            ['[step=relink] Processing files for policy gold under %s/%s'
              % (self.devices, self.existing_device),
-             'Step: relink Device: sda1 Policy: gold Partitions: 1/1',
-             '1 hash dirs processed (cleanup=False) (1 files, 1 linked, '
+             '[step=relink] Device: sda1 Policy: gold Partitions: 1/1',
+             '[step=relink] 1 hash dirs processed (1 files, 1 linked, '
              '0 removed, 0 errors)'], info_lines[1:4]
         )
-        self.assertIn('Finished relinker (cleanup=False):',
+        self.assertIn('[step=relink] Finished relinker:',
                       info_lines[4])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1716,15 +1720,15 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(stat_old.st_ino, stat_new.st_ino)
         info_lines = self.logger.get_lines_for_level('info')
         self.assertEqual(4, len(info_lines))
-        self.assertIn('Starting relinker (cleanup=False) using 1 workers:',
+        self.assertIn('[step=relink] Starting relinker using 1 workers:',
                       info_lines[0])
         self.assertEqual(
-            ['Processing files for policy gold under %s/%s (cleanup=False)'
+            ['[step=relink] Processing files for policy gold under %s/%s'
              % (self.devices, self.existing_device),
-             '0 hash dirs processed (cleanup=False) '
+             '[step=relink] 0 hash dirs processed '
              '(0 files, 0 linked, 0 removed, 0 errors)'], info_lines[1:3]
         )
-        self.assertIn('Finished relinker (cleanup=False):',
+        self.assertIn('[step=relink] Finished relinker:',
                       info_lines[3])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -1819,7 +1823,7 @@ class TestRelinker(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
         # links are created, and both the older files are retained
-        self.assertIn('2 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 2 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
         with open(new_filepath, 'r') as fd:
@@ -1847,7 +1851,7 @@ class TestRelinker(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
         # links are created, and both the older files are retained
-        self.assertIn('2 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 2 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
         with open(new_filepath, 'r') as fd:
@@ -1878,7 +1882,7 @@ class TestRelinker(unittest.TestCase):
         warning_lines = self.logger.get_lines_for_level('warning')
         self.assertEqual([], warning_lines)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('2 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 2 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
         with open(new_filepath, 'r') as fd:
@@ -1916,7 +1920,7 @@ class TestRelinker(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
         # links are created, and both the older files are retained
-        self.assertIn('3 hash dirs processed (cleanup=False) '
+        self.assertIn('[step=relink] 3 hash dirs processed '
                       '(3 files, 0 linked, 0 removed, 0 errors)',
                       info_lines)
         with open(new_filepath, 'r') as fd:
@@ -2025,7 +2029,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 0), ('meta', 1)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 0 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2036,7 +2040,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 0),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2047,7 +2051,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 0), ('meta', 1)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 2 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2058,7 +2062,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('meta', 0),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2069,7 +2073,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('ts', 0),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2080,7 +2084,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2091,7 +2095,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('ts', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 2 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2102,7 +2106,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 2 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2113,7 +2117,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 2 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2124,7 +2128,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 0), ('meta', 1)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 1 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2135,7 +2139,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2146,7 +2150,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 0), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 2 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2157,7 +2161,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2168,7 +2172,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 1), ('meta', 2)))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 2 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2179,7 +2183,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 0 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2190,7 +2194,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('ts', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(0 files, 0 linked, 2 removed, 0 errors)',
                       info_lines)
 
@@ -2201,7 +2205,7 @@ class TestRelinker(unittest.TestCase):
                            None,
                            (('data', 2),))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(0 files, 0 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2215,7 +2219,7 @@ class TestRelinker(unittest.TestCase):
                            relink_errors={'data': OSError(errno.EPERM, 'oops')}
                            )
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 1 errors)',
                       warning_lines)
 
@@ -2229,7 +2233,7 @@ class TestRelinker(unittest.TestCase):
                            relink_errors={'meta': OSError(errno.EPERM, 'oops')}
                            )
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 1 errors)',
                       warning_lines)
 
@@ -2243,7 +2247,7 @@ class TestRelinker(unittest.TestCase):
                            relink_errors={'meta': OSError(errno.EPERM, 'oops')}
                            )
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 1 linked, 0 removed, 1 errors)',
                       warning_lines)
 
@@ -2260,10 +2264,11 @@ class TestRelinker(unittest.TestCase):
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(2, len(error_lines))
         for err_msg in error_lines:
-            self.assertTrue(err_msg.startswith("Error relinking"))
+            self.assertTrue(
+                err_msg.startswith("[step=cleanup] Error relinking"))
             self.assertIn("failed to relink", err_msg)
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 2 errors)',
                       warning_lines)
 
@@ -2275,7 +2280,7 @@ class TestRelinker(unittest.TestCase):
                            (('data', 0),),
                            exp_ret_code=1)
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 0 linked, 0 removed, 1 errors)',
                       warning_lines)
 
@@ -2287,7 +2292,7 @@ class TestRelinker(unittest.TestCase):
                            (('ts', 0),),
                            exp_ret_code=0)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 0 linked, 1 removed, 0 errors)',
                       info_lines)
         warning_lines = self.logger.get_lines_for_level('warning')
@@ -2313,7 +2318,7 @@ class TestRelinker(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
         # links are created, and both the older files are removed
-        self.assertIn('2 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 2 hash dirs processed '
                       '(2 files, 0 linked, 2 removed, 0 errors)',
                       info_lines)
         with open(new_filepath, 'r') as fd:
@@ -2342,7 +2347,7 @@ class TestRelinker(unittest.TestCase):
                            (('ts', 0),),
                            exp_ret_code=0)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('2 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 2 hash dirs processed '
                       '(2 files, 0 linked, 2 removed, 0 errors)',
                       info_lines)
         warning_lines = self.logger.get_lines_for_level('warning')
@@ -2374,7 +2379,7 @@ class TestRelinker(unittest.TestCase):
         info_lines = self.logger.get_lines_for_level('info')
         # both the PART_POWER and PART_POWER - N partitions are visited, no new
         # links are created, and both the older files are removed
-        self.assertIn('2 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 2 hash dirs processed '
                       '(2 files, 0 linked, 2 removed, 0 errors)',
                       info_lines)
         warning_lines = self.logger.get_lines_for_level('warning')
@@ -2392,7 +2397,7 @@ class TestRelinker(unittest.TestCase):
                            (('data', 1),),  # cleanup_ondisk_files rm'd 0.data
                            exp_ret_code=0)
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(0 files, 0 linked, 1 removed, 0 errors)',
                       info_lines)
 
@@ -2404,7 +2409,7 @@ class TestRelinker(unittest.TestCase):
                            (('data', 0), ('meta', 1)),
                            exp_ret_code=1)
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 2 errors)',
                       warning_lines)
 
@@ -2418,7 +2423,7 @@ class TestRelinker(unittest.TestCase):
                            (('data', 0), ('meta', 1)),
                            exp_ret_code=1)
         warning_lines = self.logger.get_lines_for_level('warning')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 0 linked, 0 removed, 1 errors)',
                       warning_lines)
 
@@ -2517,8 +2522,9 @@ class TestRelinker(unittest.TestCase):
                 '--swift-dir', self.testdir,
                 '--devices', self.devices,
             ]))
-        self.assertEqual(self.logger.get_lines_for_level('warning'),
-                         ['No policy found to increase the partition power.'])
+        self.assertEqual(self.logger.get_lines_for_level('warning'), [
+            '[step=cleanup] No policy found to increase the partition power.'
+        ])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
     def test_cleanup_not_mounted(self):
@@ -2530,9 +2536,9 @@ class TestRelinker(unittest.TestCase):
                 '--devices', self.devices,
             ]))
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Skipping sda1 as it is not mounted',
-            '1 disks were unmounted',
-            '0 hash dirs processed (cleanup=True) '
+            '[step=cleanup] Skipping sda1 as it is not mounted',
+            '[step=cleanup] 1 disks were unmounted',
+            '[step=cleanup] 0 hash dirs processed '
             '(0 files, 0 linked, 0 removed, 0 errors)',
         ])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
@@ -2548,9 +2554,9 @@ class TestRelinker(unittest.TestCase):
                     '--skip-mount-check'
                 ]))
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Skipping %s because ' % self.objects,
-            'There were 1 errors listing partition directories',
-            '0 hash dirs processed (cleanup=True) '
+            '[step=cleanup] Skipping %s because ' % self.objects,
+            '[step=cleanup] There were 1 errors listing partition directories',
+            '[step=cleanup] 0 hash dirs processed '
             '(0 files, 0 linked, 0 removed, 1 errors)',
         ])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
@@ -2861,10 +2867,9 @@ class TestRelinker(unittest.TestCase):
         r.hook_pre_partition(os.path.join(datadir_path, '96'))
         r.hook_post_partition(os.path.join(datadir_path, '96'))
         self.assertEqual(r.states["state"], {'96': True, '227': False})
-        self.assertEqual(self.logger.get_lines_for_level("info"), [
-            "Step: relink Device: sda1 Policy: %s "
-            "Partitions: 1/2" % r.policy.name,
-        ])
+        self.assertIn("Device: sda1 Policy: %s "
+                      "Partitions: 1/2" % r.policy.name,
+                      self.logger.get_lines_for_level("info"))
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
                 "part_power": PART_POWER,
@@ -2916,10 +2921,9 @@ class TestRelinker(unittest.TestCase):
         r.hook_pre_partition(os.path.join(datadir_path, '227'))
         r.stats['errors'] += 1
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertEqual(self.logger.get_lines_for_level("info"), [
-            "Step: relink Device: sda1 Policy: %s "
-            "Partitions: 1/2" % r.policy.name,
-        ])
+        self.assertIn("Device: sda1 Policy: %s "
+                      "Partitions: 1/2" % r.policy.name,
+                      self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"], {'96': True, '227': False})
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
@@ -2936,10 +2940,9 @@ class TestRelinker(unittest.TestCase):
         # Ack partition 227
         r.hook_pre_partition(os.path.join(datadir_path, '227'))
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertEqual(self.logger.get_lines_for_level("info"), [
-            "Step: relink Device: sda1 Policy: %s "
-            "Partitions: 2/2" % r.policy.name,
-        ])
+        self.assertIn("Device: sda1 Policy: %s "
+                      "Partitions: 2/2" % r.policy.name,
+                      self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"], {'96': True, '227': True})
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
@@ -3013,7 +3016,7 @@ class TestRelinker(unittest.TestCase):
         # Ack partition 227
         r.hook_pre_partition(os.path.join(datadir_path, '227'))
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertIn("Step: cleanup Device: sda1 Policy: %s "
+        self.assertIn("Device: sda1 Policy: %s "
                       "Partitions: 1/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"],
@@ -3063,7 +3066,7 @@ class TestRelinker(unittest.TestCase):
 
         # Ack partition 96
         r.hook_post_partition(os.path.join(datadir_path, '96'))
-        self.assertIn("Step: cleanup Device: sda1 Policy: %s "
+        self.assertIn("Device: sda1 Policy: %s "
                       "Partitions: 2/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"],
@@ -3235,7 +3238,7 @@ class TestRelinker(unittest.TestCase):
         # old partition should be cleaned up
         self.assertFalse(os.path.exists(self.part_dir))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 0 linked, 1 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -3257,11 +3260,11 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.exists(self.part_dir))
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         self.assertIn(
-            'Relinking (cleanup) created link: %s to %s'
+            '[step=cleanup] Relinking created link: %s to %s'
             % (self.objname, self.expected_file),
             self.logger.get_lines_for_level('debug'))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)', info_lines)
         # suffix should be invalidated and rehashed in new partition
         hashes_invalid = os.path.join(self.next_part_dir, 'hashes.invalid')
@@ -3294,11 +3297,11 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.exists(self.part_dir))
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         self.assertIn(
-            'Relinking (cleanup) created link: %s to %s'
+            '[step=cleanup] Relinking created link: %s to %s'
             % (self.objname, self.expected_file),
             self.logger.get_lines_for_level('debug'))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)', info_lines)
         # suffix should be invalidated and rehashed in new partition
         hashes_invalid = os.path.join(self.next_part_dir, 'hashes.invalid')
@@ -3333,7 +3336,7 @@ class TestRelinker(unittest.TestCase):
             self.assertEqual('same but different', fd.read())
         error_lines = self.logger.get_lines_for_level('error')
         self.assertEqual([
-            'Error relinking (cleanup): hardlink collision: %s to %s'
+            '[step=cleanup] Error relinking: hardlink collision: %s to %s'
             ' (consider enabling clobber_hardlink_collisions)'
             % (self.objname, self.expected_file),
         ], error_lines)
@@ -3342,7 +3345,7 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.exists(hashes_invalid))
         warning_lines = self.logger.get_lines_for_level('warning')
         self.assertEqual([
-            '1 hash dirs processed (cleanup=True) '
+            '[step=cleanup] 1 hash dirs processed '
             '(1 files, 0 linked, 0 removed, 1 errors)',
         ], warning_lines)
 
@@ -3375,12 +3378,12 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.isfile(older_obj_file))
         self.assertTrue(os.path.isfile(self.expected_file))  # link created
         self.assertIn(
-            'Relinking (cleanup) created link: %s to %s'
+            '[step=cleanup] Relinking created link: %s to %s'
             % (self.objname, self.expected_file),
             self.logger.get_lines_for_level('debug'))
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)', info_lines)
         # suffix should be invalidated and rehashed in new partition
         hashes_invalid = os.path.join(self.next_part_dir, 'hashes.invalid')
@@ -3421,7 +3424,7 @@ class TestRelinker(unittest.TestCase):
         with open(hashes_invalid, 'r') as fd:
             self.assertEqual('', fd.read().strip())
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(0 files, 0 linked, 1 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -3641,12 +3644,12 @@ class TestRelinker(unittest.TestCase):
         # old partition should be cleaned up
         self.assertFalse(os.path.exists(self.part_dir))
         self.assertIn(
-            'Relinking (cleanup) created link: %s to %s'
+            '[step=cleanup] Relinking created link: %s to %s'
             % (self.objname, self.expected_file),
             self.logger.get_lines_for_level('debug'))
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -3673,11 +3676,11 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.isfile(self.expected_file))
         self.assertTrue(os.path.isfile(self.objname))  # old file intact
         self.assertEqual(self.logger.get_lines_for_level('error'), [
-            'Error relinking (cleanup): failed to relink %s to %s: os-error!'
-            % (self.objname, self.expected_file),
+            '[step=cleanup] Error relinking: failed to relink %s to %s:'
+            ' os-error!' % (self.objname, self.expected_file),
         ])
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            '1 hash dirs processed (cleanup=True) '
+            '[step=cleanup] 1 hash dirs processed '
             '(1 files, 0 linked, 0 removed, 1 errors)',
         ])
         # suffix should not be invalidated in new partition
@@ -3710,12 +3713,12 @@ class TestRelinker(unittest.TestCase):
                 ]))
         self.assertFalse(os.path.isfile(self.expected_file))
         self.assertTrue(os.path.isfile(self.objname))  # old file intact
-        self.assertEqual(self.logger.get_lines_for_level('error'), [
-            'Error relinking (cleanup): failed to relink %s to %s: kaboom!'
-            % (self.objname, self.expected_file),
+        self.assertEqual(self.logger.get_lines_for_level("error"), [
+            "[step=cleanup] Error relinking: failed to relink %s to %s:"
+            " kaboom!" % (self.objname, self.expected_file)
         ])
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            '1 hash dirs processed (cleanup=True) '
+            '[step=cleanup] 1 hash dirs processed '
             '(1 files, 0 linked, 0 removed, 1 errors)',
         ])
         # suffix should not be invalidated in new partition
@@ -3758,8 +3761,8 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.isfile(self.objname))  # old file removed
         self.assertTrue(os.path.isfile(old_meta_path))  # meta file remove fail
         self.assertEqual(self.logger.get_lines_for_level('warning'), [
-            'Error cleaning up %s: OSError()' % old_meta_path,
-            '1 hash dirs processed (cleanup=True) '
+            '[step=cleanup] Error cleaning up %s: OSError()' % old_meta_path,
+            '[step=cleanup] 1 hash dirs processed '
             '(2 files, 0 linked, 1 removed, 1 errors)',
         ])
         self.assertEqual([], self.logger.get_lines_for_level('error'))
@@ -3788,7 +3791,7 @@ class TestRelinker(unittest.TestCase):
         self.assertFalse(os.path.isfile(old_meta_path))  # meta file removed
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(2 files, 2 linked, 2 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -3824,7 +3827,7 @@ class TestRelinker(unittest.TestCase):
         # old partition should be cleaned up
         self.assertFalse(os.path.exists(self.part_dir))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 0 linked, 1 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -3853,14 +3856,14 @@ class TestRelinker(unittest.TestCase):
         for line in warning_lines:
             self.assertIn('Bad fragment index: None', line, warning_lines)
         self.assertIn(
-            'Relinking (cleanup) created link: %s to %s'
+            '[step=cleanup] Relinking created link: %s to %s'
             % (self.objname, self.expected_file),
             self.logger.get_lines_for_level('debug'))
         self.assertTrue(os.path.isfile(self.expected_file))  # new file intact
         # old partition should be cleaned up
         self.assertFalse(os.path.exists(self.part_dir))
         info_lines = self.logger.get_lines_for_level('info')
-        self.assertIn('1 hash dirs processed (cleanup=True) '
+        self.assertIn('[step=cleanup] 1 hash dirs processed '
                       '(1 files, 1 linked, 1 removed, 0 errors)', info_lines)
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
@@ -3922,6 +3925,75 @@ class TestRelinker(unittest.TestCase):
             ])
             self.assertEqual(calls, expected)
             self.assertEqual([], self.logger.get_lines_for_level('error'))
+
+    def test_prefix_loggers(self):
+        """
+        tests prefix logging for relinker runs with multiple workers
+        """
+        devices = {'sda2', 'sda3', 'sda4'}
+        for device in devices:
+            os.mkdir(os.path.join(self.devices, device))
+        devices.add(self.existing_device)
+        devices = sorted(devices)
+
+        self.rb.prepare_increase_partition_power()
+        self.rb.increase_partition_power()
+        self._save_ring()
+
+        calls = []
+
+        def mock_run(this):
+            calls.append(('run', this.device_list))
+            this.logger.info("relinker run")
+            return 0
+
+        def mock_exit(status):
+            calls.append(('exit', status))
+
+        pid = 0
+
+        def mock_fork():
+            calls.append('fork')
+            nonlocal pid
+            pid += 1
+            return 0
+
+        def mock_getpid():
+            return pid
+
+        step = relinker.STEP_CLEANUP
+        with mock.patch('os.fork', mock_fork), \
+                mock.patch('os._exit', mock_exit), \
+                mock.patch('os.getpid', mock_getpid), \
+                mock.patch('swift.cli.relinker.Relinker.run', mock_run), \
+                self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                step,
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--workers', 'auto',  # Spawns a worker per device
+                '--skip-mount',
+            ]))
+        calls_expected = []
+        for device in devices:
+            calls_expected.extend(['fork', ('run', [device]), ('exit', 0)])
+        self.assertEqual(calls_expected, calls)
+
+        log_lines = self.logger.get_lines_for_level('info')
+        start_log = log_lines[0]
+        self.assertTrue(start_log.startswith(
+            f"[step={step}] Starting relinker using {len(devices)} workers"))
+
+        self.assertEqual(pid, len(devices))
+        expected_logs = []
+        for idx, dev in enumerate(devices):
+            pid_log = f"[step={step}, pid={idx + 1}, devs={dev}] relinker run"
+            expected_logs.append(pid_log)
+        self.assertEqual(sorted(expected_logs), sorted(log_lines[1:-1]))
+
+        finish_line = log_lines[-1]
+        self.assertTrue(finish_line.startswith(
+            f"[step={step}] Finished relinker"))
 
 
 if __name__ == '__main__':
