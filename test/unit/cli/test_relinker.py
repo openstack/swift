@@ -36,6 +36,7 @@ from swift.common.exceptions import PathNotDir
 from swift.common.storage_policy import (
     StoragePolicy, StoragePolicyCollection, POLICIES, ECStoragePolicy,
     get_policy_string)
+from swift.common.utils.logs import get_prefixed_swift_logger
 
 from swift.obj.diskfile import write_metadata, DiskFileRouter, \
     DiskFileManager, relink_paths, BaseDiskFileManager
@@ -2819,19 +2820,30 @@ class TestRelinker(unittest.TestCase):
             fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
     def _test_state_file(self, pol, expected_recon_data):
-        r = relinker.Relinker(
-            {'devices': self.devices,
-             'recon_cache_path': self.recon_cache_path,
-             'stats_interval': 0.0},
-            self.logger, [self.existing_device])
+        datadir = 'objects'
         device_path = os.path.join(self.devices, self.existing_device)
-        r.datadir = 'objects'
-        r.part_power = PART_POWER
-        r.next_part_power = PART_POWER + 1
-        datadir_path = os.path.join(device_path, r.datadir)
-        state_file = os.path.join(device_path, 'relink.%s.json' % r.datadir)
-        r.policy = pol
-        r.pid = 1234  # for recon workers stats
+        datadir_path = os.path.join(device_path, datadir)
+        state_file = os.path.join(device_path, 'relink.%s.json' % datadir)
+
+        def _create_relinker(step):
+            r = relinker.Relinker(
+                {'devices': self.devices,
+                 'recon_cache_path': self.recon_cache_path,
+                 'stats_interval': 0.0},
+                get_prefixed_swift_logger(self.logger, f'[step={step}] '),
+                [self.existing_device], step == relinker.STEP_CLEANUP)
+            r.datadir = datadir
+            r.part_power = PART_POWER + 1 if step == relinker.STEP_CLEANUP \
+                else PART_POWER
+            r.next_part_power = PART_POWER + 1
+            r.policy = pol
+            r.pid = 1234  # for recon workers stats
+            r.diskfile_mgr = DiskFileRouter({
+                'devices': self.devices,
+                'mount_check': False,
+            }, self.logger)[r.policy]
+
+            return r
 
         recon_progress = utils.load_recon_cache(self.recon_cache)
         # the progress for the current policy should be gone. So we should
@@ -2839,6 +2851,8 @@ class TestRelinker(unittest.TestCase):
         self.assertEqual(recon_progress, expected_recon_data)
 
         # Start relinking
+        r = _create_relinker(relinker.STEP_RELINK)
+
         r.states = {
             "part_power": PART_POWER,
             "next_part_power": PART_POWER + 1,
@@ -2858,18 +2872,14 @@ class TestRelinker(unittest.TestCase):
             "", ['96', '227', '312', 'auditor_status.json']))
         self.assertEqual(r.states["state"], {'96': False, '227': False})
 
-        r.diskfile_mgr = DiskFileRouter({
-            'devices': self.devices,
-            'mount_check': False,
-        }, self.logger)[r.policy]
-
         # Ack partition 96
         r.hook_pre_partition(os.path.join(datadir_path, '96'))
         r.hook_post_partition(os.path.join(datadir_path, '96'))
         self.assertEqual(r.states["state"], {'96': True, '227': False})
-        self.assertIn("Device: sda1 Policy: %s "
-                      "Partitions: 1/2" % r.policy.name,
-                      self.logger.get_lines_for_level("info"))
+        self.assertEqual(self.logger.get_lines_for_level("info"), [
+            "[step=relink] Device: sda1 Policy: %s "
+            "Partitions: 1/2" % r.policy.name,
+        ])
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
                 "part_power": PART_POWER,
@@ -2921,9 +2931,10 @@ class TestRelinker(unittest.TestCase):
         r.hook_pre_partition(os.path.join(datadir_path, '227'))
         r.stats['errors'] += 1
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertIn("Device: sda1 Policy: %s "
-                      "Partitions: 1/2" % r.policy.name,
-                      self.logger.get_lines_for_level("info"))
+        self.assertEqual(self.logger.get_lines_for_level("info"), [
+            "[step=relink] Device: sda1 Policy: %s "
+            "Partitions: 1/2" % r.policy.name,
+        ])
         self.assertEqual(r.states["state"], {'96': True, '227': False})
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
@@ -2940,9 +2951,10 @@ class TestRelinker(unittest.TestCase):
         # Ack partition 227
         r.hook_pre_partition(os.path.join(datadir_path, '227'))
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertIn("Device: sda1 Policy: %s "
-                      "Partitions: 2/2" % r.policy.name,
-                      self.logger.get_lines_for_level("info"))
+        self.assertEqual(self.logger.get_lines_for_level("info"), [
+            "[step=relink] Device: sda1 Policy: %s "
+            "Partitions: 2/2" % r.policy.name,
+        ])
         self.assertEqual(r.states["state"], {'96': True, '227': True})
         with open(state_file, 'rt') as f:
             self.assertEqual(json.load(f), {
@@ -2995,8 +3007,7 @@ class TestRelinker(unittest.TestCase):
         os.close(r.dev_lock)  # Release the lock
 
         # Start cleanup -- note that part_power and next_part_power now match!
-        r.do_cleanup = True
-        r.part_power = PART_POWER + 1
+        r = _create_relinker(relinker.STEP_CLEANUP)
         r.states = {
             "part_power": PART_POWER + 1,
             "next_part_power": PART_POWER + 1,
@@ -3016,7 +3027,7 @@ class TestRelinker(unittest.TestCase):
         # Ack partition 227
         r.hook_pre_partition(os.path.join(datadir_path, '227'))
         r.hook_post_partition(os.path.join(datadir_path, '227'))
-        self.assertIn("Device: sda1 Policy: %s "
+        self.assertIn("[step=cleanup] Device: sda1 Policy: %s "
                       "Partitions: 1/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"],
@@ -3066,7 +3077,7 @@ class TestRelinker(unittest.TestCase):
 
         # Ack partition 96
         r.hook_post_partition(os.path.join(datadir_path, '96'))
-        self.assertIn("Device: sda1 Policy: %s "
+        self.assertIn("[step=cleanup] Device: sda1 Policy: %s "
                       "Partitions: 2/2" % r.policy.name,
                       self.logger.get_lines_for_level("info"))
         self.assertEqual(r.states["state"],
