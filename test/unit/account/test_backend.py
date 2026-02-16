@@ -30,7 +30,7 @@ import shutil
 
 from swift.account.backend import AccountBroker
 from swift.common.utils import Timestamp
-from test.unit import patch_policies, with_tempdir, make_timestamp_iter
+from test.unit import patch_policies, with_tempdir, mock_timestamp_now
 from swift.common.db import DatabaseConnectionError, TombstoneReclaimer
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy, POLICIES
@@ -45,8 +45,6 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def setUp(self):
         super(TestAccountBroker, self).setUp()
-        # tests seem to assume x-timestamp was set by the proxy before "now"
-        self.ts = make_timestamp_iter(offset=-1)
 
     def test_creation(self):
         # Test AccountBroker.__init__
@@ -253,11 +251,13 @@ class TestAccountBroker(test_db.TestDbBase):
                         trace[1][2] > trace[2][2])
 
     def test_delete_db_status(self):
-        start = next(self.ts)
+        start = self.ts()
         broker = AccountBroker(self.get_db_path(), account='a')
-        broker.initialize(start.internal)
+        with mock_timestamp_now(self.ts()) as exp_created_at:
+            broker.initialize(start.internal)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], start.internal)
+        self.assertEqual(info['created_at'], exp_created_at.internal)
         self.assertGreaterEqual(Timestamp(info['created_at']), start)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ == TestAccountBrokerBeforeMetadata:
@@ -266,7 +266,7 @@ class TestAccountBroker(test_db.TestDbBase):
             self.assertEqual(info['status_changed_at'], start.internal)
 
         # delete it
-        delete_timestamp = next(self.ts)
+        delete_timestamp = self.ts()
         broker.delete_db(delete_timestamp.internal)
         info = broker.get_info()
         self.assertEqual(info['put_timestamp'], start.internal)
@@ -420,7 +420,7 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_get_info(self):
         # Test AccountBroker.get_info
         broker = AccountBroker(self.get_db_path(), account='test1')
-        put_ts = next(self.ts)
+        put_ts = self.ts()
         broker.initialize(put_ts.internal)
 
         info = broker.get_info()
@@ -598,21 +598,21 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_list_objects_iter_order_and_reverse(self):
         # Test ContainerBroker.list_objects_iter
         broker = AccountBroker(self.get_db_path(), account='a')
-        put_ts = next(self.ts)
+        put_ts = self.ts()
         broker.initialize(put_ts.internal, 0)
 
         broker.put_container(
-            'c1', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+            'c1', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'c10', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+            'c10', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'C1', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+            'C1', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'c2', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+            'c2', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'c3', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+            'c3', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            'C4', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+            'C4', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
 
         listing = broker.list_containers_iter(100, None, None, '', '',
                                               reverse=False)
@@ -634,12 +634,12 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_list_container_iter_with_reserved_name(self):
         # Test ContainerBroker.list_objects_iter
         broker = AccountBroker(self.get_db_path(), account='a')
-        broker.initialize(next(self.ts).internal, 0)
+        broker.initialize(self.ts().internal, 0)
 
         broker.put_container(
-            'foo', next(self.ts).internal, 0, 0, 0, POLICIES.default.idx)
+            'foo', self.ts().internal, 0, 0, 0, POLICIES.default.idx)
         broker.put_container(
-            get_reserved_name('foo'), next(self.ts).internal, 0, 0, 0,
+            get_reserved_name('foo'), self.ts().internal, 0, 0, 0,
             POLICIES.default.idx)
 
         listing = broker.list_containers_iter(100, None, None, '', '')
@@ -771,9 +771,9 @@ class TestAccountBroker(test_db.TestDbBase):
         failures = []
         for expected in expectations:
             broker = AccountBroker(self.get_db_path(), account='a')
-            broker.initialize(next(self.ts).internal, 0)
+            broker.initialize(self.ts().internal, 0)
             for name in expected['containers']:
-                broker.put_container(name, next(self.ts).internal, 0, 0, 0,
+                broker.put_container(name, self.ts().internal, 0, 0, 0,
                                      POLICIES.default.idx)
             # commit pending file into db
             broker._commit_puts()
@@ -833,9 +833,9 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_chexor(self):
         broker = AccountBroker(self.get_db_path(), account='a')
-        put_ts = next(self.ts)
+        put_ts = self.ts()
         delete_ts = Timestamp(0)
-        timestamps = [next(self.ts) for _ in range(3)]
+        timestamps = [self.ts() for _ in range(3)]
         broker.initialize(put_ts.internal)
         broker.put_container('a', timestamps[0].internal,
                              delete_ts.internal, 0, 0,
@@ -994,7 +994,7 @@ class TestAccountBroker(test_db.TestDbBase):
                      StoragePolicy(3, 'three', False)])
     def test_get_policy_stats(self):
         broker = AccountBroker(self.get_db_path(), account='a')
-        broker.initialize(next(self.ts).internal)
+        broker.initialize(self.ts().internal)
         # check empty policy_stats
         self.assertTrue(broker.empty())
         policy_stats = broker.get_policy_stats()
@@ -1003,7 +1003,7 @@ class TestAccountBroker(test_db.TestDbBase):
         # add some empty containers
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            put_timestamp = next(self.ts)
+            put_timestamp = self.ts()
             broker.put_container(container_name,
                                  put_timestamp.internal, 0,
                                  0, 0,
@@ -1018,7 +1018,7 @@ class TestAccountBroker(test_db.TestDbBase):
         # update the containers object & byte count
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            put_timestamp = next(self.ts)
+            put_timestamp = self.ts()
             count = policy.idx * 100  # good as any integer
             broker.put_container(container_name,
                                  put_timestamp.internal, 0,
@@ -1044,7 +1044,7 @@ class TestAccountBroker(test_db.TestDbBase):
         # now delete the containers one by one
         for policy in POLICIES:
             container_name = 'c-%s' % policy.name
-            delete_timestamp = next(self.ts)
+            delete_timestamp = self.ts()
             broker.put_container(container_name,
                                  0, delete_timestamp.internal,
                                  0, 0,
@@ -1061,14 +1061,14 @@ class TestAccountBroker(test_db.TestDbBase):
                      StoragePolicy(1, 'one', True)])
     def test_policy_stats_tracking(self):
         broker = AccountBroker(self.get_db_path(), account='a')
-        broker.initialize(next(self.ts).internal)
+        broker.initialize(self.ts().internal)
 
         # policy 0
-        broker.put_container('con1', next(self.ts).internal, 0, 12, 2798641, 0)
-        broker.put_container('con1', next(self.ts).internal, 0, 13, 8156441, 0)
+        broker.put_container('con1', self.ts().internal, 0, 12, 2798641, 0)
+        broker.put_container('con1', self.ts().internal, 0, 13, 8156441, 0)
         # policy 1
-        broker.put_container('con2', next(self.ts).internal, 0, 7, 5751991, 1)
-        broker.put_container('con2', next(self.ts).internal, 0, 8, 6085379, 1)
+        broker.put_container('con2', self.ts().internal, 0, 7, 5751991, 1)
+        broker.put_container('con2', self.ts().internal, 0, 8, 6085379, 1)
 
         stats = broker.get_policy_stats()
         self.assertEqual(len(stats), 2)
@@ -1183,7 +1183,7 @@ class TestAccountBroker(test_db.TestDbBase):
         self.assertIn("DB doesn't exist", str(ctx.exception))
         self.assertIn(db_file, str(ctx.exception))
         with self.assertRaises(ValueError) as ctx:
-            b.initialize(next(self.ts))
+            b.initialize(self.ts())
         self.assertEqual(
             'Attempting to create a new database with no account set',
             str(ctx.exception))
@@ -1269,8 +1269,6 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
 
     def setUp(self):
         super(TestAccountBroker, self).setUp()
-        # tests seem to assume x-timestamp was set by the proxy before "now"
-        self.ts = make_timestamp_iter(offset=-1)
         self._imported_create_account_stat_table = \
             AccountBroker.create_account_stat_table
         AccountBroker.create_account_stat_table = \
@@ -1358,8 +1356,6 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
 
     def setUp(self):
         super(TestAccountBrokerBeforeSPI, self).setUp()
-        # tests seem to assume x-timestamp was set by the proxy before "now"
-        self.ts = make_timestamp_iter(offset=-1)
         self._imported_create_container_table = \
             AccountBroker.create_container_table
         AccountBroker.create_container_table = \
@@ -1575,12 +1571,12 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         db_path = os.path.join(tempdir, 'account.db')
 
         broker = AccountBroker(db_path, account='a')
-        broker.initialize(next(self.ts).internal)
+        broker.initialize(self.ts().internal)
 
         self.assertTrue(broker.empty())
 
         # add a container (to pending file)
-        broker.put_container('c', next(self.ts).internal, 0, 0, 0,
+        broker.put_container('c', self.ts().internal, 0, 0, 0,
                              POLICIES.default.idx)
 
         real_get = broker.get
@@ -1650,11 +1646,11 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         # make and two account database "replicas"
         old_broker = AccountBroker(os.path.join(tempdir, 'old_account.db'),
                                    account='a')
-        old_broker.initialize(next(self.ts).internal)
+        old_broker.initialize(self.ts().internal)
         new_broker = AccountBroker(os.path.join(tempdir, 'new_account.db'),
                                    account='a')
-        new_broker.initialize(next(self.ts).internal)
-        timestamp = next(self.ts).internal
+        new_broker.initialize(self.ts().internal)
+        timestamp = self.ts().internal
 
         # manually insert an existing row to avoid migration for old database
         with old_broker.get() as conn:
@@ -1816,13 +1812,10 @@ class AccountBrokerPreTrackContainerCountSetup(test_db.TestDbBase):
         broker.initialize(Timestamp('1').internal)
         self.assertUnmigrated(broker)
 
-        # tests seem to assume x-timestamp was set by the proxy before "now"
-        self.ts = make_timestamp_iter(offset=-1)
-
         self.db_path = os.path.join(self.testdir, 'sda', 'accounts',
                                     '0', '0', '0', 'test.db')
         self.broker = AccountBroker(self.get_db_path(), account='a')
-        self.broker.initialize(next(self.ts).internal)
+        self.broker.initialize(self.ts().internal)
 
         # Common sanity-check that our starting, pre-migration state correctly
         # does not have the container_count column.
@@ -1865,7 +1858,7 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         for i in range(num_containers):
             name = 'test-container-%02d' % i
             policy = next(policies)
-            self.broker.put_container(name, next(self.ts).internal,
+            self.broker.put_container(name, self.ts().internal,
                                       0, 0, 0, int(policy))
             per_policy_container_counts[int(policy)] += 1
 
@@ -1956,7 +1949,7 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         for i in range(num_containers):
             name = 'test-container-%02d' % i
             policy = next(policies)
-            self.broker.put_container(name, next(self.ts).internal,
+            self.broker.put_container(name, self.ts().internal,
                                       0, 0, 0, int(policy))
             # keep track of stub container policies
             container_policy_map[name] = policy
@@ -1965,7 +1958,7 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         for i in range(0, num_containers, 2):
             name = 'test-container-%02d' % i
             policy = container_policy_map[name]
-            self.broker.put_container(name, 0, next(self.ts).internal,
+            self.broker.put_container(name, 0, self.ts().internal,
                                       0, 0, int(policy))
 
         total_container_count = self.broker.get_info()['container_count']
@@ -1986,12 +1979,12 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
             # add a few container entries
             for i in range(num_containers):
                 name = 'test-container-%02d' % i
-                self.broker.put_container(name, next(self.ts).internal,
+                self.broker.put_container(name, self.ts().internal,
                                           0, 0, 0, int(policy))
             # delete about half of the containers
             for i in range(0, num_containers, 2):
                 name = 'test-container-%02d' % i
-                self.broker.put_container(name, 0, next(self.ts).internal,
+                self.broker.put_container(name, 0, self.ts().internal,
                                           0, 0, int(policy))
 
             total_container_count = self.broker.get_info()['container_count']
@@ -2010,14 +2003,14 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
             # add a container for the legacy policy
             policy = POLICIES[0]
             self.broker.put_container('test-legacy-container',
-                                      next(self.ts).internal, 0, 0, 0,
+                                      self.ts().internal, 0, 0, 0,
                                       int(policy))
 
             # now create an impossible situation by adding a container for a
             # policy index that doesn't exist
             non_existent_policy_index = int(policy) + 1
             self.broker.put_container('test-non-existent-policy',
-                                      next(self.ts).internal, 0, 0, 0,
+                                      self.ts().internal, 0, 0, 0,
                                       non_existent_policy_index)
 
             total_container_count = self.broker.get_info()['container_count']
