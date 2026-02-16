@@ -44,7 +44,8 @@ from swift.common.utils import split_path, Timestamp, encode_timestamps, \
 
 from test.debug_logger import debug_logger
 from test.unit import FakeRing, fake_http_connect, patch_policies, \
-    DEFAULT_TEST_EC_TYPE, make_timestamp_iter, mock_timestamp_now
+    DEFAULT_TEST_EC_TYPE, make_timestamp_iter, mock_timestamp_now, \
+    BaseUnitTestCase
 from test.unit.common.middleware import helpers
 
 
@@ -196,19 +197,19 @@ class FakeInternalClient(reconciler.InternalClient):
                               json.dumps([]))
 
 
-class TestReconcilerUtils(unittest.TestCase):
+class TestReconcilerUtils(BaseUnitTestCase):
 
     def setUp(self):
+        super().setUp()
         self.fake_ring = FakeRing()
         reconciler.direct_get_container_policy_index.reset()
         self.tempdir = mkdtemp()
-        self.ts_iter = make_timestamp_iter()
 
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
     def test_parse_raw_obj(self):
-        ts = [next(self.ts_iter) for _ in range(2)]
+        ts = [self.ts() for _ in range(2)]
         got = reconciler.parse_raw_obj({
             'name': "2:/AUTH_bob/con/obj",
             'hash': ts[0].internal,
@@ -223,7 +224,7 @@ class TestReconcilerUtils(unittest.TestCase):
         self.assertEqual(got['q_record'], ts[1])
         self.assertEqual(got['q_op'], 'DELETE')
 
-        ts = [next(self.ts_iter) for _ in range(4)]
+        ts = [self.ts() for _ in range(4)]
         got = reconciler.parse_raw_obj({
             'name': "1:/AUTH_bob/con/obj",
             'hash': ts[0].internal,
@@ -759,7 +760,7 @@ class TestReconcilerUtils(unittest.TestCase):
                 'headers': headers, 'query_string': query_string})
 
         fake_hc = fake_http_connect(200, 200, 200, give_connect=test_connect)
-        now = next(self.ts_iter)
+        now = self.ts()
         with mock.patch(mock_path, fake_hc), \
                 mock_timestamp_now(now):
             ret = reconciler.add_to_reconciler_queue(
@@ -827,11 +828,12 @@ def listing_qs(marker):
      ECStoragePolicy(1, 'one', ec_type=DEFAULT_TEST_EC_TYPE,
                      ec_ndata=6, ec_nparity=2), ],
     fake_ring_args=[{}, {'replicas': 8}])
-class TestReconciler(unittest.TestCase):
+class TestReconciler(BaseUnitTestCase):
 
     maxDiff = None
 
     def setUp(self):
+        super().setUp()
         self.logger = debug_logger()
         conf = {}
         self.swift = FakeInternalClient()
@@ -840,7 +842,6 @@ class TestReconciler(unittest.TestCase):
         self.start_interval = int(time.time() // 3600 * 3600)
         self.current_container_path = '/v1/.misplaced_objects/%d' % (
             self.start_interval) + listing_qs('')
-        self.ts_iter = make_timestamp_iter()
 
     def test_concurrency_config(self):
         conf = {}
@@ -942,7 +943,7 @@ class TestReconciler(unittest.TestCase):
                 for c in mocks['direct_delete_container_entry'].mock_calls]
 
     def test_no_concurrency(self):
-        ts = [next(self.ts_iter) for _ in range(2)]
+        ts = [self.ts() for _ in range(2)]
 
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): ts[0],
@@ -971,7 +972,7 @@ class TestReconciler(unittest.TestCase):
         ])
 
     def test_concurrency(self):
-        ts = [next(self.ts_iter) for _ in range(2)]
+        ts = [self.ts() for _ in range(2)]
 
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): ts[0],
@@ -1075,7 +1076,7 @@ class TestReconciler(unittest.TestCase):
         self.assertFalse(deleted_container_entries)
 
     def test_invalid_queue_name_marches_onward(self):
-        ts = [next(self.ts_iter) for _ in range(2)]
+        ts = [self.ts() for _ in range(2)]
 
         # there's something useful there on the queue
         self._mock_listing({
@@ -1106,7 +1107,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_queue_name_with_policy_index_delimiter_in_name(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         q_path = '.misplaced_objects/3600'
         obj_path = "AUTH_bob/c:sneaky/o1:sneaky"
         # there's something useful there on the queue
@@ -1217,7 +1218,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['retry'], 1)
 
     def test_object_move(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): ts1,
             (1, "/AUTH_bob/c/o1"): ts1,
@@ -1266,7 +1267,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_move_the_other_direction(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         self._mock_listing({
             (None, "/.misplaced_objects/3600/0:/AUTH_bob/c/o1"): ts1,
             (0, "/AUTH_bob/c/o1"): ts1,
@@ -1315,7 +1316,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_move_with_unicode_and_spaces(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         # the "name" in listings and the unicode string passed to all
         # functions where we call them with (account, container, obj)
         obj_name = u"AUTH_bob/c \u062a/o1 \u062a"
@@ -1376,7 +1377,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_delete(self):
-        ts = [next(self.ts_iter) for _ in range(2)]
+        ts = [self.ts() for _ in range(2)]
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): (
                 ts[1].internal, 'application/x-delete'),
@@ -1431,7 +1432,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_enqueued_for_the_correct_dest_noop(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): ts1,
             (1, "/AUTH_bob/c/o1"): ts1,
@@ -1457,7 +1458,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_move_src_object_newer_than_queue_entry(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         ts2 = Timestamp(ts1, delta=1111)
         # setup the cluster
         self._mock_listing({
@@ -1660,7 +1661,7 @@ class TestReconciler(unittest.TestCase):
             [('HEAD', '/v1/AUTH_bob/c/o1')])
 
     def test_object_move_fails_cleanup(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         ts2 = Timestamp(ts1, delta=1)
         # setup the cluster
         self._mock_listing({
@@ -1754,7 +1755,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)  # lol
 
     def test_object_move_dest_already_moved(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): ts1,
             (1, "/AUTH_bob/c/o1"): ts1,
@@ -1795,7 +1796,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_move_dest_object_newer_than_queue_entry(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         ts2 = Timestamp(ts1, delta=1)
         self._mock_listing({
             (None, "/.misplaced_objects/3600/1:/AUTH_bob/c/o1"): ts1,
@@ -1839,7 +1840,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_move_dest_object_older_than_queue_entry(self):
-        ts = [next(self.ts_iter) for _ in range(2)]
+        ts = [self.ts() for _ in range(2)]
         self._mock_listing({
             (None, "/.misplaced_objects/36000/1:/AUTH_bob/c/o1"): ts[1],
             (1, "/AUTH_bob/c/o1"): ts[1],
@@ -1889,7 +1890,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['success'], 1)
 
     def test_object_move_put_fails(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         # setup the cluster
         self._mock_listing({
             (None, "/.misplaced_objects/36000/1:/AUTH_bob/c/o1"): ts1,
@@ -1938,7 +1939,7 @@ class TestReconciler(unittest.TestCase):
         self.assertEqual(self.reconciler.stats['retry'], 1)
 
     def test_object_move_put_blows_up_crazy_town(self):
-        ts1 = next(self.ts_iter)
+        ts1 = self.ts()
         # setup the cluster
         self._mock_listing({
             (None, "/.misplaced_objects/36000/1:/AUTH_bob/c/o1"): ts1,

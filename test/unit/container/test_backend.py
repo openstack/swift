@@ -47,8 +47,8 @@ from swift.common.storage_policy import POLICIES
 from unittest import mock
 
 from test.debug_logger import debug_logger
-from test.unit import (patch_policies, with_tempdir, make_timestamp_iter,
-                       mock_timestamp_now)
+from test.unit import (patch_policies, with_tempdir, mock_timestamp_now,
+                       BaseUnitTestCase)
 from test.unit.common import test_db
 
 
@@ -7040,146 +7040,145 @@ class TestUpdateNewItemFromExisting(unittest.TestCase):
             self._test_scenario(scenario, True)
 
 
-class TestModuleFunctions(unittest.TestCase):
+class TestModuleFunctions(BaseUnitTestCase):
     def setUp(self):
         super(TestModuleFunctions, self).setUp()
-        self.ts_iter = make_timestamp_iter()
-        self.ts = [next(self.ts_iter).internal for _ in range(10)]
+        self.ts_str = [self.ts().internal for _ in range(10)]
 
     def test_merge_shards_existing_none(self):
-        data = dict(ShardRange('a/o', self.ts[1]), reported=True)
+        data = dict(ShardRange('a/o', self.ts_str[1]), reported=True)
         exp_data = dict(data)
         self.assertTrue(merge_shards(data, None))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_lt(self):
-        existing = dict(ShardRange('a/o', self.ts[0]))
-        data = dict(ShardRange('a/o', self.ts[1]), reported=True)
+        existing = dict(ShardRange('a/o', self.ts_str[0]))
+        data = dict(ShardRange('a/o', self.ts_str[1]), reported=True)
         exp_data = dict(data, reported=False)
         self.assertTrue(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_gt(self):
-        existing = dict(ShardRange('a/o', self.ts[1]))
-        data = dict(ShardRange('a/o', self.ts[0]), reported=True)
+        existing = dict(ShardRange('a/o', self.ts_str[1]))
+        data = dict(ShardRange('a/o', self.ts_str[0]), reported=True)
         exp_data = dict(data)
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
         # existing timestamp trumps data state_timestamp
-        data = dict(ShardRange('a/o', self.ts[0]), state=ShardRange.ACTIVE,
-                    state_timestamp=self.ts[2])
+        data = dict(ShardRange('a/o', self.ts_str[0]), state=ShardRange.ACTIVE,
+                    state_timestamp=self.ts_str[2])
         exp_data = dict(data)
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
         # existing timestamp trumps data meta_timestamp
-        data = dict(ShardRange('a/o', self.ts[0]), state=ShardRange.ACTIVE,
-                    meta_timestamp=self.ts[2])
+        data = dict(ShardRange('a/o', self.ts_str[0]), state=ShardRange.ACTIVE,
+                    meta_timestamp=self.ts_str[2])
         exp_data = dict(data)
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_merge_reported(self):
-        existing = dict(ShardRange('a/o', self.ts[0]))
-        data = dict(ShardRange('a/o', self.ts[0]), reported=False)
+        existing = dict(ShardRange('a/o', self.ts_str[0]))
+        data = dict(ShardRange('a/o', self.ts_str[0]), reported=False)
         exp_data = dict(data)
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
-        data = dict(ShardRange('a/o', self.ts[0]), reported=True)
+        data = dict(ShardRange('a/o', self.ts_str[0]), reported=True)
         exp_data = dict(data)
         self.assertTrue(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_retain_bounds(self):
-        existing = dict(ShardRange('a/o', self.ts[0]))
-        data = dict(ShardRange('a/o', self.ts[0]), lower='l', upper='u')
+        existing = dict(ShardRange('a/o', self.ts_str[0]))
+        data = dict(ShardRange('a/o', self.ts_str[0]), lower='l', upper='u')
         exp_data = dict(data, lower='', upper='')
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_retain_deleted(self):
-        existing = dict(ShardRange('a/o', self.ts[0]))
-        data = dict(ShardRange('a/o', self.ts[0]), deleted=1)
+        existing = dict(ShardRange('a/o', self.ts_str[0]))
+        data = dict(ShardRange('a/o', self.ts_str[0]), deleted=1)
         exp_data = dict(data, deleted=0)
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_meta_ts_gte(self):
         existing = dict(
-            ShardRange('a/o', self.ts[0], meta_timestamp=self.ts[1],
+            ShardRange('a/o', self.ts_str[0], meta_timestamp=self.ts_str[1],
                        object_count=1, bytes_used=2, tombstones=3))
         data = dict(
-            ShardRange('a/o', self.ts[0], meta_timestamp=self.ts[1],
+            ShardRange('a/o', self.ts_str[0], meta_timestamp=self.ts_str[1],
                        object_count=10, bytes_used=20, tombstones=30))
         exp_data = dict(data, object_count=1, bytes_used=2, tombstones=3)
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
         existing = dict(
-            ShardRange('a/o', self.ts[0], meta_timestamp=self.ts[2],
+            ShardRange('a/o', self.ts_str[0], meta_timestamp=self.ts_str[2],
                        object_count=1, bytes_used=2, tombstones=3))
         exp_data = dict(data, object_count=1, bytes_used=2, tombstones=3,
-                        meta_timestamp=self.ts[2])
+                        meta_timestamp=self.ts_str[2])
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_meta_ts_lt(self):
         existing = dict(
-            ShardRange('a/o', self.ts[0], meta_timestamp=self.ts[1],
+            ShardRange('a/o', self.ts_str[0], meta_timestamp=self.ts_str[1],
                        object_count=1, bytes_used=2, tombstones=3,
-                       epoch=self.ts[3]))
+                       epoch=self.ts_str[3]))
         data = dict(
-            ShardRange('a/o', self.ts[0], meta_timestamp=self.ts[2],
+            ShardRange('a/o', self.ts_str[0], meta_timestamp=self.ts_str[2],
                        object_count=10, bytes_used=20, tombstones=30,
                        epoch=None))
-        exp_data = dict(data, epoch=self.ts[3])
+        exp_data = dict(data, epoch=self.ts_str[3])
         self.assertTrue(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_state_ts_eq(self):
         # data has more advanced state
         existing = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.CREATED, epoch=self.ts[4]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.CREATED, epoch=self.ts_str[4]))
         data = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.ACTIVE, epoch=self.ts[5]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.ACTIVE, epoch=self.ts_str[5]))
         exp_data = dict(data)
         self.assertTrue(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
         # data has less advanced state
         existing = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.CREATED, epoch=self.ts[4]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.CREATED, epoch=self.ts_str[4]))
         data = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.FOUND, epoch=self.ts[5]))
-        exp_data = dict(data, state=ShardRange.CREATED, epoch=self.ts[4])
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.FOUND, epoch=self.ts_str[5]))
+        exp_data = dict(data, state=ShardRange.CREATED, epoch=self.ts_str[4])
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_state_ts_gt(self):
         existing = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[2],
-                       state=ShardRange.CREATED, epoch=self.ts[4]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[2],
+                       state=ShardRange.CREATED, epoch=self.ts_str[4]))
         data = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.ACTIVE, epoch=self.ts[5]))
-        exp_data = dict(data, state_timestamp=self.ts[2],
-                        state=ShardRange.CREATED, epoch=self.ts[4])
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.ACTIVE, epoch=self.ts_str[5]))
+        exp_data = dict(data, state_timestamp=self.ts_str[2],
+                        state=ShardRange.CREATED, epoch=self.ts_str[4])
         self.assertFalse(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
 
     def test_merge_shards_existing_ts_eq_state_ts_lt(self):
         existing = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[0],
-                       state=ShardRange.CREATED, epoch=self.ts[4]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[0],
+                       state=ShardRange.CREATED, epoch=self.ts_str[4]))
         data = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.ACTIVE, epoch=self.ts[5]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.ACTIVE, epoch=self.ts_str[5]))
         exp_data = dict(data)
         self.assertTrue(merge_shards(data, existing))
         self.assertEqual(exp_data, data)
@@ -7189,10 +7188,10 @@ class TestModuleFunctions(unittest.TestCase):
         # resets in prod
         # same timestamps, data has more advanced state but no epoch
         existing = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.CREATED, epoch=self.ts[4]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.CREATED, epoch=self.ts_str[4]))
         data = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
                        state=ShardRange.ACTIVE, epoch=None))
         exp_data = dict(data)
         self.assertTrue(merge_shards(data, existing))
@@ -7201,10 +7200,10 @@ class TestModuleFunctions(unittest.TestCase):
 
         # data has more advanced state_timestamp but no epoch
         existing = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[1],
-                       state=ShardRange.CREATED, epoch=self.ts[4]))
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[1],
+                       state=ShardRange.CREATED, epoch=self.ts_str[4]))
         data = dict(
-            ShardRange('a/o', self.ts[0], state_timestamp=self.ts[2],
+            ShardRange('a/o', self.ts_str[0], state_timestamp=self.ts_str[2],
                        state=ShardRange.FOUND, epoch=None))
         exp_data = dict(data)
         self.assertTrue(merge_shards(data, existing))
@@ -7213,8 +7212,8 @@ class TestModuleFunctions(unittest.TestCase):
 
     def test_sift_shard_ranges(self):
         existing_shards = {}
-        sr1 = dict(ShardRange('a/o', next(self.ts_iter).internal))
-        sr2 = dict(ShardRange('a/o2', next(self.ts_iter).internal))
+        sr1 = dict(ShardRange('a/o', self.ts().internal))
+        sr2 = dict(ShardRange('a/o2', self.ts().internal))
         new_shard_ranges = [sr1, sr2]
 
         # first empty existing shards will just add the shards
@@ -7228,7 +7227,7 @@ class TestModuleFunctions(unittest.TestCase):
         # if there is a newer version in the existing shards then it won't be
         # added to to_add
         existing_shards['a/o'] = dict(
-            ShardRange('a/o', next(self.ts_iter).internal))
+            ShardRange('a/o', self.ts().internal))
         to_add, to_delete = sift_shard_ranges(new_shard_ranges,
                                               existing_shards)
         self.assertEqual([sr2], list(to_add))
@@ -7236,7 +7235,7 @@ class TestModuleFunctions(unittest.TestCase):
 
         # But if a newer version is in new_shard_ranges then the old will be
         # added to to_delete and new is added to to_add.
-        sr1['timestamp'] = next(self.ts_iter).internal
+        sr1['timestamp'] = self.ts().internal
         to_add, to_delete = sift_shard_ranges(new_shard_ranges,
                                               existing_shards)
         self.assertEqual(2, len(to_add))

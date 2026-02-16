@@ -45,7 +45,7 @@ from test.debug_logger import debug_logger
 from test.unit import (patch_policies, mocked_http_conn, FabricatedRing,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
                        encode_frag_archive_bodies, quiet_eventlet_exceptions,
-                       skip_if_no_xattrs)
+                       skip_if_no_xattrs, BaseUnitTestCase)
 from test.unit.obj.common import write_diskfile
 
 
@@ -3013,9 +3013,10 @@ class TestWorkerReconstructor(unittest.TestCase):
 
 
 @patch_policies(with_ec_default=True)
-class BaseTestObjectReconstructor(unittest.TestCase):
+class BaseTestObjectReconstructor(BaseUnitTestCase):
     def setUp(self):
         skip_if_no_xattrs()
+        super().setUp()
         self.policy = POLICIES.default
         self.policy.object_ring._rtime = time.time() + 3600
         self.testdir = tempfile.mkdtemp()
@@ -3033,7 +3034,6 @@ class BaseTestObjectReconstructor(unittest.TestCase):
         self._configure_reconstructor()
         self.policy.object_ring.max_more_nodes = \
             self.policy.object_ring.replicas
-        self.ts_iter = make_timestamp_iter()
         self.fabricated_ring = FabricatedRing(replicas=14, devices=28)
 
     def _configure_reconstructor(self, **kwargs):
@@ -3053,9 +3053,6 @@ class BaseTestObjectReconstructor(unittest.TestCase):
         self.reconstructor._reset_stats()
         self.reconstructor.stats_line()
         shutil.rmtree(self.testdir)
-
-    def ts(self):
-        return next(self.ts_iter)
 
 
 class TestObjectReconstructor(BaseTestObjectReconstructor):
@@ -5277,8 +5274,8 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(4)
-        ts_data = next(self.ts_iter)  # all frags .data timestamp
-        ts_meta = next(self.ts_iter)  # some frags .meta timestamp
+        ts_data = self.ts()  # all frags .data timestamp
+        ts_meta = self.ts()  # some frags .meta timestamp
         ts_cycle = itertools.cycle((ts_data, ts_meta))
         responses = list()
         for body in ec_archive_bodies:
