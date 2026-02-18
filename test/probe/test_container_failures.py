@@ -17,7 +17,7 @@ import time
 from unittest import main
 from uuid import uuid4
 
-from swift.common.concurrency import SwiftPool, Timeout, eventlet
+from swift.common.concurrency import SwiftPool, Timeout
 from sqlite3 import connect
 
 from swift.common.manager import Manager
@@ -29,8 +29,6 @@ from swift.common.utils import readconf
 from swift.common.utils.timestamp import Timestamp
 from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server
-
-eventlet.monkey_patch(all=False, socket=True)
 
 
 class TestContainerFailures(ReplProbeTest):

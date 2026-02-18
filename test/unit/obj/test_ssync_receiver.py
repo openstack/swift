@@ -19,7 +19,7 @@ import shutil
 import tempfile
 import unittest
 
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import wsgi, spawn
 from unittest import mock
 import itertools
 
@@ -41,7 +41,7 @@ from swift.obj.ssync_receiver import SsyncInputProxy
 from test import listen_zero, unit
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, make_timestamp_iter, mock_check_drive,
-                       skip_if_no_xattrs)
+                       skip_if_no_xattrs, FakeSocket, sleep_or_timeout)
 from test.unit.obj.common import write_diskfile
 
 
@@ -75,10 +75,11 @@ class SlowBytesIO(io.BytesIO):
     (sleep_index - 1) then the call returns without sleeping, and the sleep
     will occur at the start of the next read or readline call.
     """
-    def __init__(self, value, sleep_index=-1, sleep_time=0.1):
+    def __init__(self, value, sleep_index=-1, sleep_time=0.1, sock=None):
         io.BytesIO.__init__(self, value)
         self.sleep_index = sleep_index
         self.sleep_time = sleep_time
+        self.sock = sock
         self.bytes_read = []
         self.num_bytes_read = 0
 
@@ -90,7 +91,7 @@ class SlowBytesIO(io.BytesIO):
         while True:
             if self.num_bytes_read == self.sleep_index:
                 self.sleep_index = -1
-                sleep(self.sleep_time)
+                sleep_or_timeout(self.sleep_time, self.sock)
             next_byte = io.BytesIO.read(self, 1)
             data = data + next_byte
             self.bytes_read[-1] = data
@@ -689,12 +690,12 @@ class TestReceiver(unittest.TestCase):
 
             def __init__(self, value):
                 io.BytesIO.__init__(self, value)
-                self.mock_socket = mock.MagicMock()
+                self.mock_socket = FakeSocket()
 
             def readline(self, sizehint=-1):
                 line = io.BytesIO.readline(self)
                 if line.startswith(b'hash'):
-                    sleep(0.1)
+                    sleep_or_timeout(0.1, self.mock_socket)
                 return line
 
             def get_socket(self):
@@ -1419,12 +1420,12 @@ class TestReceiver(unittest.TestCase):
 
             def __init__(self, value):
                 io.BytesIO.__init__(self, value)
-                self.mock_socket = mock.MagicMock()
+                self.mock_socket = FakeSocket()
 
             def readline(self, sizehint=-1):
                 line = io.BytesIO.readline(self)
                 if line.startswith(b'DELETE'):
-                    sleep(0.1)
+                    sleep_or_timeout(0.1, self.mock_socket)
                 return line
 
             def get_socket(self):
@@ -1482,7 +1483,7 @@ class TestReceiver(unittest.TestCase):
         req.remote_addr = '2.3.4.5'
         slow_down_index = chunked_body.find('chunk_one')
         slow_io = SlowBytesIO(req.body, sleep_index=slow_down_index)
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=slow_io, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         req.environ['wsgi.input'] = wsgi_input
@@ -1556,7 +1557,7 @@ class TestReceiver(unittest.TestCase):
         req.remote_addr = '2.3.4.5'
         slow_down_index = chunked_body.find('DELETE /in/second/body chunk')
         slow_io = SlowBytesIO(req.body, sleep_index=slow_down_index)
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=slow_io, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         req.environ['wsgi.input'] = wsgi_input
@@ -2615,8 +2616,8 @@ class TestSsyncRxServer(unittest.TestCase):
         rx_server = server.ObjectController(self.conf, logger=self.rx_logger)
         self.rx_ip = '127.0.0.1'
         self.sock = listen_zero()
-        self.rx_server = eventlet.spawn(
-            eventlet.wsgi.server, self.sock, rx_server, utils.NullLogger())
+        self.rx_server = spawn(
+            wsgi.server, self.sock, rx_server, utils.NullLogger())
         self.rx_port = self.sock.getsockname()[1]
         self.tx_logger = debug_logger('test-reconstructor')
         self.daemon = ObjectReconstructor(self.conf, self.tx_logger)
@@ -2625,7 +2626,7 @@ class TestSsyncRxServer(unittest.TestCase):
     def tearDown(self):
         self.rx_server.kill()
         self.sock.close()
-        eventlet.sleep(0)
+        sleep(0)
         shutil.rmtree(self.tmpdir)
 
     def test_SSYNC_disconnect(self):
@@ -2654,7 +2655,7 @@ class TestSsyncRxServer(unittest.TestCase):
             # let gc and eventlet spin a bit
             del sender
             for i in range(3):
-                eventlet.sleep(0)
+                sleep(0)
         self.assertNotIn('ValueError: invalid literal for int() with base 16',
                          stderr.getvalue())
 
@@ -2695,7 +2696,7 @@ class TestSsyncRxServer(unittest.TestCase):
                 lines = self.rx_logger.get_lines_for_level('error')
                 if lines:
                     return lines
-                eventlet.sleep(sleep_time)
+                sleep(sleep_time)
             return []
 
         # check read errors during missing_check phase
@@ -2996,7 +2997,7 @@ class TestSsyncInputProxy(unittest.TestCase):
         body = io.BytesIO(b'f\r\nDELETE /a/c/o\r\n\r\n'
                           b'10\r\nDELETE /a/c/o1\r\n\r\n'
                           b'13\r\nDELETE /a/c/oh my\r\n\r\n')
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=body, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=60)
@@ -3005,12 +3006,13 @@ class TestSsyncInputProxy(unittest.TestCase):
         self.assertEqual(b'DELETE /a/c/oh my\r\n', inpt.read_line('ctxt'))
 
     def test_read_line_timeout(self):
+        sock = FakeSocket()
         body = SlowBytesIO(b'f\r\nDELETE /a/c/o\r\n\r\n'
                            b'10\r\nDELETE /a/c/o1\r\n\r\n',
                            # timeout reading second line...
-                           sleep_index=23)
-        wsgi_input = eventlet.wsgi.Input(
-            rfile=body, content_length=123, sock=mock.MagicMock(),
+                           sleep_index=23, sock=sock)
+        wsgi_input = wsgi.Input(
+            rfile=body, content_length=123, sock=sock,
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=0.01)
         self.assertEqual(b'DELETE /a/c/o\r\n', inpt.read_line('ctxt'))
@@ -3032,7 +3034,7 @@ class TestSsyncInputProxy(unittest.TestCase):
                            # bad chunk length...
                            b'x\r\nDELETE /a/c/o1\r\n\r\n',
                            sleep_index=23)
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=body, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=0.01)
@@ -3064,7 +3066,7 @@ class TestSsyncInputProxy(unittest.TestCase):
             b'd\r\n:UPDATES: END\r\n'  # note: chunk is missing its newline
             b'0\r\n\r\n'
         )
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=body, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=65536, timeout=0.01)
@@ -3080,7 +3082,7 @@ class TestSsyncInputProxy(unittest.TestCase):
                           b'1b\r\nchunktwo                   \r\n'
                           b'1c\r\nchunkthree                  \r\n'
                           b'f\r\nDELETE /a/c/o\r\n\r\n')
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=body, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
@@ -3096,7 +3098,7 @@ class TestSsyncInputProxy(unittest.TestCase):
     def test_subreq_input_content_length_less_than_body(self):
         body = io.BytesIO(b'1a\r\nchunk1                    \r\n'
                           b'1b\r\nchunktwo                   \r\n')
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=body, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
@@ -3105,7 +3107,7 @@ class TestSsyncInputProxy(unittest.TestCase):
 
     def test_subreq_input_content_length_more_than_body(self):
         body = io.BytesIO(b'1a\r\nchunk1                    \r\n')
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=body, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
@@ -3118,7 +3120,7 @@ class TestSsyncInputProxy(unittest.TestCase):
     def test_subreq_input_early_termination(self):
         body = io.BytesIO(b'1a\r\nchunk1                    \r\n'
                           b'0\r\n\r\n')  # the sender disconnected
-        wsgi_input = eventlet.wsgi.Input(
+        wsgi_input = wsgi.Input(
             rfile=body, content_length=123, sock=mock.MagicMock(),
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=20, timeout=60)
@@ -3128,11 +3130,12 @@ class TestSsyncInputProxy(unittest.TestCase):
         self.assertEqual('Early termination for ctxt', str(cm.exception))
 
     def test_subreq_input_timeout(self):
+        sock = FakeSocket()
         body = SlowBytesIO(b'1a\r\nchunk1                    \r\n'
                            b'1b\r\nchunktwo                   \r\n',
-                           sleep_index=25)
-        wsgi_input = eventlet.wsgi.Input(
-            rfile=body, content_length=123, sock=mock.MagicMock(),
+                           sleep_index=25, sock=sock)
+        wsgi_input = wsgi.Input(
+            rfile=body, content_length=123, sock=sock,
             chunked_input=True)
         inpt = SsyncInputProxy(wsgi_input, chunk_size=16, timeout=0.01)
         sub_input = inpt.make_subreq_input('ctxt', content_length=81)

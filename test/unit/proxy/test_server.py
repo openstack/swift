@@ -44,8 +44,10 @@ import uuid
 
 from unittest import mock
 from swift.common.concurrency import (
-    sleep, spawn, wsgi, Timeout, debug, green_http_client as http_client
+    sleep, spawn, wsgi, Timeout, debug, green_http_client as http_client,
+    USE_EVENTLET
 )
+from swift.common.http_protocol import SwiftHttpProtocol
 from io import BytesIO
 
 from urllib.parse import quote, parse_qsl
@@ -76,7 +78,6 @@ from swift.common.utils import hash_path, storage_directory, \
     node_to_string, NamespaceBoundList
 from swift.common.utils.timestamp import NormalTimestamp
 from swift.common.wsgi import loadapp, ConfigString
-from swift.common.http_protocol import SwiftHttpProtocol
 from swift.container.backend import NOTFOUND, UNSHARDED, SHARDING, SHARDED, \
     COLLAPSED
 from swift.proxy.controllers import base as proxy_base
@@ -9329,12 +9330,14 @@ class TestObjectDisconnectCleanup(unittest.TestCase):
 
     def setUp(self):
         skip_if_no_xattrs()
-        debug.hub_exceptions(False)
+        if USE_EVENTLET:
+            debug.hub_exceptions(False)
         self._cleanup_devices()
         _test_servers[0].error_limiter.stats.clear()  # clear out errors
 
     def tearDown(self):
-        debug.hub_exceptions(True)
+        if USE_EVENTLET:
+            debug.hub_exceptions(True)
         self._cleanup_devices()
         _test_servers[0].error_limiter.stats.clear()  # clear out errors
 

@@ -31,6 +31,7 @@ from io import StringIO
 from swift.cli import relinker
 from swift.common import ring, utils
 from swift.common import storage_policy
+from swift.common.concurrency import USE_EVENTLET
 from swift.common.exceptions import PathNotDir
 from swift.common.storage_policy import (
     StoragePolicy, StoragePolicyCollection, POLICIES, ECStoragePolicy,
@@ -86,9 +87,10 @@ class TestRelinker(unittest.TestCase):
         storage_policy._POLICIES = StoragePolicyCollection([self.policy])
         self._setup_object(policy=self.policy)
 
-        patcher = mock.patch('swift.cli.relinker.hubs')
-        self.mock_hubs = patcher.start()
-        self.addCleanup(patcher.stop)
+        if USE_EVENTLET:
+            patcher = mock.patch('swift.cli.relinker.hubs')
+            self.mock_hubs = patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _setup_config(self):
         config = """
@@ -876,6 +878,7 @@ class TestRelinker(unittest.TestCase):
         self.assertTrue(
             captured_relinker_instance.conf['clobber_hardlink_collisions'])
 
+    @unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
     def test_relinker_utils_get_hub(self):
         cli_cmd = ['relink', '--device', 'sdx', '--workers', 'auto',
                    '--device', '/some/device']

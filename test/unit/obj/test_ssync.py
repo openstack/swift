@@ -18,9 +18,12 @@ from unittest import mock
 import os
 import unittest
 
-from swift.common.concurrency import eventlet, spawn
 import urllib.parse
-from swift.common.concurrency import SwiftPool
+from swift.common.concurrency import spawn, SwiftPool, USE_EVENTLET
+if USE_EVENTLET:
+    from eventlet import wsgi
+else:
+    import swift.common.wsgi_gunicorn as wsgi
 
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \
     DiskFileDeleted, DiskFileExpired
@@ -66,7 +69,7 @@ class TestBaseSsync(BaseTest):
         sock = listen_zero()
         self.rx_server_pool = SwiftPool(size=1)
         self.rx_server = spawn(
-            eventlet.wsgi.server, sock, self.rx_controller, log=self.rx_logger,
+            wsgi.server, sock, self.rx_controller, log=self.rx_logger,
             custom_pool=self.rx_server_pool)
         self.rx_port = sock.getsockname()[1]
         self.rx_node = {'replication_ip': self.rx_ip,

@@ -38,7 +38,7 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 import pyeclib.ec_iface
 
-from swift.common.concurrency import hubs, timeout, tpool, spawn, sleep
+from swift.common.concurrency import hubs, tpool, spawn, sleep
 from swift.obj.diskfile import update_auditor_status, EUCLEAN
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
@@ -58,7 +58,8 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace, \
-    DiskFileXattrNotSupported, PartitionLockTimeout, DiskFileStateChanged
+    DiskFileXattrNotSupported, PartitionLockTimeout, DiskFileStateChanged, \
+    Timeout
 from swift.common.storage_policy import (
     POLICIES, get_policy_string, StoragePolicy, ECStoragePolicy, REPL_POLICY,
     EC_POLICY, PolicyError)
@@ -6223,7 +6224,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             #   can't actually call `trampoline`, because adding such FD to an
             #   `epoll` handle results in `EPERM`
             def fake_trampoline(fd, read=None, write=None, timeout=None,
-                                timeout_exc=timeout.Timeout,
+                                timeout_exc=Timeout,
                                 mark_as_closed=None):
                 if write and fd == devnull.fileno():
                     return

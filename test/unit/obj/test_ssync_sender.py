@@ -30,7 +30,7 @@ from swift.obj.replicator import ObjectReplicator
 from test.debug_logger import debug_logger
 from test.unit.obj.common import BaseTest
 from test.unit import patch_policies, make_timestamp_iter, skip_if_no_xattrs, \
-    FakeSocket
+    FakeSocket, sleep_or_timeout
 
 
 class NullBufferedHTTPConnection(object):
@@ -703,8 +703,8 @@ class TestSender(SenderBase):
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
 
-        def putrequest(*args, **kwargs):
-            sleep(0.1)
+        def putrequest(self_conn, *args, **kwargs):
+            sleep_or_timeout(0.1, self_conn.sock)
 
         with mock.patch.object(
                 ssync_sender.bufferedhttp.BufferedHTTPConnection,
@@ -727,8 +727,8 @@ class TestSender(SenderBase):
 
         class FakeBufferedHTTPConnection(NullBufferedHTTPConnection):
 
-            def getresponse(*args, **kwargs):
-                sleep(0.1)
+            def getresponse(self_conn, *args, **kwargs):
+                sleep_or_timeout(0.1, self_conn.sock)
 
         with mock.patch.object(
                 ssync_sender, 'SsyncBufferedHTTPConnection',
@@ -1305,7 +1305,7 @@ class TestSender(SenderBase):
 
     def test_updates_timeout(self):
         connection = FakeConnection()
-        connection.send = lambda d: sleep(1)
+        connection.send = lambda d: sleep_or_timeout(1, connection.sock)
         response = FakeResponse()
         self.sender.daemon.node_timeout = 0.01
         self.assertRaises(exceptions.MessageTimeout, self.sender.updates,
@@ -1610,7 +1610,7 @@ class TestSender(SenderBase):
         orig_readline = response.readline
 
         def delayed_readline(*args, **kwargs):
-            sleep(1)
+            sleep_or_timeout(1, connection.sock)
             return orig_readline(*args, **kwargs)
 
         response.readline = delayed_readline
@@ -1661,7 +1661,7 @@ class TestSender(SenderBase):
         def delayed_readline(*args, **kwargs):
             rv = orig_readline(*args, **kwargs)
             if rv == b':UPDATES: END\r\n':
-                sleep(1)
+                sleep_or_timeout(1, connection.sock)
             return rv
 
         response.readline = delayed_readline
@@ -1706,7 +1706,7 @@ class TestSender(SenderBase):
 
     def test_send_delete_timeout(self):
         connection = FakeConnection()
-        connection.send = lambda d: sleep(1)
+        connection.send = lambda d: sleep_or_timeout(1, connection.sock)
         self.sender.daemon.node_timeout = 0.01
         exc = None
         try:
@@ -1729,7 +1729,7 @@ class TestSender(SenderBase):
         df = self._make_open_diskfile()
         df._disk_chunk_size = 2
         connection = FakeConnection()
-        connection.send = lambda d: sleep(1)
+        connection.send = lambda d: sleep_or_timeout(1, connection.sock)
         self.sender.daemon.node_timeout = 0.01
         exc = None
         try:
@@ -1749,7 +1749,7 @@ class TestSender(SenderBase):
             try:
                 one_shot.pop()
             except IndexError:
-                sleep(1)
+                sleep_or_timeout(1, connection.sock)
 
         connection.send = mock_send
 
@@ -1858,7 +1858,7 @@ class TestSender(SenderBase):
 
     def test_disconnect_timeout(self):
         connection = FakeConnection()
-        connection.send = lambda d: sleep(1)
+        connection.send = lambda d: sleep_or_timeout(1, connection.sock)
         self.sender.daemon.node_timeout = 0.01
         self.sender.disconnect(connection)
         self.assertEqual(b''.join(connection.sent), b'')

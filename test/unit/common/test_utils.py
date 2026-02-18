@@ -28,7 +28,8 @@ from test.unit import temptree, with_tempdir, DebugMemcacheRing, \
 
 import contextlib
 import errno
-from swift.common.concurrency import eventlet, sleep, SwiftPool, USE_EVENTLET
+from swift.common.concurrency import eventlet, sleep, SwiftPool, SwiftPile, \
+    USE_EVENTLET, Event
 import grp
 import logging
 import os
@@ -71,7 +72,8 @@ from swift.common.storage_policy import POLICIES, reload_storage_policies
 from swift.common.swob import Response
 from test.unit import requires_o_tmpfile_support_in_tmp
 
-threading = eventlet.patcher.original('threading')
+if USE_EVENTLET:
+    threading = eventlet.patcher.original('threading')
 
 
 class MockOs(object):
@@ -154,6 +156,7 @@ class TestUtils(unittest.TestCase):
             self.md5_digest = '0d6dc3c588ae71a04ce9a6beebbbba06'
             self.fips_enabled = True
 
+    @unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
     def test_monkey_patch(self):
         def take_and_release(lock):
             try:
@@ -3462,7 +3465,10 @@ class TestCooperativeCachePopulator(unittest.TestCase):
     def test_concurrent_requests(self):
         # Simulate multiple concurrent threads, each of them issues a
         # "fetch_data" request cooperatively.
-        self.avg_backend_fetch_time = 0.01
+        # Keep the sibling concurrency tests' fetch time: the 1s token_ttl
+        # absorbs 100 real threads' scheduling jitter. Lower, and a waiter can
+        # time out before a winner populates the cache, forcing the retry path.
+        self.avg_backend_fetch_time = 0.1
         num_processes = 100
         exceptions = []
 
@@ -3940,6 +3946,7 @@ class TestFileLikeIter(unittest.TestCase):
         iter_file.close()
         self.assertTrue(iter_file.closed)
 
+    @unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
     def test_get_hub(self):
         # This test mock the eventlet.green.select module without poll
         # as in eventlet > 0.20
@@ -4129,7 +4136,10 @@ class UnsafeXrange(object):
             else:
                 val = self.current
                 self.current += 1
-                sleep()   # yield control
+                # sleep(0) yields to another greenthread under eventlet but is
+                # a no-op without it, so sleep a real moment there to let a
+                # second thread enter next() and trip concurrent_call.
+                sleep(0 if USE_EVENTLET else 0.01)   # yield control
                 return val
         finally:
             self.concurrent_calls -= 1
@@ -4403,7 +4413,7 @@ class TestGreenthreadSafeIterator(unittest.TestCase):
         self.assertEqual([0, 1, 2, 3], list(UnsafeXrange(4)))
 
         iterable = UnsafeXrange(10)
-        pile = eventlet.GreenPile(2)
+        pile = SwiftPile(2)
         for _ in range(2):
             pile.spawn(self.increment, iterable)
 
@@ -4412,7 +4422,7 @@ class TestGreenthreadSafeIterator(unittest.TestCase):
             iterable.concurrent_call, 'test setup is insufficiently crazy')
 
     def test_access_is_serialized(self):
-        pile = eventlet.GreenPile(2)
+        pile = SwiftPile(2)
         unsafe_iterable = UnsafeXrange(10)
         iterable = utils.GreenthreadSafeIterator(unsafe_iterable)
         for _ in range(2):
@@ -4859,18 +4869,22 @@ class TestGreenAsyncPile(unittest.TestCase):
         self.assertEqual(sorted(x for x in pile), [1, 2, 3])
 
     def test_is_asynchronous(self):
+        # eventlet.event.Event uses send(); threading.Event uses set(). Both
+        # block on wait(); use whichever swift.common.concurrency provides.
+        def fire(evt):
+            (evt.send if hasattr(evt, 'send') else evt.set)()
+
         def run_test(index):
             events[index].wait()
             return index
 
         pile = utils.GreenAsyncPile(3)
         for order in ((1, 2, 0), (0, 1, 2), (2, 1, 0), (0, 2, 1)):
-            events = [eventlet.event.Event(), eventlet.event.Event(),
-                      eventlet.event.Event()]
+            events = [Event(), Event(), Event()]
             for x in range(3):
                 pile.spawn(run_test, x)
             for x in order:
-                events[x].send()
+                fire(events[x])
                 self.assertEqual(next(pile), x)
 
     def test_next_when_empty(self):
@@ -8002,6 +8016,10 @@ class TestPunchHoleReally(unittest.TestCase):
                 b"x" * 64 + b"\0" * 32 + b"y" * 32 + b"z" * 64)
 
 
+@unittest.skipUnless(USE_EVENTLET,
+                     'Watchdog enforces timeouts by throwing into greenthreads'
+                     '; threading mode uses WatchdogNoOp + socket-level '
+                     'WatchdogTimeout (see TestWatchdogTimeout)')
 class TestWatchdog(unittest.TestCase):
     def test_start_stop(self):
         w = utils.Watchdog()

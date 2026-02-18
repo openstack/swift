@@ -14,8 +14,9 @@
 # limitations under the License.
 
 
-from swift.common.concurrency import eventlet
-eventlet.monkey_patch()
+from swift.common.concurrency import eventlet, USE_EVENTLET
+if USE_EVENTLET:
+    eventlet.monkey_patch()
 
 import subprocess
 from test import get_config
@@ -39,9 +40,11 @@ def wait_with_timeout(self, timeout=None, check_interval=0.01):
     # We want to always have a timeout; no probe test should need to wait
     # on even minute-long running processes.
     timeout = SUBPROCESS_WAIT_TIMEOUT if timeout is None else timeout
+    popen_kwargs = {}
+    if USE_EVENTLET:
+        popen_kwargs = {'check_interval': check_interval}
     try:
-        return orig_popen_wait(
-            self, timeout=timeout, check_interval=check_interval)
+        return orig_popen_wait(self, timeout=timeout, **popen_kwargs)
     except subprocess.TimeoutExpired:
         # Assume we tripped https://github.com/eventlet/eventlet/issues/989
         # Kill the process (it should be mid-shutdown anyway) and log about it

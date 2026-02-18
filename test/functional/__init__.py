@@ -28,6 +28,13 @@ import functools
 import random
 import base64
 
+from swift.common.concurrency import USE_EVENTLET
+if USE_EVENTLET:
+    import eventlet.debug
+    from swift.common.http_protocol import SwiftHttpProtocol
+else:
+    SwiftHttpProtocol = None
+
 from time import sleep
 from shutil import rmtree
 from tempfile import mkdtemp
@@ -37,7 +44,6 @@ from configparser import ConfigParser
 import http.client
 from http.client import HTTPException
 
-from swift.common.concurrency import USE_EVENTLET
 if USE_EVENTLET:
     from eventlet import wsgi
 else:
@@ -57,7 +63,6 @@ from test.unit import skip_if_no_xattrs as real_skip_if_no_xattrs
 
 from swift.common import constraints, utils, ring, storage_policy
 from swift.common.ring import Ring
-from swift.common.http_protocol import SwiftHttpProtocol
 from swift.common.wsgi import loadapp
 from swift.common.utils import config_true_value, split_path
 from swift.account import server as account_server
@@ -74,9 +79,10 @@ DEBUG = True
 # perform this setup at module import time, since all the socket module
 # bindings in the swiftclient code will have been made by the time nose
 # invokes the package or class setup methods.
-eventlet.hubs.use_hub(utils.get_hub())
-eventlet.patcher.monkey_patch(all=False, socket=True)
-eventlet.debug.hub_exceptions(False)
+if USE_EVENTLET:
+    eventlet.hubs.use_hub(utils.get_hub())
+    eventlet.patcher.monkey_patch(all=False, socket=True)
+    eventlet.debug.hub_exceptions(False)
 
 # swift_test_client import from swiftclient, so move after the monkey-patching
 from test.functional.swift_test_client import Account, Connection, Container, \

@@ -49,7 +49,8 @@ from test.unit import mocked_http_conn, \
     mock_check_drive, FakeRing, BaseUnitTestCase, mock_timestamp_now
 from swift.obj import server as object_server
 from swift.obj import updater, diskfile
-from swift.common import utils, bufferedhttp, http_protocol
+from swift.common import utils, bufferedhttp
+from swift.common.http_protocol import SwiftHttpProtocol
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, NullLogger, \
     storage_directory, public, replication, encode_timestamps, md5
@@ -6323,7 +6324,7 @@ class TestObjectController(BaseUnitTestCase):
         listener = listen_zero()
         port = listener.getsockname()[1]
         killer = spawn(wsgi.server, listener, self.object_controller,
-                       NullLogger(), protocol=http_protocol.SwiftHttpProtocol)
+                       NullLogger(), protocol=SwiftHttpProtocol)
         sock = connect_tcp(('localhost', port))
         fd = sock.makefile('rwb')
         s = 'PUT /sda1/p/a/c/o HTTP/1.1\r\nHost: localhost\r\n' \

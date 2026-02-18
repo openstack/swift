@@ -19,12 +19,14 @@ import json
 from unittest import mock
 import types
 import unittest
-from swift.common.concurrency import wsgi
+from swift.common.concurrency import wsgi, USE_EVENTLET
 
 from test.debug_logger import debug_logger
-from swift.common import http_protocol, swob
+from swift.common import swob
+from swift.common import http_protocol
 
 
+@unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
 class TestSwiftHttpProtocol(unittest.TestCase):
     def _proto_obj(self):
         # Make an object we can exercise... note the base class's __init__()
@@ -89,6 +91,7 @@ class TestSwiftHttpProtocol(unittest.TestCase):
         self.assertEqual(False, proto_obj.parse_request())
 
 
+@unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
 class ProtocolTest(unittest.TestCase):
     def _run_bytes_through_protocol(self, bytes_from_client, app=None):
         rfile = BytesIO(bytes_from_client)
@@ -143,6 +146,7 @@ class ProtocolTest(unittest.TestCase):
         return wfile.getvalue()
 
 
+@unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
 class TestSwiftHttpProtocolSomeMore(ProtocolTest):
     protocol_class = http_protocol.SwiftHttpProtocol
 
@@ -374,6 +378,7 @@ class TestSwiftHttpProtocolSomeMore(ProtocolTest):
         })
 
 
+@unittest.skipUnless(USE_EVENTLET, 'Only used with eventlet')
 class TestProxyProtocol(ProtocolTest):
     protocol_class = http_protocol.SwiftHttpProxiedProtocol
 
