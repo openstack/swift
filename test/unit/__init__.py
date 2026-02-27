@@ -66,6 +66,15 @@ class BaseUnitTestCase(BaseTestCase):
         super().setUp()
         self.ts_iter = make_timestamp_iter()
 
+    def ts(self):
+        """
+        Returns the next timestamp yielded by self.ts_iter. Each timestamp
+        yielded will be in the second after the previous.
+
+        :return: an instance of Timestamp
+        """
+        return next(self.ts_iter)
+
 
 # try not to import this module from swift
 if not os.path.basename(sys.argv[0]).startswith('swift'):

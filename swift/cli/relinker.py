@@ -29,11 +29,12 @@ from eventlet import hubs
 from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import replace_partition_in_path, config_true_value, \
-    audit_location_generator, get_logger, readconf, drop_privileges, \
-    RateLimitedIterator, distribute_evenly, get_prefixed_logger, \
+    audit_location_generator, readconf, drop_privileges, \
+    RateLimitedIterator, distribute_evenly, \
     non_negative_float, non_negative_int, config_auto_int_value, \
     dump_recon_cache, get_partition_from_path, get_hub
-from swift.common.utils.logs import SwiftLogAdapter
+from swift.common.utils.logs import SwiftLogAdapter, get_swift_logger, \
+    get_prefixed_swift_logger
 from swift.obj import diskfile
 from swift.common.recon import RECON_RELINKER_FILE, DEFAULT_RECON_CACHE_PATH
 
@@ -379,11 +380,10 @@ class Relinker(object):
         num_parts_done = sum(
             1 for part in self.states["state"].values()
             if part)
-        step = STEP_CLEANUP if self.do_cleanup else STEP_RELINK
         num_total_parts = len(self.states["state"])
         self.logger.info(
-            "Step: %s Device: %s Policy: %s Partitions: %d/%d",
-            step, device, self.policy.name, num_parts_done, num_total_parts)
+            "Device: %s Policy: %s Partitions: %d/%d",
+            device, self.policy.name, num_parts_done, num_total_parts)
         self._update_recon(device)
 
     def hashes_filter(self, suff_path, hashes):
@@ -427,9 +427,8 @@ class Relinker(object):
                 # https://bugs.launchpad.net/swift/+bug/1921718
                 # https://bugs.launchpad.net/swift/+bug/1934142
                 self.logger.debug(
-                    "Relinking%s: tolerating different inodes for "
+                    "Relinking: tolerating different inodes for "
                     "tombstone with same timestamp: %s to %s",
-                    ' (cleanup)' if self.do_cleanup else '',
                     old_file, new_file)
                 success = True
             elif self.conf['clobber_hardlink_collisions']:
@@ -446,9 +445,8 @@ class Relinker(object):
                     # clobber_hardlink_collision should quarantine old_file
                     # here before returning success.
                     self.logger.debug(
-                        "Relinking%s: tolerating hardlink collision: "
+                        "Relinking: tolerating hardlink collision: "
                         "%s to %s",
-                        ' (cleanup)' if self.do_cleanup else '',
                         old_file, new_file)
                     success = True
                 elif already_quarantined:
@@ -456,18 +454,16 @@ class Relinker(object):
                     # can retry (or already_quarantined becomes a counter?)
                     # N.B. this can exit non-zero w/o logging at "error"
                     self.logger.warning(
-                        "Relinking%s: hardlink collision persists after "
+                        "Relinking: hardlink collision persists after "
                         "quarantine: %s to %s",
-                        ' (cleanup)' if self.do_cleanup else '',
                         old_file, new_file)
                 else:
                     # During relink phase, quarantine and retry once
                     dev_path = os.path.join(self.diskfile_mgr.devices, device)
                     to_dir = diskfile.quarantine_renamer(dev_path, new_file)
                     self.logger.info(
-                        "Relinking%s: clobbering hardlink collision: "
+                        "Relinking: clobbering hardlink collision: "
                         "%s moved to %s",
-                        ' (cleanup)' if self.do_cleanup else '',
                         new_file, to_dir)
                     # retry with quarantine flag set
                     return self.do_relink(
@@ -475,9 +471,8 @@ class Relinker(object):
                         already_quarantined=True)
             else:
                 self.logger.error(
-                    "Error relinking%s: hardlink collision: "
+                    "Error relinking: hardlink collision: "
                     "%s to %s (consider enabling clobber_hardlink_collisions)",
-                    ' (cleanup)' if self.do_cleanup else '',
                     old_file, new_file)
         except Exception as exc:
             # Depending on what kind of errors these are, it might be
@@ -490,13 +485,11 @@ class Relinker(object):
             # fixable by simply re-running the relinker: so we log them as
             # error to match the expected non-zero return code.
             self.logger.error(
-                "Error relinking%s: failed to relink %s to %s: %s",
-                ' (cleanup)' if self.do_cleanup else '',
+                "Error relinking: failed to relink %s to %s: %s",
                 old_file, new_file, exc)
         if created:
             self.logger.debug(
-                "Relinking%s created link: %s to %s",
-                ' (cleanup)' if self.do_cleanup else '',
+                "Relinking created link: %s to %s",
                 old_file, new_file)
         return success, created
 
@@ -630,8 +623,8 @@ class Relinker(object):
 
     def process_policy(self, policy):
         self.logger.info(
-            'Processing files for policy %s under %s (cleanup=%s)',
-            policy.name, self.root, self.do_cleanup)
+            'Processing files for policy %s under %s',
+            policy.name, self.root)
         self.part_power = policy.object_ring.part_power
         self.next_part_power = policy.object_ring.next_part_power
         self.diskfile_mgr = self.diskfile_router[policy]
@@ -747,8 +740,8 @@ class Relinker(object):
                 'files: %r', stats)
 
         log_method(
-            '%d hash dirs processed (cleanup=%s) (%d files, %d linked, '
-            '%d removed, %d errors)', hash_dirs, self.do_cleanup, files,
+            '%d hash dirs processed (%d files, %d linked, '
+            '%d removed, %d errors)', hash_dirs, files,
             linked, removed, action_errors + listdir_errors)
 
         self._update_worker_stats(return_code=status)
@@ -760,7 +753,7 @@ def _reset_recon(recon_cache, logger):
     dump_recon_cache(device_progress_recon, recon_cache, logger)
 
 
-def parallel_process(do_cleanup, conf, logger, device_list=None):
+def parallel_process(step, conf, logger, device_list=None):
     """
     Fork Relinker workers based on config and wait for them to finish.
 
@@ -785,25 +778,29 @@ def parallel_process(do_cleanup, conf, logger, device_list=None):
         workers = min(workers, len(device_list))
 
     start = time.time()
-    logger.info('Starting relinker (cleanup=%s) using %d workers: %s' %
-                (do_cleanup, workers,
-                 time.strftime('%X %x %Z', time.gmtime(start))))
+    prefixed_logger = get_prefixed_swift_logger(logger, f"[step={step}] ")
+    prefixed_logger.info('Starting relinker using %d workers: %s' %
+                         (workers,
+                          time.strftime('%X %x %Z', time.gmtime(start))))
+    do_cleanup = (step == STEP_CLEANUP)
     if workers == 0 or len(device_list) in (0, 1):
         ret = Relinker(
-            conf, logger, device_list, do_cleanup=do_cleanup).run()
-        logger.info('Finished relinker (cleanup=%s): %s (%s elapsed)' %
-                    (do_cleanup, time.strftime('%X %x %Z', time.gmtime()),
-                     datetime.timedelta(seconds=time.time() - start)))
+            conf, prefixed_logger, device_list, do_cleanup=do_cleanup).run()
+        prefixed_logger.info('Finished relinker: %s (%s elapsed)' %
+                             (time.strftime('%X %x %Z', time.gmtime()),
+                              datetime.timedelta(seconds=time.time() - start)))
         return ret
 
     children = {}
     for worker_devs in distribute_evenly(device_list, workers):
         pid = os.fork()
         if pid == 0:
-            logger = get_prefixed_logger(logger, '[pid=%s, devs=%s] ' % (
-                os.getpid(), ','.join(worker_devs)))
-            os._exit(Relinker(
-                conf, logger, worker_devs, do_cleanup=do_cleanup).run())
+            pid_prefixed_logger = get_prefixed_swift_logger(
+                logger,
+                '[step=%s, pid=%s, devs=%s] '
+                % (step, os.getpid(), ','.join(worker_devs)))
+            os._exit(Relinker(conf, pid_prefixed_logger, worker_devs,
+                              do_cleanup=do_cleanup).run())
         else:
             children[pid] = worker_devs
 
@@ -842,10 +839,10 @@ def parallel_process(do_cleanup, conf, logger, device_list=None):
                 % (worker_desc, time_delta, status))
 
     for msg in final_messages:
-        logger.warning(msg)
-    logger.info('Finished relinker (cleanup=%s): %s (%s elapsed)' %
-                (do_cleanup, time.strftime('%X %x %Z', time.gmtime()),
-                 datetime.timedelta(seconds=time.time() - start)))
+        prefixed_logger.warning(msg)
+    prefixed_logger.info('Finished relinker: %s (%s elapsed)' %
+                         (time.strftime('%X %x %Z', time.gmtime()),
+                          datetime.timedelta(seconds=time.time() - start)))
     return final_status
 
 
@@ -856,7 +853,7 @@ def auto_or_int(value):
 def main(args=None):
     parser = argparse.ArgumentParser(
         description='Relink and cleanup objects to increase partition power')
-    parser.add_argument('action', choices=['relink', 'cleanup'])
+    parser.add_argument('action', choices=[STEP_RELINK, STEP_CLEANUP])
     parser.add_argument('conf_file', nargs='?', help=(
         'Path to config file with [object-relinker] section'))
     parser.add_argument('--swift-dir', default=None,
@@ -912,7 +909,7 @@ def main(args=None):
         user = args.user or conf.get('user')
         if user:
             drop_privileges(user)
-        logger = get_logger(conf)
+        logger = get_swift_logger(conf)
     else:
         level = 'DEBUG' if args.debug else 'INFO'
         conf = {'log_level': level}
@@ -925,7 +922,6 @@ def main(args=None):
             level=getattr(logging, level),
             filename=args.logfile)
         logger = SwiftLogAdapter(logging.getLogger(), server='relinker')
-
     conf.update({
         'swift_dir': args.swift_dir or conf.get('swift_dir', '/etc/swift'),
         'devices': args.devices or conf.get('devices', '/srv/node'),
@@ -949,5 +945,4 @@ def main(args=None):
             config_true_value(conf.get('clobber_hardlink_collisions',
                                        'false'))),
     })
-    return parallel_process(
-        args.action == 'cleanup', conf, logger, args.device_list)
+    return parallel_process(args.action, conf, logger, args.device_list)

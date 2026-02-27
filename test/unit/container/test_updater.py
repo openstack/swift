@@ -19,7 +19,7 @@ import unittest
 from shutil import rmtree
 from tempfile import mkdtemp
 from test.debug_logger import debug_logger
-from test.unit import mock_check_drive
+from test.unit import mock_check_drive, BaseUnitTestCase
 
 from eventlet import spawn, Timeout
 
@@ -27,14 +27,14 @@ from swift.common import exceptions, utils
 from swift.container import updater as container_updater
 from swift.container.backend import ContainerBroker, DATADIR
 from swift.common.ring import RingData
-from swift.common.utils import normalize_timestamp, Timestamp
 
 from test import listen_zero
 
 
-class TestContainerUpdater(unittest.TestCase):
+class TestContainerUpdater(BaseUnitTestCase):
 
     def setUp(self):
+        super().setUp()
         utils.HASH_PATH_SUFFIX = b'endcap'
         utils.HASH_PATH_PREFIX = b'startcap'
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_container_updater')
@@ -163,7 +163,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         db_file = os.path.join(subdir, 'hash.db')
         cb = ContainerBroker(db_file, account='a', container='c')
-        cb.initialize(normalize_timestamp(1), 0)
+        cb.initialize(self.ts().internal, 0)
 
         timeout = exceptions.LockTimeout(10, db_file)
         timeout.cancel()
@@ -185,7 +185,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
                              container='c', pending_timeout=1)
-        cb.initialize(normalize_timestamp(1), 0)
+        cb.initialize(self.ts().internal, 0)
 
         cu.run_once()
 
@@ -209,7 +209,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
                              container='c')
-        cb.initialize(normalize_timestamp(1), 0)
+        cb.initialize(self.ts().internal, 0)
         self.assertTrue(cb.is_root_container())
         cu.run_once()
         info = cb.get_info()
@@ -218,7 +218,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
 
-        cb.put_object('o', normalize_timestamp(2), 3, 'text/plain',
+        cb.put_object('o', self.ts().internal, 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
         cu.run_once()
         info = cb.get_info()
@@ -305,9 +305,9 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
                              container='\xce\xa9')
-        cb.initialize(normalize_timestamp(1), 0)
+        cb.initialize(self.ts().internal, 0)
         obj_name = u'\N{GREEK CAPITAL LETTER OMEGA}'
-        cb.put_object(obj_name, normalize_timestamp(2), 3, 'text/plain',
+        cb.put_object(obj_name, self.ts().internal, 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
 
         def accept(sock, addr):
@@ -361,7 +361,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'),
                              account='.shards_a', container='c')
-        put_ts = Timestamp(1)
+        put_ts = self.ts()
         cb.initialize(put_ts.internal, 0)
         cb.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(cb.is_root_container())
@@ -374,7 +374,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
 
-        cb.put_object('o', normalize_timestamp(2), 3, 'text/plain',
+        cb.put_object('o', self.ts().internal, 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
         # Fake us having already reported *bad* stats under swift 2.18.0
         cb.reported('0', '0', 1, 3)
@@ -452,7 +452,7 @@ class TestContainerUpdater(unittest.TestCase):
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'),
                              account='.shards_a', container='c')
-        put_ts = Timestamp(1)
+        put_ts = self.ts()
         cb.initialize(put_ts.internal, 0)
         cb.set_sharding_sysmeta('Quoted-Root', 'a/c')
         self.assertFalse(cb.is_root_container())
@@ -465,7 +465,7 @@ class TestContainerUpdater(unittest.TestCase):
         self.assertEqual(info['reported_object_count'], 0)
         self.assertEqual(info['reported_bytes_used'], 0)
 
-        cb.put_object('o', normalize_timestamp(2), 3, 'text/plain',
+        cb.put_object('o', self.ts().internal, 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
         # Fake us having already reported *bad* stats under swift 2.18.0
         cb.reported('0', '0', 1, 3)

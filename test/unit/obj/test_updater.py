@@ -28,8 +28,7 @@ import json
 from swift.common.exceptions import ConnectionTimeout
 from test import listen_zero
 from test.debug_logger import debug_logger
-from test.unit import (
-    make_timestamp_iter, patch_policies, mocked_http_conn)
+from test.unit import patch_policies, mocked_http_conn, BaseUnitTestCase
 from time import time
 
 from eventlet import spawn, Timeout
@@ -41,8 +40,7 @@ from swift.common.ring import RingData
 from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import bytes_to_wsgi
-from swift.common.utils import hash_path, normalize_timestamp, mkdirs, \
-    Timestamp
+from swift.common.utils import hash_path, mkdirs, Timestamp
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -72,10 +70,11 @@ def _sorted_listdir(path):
 
 
 @patch_policies(_mocked_policies)
-class TestObjectUpdater(unittest.TestCase):
+class TestObjectUpdater(BaseUnitTestCase):
     maxDiff = None
 
     def setUp(self):
+        super().setUp()
         utils.HASH_PATH_SUFFIX = b'endcap'
         utils.HASH_PATH_PREFIX = b''
         self.testdir = mkdtemp()
@@ -109,7 +108,6 @@ class TestObjectUpdater(unittest.TestCase):
         for policy in POLICIES:
             os.mkdir(os.path.join(self.sda1, get_tmp_dir(policy)))
         self.logger = debug_logger()
-        self.ts_iter = make_timestamp_iter()
 
     def tearDown(self):
         rmtree(self.testdir, ignore_errors=1)
@@ -272,7 +270,7 @@ class TestObjectUpdater(unittest.TestCase):
                 ohash = hash_path('account', 'container', o)
                 for t in timestamps:
                     o_path = os.path.join(prefix_dir, ohash + '-' +
-                                          normalize_timestamp(t))
+                                          Timestamp(t).internal)
                     if t == timestamps[0]:
                         expected.add((o_path, int(policy_index)))
                     self._write_dummy_pickle(o_path, 'account', 'container', o)
@@ -324,7 +322,7 @@ class TestObjectUpdater(unittest.TestCase):
                      ('jkl', 456), ('mno', 567)]:
             ohash = hash_path('account', 'container', o)
             o_path = os.path.join(prefix_dir, ohash + '-' +
-                                  normalize_timestamp(t))
+                                  Timestamp(t).internal)
             self._write_dummy_pickle(o_path, 'account', 'container', o)
 
         class MockObjectUpdater(object_updater.ObjectUpdater):
@@ -395,7 +393,7 @@ class TestObjectUpdater(unittest.TestCase):
             for o, t in [('abc', 123), ('def', 234), ('ghi', 345)]:
                 ohash = hash_path('account', 'container%d' % policy.idx, o)
                 o_path = os.path.join(prefix_dir, ohash + '-' +
-                                      normalize_timestamp(t))
+                                      Timestamp(t).internal)
                 self._write_dummy_pickle(o_path, 'account', 'container', o)
 
         class MockObjectUpdater(object_updater.ObjectUpdater):
@@ -728,17 +726,17 @@ class TestObjectUpdater(unittest.TestCase):
         mkdirs(odir)
         older_op_path = os.path.join(
             odir,
-            '%s-%s' % (ohash, normalize_timestamp(time() - 1)))
+            '%s-%s' % (ohash, self.ts().internal))
         op_path = os.path.join(
             odir,
-            '%s-%s' % (ohash, normalize_timestamp(time())))
+            '%s-%s' % (ohash, self.ts().internal))
         for path in (op_path, older_op_path):
             with open(path, 'wb') as async_pending:
                 pickle.dump({'op': 'PUT', 'account': 'a',
                              'container': 'c',
                              'obj': 'o', 'headers': {
                                  'X-Container-Timestamp':
-                                 normalize_timestamp(0)}},
+                                 Timestamp.zero().internal}},
                             async_pending)
         ou._process_device_in_child(self.sda1, 'sda1')
         self.assertTrue(not os.path.exists(older_op_path))
@@ -956,7 +954,7 @@ class TestObjectUpdater(unittest.TestCase):
                          'container': 'c',
                          'obj': 'o', 'headers': {
                              'X-Container-Timestamp':
-                             normalize_timestamp(0)}},
+                             Timestamp.zero().internal}},
                         async_pending)
         with mock.patch('swift.obj.updater.time.time', return_value=now):
             with mock.patch.object(ou, 'object_update',
@@ -1444,8 +1442,6 @@ class TestObjectUpdater(unittest.TestCase):
         )
 
     def test_obj_put_legacy_updates(self):
-        ts = (normalize_timestamp(t) for t in
-              itertools.count(int(time())))
         policy = POLICIES.get_by_index(0)
         # setup updater
         conf = {
@@ -1467,12 +1463,12 @@ class TestObjectUpdater(unittest.TestCase):
                 'x-size': 0,
                 'x-content-type': 'text/plain',
                 'x-etag': 'd41d8cd98f00b204e9800998ecf8427e',
-                'x-timestamp': next(ts),
+                'x-timestamp': self.ts().internal,
             })
             data = {'op': op, 'account': account, 'container': container,
                     'obj': obj, 'headers': headers_out}
             dfmanager.pickle_async_update(self.sda1, account, container, obj,
-                                          data, next(ts), policy)
+                                          data, self.ts().internal, policy)
 
             request_log = []
 
@@ -2092,7 +2088,7 @@ class TestObjectUpdater(unittest.TestCase):
             'account': a,
             'container': c,
             'obj': o,
-            'headers': {'X-Container-Timestamp': normalize_timestamp(0)}
+            'headers': {'X-Container-Timestamp': Timestamp.zero().internal}
         }
         if cp:
             update['container_path'] = cp
@@ -2105,7 +2101,7 @@ class TestObjectUpdater(unittest.TestCase):
         mkdirs(odir)
         path = os.path.join(
             odir,
-            '%s-%s' % (ohash, normalize_timestamp(time())))
+            '%s-%s' % (ohash, self.ts().internal))
         self._write_dummy_pickle(path, a, c, o, cp)
 
     def _find_async_pending_files(self):
@@ -2659,7 +2655,7 @@ class TestObjectUpdaterFunctions(unittest.TestCase):
             'container': 'c',
             'obj': 'o',
             'headers': {
-                'X-Container-Timestamp': normalize_timestamp(0),
+                'X-Container-Timestamp': Timestamp.zero().internal,
             }
         }
         actual = object_updater.split_update_path(update)

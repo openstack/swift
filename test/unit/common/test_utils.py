@@ -24,7 +24,7 @@ from swift.common.statsd_client import StatsdClient
 from test.debug_logger import debug_logger, FakeStatsdClient, \
     debug_labeled_statsd_client
 from test.unit import temptree, make_timestamp_iter, with_tempdir, \
-    mock_timestamp_now, TestableMemcacheRing, FakeIterable
+    mock_timestamp_now, TestableMemcacheRing, FakeIterable, BaseUnitTestCase
 
 import contextlib
 import errno
@@ -3713,18 +3713,18 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         self.assertEqual(len(self.memcache.del_calls), 3)
 
 
-class TestUnlinkOlder(unittest.TestCase):
+class TestUnlinkOlder(BaseUnitTestCase):
 
     def setUp(self):
+        super().setUp()
         self.tempdir = mkdtemp()
         self.mtime = {}
-        self.ts = make_timestamp_iter()
 
     def tearDown(self):
         rmtree(self.tempdir, ignore_errors=True)
 
     def touch(self, fpath, mtime=None):
-        self.mtime[fpath] = mtime or next(self.ts)
+        self.mtime[fpath] = mtime or self.ts()
         open(fpath, 'w')
 
     @contextlib.contextmanager
@@ -3743,23 +3743,23 @@ class TestUnlinkOlder(unittest.TestCase):
     def test_unlink_older_than_path_not_exists(self):
         path = os.path.join(self.tempdir, 'does-not-exist')
         # just make sure it doesn't blow up
-        utils.unlink_older_than(path, next(self.ts))
+        utils.unlink_older_than(path, self.ts())
 
     def test_unlink_older_than_file(self):
         path = os.path.join(self.tempdir, 'some-file')
         self.touch(path)
         with self.assertRaises(OSError) as ctx:
-            utils.unlink_older_than(path, next(self.ts))
+            utils.unlink_older_than(path, self.ts())
         self.assertEqual(ctx.exception.errno, errno.ENOTDIR)
 
     def test_unlink_older_than_now(self):
         self.touch(os.path.join(self.tempdir, 'test'))
         with self.high_resolution_getmtime():
-            utils.unlink_older_than(self.tempdir, next(self.ts))
+            utils.unlink_older_than(self.tempdir, self.ts())
         self.assertEqual([], os.listdir(self.tempdir))
 
     def test_unlink_not_old_enough(self):
-        start = next(self.ts)
+        start = self.ts()
         self.touch(os.path.join(self.tempdir, 'test'))
         with self.high_resolution_getmtime():
             utils.unlink_older_than(self.tempdir, start)
@@ -3767,7 +3767,7 @@ class TestUnlinkOlder(unittest.TestCase):
 
     def test_unlink_mixed(self):
         self.touch(os.path.join(self.tempdir, 'first'))
-        cutoff = next(self.ts)
+        cutoff = self.ts()
         self.touch(os.path.join(self.tempdir, 'second'))
         with self.high_resolution_getmtime():
             utils.unlink_older_than(self.tempdir, cutoff)
@@ -3781,17 +3781,17 @@ class TestUnlinkOlder(unittest.TestCase):
             paths.append(path)
         # don't unlink everyone
         with self.high_resolution_getmtime():
-            utils.unlink_paths_older_than(paths[:2], next(self.ts))
+            utils.unlink_paths_older_than(paths[:2], self.ts())
         self.assertEqual(['third'], os.listdir(self.tempdir))
 
     def test_unlink_empty_paths(self):
         # just make sure it doesn't blow up
-        utils.unlink_paths_older_than([], next(self.ts))
+        utils.unlink_paths_older_than([], self.ts())
 
     def test_unlink_not_exists_paths(self):
         path = os.path.join(self.tempdir, 'does-not-exist')
         # just make sure it doesn't blow up
-        utils.unlink_paths_older_than([path], next(self.ts))
+        utils.unlink_paths_older_than([path], self.ts())
 
 
 class TestFileLikeIter(unittest.TestCase):

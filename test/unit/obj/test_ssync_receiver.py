@@ -32,7 +32,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common import utils
 from swift.common.swob import HTTPException, HTTPCreated, Request, \
     HTTPNoContent
-from swift.common.utils import public
+from swift.common.utils import public, Timestamp
 from swift.obj import diskfile
 from swift.obj import server
 from swift.obj import ssync_receiver, ssync_sender
@@ -1220,7 +1220,7 @@ class TestReceiver(unittest.TestCase):
                          diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
-        newer_ts1 = utils.normalize_timestamp(float(self.ts1) + 1)
+        newer_ts1 = Timestamp(float(self.ts1) + 1).internal
         self.metadata1['X-Timestamp'] = newer_ts1
         fp = open(os.path.join(object_dir, newer_ts1 + '.data'), 'w+')
         fp.write('1')
@@ -1254,7 +1254,7 @@ class TestReceiver(unittest.TestCase):
                          diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
-        older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)
+        older_ts1 = Timestamp(float(self.ts1) - 1).internal
         self.metadata1['X-Timestamp'] = older_ts1
         fp = open(os.path.join(object_dir, older_ts1 + '.data'), 'w+')
         fp.write('1')
@@ -1294,7 +1294,7 @@ class TestReceiver(unittest.TestCase):
                          diskfile.get_data_dir(POLICIES[0])),
             '1', self.hash1)
         utils.mkdirs(object_dir)
-        older_ts1 = utils.normalize_timestamp(float(self.ts1) - 1)
+        older_ts1 = Timestamp(float(self.ts1) - 1).internal
         self.metadata1['X-Timestamp'] = older_ts1
         fp = open(os.path.join(object_dir, older_ts1 + '.data'), 'w+')
         fp.write('1')
