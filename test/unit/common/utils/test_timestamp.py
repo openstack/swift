@@ -522,9 +522,20 @@ class TestTimestamp(unittest.TestCase):
         self.assertEqual(140243640891303, ts.raw)
         self.assertEqual(42, ts.offset)
 
+        # ok to go to zero
+        ts = timestamp.Timestamp(1402436408.91203, delta=-140243640891203)
+        self.assertEqual(0, ts.raw)
+        ts = timestamp.Timestamp(0.00001, delta=-1)
+        self.assertEqual(0, ts.raw)
+
         # cannot go negative
-        self.assertRaises(ValueError, timestamp.Timestamp, 1402436408.91203,
-                          delta=-140243640891203)
+        with self.assertRaises(ValueError) as cm:
+            timestamp.Timestamp(1402436408.91203, delta=-140243640891204)
+        self.assertEqual(
+            'delta must be greater than -140243640891204', str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            timestamp.Timestamp(0, delta=-1)
+        self.assertEqual('delta must be greater than -1', str(cm.exception))
 
         # a float delta value is tolerated...
         ts = timestamp.Timestamp(1402436408.91203, delta=1.0)
