@@ -39,6 +39,8 @@ import gunicorn.http.body
 from gunicorn.config import Config
 from gunicorn.glogging import Logger
 from gunicorn.workers.gthread import ThreadWorker
+from gunicorn.http.unreader import SocketUnreader
+from gunicorn.http.body import Body, ChunkedReader
 
 # Compatibility with eventlet.wsgi.MINIMUM_CHUNK_SIZE, referenced by
 # EventletPlungerString in swift/obj/server.py for zero-copy sends
@@ -90,10 +92,27 @@ def patch_gunicorn():
     orig_default_environ = gunicorn.http.wsgi.default_environ
 
     def swift_default_environ(req, sock, cfg):
+        # Check if this is a chunked request and if so, remove "Expect:
+        # 100-continue" header before calling default_environ()
+        headers = []
+        chunked = False
+        for name, value in req.headers:
+            if name == 'EXPECT' and value.lower() == '100-continue':
+                chunked = True
+            else:
+                headers.append((name, value))
+        if chunked:
+            req.headers = headers
+            req._expected_100_continue = False  # Required for gunicorn >= 25
+
         env = orig_default_environ(req, sock, cfg)
         env.update({"headers_raw": req.headers})  # needed by s3api
         env['gunicorn.socket'] = sock
         env['wsgi.input'].get_socket = lambda: sock  # used by obj/server.py
+
+        if chunked:
+            env['wsgi.input'] = ChunkedInput(env['wsgi.input'], sock, req)
+
         return env
 
     gunicorn.http.wsgi.default_environ = swift_default_environ
@@ -151,6 +170,47 @@ class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
 
     def load(self):
         return self.wsgi_app
+
+
+class ChunkedInput:
+    """Wrapper around gunicorn.http.body.Body for chunked requests. Uses the
+    same approach as in eventlet.wsgi.Input: throw in a 100 Continue header
+    into the HTTP stream.
+    """
+
+    def __init__(self, body, sock, req):
+        self.body = body
+        self.sock = sock
+        self.req = req
+        self.headers = []
+        self.continue_sent = False
+
+    def set_hundred_continue_response_headers(self, headers):
+        self.headers = headers
+
+    def send_hundred_continue_response(self):
+        parts = [b'HTTP/1.1 100 Continue\r\n']
+        for header in self.headers:
+            parts.append(('%s: %s\r\n' % header).encode('latin-1'))
+        parts.append(b'\r\n')
+        self.sock.sendall(b''.join(parts))
+
+        self.headers = []
+        if self.continue_sent:
+            # New chunked reader to read next stream from socket
+            unreader = SocketUnreader(self.sock)
+            self.body = Body(ChunkedReader(self.req, unreader))
+        self.continue_sent = True
+
+    def read(self, size=-1):
+        if not self.continue_sent:
+            self.send_hundred_continue_response()
+        return self.body.read(size)
+
+    def readline(self, size=-1):
+        if not self.continue_sent:
+            self.send_hundred_continue_response()
+        return self.body.readline(size)
 
 
 def check_config_gunicorn(conf_path, app_section, *args, **kwargs):
