@@ -26,7 +26,7 @@ from swift.common.manager import Manager
 from swift.common.swob import wsgi_to_str, str_to_wsgi
 from swift.common.utils import md5
 from swift.obj.reconstructor import ObjectReconstructor
-from test.probe.common import ECProbeTest
+from test.probe.common import Body as ProbeBody, ECProbeTest
 
 from swift.common import direct_client
 
@@ -79,6 +79,7 @@ class TestReconstructorRebuild(ECProbeTest):
 
         # stash frag etags and metadata for later comparison
         self.frag_headers, self.frag_etags = self._assert_all_nodes_have_frag()
+        self.assertTrue(self.frag_headers)
         for node_index, hdrs in self.frag_headers.items():
             # sanity check
             self.assertIn(
@@ -549,6 +550,94 @@ class TestReconstructorRebuild(ECProbeTest):
             self.assertEqual([], lines)
         for lines in warning_lines:
             self.assertEqual([], lines)
+
+    def test_rebuild_with_non_durable_newer_data(self):
+        # Verify that reconstruction correctly rebuilds the durable version
+        # when a newer non-durable version also exists on peer nodes.
+        #
+        # This exercises the X-Backend-Fragment-Preferences mechanism: the
+        # reconstructor sends frag_prefs asking remote nodes for fragments at
+        # the older durable timestamp. Remote nodes *should* return the older
+        # durable fragment provided that the reconstructor sends the *correct*
+        # timestamp in the fragment preferences header.
+        # See https://bugs.launchpad.net/swift/+bug/2143206
+
+        # setUp already did 1st PUT object (let's call it object v1) and
+        # it's durable on all nodes
+        fail_node = self.onodes[0]
+        orig_frag_etag = self.frag_etags[fail_node['index']]
+
+        # 2nd PUT object (let's call it object v2) with x-backend-no-commit to
+        # all nodes: creates non-durable v2 fragments alongside the existing
+        # durable v1 fragments on every primary.
+        v1_chunk_size = len(b'test' * 16 * 2 ** 10)
+        v1_total_bytes = int(3.5 * 2 ** 20)
+        # v2 is larger than v1...
+        v2_total_bytes = (v1_total_bytes // v1_chunk_size + 1) * v1_chunk_size
+        internal_client = self.make_internal_client()
+        v2_body = ProbeBody(total=v2_total_bytes)
+        internal_client.upload_object(
+            v2_body, self.account,
+            self.container_name.decode('utf8'),
+            self.object_name.decode('utf8'),
+            {'x-backend-no-commit': 'True'})
+
+        # proxy GET should still return v1 (the durable version)
+        headers, etag = self.proxy_get()
+        self.assertEqual(self.etag, etag)
+
+        # each node has both v1 (durable) and v2 (non-durable),
+        # and they are different fragments
+        for node in self.onodes:
+            _hdrs, durable_frag_etag = self.direct_get(
+                node, self.opart)
+            self.assertEqual(self.frag_etags[node['index']],
+                             durable_frag_etag)
+            _hdrs, newest_frag_etag = self.direct_get(
+                node, self.opart, require_durable=False)
+            self.assertNotEqual(durable_frag_etag, newest_frag_etag,
+                                'Expected non-durable v2 frag to differ '
+                                'from durable v1 frag on node %s'
+                                % self._format_node(node))
+
+        # delete node 0's partition entirely so it needs rebuilding
+        self.break_nodes(self.onodes, self.opart, [0], [])
+        self.assert_direct_get_fails(fail_node, self.opart, 404)
+
+        # run the reconstructor to rebuild node 0's missing fragment
+        self.reconstructor.once()
+
+        # node 0 should have been rebuilt with the DURABLE version (v1).
+        # The reconstructor on a peer node (e.g. node 1) opens its local
+        # durable fragment (v1), then sends X-Backend-Fragment-Preferences
+        # asking remote nodes for fragments at v1's timestamp. The frag_prefs
+        # lookup should find a match; remote nodes return v1 fragments and
+        # reconstruction produces v1 data.
+        # If there's a bug that causes the frag_prefs lookup to not find a
+        # match, the remote nodes would fall back to returning "newest" (v2)
+        # fragments.
+        #
+        # XXX If the remote nodes do return different fragments than
+        # requested then the reconstructor erroneously proceeds to rebuild the
+        # missing v1 fragment using v2 fragments!!!
+        # See https://bugs.launchpad.net/swift/+bug/2143202
+        rebuilt_hdrs, rebuilt_etag = self.direct_get(
+            fail_node, self.opart)
+        self.assertEqual(orig_frag_etag, rebuilt_etag,
+                         'Rebuilt fragment does not match original v1 '
+                         'fragment; reconstruction has incorrectly '
+                         'used newer non-durable version data')
+
+        # the rebuilt frag should be durable
+        self.assertIn('X-Backend-Durable-Timestamp', rebuilt_hdrs)
+        durable_timestamp = self.frag_headers[0]['X-Backend-Durable-Timestamp']
+        self.assertEqual(durable_timestamp,
+                         rebuilt_hdrs.get('X-Backend-Durable-Timestamp'))
+        # proxy GET should still return v1 with correct data
+        headers, etag = self.proxy_get()
+        self.assertEqual(self.etag, etag)
+        self.assertEqual(durable_timestamp,
+                         headers.get('X-Backend-Data-Timestamp'))
 
 
 class TestReconstructorRebuildUTF8(TestReconstructorRebuild):

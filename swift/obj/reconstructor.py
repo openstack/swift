@@ -551,7 +551,7 @@ class ObjectReconstructor(Daemon):
         headers['X-Backend-Storage-Policy-Index'] = int(policy)
         headers['X-Backend-Replication'] = 'True'
         local_timestamp = Timestamp(datafile_metadata['X-Timestamp'])
-        frag_prefs = [{'timestamp': local_timestamp.normal, 'exclude': []}]
+        frag_prefs = [{'timestamp': local_timestamp.internal, 'exclude': []}]
         headers['X-Backend-Fragment-Preferences'] = json.dumps(frag_prefs)
         path = datafile_metadata['name']
 
