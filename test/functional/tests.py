@@ -18,12 +18,14 @@ from datetime import datetime
 import io
 import locale
 import random
+import socket
+import threading
 import urllib.parse
 import time
 import unittest
 import uuid
 from copy import deepcopy
-from swift.common.concurrency import sleep
+from swift.common.concurrency import sleep, USE_EVENTLET
 from swift.common.http import is_success, is_client_error
 from swift.common.swob import normalize_etag
 from swift.common.utils import md5
@@ -2279,13 +2281,59 @@ class TestFile(Base):
         limit = load_constraint('max_file_size')
         tsecs = 3
 
-        def timeout(seconds, method, *args, **kwargs):
-            try:
-                with Timeout(seconds):
-                    method(*args, **kwargs)
-            except Timeout:
-                return True
+        def timeout(seconds, file_item, **kwargs):
+            if USE_EVENTLET:
+                try:
+                    with Timeout(seconds):
+                        file_item.write(**kwargs)
+                except Timeout:
+                    return True
+                else:
+                    return False
             else:
+                # A real thread can't be killed. Run the write on its own
+                # connection so a timed-out attempt can't touch the shared
+                # one, then tear that connection down to unblock the worker
+                # and reap it before the next attempt starts.
+                conn = Connection(tf.config)
+                conn.authenticate()
+                isolated = File(conn, file_item.account,
+                                file_item.container, file_item.name)
+                exception = []
+
+                def target():
+                    try:
+                        isolated.write(**kwargs)
+                    except Exception as e:
+                        exception.append(e)
+
+                def abandoned(*args, **kwargs):
+                    raise RuntimeError('attempt abandoned after timeout')
+
+                t = threading.Thread(target=target, daemon=True)
+                t.start()
+                t.join(timeout=seconds)
+                if t.is_alive():
+                    # First make any retry fail terminally
+                    # (request_with_retry would otherwise reconnect via
+                    # put_start -> http_connect and try again, and it only
+                    # retries socket.timeout/HTTPException); then shut down
+                    # the live socket -- close() from another thread does
+                    # not interrupt a blocked recv, shutdown() does, and it
+                    # also unblocks a response read on the same socket.
+                    conn.put_start = abandoned
+                    conn.http_connect = abandoned
+                    try:
+                        conn.connection.sock.shutdown(socket.SHUT_RDWR)
+                    except Exception:
+                        pass
+                    # outlast a 503 retry's 5s sleep in flight
+                    t.join(timeout=10)
+                    if t.is_alive():
+                        self.fail('timed-out PUT worker could not be reaped')
+                    return True
+                if exception:
+                    raise exception[0]
                 return False
 
         # This loop will result in fallocate calls for 4x the limit
@@ -2304,11 +2352,11 @@ class TestFile(Base):
             file_item = self.env.container.file(Utils.create_name())
 
             if i <= limit:
-                self.assertTrue(timeout(tsecs, file_item.write,
+                self.assertTrue(timeout(tsecs, file_item,
                                 cfg={'set_content_length': i}))
             else:
                 self.assertRaises(ResponseError, timeout, tsecs,
-                                  file_item.write,
+                                  file_item,
                                   cfg={'set_content_length': i})
 
     def testNoContentLengthForPut(self):
