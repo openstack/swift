@@ -3393,7 +3393,7 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
             captured_hdrs.update(req.headers)
             return None, shard_resp
 
-        # header in response -> header added to request
+        # header in response but not in request -> header added to request
         captured_hdrs = {}
         req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp_hdrs = dict(self.root_resp_hdrs)
@@ -3432,7 +3432,10 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
         self.assertEqual(
             captured_hdrs['X-Backend-Storage-Policy-Index'], '1')
 
-        # header not added to request if not root request
+        # header added to request even when swift.shard_listing_history exists;
+        # the shard_listing_history may relate to a previous listing using the
+        # same request environ, e.g. when listing a user and a versions
+        # container
         captured_hdrs = {}
         req = Request.blank('/v1/a/c',
                             environ={
@@ -3442,7 +3445,7 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
         resp = mock.MagicMock(status_int=200,
                               headers=self.root_resp_hdrs,
                               request=req)
-        resp.headers['X-Backend-Storage-Policy-Index'] = '0'
+        resp.headers['X-Backend-Storage-Policy-Index'] = '2'
         with mock.patch('swift.proxy.controllers.container.'
                         'ContainerController._get_container_listing',
                         mock_get_container_listing):
@@ -3450,7 +3453,9 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
             controller = controller_cls(self.app, **d)
             controller._get_from_shards(req, resp, list(self.namespaces))
 
-        self.assertNotIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+        self.assertIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+        self.assertEqual(
+            captured_hdrs['X-Backend-Storage-Policy-Index'], '2')
 
         # existing X-Backend-Storage-Policy-Index in request is respected
         captured_hdrs = {}
