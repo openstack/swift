@@ -3812,6 +3812,9 @@ class TestContainerController(unittest.TestCase):
         self.assertIn('X-Backend-Override-Shard-Name-Filter', resp.headers)
         self.assertTrue(
             resp.headers['X-Backend-Override-Shard-Name-Filter'])
+        self.assertEqual(str(int(POLICIES.default)),
+                         resp.headers.get('X-Backend-Storage-Policy-Index'))
+        self.assertNotIn('X-Backend-Record-Storage-Policy-Index', resp.headers)
         # GET shard ranges to cross-check.
         req = Request.blank(
             "/sda1/p/%s?format=json%s" % (path, params),

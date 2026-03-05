@@ -2747,17 +2747,30 @@ class TestGetShardedContainer(BaseTestContainerController):
     def test_GET_sharded_container_sharding_shard_mixed_policies(self):
         # scenario: one shard is in process of sharding, shards have different
         # policy than root, expect listing to always request root policy index
+        # GET root -> shards
+        #             GET shard_0 -> objects
+        #             GET shard_1 -> [sub_shard_0, sub_shard_1, filler=shard_1]
+        #                            GET sub_shard_0 -> objects
+        #                            GET sub_shard_1 -> objects
+        #                            GET filler -> objects
+        #             GET shard_2 -> objects
         shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
         namespaces, ns_dicts, sr_objs = self.create_server_response_data(
             shard_bounds)
-        shard_obj_resp_hdrs = self._make_shard_resp_hdrs(
-            sr_objs, extra_hdrs={
-                'X-Backend-Storage-Policy-Index': 1,
-                'X-Backend-Record-Storage-Policy-Index': 0})
+        shard_0_obj_resp_hdrs, shard_1_obj_resp_hdrs, shard_2_obj_resp_hdrs = \
+            self._make_shard_resp_hdrs(sr_objs)
+        # all responses from shards have 'X-Backend-Storage-Policy-Index': 1
+        # obj record responses have 'X-Backend-Record-Storage-Policy-Index': 0
+        shard_0_obj_resp_hdrs.update({
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Storage-Policy-Index': 0})
         # second shard is sharding and has cleaved two out of three sub shards
-        shard_obj_resp_hdrs[1]['X-Backend-Sharding-State'] = 'sharding'
-        shard_1_shard_resp_hdrs = dict(shard_obj_resp_hdrs[1])
-        shard_1_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+        shard_1_shard_resp_hdrs = dict(shard_1_obj_resp_hdrs)
+        # no 'X-Backend-Record-Storage-Policy-Index' in shard record responses
+        shard_1_shard_resp_hdrs.update({
+            'X-Backend-Sharding-State': 'sharding',
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Type': 'shard'})
         shard_1_shard_resp_hdrs.update(self.RESP_SHARD_FORMAT_HEADERS)
 
         sub_shard_bounds = (('ham', 'juice'), ('juice', 'lemon'))
@@ -2772,6 +2785,16 @@ class TestGetShardedContainer(BaseTestContainerController):
                 'X-Backend-Storage-Policy-Index': 1,
                 'X-Backend-Record-Storage-Policy-Index': 0})
 
+        shard_1_filler_obj_resp_hdrs = dict(shard_1_obj_resp_hdrs)
+        shard_1_filler_obj_resp_hdrs.update({
+            'X-Backend-Sharding-State': 'sharding',
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Storage-Policy-Index': 0})
+
+        shard_2_obj_resp_hdrs.update({
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Storage-Policy-Index': 0})
+
         all_objects = []
         for objects in sr_objs:
             all_objects.extend(objects)
@@ -2784,6 +2807,7 @@ class TestGetShardedContainer(BaseTestContainerController):
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        # no 'X-Backend-Record-Storage-Policy-Index' in shard record responses
         root_shard_resp_hdrs = dict(root_resp_hdrs)
         root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
         root_shard_resp_hdrs.update(self.RESP_SHARD_FORMAT_HEADERS)
@@ -2791,13 +2815,13 @@ class TestGetShardedContainer(BaseTestContainerController):
         mock_responses = [
             # status, body, headers
             (200, ns_dicts, root_shard_resp_hdrs),
-            (200, sr_objs[0], shard_obj_resp_hdrs[0]),
+            (200, sr_objs[0], shard_0_obj_resp_hdrs),
             (200, sub_ns_dicts + [filler_sr_dict], shard_1_shard_resp_hdrs),
             (200, sub_sr_objs[0], sub_shard_resp_hdrs[0]),
             (200, sub_sr_objs[1], sub_shard_resp_hdrs[1]),
             (200, sr_objs[1][len(sub_sr_objs[0] + sub_sr_objs[1]):],
-             shard_obj_resp_hdrs[1]),
-            (200, sr_objs[2], shard_obj_resp_hdrs[2])
+             shard_1_filler_obj_resp_hdrs),
+            (200, sr_objs[2], shard_2_obj_resp_hdrs)
         ]
         # NB marker always advances to last object name
         expected_requests = [
