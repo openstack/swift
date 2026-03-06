@@ -584,7 +584,7 @@ class TestProxyLogging(BaseTestProxyLogging):
         log_adapter = app.access_logger
         self.assertEqual('my-proxy-access', log_adapter.name)
         self.assertEqual('alice', app.access_logger.server)
-        self.assertEqual(logging.WARN, log_adapter.logger.level)
+        self.assertEqual(logging.WARNING, log_adapter.logger.level)
         self.assertEqual(('access.com', 6789),
                          log_adapter.logger.handlers[0].address)
         self.assertEqual(SysLogHandler.LOG_LOCAL6,
