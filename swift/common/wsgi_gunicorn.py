@@ -12,11 +12,39 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# Portions of this module are derived from Gunicorn
+# (https://gunicorn.org/), which is released under the MIT license:
+#
+#   2009-2026 (c) Benoît Chesneau <benoitc@gunicorn.org>
+#   2009-2015 (c) Paul J. Davis <paul.joseph.davis@gmail.com>
+#
+#   Permission is hereby granted, free of charge, to any person
+#   obtaining a copy of this software and associated documentation
+#   files (the "Software"), to deal in the Software without
+#   restriction, including without limitation the rights to use,
+#   copy, modify, merge, publish, distribute, sublicense, and/or sell
+#   copies of the Software, and to permit persons to whom the
+#   Software is furnished to do so, subject to the following
+#   conditions:
+#
+#   The above copyright notice and this permission notice shall be
+#   included in all copies or substantial portions of the Software.
+#
+#   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+#   EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+#   OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+#   NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+#   HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+#   WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+#   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+#   OTHER DEALINGS IN THE SOFTWARE.
 
 import os
 import re
 import string
 import time
+from io import BytesIO
 from urllib.parse import unquote
 
 try:
@@ -152,6 +180,50 @@ def patch_gunicorn():
         orig_set_body_reader(self)
 
     gunicorn.http.message.Message.set_body_reader = swift_set_body_reader
+
+    # This is a copy from gunicorn.http.body.Body.read and only changes the
+    # self.reader.read(1024) call to use the actual requested size. This avoids
+    # useless copying of data and speeds up chunked transfers significantly.
+    # Remove when https://github.com/benoitc/gunicorn/issues/2596 is closed
+    def swift_read(self, size=None):
+        size = self.getsize(size)
+        if size == 0:
+            return b""
+
+        if size < self.buf.tell():
+            data = self.buf.getvalue()
+            ret, rest = data[:size], data[size:]
+            self.buf = BytesIO()
+            self.buf.write(rest)
+            return ret
+
+        while size > self.buf.tell():
+            data = self.reader.read(size)  # changed to size from 1024
+            if not data:
+                break
+            self.buf.write(data)
+
+        data = self.buf.getvalue()
+        ret, rest = data[:size], data[size:]
+        self.buf = BytesIO()
+        self.buf.write(rest)
+        return ret
+
+    gunicorn.http.body.Body.read = swift_read
+
+    # swift_read passes the real size down, but gunicorn's LengthReader.read()
+    # calls unreader.read() with no size, returning one recv(max_chunk=8192).
+    # So a 64 KiB read still costs ~8 recvs plus redundant BytesIO copies that
+    # eventlet's wsgi.Input avoids. Recv in bigger chunks; recv() returns
+    # whatever is available, so this only coarsens granularity.
+    # (SWIFT_UNREADER_CHUNK is a measurement override.)
+    _unreader_chunk = int(os.environ.get('SWIFT_UNREADER_CHUNK', 65536))
+    orig_su_init = SocketUnreader.__init__
+
+    def swift_su_init(self, sock, max_chunk=_unreader_chunk):
+        orig_su_init(self, sock, max_chunk=max_chunk)
+
+    SocketUnreader.__init__ = swift_su_init
 
     # Only after every patch above succeeded: a partial failure must not
     # leave the flag claiming the module is patched.
