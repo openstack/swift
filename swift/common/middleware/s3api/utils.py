@@ -48,7 +48,7 @@ def sysmeta_header(resource, name):
 
 
 def camel_to_snake(camel):
-    return re.sub('(.)([A-Z])', r'\1_\2', camel).lower()
+    return re.sub('([A-Z])', r'_\1', camel).lstrip('_').lower()
 
 
 def snake_to_camel(snake):
