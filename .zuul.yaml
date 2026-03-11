@@ -632,9 +632,7 @@
             irrelevant-files: &unittest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(cors|functional|probe|s3api)/.*$
-        - swift-tox-py39:
-            irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py312:
+        - swift-tox-py310:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py313:
             irrelevant-files: *unittest-irrelevant-files
@@ -716,8 +714,7 @@
         - swift-upload-image:
             irrelevant-files: *docker-irrelevant-files
         - swift-tox-py37
-        - swift-tox-py39
-        - swift-tox-py312
+        - swift-tox-py310
         - swift-tox-py313
         - swift-tox-py314
         - swift-tox-func-py312
@@ -752,8 +749,9 @@
     experimental:
       jobs:
         - swift-tox-py38
-        - swift-tox-py310
+        - swift-tox-py39
         - swift-tox-py311
+        - swift-tox-py312
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
         - swift-tox-func-ec-py39-centos-9-stream
