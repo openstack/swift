@@ -111,7 +111,7 @@ class MockProcess(object):
         }
         self.stdout = self.Stream()
 
-    def wait(self):
+    def wait(self, timeout=None):
         # the _mock_process context manager assures this class attribute is a
         # mutable list and takes care of resetting it
         rv = next(self.ret_code)
@@ -149,7 +149,11 @@ class MockHungProcess(object):
     def wait(self, timeout=None):
         self._calls.append(('wait', self._state))
         if self._state == 'running':
-            # Sleep so we trip the rsync timeout
+            if timeout is not None:
+                # Without eventlet the rsync timeout is enforced by passing a
+                # timeout to wait(); a real hung subprocess raises here.
+                raise subprocess.TimeoutExpired('some cmd', timeout)
+            # Sleep so we trip the (eventlet) rsync timeout
             sleep(1)
             raise BaseException('You need to mock out some timeouts')
         if not self._polls_needed:

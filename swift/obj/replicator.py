@@ -20,11 +20,13 @@ import errno
 from os.path import isdir, isfile, join, dirname
 import random
 import shutil
+import threading
 import time
 import itertools
 
 from swift.common.concurrency import (
-    spawn, spawn_n, SwiftPool, queue, tpool, Timeout, sleep, subprocess
+    spawn, spawn_n, SwiftPool, LightQueue, Empty, tpool, Timeout, sleep,
+    subprocess, interruptible_sleep, wait_subprocess, read_subprocess
 )
 
 from swift.common.constraints import check_drive
@@ -203,7 +205,7 @@ class ObjectReplicator(Daemon):
             self.handoff_delete = 0
         self.is_multiprocess_worker = None
         self._df_router = DiskFileRouter(conf, self.logger)
-        self._child_process_reaper_queue = queue.LightQueue()
+        self._child_process_reaper_queue = LightQueue()
         self.rings_mtime = None
 
     def _zero_stats(self):
@@ -237,7 +239,7 @@ class ObjectReplicator(Daemon):
                     procs.add(new_proc)
                 else:
                     done = True
-            except queue.Empty:
+            except Empty:
                 pass
 
             reaped_procs = set()
@@ -379,9 +381,13 @@ class ObjectReplicator(Daemon):
                 proc = subprocess.Popen(args,
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT)
-                results = proc.stdout.read()
-                ret_val = proc.wait()
-        except Timeout:
+                # Without eventlet a Timeout can't interrupt a blocked
+                # read()/wait(); read_subprocess/wait_subprocess bound their
+                # own call (TimeoutExpired) so a wedged rsync can't pin the
+                # thread.
+                results = read_subprocess(proc, self.rsync_timeout)
+                ret_val = wait_subprocess(proc, self.rsync_timeout)
+        except (Timeout, subprocess.TimeoutExpired):
             self.logger.error(
                 self._limit_rsync_log(
                     "Killing long-running rsync after %ds: %s" % (
@@ -692,8 +698,12 @@ class ObjectReplicator(Daemon):
                         node['replication_ip'], node['replication_port'],
                         node['device'], job['partition'], 'REPLICATE',
                         '', headers=headers, timeout=self.conn_timeout)
-                    try:
-                        with Timeout(self.http_timeout, socket=conn.sock):
+                    # socket= arms the wall-clock watchdog on the response
+                    # read; without eventlet a socket-less Timeout can't
+                    # interrupt a native read (connect is bounded by
+                    # http_connect above).
+                    with Timeout(self.http_timeout, socket=conn.sock):
+                        try:
                             resp = conn.getresponse()
                             if resp.status == HTTP_INSUFFICIENT_STORAGE:
                                 self.logger.error('%s responded as unmounted',
@@ -725,9 +735,9 @@ class ObjectReplicator(Daemon):
                                                        node['device']))
                                 continue
                             remote_hash = unpickle(resp.read())
-                    finally:
-                        conn.close()
-                    del resp
+                        finally:
+                            conn.close()
+                        del resp
                     suffixes = [suffix for suffix in local_hash if
                                 local_hash[suffix] !=
                                 remote_hash.get(suffix, -1)]
@@ -826,8 +836,12 @@ class ObjectReplicator(Daemon):
         Loop that runs in the background during replication.  It periodically
         logs progress.
         """
-        while True:
-            sleep(self.stats_interval)
+        while not self.stop.is_set():
+            # Without eventlet stats.kill() is a no-op, so wait on the stop
+            # event (set by replicate()'s finally) instead of lingering up to a
+            # full stats_interval (default 300s).
+            if interruptible_sleep(self.stats_interval, self.stop):
+                break
             self.stats_line()
 
     def build_replication_jobs(self, policy, ips, override_devices=None,
@@ -976,6 +990,7 @@ class ObjectReplicator(Daemon):
         self.all_devs_info = set()
         self.handoffs_remaining = 0
 
+        self.stop = threading.Event()
         stats = spawn(self.heartbeat)
         sleep()  # Give spawns a cycle
 
@@ -983,7 +998,10 @@ class ObjectReplicator(Daemon):
         dev_stats = None
         num_jobs = 0
         try:
-            self.run_pool = SwiftPool(size=self.concurrency)
+            # backpressure: pace the producer like eventlet's GreenPool (at
+            # most `concurrency` jobs outstanding) rather than queueing the
+            # whole pass, bounding memory and keeping jobs current.
+            self.run_pool = SwiftPool(size=self.concurrency, backpressure=True)
             jobs = self.collect_jobs(override_devices=override_devices,
                                      override_partitions=override_partitions,
                                      override_policies=override_policies)
@@ -1003,6 +1021,9 @@ class ObjectReplicator(Daemon):
                 if self.handoffs_first and not job['delete']:
                     # in handoffs first mode, we won't process primary
                     # partitions until rebalance was successful!
+                    # Wait for pending revert jobs to finish so
+                    # handoffs_remaining is up to date.
+                    self.run_pool.waitall()
                     if self.handoffs_remaining:
                         self.logger.warning(
                             "Handoffs first mode still has handoffs "
@@ -1043,6 +1064,7 @@ class ObjectReplicator(Daemon):
             self.logger.exception(
                 "Exception in top-level replication loop: %s", err)
         finally:
+            self.stop.set()
             stats.kill()
             self.stats_line()
 

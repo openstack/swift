@@ -699,25 +699,55 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         self.reconstructor.stats_interval = object()
 
-        can_process = threading.Event()
-        can_do_stats = threading.Event()
-        can_do_stats.set()
+        # The reconstruct() heartbeat logs reconstruction_part_count on each
+        # wake; drive it in lockstep with dispatch so every count logs exactly
+        # once. Real threads preempt (no eventlet), so use barriers to stay
+        # deterministic.
+        count_ready = threading.Event()   # a partition has been dispatched
+        logged = threading.Event()        # the heartbeat logged that count
+        logged.set()                      # allow the first partition
 
         def fake_sleep(secs=0):
-            if secs is not self.reconstructor.stats_interval:
-                return sleep(secs)
-            can_do_stats.wait()
-            can_do_stats.clear()
-            can_process.set()
+            # The only sleep() in reconstruct() is the per-partition yield;
+            # block it until the heartbeat has logged the previous count so
+            # the count never runs ahead of logged progress.
+            logged.wait()
+            logged.clear()
+
+        real_interruptible_sleep = object_reconstructor.interruptible_sleep
+
+        def fake_interruptible_sleep(secs=0, event=None):
+            if secs is self.reconstructor.stats_interval:
+                # heartbeat: wait for the next dispatched partition, or for
+                # stop so the thread exits at teardown, then log that count.
+                while not event.is_set():
+                    if count_ready.wait(0.05):
+                        count_ready.clear()
+                        return False
+                return True
+            # detect_lockups: defer to the real implementation (green sleep
+            # under eventlet, stop.wait() without) so it doesn't block the hub.
+            return real_interruptible_sleep(secs, event)
 
         def fake_process(job):
-            can_process.wait()
-            can_process.clear()
-            can_do_stats.set()
+            # A partition was dispatched (count is current): release the
+            # heartbeat to log it, and hold this pool slot until it has, so the
+            # final count is logged before reconstruct() tears them down.
+            count_ready.set()
+            logged.wait()
+
+        real_stats_line = self.reconstructor.stats_line
+
+        def fake_stats_line():
+            real_stats_line()
+            logged.set()
 
         self.reconstructor.process_job = fake_process
-        with mock_ssync_sender(), mock.patch(
-                'swift.obj.reconstructor.sleep', fake_sleep):
+        self.reconstructor.stats_line = fake_stats_line
+        with mock_ssync_sender(), \
+                mock.patch('swift.obj.reconstructor.sleep', fake_sleep), \
+                mock.patch('swift.obj.reconstructor.interruptible_sleep',
+                           fake_interruptible_sleep):
             self.reconstructor.run_once(devices=override_devices)
 
     def test_run_once(self):
@@ -2357,6 +2387,13 @@ class TestWorkerReconstructor(unittest.TestCase):
         now = time.time()
         later = now + 300  # 5 mins
 
+        # Drive the clock off whether reconstruct() has run, not a fixed list
+        # of return values: time.time is patched process-wide, so background
+        # threads (no eventlet) would exhaust a list (StopIteration). This
+        # stateful clock is immune however many times time.time() is called.
+        def make_clock(reconstruct):
+            return lambda: later if reconstruct.called else now
+
         def do_test(run_kwargs, expected_device):
             # get the actual kwargs that would be passed to run_once in a
             # worker
@@ -2364,7 +2401,7 @@ class TestWorkerReconstructor(unittest.TestCase):
                 reconstructor.get_worker_args(once=True, **run_kwargs))[0]
             reconstructor.reconstruct = mock.MagicMock()
             with mock.patch('swift.obj.reconstructor.time.time',
-                            side_effect=[now, later, later]):
+                            side_effect=make_clock(reconstructor.reconstruct)):
                 reconstructor.run_once(**run_once_kwargs)
             self.assertEqual([mock.call(
                 override_devices=[expected_device],
@@ -2405,8 +2442,9 @@ class TestWorkerReconstructor(unittest.TestCase):
         now = time.time()
         later = now + 600  # 10 mins
         reconstructor.reconstructor_workers = 0
+        reconstructor.reconstruct = mock.MagicMock()
         with mock.patch('swift.obj.reconstructor.time.time',
-                        side_effect=[now, later, later]):
+                        side_effect=make_clock(reconstructor.reconstruct)):
             reconstructor.run_once()
         with open(self.rcache) as f:
             data = json.load(f)

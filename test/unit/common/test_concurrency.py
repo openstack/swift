@@ -21,7 +21,23 @@ import unittest
 import threading
 from swift.common.concurrency import (
     Pool, USE_EVENTLET, Timeout, spawn, tpool, SwiftPool, sleep, reset_pool,
-    SwiftPile, socket_timeout_enter, socket_timeout_exit)
+    SwiftPile, socket_timeout_enter, socket_timeout_exit, set_read_timeout)
+
+
+class TestSocketTimeoutHelpers(unittest.TestCase):
+    # clear_connect_timeout (eventlet) and set_read_timeout (threading) are
+    # complementary no-ops in the other mode.
+    def test_set_read_timeout(self):
+        s = socket.socket()
+        s.settimeout(0.5)
+        try:
+            set_read_timeout(s, 10.0)
+            if USE_EVENTLET:
+                self.assertEqual(s.gettimeout(), 0.5)
+            else:
+                self.assertEqual(s.gettimeout(), 10.0)
+        finally:
+            s.close()
 
 
 @unittest.skipIf(USE_EVENTLET, "Only tested when eventlet is disabled")

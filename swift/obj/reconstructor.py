@@ -19,12 +19,14 @@ from optparse import OptionParser
 import os
 from os.path import join
 import random
+import threading
 import time
 from collections import defaultdict
 import shutil
 
 from swift.common.concurrency import (
-    SwiftPile, SwiftPool, Timeout, sleep, tpool, spawn, GreenletExit
+    SwiftPile, SwiftPool, Timeout, sleep, tpool, spawn, reset_pool,
+    interruptible_sleep, pool_waitall, set_read_timeout
 )
 
 from swift.common.utils import (
@@ -397,6 +399,11 @@ class ObjectReconstructor(Daemon):
                 resp = conn.getresponse()
                 resp.full_path = full_path
                 resp.node = node
+            # Bound the fragment body read by node_timeout: without eventlet
+            # the read runs in a thread a socket-less Timeout can't interrupt,
+            # and resp.sock still carries http_connect's short conn_timeout;
+            # getresponse() moved the socket there (conn.sock is now None).
+            set_read_timeout(resp.sock, self.node_timeout)
         except (Exception, Timeout):
             self.logger.exception(
                 "Trying to GET %(full_path)s", {
@@ -715,12 +722,17 @@ class ObjectReconstructor(Daemon):
         def _get_one_fragment(resp):
             buff = []
             remaining_bytes = policy.fragment_size
-            while remaining_bytes:
-                chunk = resp.read(remaining_bytes)
-                if not chunk:
-                    break
-                remaining_bytes -= len(chunk)
-                buff.append(chunk)
+            # Wall-clock bound on the fragment read: without eventlet this runs
+            # in a thread where settimeout only bounds per-recv inactivity, so
+            # arm the deadline watchdog via socket= against a dribbling peer.
+            with Timeout(self.node_timeout,
+                         socket=getattr(resp, 'sock', None)):
+                while remaining_bytes:
+                    chunk = resp.read(remaining_bytes)
+                    if not chunk:
+                        break
+                    remaining_bytes -= len(chunk)
+                    buff.append(chunk)
             return b''.join(buff)
 
         def fragment_payload_iter():
@@ -799,21 +811,17 @@ class ObjectReconstructor(Daemon):
                 self.reconstructor_workers,
                 os.getpid()))
 
-    def kill_coros(self):
-        """Utility function that kills all coroutines currently running."""
-        for coro in list(self.run_pool.coroutines_running):
-            try:
-                coro.kill(GreenletExit)
-            except GreenletExit:
-                pass
-
     def heartbeat(self):
         """
         Loop that runs in the background during reconstruction.  It
         periodically logs progress.
         """
-        while True:
-            sleep(self.stats_interval)
+        while not self.stop.is_set():
+            # Without eventlet, kill() can't interrupt this sleep, so wait on
+            # the stop event (set by reconstruct()'s finally) instead of
+            # leaking until a full stats_interval elapses.
+            if interruptible_sleep(self.stats_interval, self.stop):
+                break
             self.stats_line()
 
     def detect_lockups(self):
@@ -822,11 +830,14 @@ class ObjectReconstructor(Daemon):
         This is an attempt to make sure the reconstructor finishes its
         reconstruction pass in some eventuality.
         """
-        while True:
-            sleep(self.lockup_timeout)
+        while not self.stop.is_set():
+            # As in heartbeat(): wait on the stop event so this exits promptly
+            # instead of leaking until a full lockup_timeout (default 1800s).
+            if interruptible_sleep(self.lockup_timeout, self.stop):
+                break
             if self.reconstruction_count == self.last_reconstruction_count:
-                self.logger.error("Lockup detected.. killing live coros.")
-                self.kill_coros()
+                self.logger.error("Lockup detected.. resetting the pool.")
+                reset_pool(self.run_pool)
             self.last_reconstruction_count = self.reconstruction_count
 
     def _get_hashes(self, device, partition, policy, recalculate=None,
@@ -923,6 +934,10 @@ class ObjectReconstructor(Daemon):
                     '', headers=headers, timeout=self.conn_timeout)
                 with Timeout(self.http_timeout, socket=conn.sock):
                     resp = conn.getresponse()
+                # Bound the suffix-hash body read by http_timeout too (the
+                # socket otherwise reverts to the short conn_timeout for the
+                # unpickle(resp.read()) below).
+                set_read_timeout(resp.sock, self.http_timeout)
                 if resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.logger.error(
                         '%s responded as unmounted',
@@ -1440,12 +1455,17 @@ class ObjectReconstructor(Daemon):
         self._reset_stats()
         self.partition_times = []
 
+        self.stop = threading.Event()
         stats = spawn(self.heartbeat)
         lockup_detector = spawn(self.detect_lockups)
         changed_rings = set()
 
         try:
-            self.run_pool = SwiftPool(size=self.concurrency)
+            # backpressure: cap outstanding jobs at `concurrency` like
+            # eventlet's GreenPool instead of queueing a whole pass, so a
+            # rebalance can't leave a backlog of stale revert jobs deleting
+            # now-local data.
+            self.run_pool = SwiftPool(size=self.concurrency, backpressure=True)
             for part_info in self.collect_parts(**kwargs):
                 sleep()  # Give spawns a cycle
                 if part_info['policy'] in changed_rings:
@@ -1472,13 +1492,13 @@ class ObjectReconstructor(Daemon):
                                         part_info['part_path'])
                 for job in jobs:
                     self.run_pool.spawn(self.process_job, job)
-            with Timeout(self.lockup_timeout):
-                self.run_pool.waitall()
+            pool_waitall(self.run_pool, self.lockup_timeout)
         except (Exception, Timeout):
             self.logger.exception("Exception in top-level "
                                   "reconstruction loop")
-            self.kill_coros()
+            reset_pool(self.run_pool)
         finally:
+            self.stop.set()
             stats.kill()
             lockup_detector.kill()
             self.stats_line()

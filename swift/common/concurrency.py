@@ -169,13 +169,34 @@ if USE_EVENTLET:
             except GreenletExit:
                 pass
 
+    def pool_waitall(pool, timeout):
+        # The eventlet Timeout interrupts a blocked waitall().
+        with Timeout(timeout):
+            pool.waitall()
+
+    def interruptible_sleep(seconds, event):
+        # Greenthreads are interrupted by kill(), so just sleep; the stop
+        # event is only consulted in the threading branch. Returns False.
+        sleep(seconds)
+        return False
+
+    def wait_subprocess(proc, timeout):
+        # A surrounding eventlet Timeout interrupts a blocked wait(), so the
+        # timeout is enforced there rather than here.
+        return proc.wait()
+
+    def read_subprocess(proc, timeout):
+        # A surrounding eventlet Timeout interrupts a blocked read, so the
+        # timeout is enforced there rather than here.
+        return proc.stdout.read()
+
 else:
     import http.client as green_http_client
-    import subprocess
     eprofile = None
     import os as green_os
     import socket
     import ssl
+    import subprocess
     import threading as green_threading
     import urllib.request as urllib_request
     from http.client import (
@@ -439,6 +460,46 @@ else:
                     sem.release()
                 except ValueError:
                     break
+
+    def pool_waitall(pool, timeout):
+        # A Timeout can't interrupt waitall() in a real thread; SwiftPool's
+        # waitall bounds the wait and raises Timeout if work is still running.
+        pool.waitall(timeout=timeout)
+
+    def interruptible_sleep(seconds, event):
+        # A Timeout can't interrupt a real thread's sleep, so wait on the
+        # stop event; returns True if it was set before the timeout elapsed.
+        return event.wait(seconds)
+
+    def wait_subprocess(proc, timeout):
+        # A Timeout can't interrupt a blocking wait() in a real thread, so
+        # bound it at the subprocess level (raises subprocess.TimeoutExpired).
+        return proc.wait(timeout=timeout)
+
+    def read_subprocess(proc, timeout):
+        # A Timeout can't interrupt proc.stdout.read() in a real thread (a
+        # wedged process holding stdout open would pin the thread forever).
+        # Run the read in a daemon helper thread and bound the wait; on timeout
+        # raise TimeoutExpired -- the caller kills the process, which closes
+        # stdout and lets the helper finish.
+        result = {}
+
+        def _read():
+            try:
+                result['out'] = proc.stdout.read()
+            except BaseException as exc:  # propagate to the caller below
+                result['exc'] = exc
+
+        reader = threading.Thread(target=_read)
+        reader.daemon = True
+        reader.start()
+        reader.join(timeout)
+        if reader.is_alive():
+            raise subprocess.TimeoutExpired(
+                getattr(proc, 'args', 'subprocess'), timeout)
+        if 'exc' in result:
+            raise result['exc']
+        return result.get('out')
 
     class Pool(object):
         """
@@ -800,6 +861,20 @@ def clear_connect_timeout(sock):
         sock.settimeout(None)
 
 
+def set_read_timeout(sock, timeout):
+    # After response headers are read, bound the body read by `timeout` at the
+    # socket layer. Without eventlet a Timeout(timeout) with no socket= can't
+    # interrupt a native thread blocked in recv(), and http_connect left the
+    # short conn_timeout on the socket, so body reads would otherwise fail at
+    # conn_timeout instead of the intended (node/http) timeout. Under eventlet
+    # the greenthread Timeout governs reads, so this is a no-op.
+    if not USE_EVENTLET and sock is not None and timeout is not None:
+        try:
+            sock.settimeout(timeout)
+        except OSError:
+            pass
+
+
 class _DeadlineWatchdog(object):
     """Single daemon thread that shuts down a socket once its wall-clock
     deadline passes, interrupting a blocked native recv()/send().
@@ -992,6 +1067,10 @@ def install_hub():
 __all__ = [
     'USE_EVENTLET',
     'reset_pool',
+    'pool_waitall',
+    'interruptible_sleep',
+    'wait_subprocess',
+    'read_subprocess',
     'original',
     'make_pile_queue',
     'HttpProtocol',
