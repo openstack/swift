@@ -465,16 +465,18 @@ class ContainerController(Controller):
         shard_listing_history = req.environ.setdefault(
             'swift.shard_listing_history', [])
         policy_key = 'X-Backend-Storage-Policy-Index'
-        if not (shard_listing_history or policy_key in req.headers):
-            # We're handling the original request to the root container: set
-            # the root policy index in the request, unless it is already set,
-            # so that shards will return listings for that policy index.
-            # Note: we only get here if the root responded with namespaces,
-            # or if the namespaces were cached and the cached root container
-            # info has sharding_state==sharded; in both cases we can assume
-            # that the response is "modern enough" to include
-            # 'X-Backend-Storage-Policy-Index'.
-            req.headers[policy_key] = resp.headers[policy_key]
+        # Set the root container policy index in the request, unless it is
+        # already set, so that all shards will return listings for that policy
+        # index. We'll copy this request's headers into shard listing
+        # subrequests, so the only time we should possibly find this header is
+        # missing, and set it, is when we're handling the root container
+        # request.
+        # Note: we only get here if the root responded with namespaces, or if
+        # the namespaces were cached and the cached root container info has
+        # sharding_state==sharded; in both cases we can assume that the
+        # response is "modern enough" to include
+        # 'X-Backend-Storage-Policy-Index'.
+        req.headers.setdefault(policy_key, resp.headers[policy_key])
         shard_listing_history.append((self.account_name, self.container_name))
         self.logger.debug('GET listing from %s shards for: %s',
                           len(namespaces), req.path_qs)
