@@ -13,7 +13,6 @@
 
 import itertools
 import time
-import unittest
 import json
 
 from unittest import mock
@@ -25,11 +24,11 @@ from swift.common.utils import Timestamp
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_reserved_name
 
-from test.unit import patch_policies, make_timestamp_iter, mock_timestamp_now
+from test.unit import patch_policies, mock_timestamp_now, BaseUnitTestCase
 from test.unit.common.test_db import TestDbBase
 
 
-class TestFakeAccountBroker(unittest.TestCase):
+class TestFakeAccountBroker(BaseUnitTestCase):
 
     def test_fake_broker_get_info(self):
         broker = utils.FakeAccountBroker()
@@ -62,7 +61,6 @@ class TestAccountUtils(TestDbBase):
 
     def setUp(self):
         super(TestAccountUtils, self).setUp()
-        self.ts = make_timestamp_iter()
 
     def test_get_response_headers_fake_broker(self):
         broker = utils.FakeAccountBroker()
@@ -216,11 +214,11 @@ class TestAccountUtils(TestDbBase):
                      StoragePolicy(1, 'one', is_default=False)])
     def test_account_listing_with_containers(self):
         broker = backend.AccountBroker(self.db_path, account='a')
-        put_timestamp = next(self.ts)
+        put_timestamp = self.ts()
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(put_timestamp.internal)
-        container_timestamp = next(self.ts)
+        container_timestamp = self.ts()
         broker.put_container('foo',
                              container_timestamp.internal, 0, 10, 100, 0)
         broker.put_container('bar',
@@ -289,11 +287,11 @@ class TestAccountUtils(TestDbBase):
                      StoragePolicy(1, 'one', is_default=False)])
     def test_account_listing_reserved_names(self):
         broker = backend.AccountBroker(self.db_path, account='a')
-        put_timestamp = next(self.ts)
+        put_timestamp = self.ts()
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(put_timestamp.internal)
-        container_timestamp = next(self.ts)
+        container_timestamp = self.ts()
         broker.put_container(get_reserved_name('foo'),
                              container_timestamp.internal, 0, 10, 100, 0)
         broker.put_container(get_reserved_name('bar'),
