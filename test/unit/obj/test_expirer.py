@@ -19,7 +19,7 @@ import itertools
 from time import time
 from unittest import main, TestCase
 from test.debug_logger import debug_logger
-from test.unit import FakeRing, mocked_http_conn, make_timestamp_iter
+from test.unit import FakeRing, mocked_http_conn, BaseUnitTestCase
 from tempfile import mkdtemp
 from shutil import rmtree
 from collections import defaultdict
@@ -117,6 +117,7 @@ class FakeInternalClient(object):
 
 class TestExpirerConfig(TestCase):
     def setUp(self):
+        super().setUp()
         self.logger = debug_logger()
 
     @mock.patch('swift.obj.expirer.utils.hash_path', return_value=hex(101)[2:])
@@ -275,7 +276,7 @@ class TestExpirerConfig(TestCase):
         self.assertIn('container_ring', str(ctx.exception))
 
 
-class TestExpirerHelpers(TestCase):
+class TestExpirerHelpers(BaseUnitTestCase):
 
     def test_add_expirer_bytes_to_ctype(self):
         self.assertEqual(
@@ -339,7 +340,6 @@ class TestExpirerHelpers(TestCase):
 
     def test_embed_expirer_bytes_from_diskfile_metadata(self):
         self.logger = debug_logger('test-expirer')
-        self.ts = make_timestamp_iter()
         self.devices = mkdtemp()
         self.conf = {
             'mount_check': 'false',
@@ -349,7 +349,7 @@ class TestExpirerHelpers(TestCase):
         utils.mkdirs(os.path.join(self.devices, 'sda1'))
         df = self.df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o', policy=0)
 
-        ts = next(self.ts)
+        ts = self.ts()
         with df.create() as writer:
             writer.write(b'test')
             writer.put({
@@ -381,7 +381,7 @@ class TestExpirerHelpers(TestCase):
                 'text/plain;some_foo=bar;other-baz=buz'))
 
 
-class TestObjectExpirer(TestCase):
+class TestObjectExpirer(BaseUnitTestCase):
     maxDiff = None
     internal_client = None
 
@@ -397,6 +397,7 @@ class TestObjectExpirer(TestCase):
             delete_at, target_account, target_container, target_object)
 
     def setUp(self):
+        super().setUp()
         global not_sleep
 
         self.old_sleep = internal_client.sleep
@@ -406,8 +407,6 @@ class TestObjectExpirer(TestCase):
         self.rcache = mkdtemp()
         self.conf = {'recon_cache_path': self.rcache}
         self.logger = debug_logger('test-expirer')
-
-        self.ts = make_timestamp_iter()
 
         self.now = now = int(time())
 
@@ -2486,7 +2485,7 @@ class TestObjectExpirer(TestCase):
             self.assertEqual(obj, 'o')
 
     def test_build_task_obj_round_trip(self):
-        ts = next(self.ts)
+        ts = self.ts()
         a = 'a1'
         c = 'c2'
         o = 'obj1'
@@ -2499,7 +2498,7 @@ class TestObjectExpirer(TestCase):
         self.assertEqual(args, expirer.parse_task_obj(
             expirer.build_task_obj(ts, a, c, o, high_precision=True)))
 
-        ts = Timestamp(next(self.ts), delta=1234)
+        ts = Timestamp(self.ts(), delta=1234)
         a = u'\N{SNOWMAN}'
         c = u'\N{SNOWFLAKE}'
         o = u'\U0001F334'

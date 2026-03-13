@@ -39,7 +39,6 @@ import pyeclib.ec_iface
 
 from eventlet import hubs, timeout, tpool, spawn, sleep
 from swift.obj.diskfile import update_auditor_status, EUCLEAN
-from test import BaseTestCase
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        patch_policies, make_timestamp_iter,
@@ -1169,7 +1168,7 @@ class TestObjectAuditLocationGenerator(unittest.TestCase):
                     self.assertEqual(1, mock_open.call_count)
 
 
-class TestDiskFileRouter(unittest.TestCase):
+class TestDiskFileRouter(BaseUnitTestCase):
 
     @patch_policies(test_policies)
     def test_policy(self):
@@ -1232,6 +1231,8 @@ class BaseDiskFileTestMixin(object):
     mgr_cls = None
 
     def setUp(self):
+        # call setUp in the TestCase (sub)class that this mixin is mixed with
+        super().setUp()
         skip_if_no_xattrs()
         self.tmpdir = mkdtemp()
         self.testdir = os.path.join(
@@ -1250,8 +1251,6 @@ class BaseDiskFileTestMixin(object):
         self.logger = debug_logger('test-' + self.__class__.__name__)
         self.df_mgr = self.mgr_cls(self.conf, self.logger)
         self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
-        self._ts_iter = (Timestamp(t) for t in
-                         itertools.count(int(time())))
 
     def tearDown(self):
         rmtree(self.tmpdir, ignore_errors=True)
@@ -2253,7 +2252,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
 
 
 @patch_policies
-class TestDiskFileManager(DiskFileManagerMixin, BaseTestCase):
+class TestDiskFileManager(DiskFileManagerMixin, BaseUnitTestCase):
 
     mgr_cls = diskfile.DiskFileManager
 
@@ -2564,7 +2563,7 @@ class TestDiskFileManager(DiskFileManagerMixin, BaseTestCase):
 
 
 @patch_policies(with_ec_default=True)
-class TestECDiskFileManager(DiskFileManagerMixin, BaseTestCase):
+class TestECDiskFileManager(DiskFileManagerMixin, BaseUnitTestCase):
 
     mgr_cls = diskfile.ECDiskFileManager
 
@@ -3950,12 +3949,6 @@ class TestECDiskFileManager(DiskFileManagerMixin, BaseTestCase):
 
 
 class DiskFileMixin(BaseDiskFileTestMixin):
-
-    def ts(self):
-        """
-        Timestamps - forever.
-        """
-        return next(self._ts_iter)
 
     def _create_ondisk_file(self, df, data, timestamp, metadata=None,
                             ctype_timestamp=None,
@@ -6274,13 +6267,13 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
 
 @patch_policies(test_policies)
-class TestDiskFile(DiskFileMixin, unittest.TestCase):
+class TestDiskFile(DiskFileMixin, BaseUnitTestCase):
 
     mgr_cls = diskfile.DiskFileManager
 
 
 @patch_policies(with_ec_default=True)
-class TestECDiskFile(DiskFileMixin, unittest.TestCase):
+class TestECDiskFile(DiskFileMixin, BaseUnitTestCase):
 
     mgr_cls = diskfile.ECDiskFileManager
 

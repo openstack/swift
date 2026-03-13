@@ -34,8 +34,8 @@ from swift.common.storage_policy import StoragePolicy
 from swift.common.utils import md5
 from swift.common.utils.timestamp import Timestamp
 from swift.proxy.controllers.base import get_cache_key
-from test.unit import patch_policies, FakeMemcache, make_timestamp_iter, \
-    mock_timestamp_now, BaseUnitTestCase
+from test.unit import patch_policies, FakeMemcache, mock_timestamp_now, \
+    BaseUnitTestCase
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -61,6 +61,7 @@ def local_tz(func):
 
 class ObjectVersioningBaseTestCase(BaseUnitTestCase):
     def setUp(self):
+        super().setUp()
         self.app = FakeSwift()
         conf = {}
         self.sym = symlink.filter_factory(conf)(self.app)
@@ -71,7 +72,6 @@ class ObjectVersioningBaseTestCase(BaseUnitTestCase):
         self.cp = copy.filter_factory({})(self.ov)
         self.lf = listing_formats.ListingFilter(self.cp, {}, self.app.logger)
 
-        self.ts = make_timestamp_iter()
         cont_cache_version_on = {'sysmeta': {
             'versions-container': self.build_container_name('c'),
             'versions-enabled': 'true'}}
@@ -1104,8 +1104,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertNotIn('x-object-manifest', symlink_put_headers)
 
     def test_PUT_overwrite_object(self):
-        ts_iter = make_timestamp_iter()
-        ts_old, ts_new = next(ts_iter), next(ts_iter)
+        ts_old, ts_new = self.ts(), self.ts()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
             {'x-timestamp': ts_old.normal,
@@ -1937,7 +1936,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
                          b' that the container is versioned')
 
     def test_PUT_version(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         etag = md5(b'old-version-etag', usedforsecurity=False).hexdigest()
@@ -1994,7 +1993,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertEqual(status, '411 Length Required')
 
     def test_PUT_version_not_found(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
@@ -2007,7 +2006,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertIn(b'version does not exist', body)
 
     def test_PUT_version_container_not_found(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
@@ -2334,7 +2333,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
 class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
 
     def test_PUT_version_versioning_disbaled(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         etag = md5(b'old-version-etag', usedforsecurity=False).hexdigest()
