@@ -136,6 +136,21 @@
       python_version: '3.13'
 
 - job:
+    name: swift-tox-py314
+    parent: swift-tox-base
+    nodeset: ubuntu-noble
+    description: |
+      Run unit-tests for swift under cPython version 3.14.
+
+      Uses tox with the ``py314`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py314
+      python_use_pyenv: True
+      python_version: '3.14'
+
+- job:
     name: swift-tox-func-py312
     parent: swift-tox-base
     nodeset: ubuntu-noble
@@ -574,15 +589,6 @@
       nslookup_target: 'opendev.org'
       enable_fips: true
 
-# TODO(gmann): As per the 2025.1 testing runtime, we need to run at least
-# one job on jammy. This job can be removed as per the future testing
-# runtime (whenever we start testing Ubuntu 26.04 as default version).
-- job:
-    name: tempest-integrated-object-storage-ubuntu-jammy
-    description: This is integrated object-storage job testing on Ubuntu jammy(22.04)
-    parent: tempest-integrated-object-storage
-    nodeset: openstack-single-node-jammy
-
 - project-template:
     name: swift-jobs-arm64
     description: |
@@ -626,11 +632,11 @@
             irrelevant-files: &unittest-irrelevant-files
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/(cors|functional|probe|s3api)/.*$
-        - swift-tox-py39:
-            irrelevant-files: *unittest-irrelevant-files
-        - swift-tox-py312:
+        - swift-tox-py310:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py313:
+            irrelevant-files: *unittest-irrelevant-files
+        - swift-tox-py314:
             irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests
@@ -689,8 +695,6 @@
               - ^(api-ref|doc|releasenotes)/.*$
               - ^test/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
-        - tempest-integrated-object-storage-ubuntu-jammy:
-            irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
             irrelevant-files: *tempest-irrelevant-files
         - openstacksdk-functional-devstack:
@@ -710,9 +714,9 @@
         - swift-upload-image:
             irrelevant-files: *docker-irrelevant-files
         - swift-tox-py37
-        - swift-tox-py39
-        - swift-tox-py312
+        - swift-tox-py310
         - swift-tox-py313
+        - swift-tox-py314
         - swift-tox-func-py312
         - swift-tox-func-encryption-py312
         - swift-tox-func-ec-py312
@@ -732,8 +736,6 @@
             irrelevant-files: *functest-irrelevant-files
         - tempest-integrated-object-storage:
             irrelevant-files: *tempest-irrelevant-files
-        - tempest-integrated-object-storage-ubuntu-jammy:
-            irrelevant-files: *tempest-irrelevant-files
         - tempest-ipv6-only:
             irrelevant-files: *tempest-irrelevant-files
         - openstacksdk-functional-devstack:
@@ -747,8 +749,9 @@
     experimental:
       jobs:
         - swift-tox-py38
-        - swift-tox-py310
+        - swift-tox-py39
         - swift-tox-py311
+        - swift-tox-py312
         - swift-tox-func-py39-centos-9-stream
         - swift-tox-func-encryption-py39-centos-9-stream
         - swift-tox-func-ec-py39-centos-9-stream

@@ -45,7 +45,7 @@ from test.debug_logger import debug_logger
 from test.unit import (patch_policies, mocked_http_conn, FabricatedRing,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
                        encode_frag_archive_bodies, quiet_eventlet_exceptions,
-                       skip_if_no_xattrs)
+                       skip_if_no_xattrs, BaseUnitTestCase)
 from test.unit.obj.common import write_diskfile
 
 
@@ -3013,9 +3013,10 @@ class TestWorkerReconstructor(unittest.TestCase):
 
 
 @patch_policies(with_ec_default=True)
-class BaseTestObjectReconstructor(unittest.TestCase):
+class BaseTestObjectReconstructor(BaseUnitTestCase):
     def setUp(self):
         skip_if_no_xattrs()
+        super().setUp()
         self.policy = POLICIES.default
         self.policy.object_ring._rtime = time.time() + 3600
         self.testdir = tempfile.mkdtemp()
@@ -3033,7 +3034,6 @@ class BaseTestObjectReconstructor(unittest.TestCase):
         self._configure_reconstructor()
         self.policy.object_ring.max_more_nodes = \
             self.policy.object_ring.replicas
-        self.ts_iter = make_timestamp_iter()
         self.fabricated_ring = FabricatedRing(replicas=14, devices=28)
 
     def _configure_reconstructor(self, **kwargs):
@@ -3053,9 +3053,6 @@ class BaseTestObjectReconstructor(unittest.TestCase):
         self.reconstructor._reset_stats()
         self.reconstructor.stats_line()
         shutil.rmtree(self.testdir)
-
-    def ts(self):
-        return next(self.ts_iter)
 
 
 class TestObjectReconstructor(BaseTestObjectReconstructor):
@@ -5159,7 +5156,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         self.logger.clear()
         return self.df
 
-    def test_reconstruct_fa_no_errors(self):
+    def _do_test_reconstruct_fa_no_errors(self):
         job = {
             'partition': 0,
             'policy': self.policy,
@@ -5216,12 +5213,19 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                              self.policy)
             self.assertIn('X-Backend-Fragment-Preferences', called_header)
             self.assertEqual(
-                [{'timestamp': self.obj_timestamp.normal, 'exclude': []}],
+                [{'timestamp': self.obj_timestamp.internal, 'exclude': []}],
                 json.loads(called_header['X-Backend-Fragment-Preferences']))
             self.assertIn('X-Backend-Replication', called_header)
         # no error and warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
         self.assertFalse(self.logger.get_lines_for_level('warning'))
+
+    def test_reconstruct_fa_no_errors(self):
+        self._do_test_reconstruct_fa_no_errors()
+
+    def test_reconstruct_fa_no_errors_timestamp_with_offset(self):
+        self.obj_timestamp = Timestamp(self.obj_timestamp, offset=1)
+        self._do_test_reconstruct_fa_no_errors()
 
     def test_reconstruct_fa_errors_works(self):
         job = {
@@ -5277,8 +5281,8 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         ec_archive_bodies = encode_frag_archive_bodies(self.policy, test_data)
 
         broken_body = ec_archive_bodies.pop(4)
-        ts_data = next(self.ts_iter)  # all frags .data timestamp
-        ts_meta = next(self.ts_iter)  # some frags .meta timestamp
+        ts_data = self.ts()  # all frags .data timestamp
+        ts_meta = self.ts()  # some frags .meta timestamp
         ts_cycle = itertools.cycle((ts_data, ts_meta))
         responses = list()
         for body in ec_archive_bodies:

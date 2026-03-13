@@ -32,15 +32,14 @@ from unittest.mock import patch, call
 from swift.common.db_replicator import BrokerAnnotatedLogger
 from swift.container.backend import DATADIR
 from swift.common import db_replicator
-from swift.common.utils import (normalize_timestamp, hash_path,
-                                storage_directory, Timestamp, quote,
+from swift.common.utils import (hash_path, storage_directory, Timestamp, quote,
                                 mkdirs, listdir)
 from swift.common.exceptions import DriveNotMounted
 from swift.common.swob import HTTPException
 
 from test import unit
 from test.debug_logger import debug_logger
-from test.unit import attach_fake_replication_rpc
+from test.unit import attach_fake_replication_rpc, BaseUnitTestCase
 from test.unit.common.test_db import ExampleBroker
 
 
@@ -2254,8 +2253,9 @@ class TestHandoffsOnly(unittest.TestCase):
                 '010101013cf2b7979af9eaa71cb67220.db'), 0)])
 
 
-class TestReplToNode(unittest.TestCase):
+class TestReplToNode(BaseUnitTestCase):
     def setUp(self):
+        super().setUp()
         db_replicator.ring = FakeRing()
         self.delete_db_calls = []
         self.broker = FakeBroker()
@@ -2268,7 +2268,7 @@ class TestReplToNode(unittest.TestCase):
                           'created_at': 100, 'put_timestamp': 0,
                           'delete_timestamp': 0, 'count': 0,
                           'metadata': json.dumps({
-                              'Test': ('Value', normalize_timestamp(1))})}
+                              'Test': ('Value', self.ts().internal)})}
         self.replicator._rsync_db = mock.Mock(return_value=True)
         self.replicator._usync_db = mock.Mock(return_value=True)
         self.http = ReplHttp('{"id": 3, "point": -1}')
@@ -2392,7 +2392,7 @@ class ExampleReplicator(db_replicator.Replicator):
     default_port = 1000
 
 
-class TestReplicatorSync(unittest.TestCase):
+class TestReplicatorSync(BaseUnitTestCase):
 
     # override in subclass
     backend = ExampleReplicator.brokerclass
@@ -2401,6 +2401,7 @@ class TestReplicatorSync(unittest.TestCase):
     replicator_rpc = db_replicator.ReplicatorRpc
 
     def setUp(self):
+        super().setUp()
         self.root = mkdtemp()
         self.rpc = self.replicator_rpc(
             self.root, self.datadir, self.backend, mount_check=False,
@@ -2491,8 +2492,8 @@ class TestReplicatorSync(unittest.TestCase):
         daemon = self._run_once(node)
         # create a super old broker and delete it!
         forever_ago = time.time() - daemon.reclaim_age
-        put_timestamp = normalize_timestamp(forever_ago - 2)
-        delete_timestamp = normalize_timestamp(forever_ago - 1)
+        put_timestamp = Timestamp(forever_ago - 2).internal
+        delete_timestamp = Timestamp(forever_ago - 1).internal
         broker.initialize(put_timestamp)
         broker.delete_db(delete_timestamp)
         # if we have a container broker make sure it's reported
@@ -2523,7 +2524,7 @@ class TestReplicatorSync(unittest.TestCase):
         broker = self._get_broker('a', 'c', node_index=0)
         part, node = self._get_broker_part_node(broker)
         part = str(part)
-        put_timestamp = normalize_timestamp(time.time())
+        put_timestamp = self.ts().internal
         broker.initialize(put_timestamp)
         put_metadata = {'example-meta': ['bah', put_timestamp]}
         broker.update_metadata(put_metadata)
@@ -2557,8 +2558,7 @@ class TestReplicatorSync(unittest.TestCase):
         # setup current db (and broker)
         broker = self._get_broker('a', 'c', node_index=0)
         part, node = self._get_broker_part_node(broker)
-        part = str(part)
-        put_timestamp = normalize_timestamp(time.time())
+        put_timestamp = self.ts().internal
         broker.initialize(put_timestamp)
         put_metadata = {'example-meta': ['bah', put_timestamp]}
         sync_local_metadata = {

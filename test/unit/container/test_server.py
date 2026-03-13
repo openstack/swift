@@ -48,7 +48,7 @@ from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 
 from test import listen_zero
-from test.unit import patch_policies, make_timestamp_iter, mock_timestamp_now
+from test.unit import patch_policies, BaseUnitTestCase, mock_timestamp_now
 
 
 @contextmanager
@@ -62,9 +62,10 @@ def save_globals():
 
 
 @patch_policies
-class TestContainerController(unittest.TestCase):
+class TestContainerController(BaseUnitTestCase):
 
     def setUp(self):
+        super().setUp()
         self.testdir = os.path.join(
             mkdtemp(), 'tmp_test_container_server_ContainerController')
         mkdirs(self.testdir)
@@ -77,7 +78,6 @@ class TestContainerController(unittest.TestCase):
             logger=self.logger)
         # some of the policy tests want at least two policies
         self.assertTrue(len(POLICIES) > 1)
-        self.ts = make_timestamp_iter()
 
     def tearDown(self):
         rmtree(os.path.dirname(self.testdir), ignore_errors=1)
@@ -203,10 +203,10 @@ class TestContainerController(unittest.TestCase):
 
     def test_HEAD_has_content_length(self):
         # create a container
-        put_timestamp = next(self.ts)
+        put_timestamp = self.ts()
         expected_last_modified = Response(
             last_modified=put_timestamp.ceil()).headers['Last-Modified']
-        created_at_timestamp = next(self.ts)
+        created_at_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'x-timestamp': put_timestamp.internal})
         with mock.patch('swift.container.backend.Timestamp.now',
@@ -279,14 +279,14 @@ class TestContainerController(unittest.TestCase):
                          ts_start.internal)
 
     def test_HEAD(self):
-        ts_start = next(self.ts)
+        ts_start = self.ts()
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'x-timestamp': ts_start.internal})
         req.get_response(self.controller)
-        self._test_head(ts_start, self.ts)
+        self._test_head(ts_start, self.ts_iter)
 
     def test_HEAD_timestamp_with_offset(self):
-        ts_iter = (Timestamp(ts, offset=1) for ts in self.ts)
+        ts_iter = (Timestamp(ts, offset=1) for ts in self.ts_iter)
         ts_start = next(ts_iter)
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'x-timestamp': ts_start.internal})
@@ -315,8 +315,8 @@ class TestContainerController(unittest.TestCase):
 
     def test_deleted_headers(self):
         request_method_times = {
-            'PUT': next(self.ts).internal,
-            'DELETE': next(self.ts).internal,
+            'PUT': self.ts().internal,
+            'DELETE': self.ts().internal,
         }
         # setup a deleted container
         for method in ('PUT', 'DELETE'):
@@ -456,7 +456,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 202)
 
     def test_PUT_HEAD_put_timestamp_updates(self):
-        ts = [next(self.ts) for _ in range(6)]
+        ts = [self.ts() for _ in range(6)]
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': ts[1].internal})
         resp = req.get_response(self.controller)
@@ -639,7 +639,7 @@ class TestContainerController(unittest.TestCase):
         policy = random.choice(list(POLICIES))
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
@@ -653,7 +653,7 @@ class TestContainerController(unittest.TestCase):
         # now try to update w/o changing the policy
         for method in ('POST', 'PUT'):
             req = Request.blank('/sda1/p/a/c', method=method, headers={
-                'X-Timestamp': next(self.ts).internal,
+                'X-Timestamp': self.ts().internal,
                 'X-Backend-Storage-Policy-Index': policy.idx
             })
             resp = req.get_response(self.controller)
@@ -669,7 +669,7 @@ class TestContainerController(unittest.TestCase):
         policy = random.choice(list(POLICIES))
         # Set metadata header
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
@@ -684,7 +684,7 @@ class TestContainerController(unittest.TestCase):
         for other_policy in other_policies:
             # now try to change it and make sure we get a conflict
             req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-                'X-Timestamp': next(self.ts).internal,
+                'X-Timestamp': self.ts().internal,
                 'X-Backend-Storage-Policy-Index': other_policy.idx
             })
             resp = req.get_response(self.controller)
@@ -704,7 +704,7 @@ class TestContainerController(unittest.TestCase):
     def test_POST_ignores_policy_change(self):
         policy = random.choice(list(POLICIES))
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'X-Backend-Storage-Policy-Index': policy.idx})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
@@ -719,7 +719,7 @@ class TestContainerController(unittest.TestCase):
         for other_policy in other_policies:
             # now try to change it and make sure we get a conflict
             req = Request.blank('/sda1/p/a/c', method='POST', headers={
-                'X-Timestamp': next(self.ts).internal,
+                'X-Timestamp': self.ts().internal,
                 'X-Backend-Storage-Policy-Index': other_policy.idx
             })
             resp = req.get_response(self.controller)
@@ -738,7 +738,7 @@ class TestContainerController(unittest.TestCase):
     def test_PUT_no_policy_for_existing_default(self):
         # create a container with the default storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)  # sanity check
@@ -752,7 +752,7 @@ class TestContainerController(unittest.TestCase):
 
         # put again without specifying the storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)  # sanity check
@@ -771,7 +771,7 @@ class TestContainerController(unittest.TestCase):
                                        p.is_default])
         # create a container with the default storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'X-Backend-Storage-Policy-Default': int(proxy_default),
         })
         resp = req.get_response(self.controller)
@@ -786,7 +786,7 @@ class TestContainerController(unittest.TestCase):
 
         # put again without proxy specifying the different default
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'X-Backend-Storage-Policy-Default': int(POLICIES.default),
         })
         resp = req.get_response(self.controller)
@@ -803,7 +803,7 @@ class TestContainerController(unittest.TestCase):
         non_default_policy = [p for p in POLICIES if not p.is_default][0]
         # create a container with the non-default storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'X-Backend-Storage-Policy-Index': non_default_policy.idx,
         })
         resp = req.get_response(self.controller)
@@ -818,7 +818,7 @@ class TestContainerController(unittest.TestCase):
 
         # put again without specifying the storage policy
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
         })
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 202)  # sanity check
@@ -833,13 +833,13 @@ class TestContainerController(unittest.TestCase):
     def test_create_reserved_namespace_container(self):
         path = '/sda1/p/a/%sc' % RESERVED_STR
         req = Request.blank(path, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal})
+            'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status, '201 Created', resp.body)
 
         path = '/sda1/p/a/%sc%stest' % (RESERVED_STR, RESERVED_STR)
         req = Request.blank(path, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal})
+            'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status, '201 Created', resp.body)
 
@@ -847,13 +847,13 @@ class TestContainerController(unittest.TestCase):
         # create container
         path = '/sda1/p/a/c/'
         req = Request.blank(path, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal})
+            'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         # put null object in it
         path += '%so' % RESERVED_STR
         req = Request.blank(path, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'X-Size': 0,
             'X-Content-Type': 'application/x-test',
             'X-Etag': 'x',
@@ -1138,7 +1138,7 @@ class TestContainerController(unittest.TestCase):
         self.assertNotIn(key.lower(), resp.headers)
 
     def test_POST_HEAD_no_timestamp_update(self):
-        put_ts = next(self.ts)
+        put_ts = self.ts()
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': put_ts.internal})
         resp = req.get_response(self.controller)
@@ -1160,13 +1160,13 @@ class TestContainerController(unittest.TestCase):
             return resp.headers
 
         # verify timestamp IS advanced
-        post_ts1 = next(self.ts)
+        post_ts1 = self.ts()
         resp_hdrs = do_post_head(post_ts1, 'val1', {})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val1')
         self.assertEqual(resp_hdrs.get('x-backend-put-timestamp'),
                          post_ts1.internal)
 
-        post_ts2 = next(self.ts)
+        post_ts2 = self.ts()
         resp_hdrs = do_post_head(post_ts2, 'val2',
                                  {'x-backend-no-timestamp-update': 'false'})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val2')
@@ -1174,7 +1174,7 @@ class TestContainerController(unittest.TestCase):
                          post_ts2.internal)
 
         # verify timestamp IS NOT advanced, but metadata still updated
-        post_ts3 = next(self.ts)
+        post_ts3 = self.ts()
         resp_hdrs = do_post_head(post_ts3, 'val3',
                                  {'x-backend-No-timeStamp-update': 'true'})
         self.assertEqual(resp_hdrs.get('x-container-meta-test'), 'val3')
@@ -1344,7 +1344,7 @@ class TestContainerController(unittest.TestCase):
                 return err
             return None
 
-        timestamps = [next(self.ts) for _ in range(5)]
+        timestamps = [self.ts() for _ in range(5)]
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -1648,14 +1648,14 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
 
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'UPDATE'},
-            headers={'X-Timestamp': next(self.ts).internal},
+            headers={'X-Timestamp': self.ts().internal},
             body='[invalid json')
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 400)
@@ -1663,15 +1663,15 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
 
-        obj_ts = next(self.ts)
+        obj_ts = self.ts()
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'UPDATE'},
-            headers={'X-Timestamp': next(self.ts).internal},
+            headers={'X-Timestamp': self.ts().internal},
             body=json.dumps([
                 {'name': 'some obj', 'deleted': 0,
                  'created_at': obj_ts.internal,
@@ -1679,12 +1679,12 @@ class TestContainerController(unittest.TestCase):
                  'storage_policy_index': POLICIES.default.idx,
                  'content_type': 'foo/bar'},
                 {'name': 'some tombstone', 'deleted': 1,
-                 'created_at': next(self.ts).internal,
+                 'created_at': self.ts().internal,
                  'etag': 'noetag', 'size': 0,
                  'storage_policy_index': POLICIES.default.idx,
                  'content_type': 'application/deleted'},
                 {'name': 'wrong policy', 'deleted': 0,
-                 'created_at': next(self.ts).internal,
+                 'created_at': self.ts().internal,
                  'etag': 'whatever', 'size': 6789,
                  'storage_policy_index': 1,
                  'content_type': 'foo/bar'},
@@ -1695,7 +1695,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c?format=json',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
@@ -1707,16 +1707,16 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/.a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
 
-        obj_ts = next(self.ts)
+        obj_ts = self.ts()
         req = Request.blank(
             '/sda1/p/.a/c',
             environ={'REQUEST_METHOD': 'UPDATE'},
             headers={
-                'X-Timestamp': next(self.ts).internal,
+                'X-Timestamp': self.ts().internal,
                 'X-Backend-Storage-Policy-Index': str(POLICIES.default.idx)},
             body=json.dumps([
                 {'name': 'some obj', 'deleted': 0,
@@ -1725,12 +1725,12 @@ class TestContainerController(unittest.TestCase):
                  'storage_policy_index': POLICIES.default.idx,
                  'content_type': 'foo/bar'},
                 {'name': 'some tombstone', 'deleted': 1,
-                 'created_at': next(self.ts).internal,
+                 'created_at': self.ts().internal,
                  'etag': 'noetag', 'size': 0,
                  'storage_policy_index': POLICIES.default.idx,
                  'content_type': 'application/deleted'},
                 {'name': 'wrong policy', 'deleted': 0,
-                 'created_at': next(self.ts).internal,
+                 'created_at': self.ts().internal,
                  'etag': 'whatever', 'size': 6789,
                  'storage_policy_index': 1,
                  'content_type': 'foo/bar'},
@@ -1741,7 +1741,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/.a/c?format=json',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(json.loads(resp.body), [
@@ -1753,17 +1753,17 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             path,
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
 
         # PUT an *empty* shard range
-        sr = ShardRange('.shards_a/c', next(self.ts), 'l', 'u', 0, 0,
+        sr = ShardRange('.shards_a/c', self.ts(), 'l', 'u', 0, 0,
                         state=ShardRange.ACTIVE)
         req = Request.blank(
             path,
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard'},
             body=json.dumps([dict(sr)]))
         resp = req.get_response(self.controller)
@@ -1775,7 +1775,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             path,
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         return sr
@@ -1785,20 +1785,20 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
 
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard'},
             params={'format': 'json'})
         resp = req.get_response(self.controller)
@@ -1806,7 +1806,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'namespace'},
             params={'format': 'json'})
         resp = req.get_response(self.controller)
@@ -1818,7 +1818,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Override-Deleted': 'true'},
             params={'format': 'json'})
         resp = req.get_response(self.controller)
@@ -1831,7 +1831,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Override-Deleted': 'true'},
             params={'format': 'json'})
@@ -1848,7 +1848,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Record-Shard-Format': 'full',
                      'X-Backend-Override-Deleted': 'true'},
@@ -1867,7 +1867,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Override-Deleted': 'no'},
             params={'format': 'json'})
@@ -1881,7 +1881,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Record-Shard-Format': 'namespace',
                      'X-Backend-Override-Deleted': 'true'},
@@ -1900,7 +1900,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Record-Shard-Format': 'namespace',
                      'X-Backend-Override-Deleted': 'no'},
@@ -1918,7 +1918,7 @@ class TestContainerController(unittest.TestCase):
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': next(self.ts).internal,
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Backend-Record-Type': 'shard',
                      'X-Backend-Override-Deleted': 'true'},
             params={'format': 'json'})
@@ -1927,7 +1927,7 @@ class TestContainerController(unittest.TestCase):
         self.assertNotIn('X-Backend-Record-Type', resp.headers)
 
     def test_DELETE_PUT_recreate(self):
-        timestamps = [next(self.ts) for _ in range(5)]
+        timestamps = [self.ts() for _ in range(5)]
         path = '/sda1/p/a/c'
         req = Request.blank(path, method='PUT',
                             headers={'X-Timestamp': timestamps[1].internal})
@@ -2150,7 +2150,7 @@ class TestContainerController(unittest.TestCase):
     def test_object_update_with_offset(self):
         # create container
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal})
+            'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         # check status
@@ -2160,7 +2160,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(int(resp.headers['X-Backend-Storage-Policy-Index']),
                          int(POLICIES.default))
         # create object
-        obj_timestamp = next(self.ts)
+        obj_timestamp = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', headers={
                 'X-Timestamp': obj_timestamp.internal, 'X-Size': 1,
@@ -2206,7 +2206,7 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(obj['hash'], 'y')
             self.assertEqual(obj['content_type'], 'text/html')
         # now overwrite with a newer time
-        delete_timestamp = next(self.ts)
+        delete_timestamp = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', method='DELETE', headers={
                 'X-Timestamp': delete_timestamp.internal})
@@ -2490,7 +2490,7 @@ class TestContainerController(unittest.TestCase):
                 return err
             return None
 
-        timestamps = [next(self.ts) for _ in range(6)]
+        timestamps = [self.ts() for _ in range(6)]
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -2586,8 +2586,8 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(resp.status_int, 412)
 
     def test_PUT_shard_range_autocreates_shard_container(self):
-        shard_range = ShardRange('.shards_a/shard_c', next(self.ts))
-        put_timestamp = next(self.ts).internal
+        shard_range = ShardRange('.shards_a/shard_c', self.ts())
+        put_timestamp = self.ts().internal
         headers = {'X-Backend-Record-Type': 'shard',
                    'X-Timestamp': put_timestamp,
                    'X-Container-Sysmeta-Test': 'set',
@@ -2602,7 +2602,7 @@ class TestContainerController(unittest.TestCase):
 
         # PUT shard range to non-existent container with autocreate flag,
         # missing storage policy
-        headers['X-Timestamp'] = next(self.ts).internal
+        headers['X-Timestamp'] = self.ts().internal
         headers['X-Backend-Auto-Create'] = 't'
         req = Request.blank(
             '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
@@ -2613,7 +2613,7 @@ class TestContainerController(unittest.TestCase):
                       resp.body)
 
         # PUT shard range to non-existent container with autocreate flag
-        headers['X-Timestamp'] = next(self.ts).internal
+        headers['X-Timestamp'] = self.ts().internal
         policy_index = random.choice(POLICIES).idx
         headers['X-Backend-Storage-Policy-Index'] = str(policy_index)
         req = Request.blank(
@@ -2623,7 +2623,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(201, resp.status_int)
 
         # repeat PUT of shard range to autocreated container - 202 response
-        headers['X-Timestamp'] = next(self.ts).internal
+        headers['X-Timestamp'] = self.ts().internal
         headers.pop('X-Backend-Storage-Policy-Index')  # no longer required
         req = Request.blank(
             '/sda1/p/.shards_a/shard_c', method='PUT', headers=headers,
@@ -2632,16 +2632,16 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(202, resp.status_int)
 
         # regular PUT to autocreated container - 202 response
-        headers['X-Timestamp'] = next(self.ts).internal
+        headers['X-Timestamp'] = self.ts().internal
         req = Request.blank(
             '/sda1/p/.shards_a/shard_c', method='PUT',
-            headers={'X-Timestamp': next(self.ts).internal},
+            headers={'X-Timestamp': self.ts().internal},
             body=json.dumps([dict(shard_range)]))
         resp = req.get_response(self.controller)
         self.assertEqual(202, resp.status_int)
 
     def test_PUT_shard_range_to_deleted_container(self):
-        put_time = next(self.ts).internal
+        put_time = self.ts().internal
         # create a container, get it to sharded state and then delete it
         req = Request.blank('/sda1/p/a/c', method='PUT',
                             headers={'X-Timestamp': put_time})
@@ -2649,11 +2649,11 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(201, resp.status_int)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        broker.enable_sharding(next(self.ts))
+        broker.enable_sharding(self.ts())
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
 
-        delete_time = next(self.ts).internal
+        delete_time = self.ts().internal
         req = Request.blank('/sda1/p/a/c', method='DELETE',
                             headers={'X-Timestamp': delete_time})
         resp = req.get_response(self.controller)
@@ -2666,10 +2666,10 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(404, resp.status_int)
 
         # shard range PUT is accepted but container remains deleted
-        shard_range = ShardRange('.shards_a/shard_c', next(self.ts),
+        shard_range = ShardRange('.shards_a/shard_c', self.ts(),
                                  state=ShardRange.ACTIVE)
         headers = {'X-Backend-Record-Type': 'shard',
-                   'X-Timestamp': next(self.ts).internal,
+                   'X-Timestamp': self.ts().internal,
                    'X-Container-Sysmeta-Test': 'set',
                    'X-Container-Meta-Test': 'persisted'}
 
@@ -2685,7 +2685,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(404, resp.status_int)
 
         # unless shard range has non-zero stats, then container is revived
-        shard_range.update_meta(99, 1234, meta_timestamp=next(self.ts))
+        shard_range.update_meta(99, 1234, meta_timestamp=self.ts())
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
                             body=json.dumps([dict(shard_range)]))
         resp = req.get_response(self.controller)
@@ -2699,18 +2699,18 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual('99', resp.headers['X-Container-Object-Count'])
 
     def test_PUT_shard_range_json_in_body(self):
-        oldest_ts = next(self.ts)  # used for stale shard range PUT later
+        oldest_ts = self.ts()  # used for stale shard range PUT later
         shard_bounds = [('', 'ham', ShardRange.ACTIVE),
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', '', ShardRange.CREATED)]
         shard_ranges = [
-            ShardRange('.shards_a/_%s' % upper, next(self.ts),
+            ShardRange('.shards_a/_%s' % upper, self.ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=next(self.ts),
-                       state=state, state_timestamp=next(self.ts))
+                       i * 100, i * 1000, meta_timestamp=self.ts(),
+                       state=state, state_timestamp=self.ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
 
-        put_timestamp = next(self.ts).internal
+        put_timestamp = self.ts().internal
         headers = {'X-Backend-Record-Type': 'shard',
                    'X-Timestamp': put_timestamp,
                    'X-Container-Sysmeta-Test': 'set',
@@ -2749,7 +2749,7 @@ class TestContainerController(unittest.TestCase):
 
         # empty json dict
         body = json.dumps({})
-        headers['X-Timestamp'] = next(self.ts).internal
+        headers['X-Timestamp'] = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
@@ -2760,12 +2760,12 @@ class TestContainerController(unittest.TestCase):
                                         broker.get_shard_ranges())
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
-        older_ts = next(self.ts)  # used for stale shard range PUT later
+        older_ts = self.ts()  # used for stale shard range PUT later
         # updated and new shard ranges
         shard_ranges[1].bytes_used += 100
-        shard_ranges[1].meta_timestamp = next(self.ts)
+        shard_ranges[1].meta_timestamp = self.ts()
         body = json.dumps([dict(sr) for sr in shard_ranges[1:]])
-        headers['X-Timestamp'] = next(self.ts).internal
+        headers['X-Timestamp'] = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
@@ -2784,7 +2784,7 @@ class TestContainerController(unittest.TestCase):
         stale_shard_range.state = ShardRange.CREATED
         stale_shard_range.state_timestamp = oldest_ts
         body = json.dumps([dict(stale_shard_range)])
-        headers['X-Timestamp'] = next(self.ts).internal
+        headers['X-Timestamp'] = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
         resp = req.get_response(self.controller)
@@ -2797,7 +2797,7 @@ class TestContainerController(unittest.TestCase):
 
         # deleted shard range
         shard_ranges[0].deleted = 1
-        shard_ranges[0].timestamp = next(self.ts)
+        shard_ranges[0].timestamp = self.ts()
         body = json.dumps([dict(shard_ranges[0])])
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -2810,7 +2810,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         def check_bad_body(body):
-            bad_put_timestamp = next(self.ts).internal
+            bad_put_timestamp = self.ts().internal
             headers['X-Timestamp'] = bad_put_timestamp
             req = Request.blank(
                 '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -2827,7 +2827,7 @@ class TestContainerController(unittest.TestCase):
         check_bad_body('')
         check_bad_body('["not a shard range"]')
         check_bad_body('[[]]')
-        bad_shard_range = dict(ShardRange('a/c', next(self.ts)))
+        bad_shard_range = dict(ShardRange('a/c', self.ts()))
         bad_shard_range.pop('timestamp')
         check_bad_body(json.dumps([bad_shard_range]))
 
@@ -2835,7 +2835,7 @@ class TestContainerController(unittest.TestCase):
             # body ignored
             body = json.dumps([dict(sr) for sr in shard_ranges])
             # note, regular PUT so put timestamp is updated
-            put_timestamp = next(self.ts).internal
+            put_timestamp = self.ts().internal
             headers['X-Timestamp'] = put_timestamp
             req = Request.blank(
                 '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -2846,20 +2846,20 @@ class TestContainerController(unittest.TestCase):
             self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
         check_not_shard_record_type({'X-Backend-Record-Type': 'object',
-                                     'X-Timestamp': next(self.ts).internal})
+                                     'X-Timestamp': self.ts().internal})
 
-        check_not_shard_record_type({'X-Timestamp': next(self.ts).internal})
+        check_not_shard_record_type({'X-Timestamp': self.ts().internal})
 
     def test_PUT_GET_shard_ranges(self):
         # make a container
         ts_now = Timestamp.now()  # used when mocking Timestamp.now()
-        ts_put = next(self.ts)
+        ts_put = self.ts()
         headers = {'X-Timestamp': ts_put.normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
         # PUT some objects
         objects = [{'name': 'obj_%d' % i,
-                    'x-timestamp': next(self.ts).normal,
+                    'x-timestamp': self.ts().normal,
                     'x-content-type': 'text/plain',
                     'x-etag': 'etag_%d' % i,
                     'x-size': 1024 * i
@@ -2878,10 +2878,10 @@ class TestContainerController(unittest.TestCase):
                         ('yoghurt', '', ShardRange.FOUND),
                         ]
         shard_ranges = [
-            ShardRange('.sharded_a/_%s' % upper, next(self.ts),
+            ShardRange('.sharded_a/_%s' % upper, self.ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=next(self.ts),
-                       state=state, state_timestamp=next(self.ts))
+                       i * 100, i * 1000, meta_timestamp=self.ts(),
+                       state=state, state_timestamp=self.ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
@@ -3114,7 +3114,7 @@ class TestContainerController(unittest.TestCase):
             params='&states=listing&reverse=true&marker=egg')
         self.assertIsNone(
             resp.headers.get('X-Backend-Override-Shard-Name-Filter'))
-        ts_epoch = next(self.ts)
+        ts_epoch = self.ts()
         broker.enable_sharding(ts_epoch)
         self.assertTrue(broker.set_sharding_state())
         check_shard_GET(
@@ -3133,7 +3133,7 @@ class TestContainerController(unittest.TestCase):
         # params and return listing shard ranges for entire namespace if
         # X-Backend-Override-Shard-Name-Filter == 'sharded'
         self.assertTrue(broker.set_sharded_state())
-        ts_now = next(self.ts)
+        ts_now = self.ts()
         with mock_timestamp_now(ts_now):
             extra_shard_range = broker.get_own_shard_range()
         extra_shard_range.lower = shard_ranges[2].upper
@@ -3166,7 +3166,7 @@ class TestContainerController(unittest.TestCase):
 
         # delete a shard range
         shard_range = shard_ranges[1]
-        shard_range.set_deleted(timestamp=next(self.ts))
+        shard_range.set_deleted(timestamp=self.ts())
         self._put_shard_range(shard_range)
 
         self._assert_shard_ranges_equal(shard_ranges[:1] + shard_ranges[2:],
@@ -3193,7 +3193,7 @@ class TestContainerController(unittest.TestCase):
         sr = self._populate_container('/sda1/p/a/c')
 
         def do_test(headers):
-            headers.update({'X-Timestamp': next(self.ts).internal,
+            headers.update({'X-Timestamp': self.ts().internal,
                             'X-Backend-Record-Type': 'shard'})
             req = Request.blank(
                 '/sda1/p/a/c', environ={'REQUEST_METHOD': 'GET'},
@@ -3218,30 +3218,30 @@ class TestContainerController(unittest.TestCase):
         # the shard's namespace
         shard_path = '.shards_a/c_f'
         ts_now = Timestamp.now()  # used when mocking Timestamp.now()
-        own_shard_range = ShardRange(shard_path, next(self.ts),
+        own_shard_range = ShardRange(shard_path, self.ts(),
                                      'b', 'f', 100, 1000,
-                                     meta_timestamp=next(self.ts),
+                                     meta_timestamp=self.ts(),
                                      state=ShardRange.SHRUNK,
-                                     state_timestamp=next(self.ts),
-                                     epoch=next(self.ts))
+                                     state_timestamp=self.ts(),
+                                     epoch=self.ts())
         shard_ranges = []
         for lower, upper in (('a', 'd'), ('d', 'g')):
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                ShardRange('.shards_a/c_%s' % upper, self.ts(),
                            lower, upper, 100, 1000,
-                           meta_timestamp=next(self.ts),
+                           meta_timestamp=self.ts(),
                            state=ShardRange.ACTIVE,
-                           state_timestamp=next(self.ts)))
+                           state_timestamp=self.ts()))
 
         # create container
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
         req = Request.blank(
             '/sda1/p/%s' % shard_path, method='PUT', headers=headers)
         self.assertIn(
             req.get_response(self.controller).status_int, (201, 202))
 
         # PUT the acceptor shard ranges and own shard range
-        headers = {'X-Timestamp': next(self.ts).normal,
+        headers = {'X-Timestamp': self.ts().normal,
                    'X-Container-Sysmeta-Shard-Root': 'a/c',
                    'X-Backend-Record-Type': 'shard'}
         body = json.dumps(
@@ -3315,21 +3315,21 @@ class TestContainerController(unittest.TestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                ShardRange('.shards_a/c_%s' % upper, self.ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=next(self.ts),
-                           state=state, state_timestamp=next(self.ts)))
+                           meta_timestamp=self.ts(),
+                           state=state, state_timestamp=self.ts()))
             lower = upper
 
         def do_test(root_path, path, params, expected_states):
             expected = [
                 sr for sr in shard_ranges if sr.state in expected_states]
-            own_shard_range = ShardRange(path, next(self.ts), '', '',
+            own_shard_range = ShardRange(path, self.ts(), '', '',
                                          state=ShardRange.ACTIVE)
             expected.append(own_shard_range.copy(lower=expected[-1].upper))
             expected = [dict(sr, last_modified=sr.timestamp.isoformat)
                         for sr in expected]
-            headers = {'X-Timestamp': next(self.ts).normal}
+            headers = {'X-Timestamp': self.ts().normal}
 
             # create container
             req = Request.blank(
@@ -3337,7 +3337,7 @@ class TestContainerController(unittest.TestCase):
             self.assertIn(
                 req.get_response(self.controller).status_int, (201, 202))
             # PUT some shard ranges
-            headers = {'X-Timestamp': next(self.ts).normal,
+            headers = {'X-Timestamp': self.ts().normal,
                        'X-Container-Sysmeta-Shard-Root': root_path,
                        'X-Backend-Record-Type': 'shard'}
             body = json.dumps(
@@ -3389,19 +3389,19 @@ class TestContainerController(unittest.TestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                ShardRange('.shards_a/c_%s' % upper, self.ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=next(self.ts),
-                           state=state, state_timestamp=next(self.ts)))
+                           meta_timestamp=self.ts(),
+                           state=state, state_timestamp=self.ts()))
             lower = upper
         # create container
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers)
         self.assertIn(
             req.get_response(self.controller).status_int, (201, 202))
         # PUT some shard ranges
-        headers = {'X-Timestamp': next(self.ts).normal,
+        headers = {'X-Timestamp': self.ts().normal,
                    'X-Backend-Record-Type': 'shard'}
         body = json.dumps([dict(sr) for sr in shard_ranges])
         req = Request.blank(
@@ -3426,10 +3426,10 @@ class TestContainerController(unittest.TestCase):
         do_test(False, shard_ranges)
         do_test(True, shard_ranges)
 
-        headers = {'X-Timestamp': next(self.ts).normal,
+        headers = {'X-Timestamp': self.ts().normal,
                    'X-Backend-Record-Type': 'shard'}
         for sr in shard_ranges[::2]:
-            sr.set_deleted(timestamp=next(self.ts))
+            sr.set_deleted(timestamp=self.ts())
         body = json.dumps([dict(sr) for sr in shard_ranges])
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -3440,10 +3440,10 @@ class TestContainerController(unittest.TestCase):
         do_test(False, shard_ranges[1::2])
         do_test(True, shard_ranges)
 
-        headers = {'X-Timestamp': next(self.ts).normal,
+        headers = {'X-Timestamp': self.ts().normal,
                    'X-Backend-Record-Type': 'shard'}
         for sr in shard_ranges[1::2]:
-            sr.set_deleted(timestamp=next(self.ts))
+            sr.set_deleted(timestamp=self.ts())
         body = json.dumps([dict(sr) for sr in shard_ranges])
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -3460,19 +3460,19 @@ class TestContainerController(unittest.TestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                ShardRange('.shards_a/c_%s' % upper, self.ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=next(self.ts),
-                           state=state, state_timestamp=next(self.ts)))
+                           meta_timestamp=self.ts(),
+                           state=state, state_timestamp=self.ts()))
             lower = upper
         # create container
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers)
         self.assertIn(
             req.get_response(self.controller).status_int, (201, 202))
         # PUT some shard ranges
-        headers = {'X-Timestamp': next(self.ts).normal,
+        headers = {'X-Timestamp': self.ts().normal,
                    'X-Backend-Record-Type': 'shard'}
         body = json.dumps([dict(sr) for sr in shard_ranges])
         req = Request.blank(
@@ -3503,7 +3503,7 @@ class TestContainerController(unittest.TestCase):
 
         # delete the container
         req = Request.blank('/sda1/p/a/c', method='DELETE',
-                            headers={'X-Timestamp': next(self.ts).normal})
+                            headers={'X-Timestamp': self.ts().normal})
         self.assertEqual(204, req.get_response(self.controller).status_int)
 
         do_test({'states': 'bad'}, 404)
@@ -3517,7 +3517,7 @@ class TestContainerController(unittest.TestCase):
     def test_GET_shard_ranges_auditing(self):
         # verify that states=auditing causes own shard range to be included
         def put_shard_ranges(shard_ranges):
-            headers = {'X-Timestamp': next(self.ts).normal,
+            headers = {'X-Timestamp': self.ts().normal,
                        'X-Backend-Record-Type': 'shard'}
             body = json.dumps([dict(sr) for sr in shard_ranges])
             req = Request.blank(
@@ -3541,20 +3541,20 @@ class TestContainerController(unittest.TestCase):
             return resp
 
         # initially not all shards are shrinking and root is sharded
-        own_sr = ShardRange('a/c', next(self.ts), '', '',
+        own_sr = ShardRange('a/c', self.ts(), '', '',
                             state=ShardRange.SHARDED)
         shard_bounds = [('', 'f', ShardRange.SHRUNK, True),
                         ('f', 't', ShardRange.SHRINKING, False),
                         ('t', '', ShardRange.ACTIVE, False)]
         shard_ranges = [
-            ShardRange('.shards_a/_%s' % upper, next(self.ts),
+            ShardRange('.shards_a/_%s' % upper, self.ts(),
                        lower, upper, state=state, deleted=deleted)
             for (lower, upper, state, deleted) in shard_bounds]
-        overlap = ShardRange('.shards_a/c_bad', next(self.ts), '', 'f',
+        overlap = ShardRange('.shards_a/c_bad', self.ts(), '', 'f',
                              state=ShardRange.FOUND)
 
         # create container and PUT some shard ranges
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers)
         self.assertIn(
@@ -3562,7 +3562,7 @@ class TestContainerController(unittest.TestCase):
         put_shard_ranges(shard_ranges + [own_sr, overlap])
 
         # do *not* expect own shard range in default case (no states param)
-        ts_now = next(self.ts)
+        ts_now = self.ts()
         expected = [dict(sr, last_modified=sr.timestamp.isoformat)
                     for sr in [overlap] + shard_ranges]
         resp = do_test(ts_now, {})
@@ -3582,12 +3582,12 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(expected, json.loads(resp.body))
 
         # update shards to all shrinking and root to active
-        shard_ranges[-1].update_state(ShardRange.SHRINKING, next(self.ts))
-        own_sr.update_state(ShardRange.ACTIVE, next(self.ts))
+        shard_ranges[-1].update_state(ShardRange.SHRINKING, self.ts())
+        own_sr.update_state(ShardRange.ACTIVE, self.ts())
         put_shard_ranges(shard_ranges + [own_sr])
 
         # do *not* expect own shard range in default case (no states param)
-        ts_now = next(self.ts)
+        ts_now = self.ts()
         expected = [dict(sr, last_modified=sr.timestamp.isoformat)
                     for sr in [overlap] + shard_ranges]
         resp = do_test(ts_now, {})
@@ -3614,20 +3614,20 @@ class TestContainerController(unittest.TestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                ShardRange('.shards_a/c_%s' % upper, self.ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=next(self.ts),
-                           state=state, state_timestamp=next(self.ts)))
+                           meta_timestamp=self.ts(),
+                           state=state, state_timestamp=self.ts()))
             lower = upper
         expected_sr = [
             sr for sr in shard_ranges if sr.state in expected_states]
-        own_shard_range = ShardRange(path, next(self.ts), '', '',
+        own_shard_range = ShardRange(path, self.ts(), '', '',
                                      state=ShardRange.ACTIVE)
         filler_sr = own_shard_range.copy(lower=expected_sr[-1].upper)
         expected_sr.append(filler_sr)
         expected_ns = [{'name': sr.name, 'lower': sr.lower_str,
                         'upper': sr.upper_str} for sr in expected_sr]
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
 
         # create container
         req = Request.blank(
@@ -3635,7 +3635,7 @@ class TestContainerController(unittest.TestCase):
         self.assertIn(
             req.get_response(self.controller).status_int, (201, 202))
         # PUT some shard ranges
-        headers = {'X-Timestamp': next(self.ts).normal,
+        headers = {'X-Timestamp': self.ts().normal,
                    'X-Container-Sysmeta-Shard-Root': root_path,
                    'X-Backend-Record-Type': 'shard'}
         body = json.dumps(
@@ -3749,24 +3749,24 @@ class TestContainerController(unittest.TestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, next(self.ts),
+                ShardRange('.shards_a/c_%s' % upper, self.ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=next(self.ts),
-                           state=state, state_timestamp=next(self.ts)))
+                           meta_timestamp=self.ts(),
+                           state=state, state_timestamp=self.ts()))
             lower = upper
         expected_sr = [
             sr for sr in shard_ranges if sr.state in expected_states]
-        own_shard_range = ShardRange(path, next(self.ts), '', '',
+        own_shard_range = ShardRange(path, self.ts(), '', '',
                                      100, 1000,
-                                     meta_timestamp=next(self.ts),
+                                     meta_timestamp=self.ts(),
                                      state=ShardRange.ACTIVE,
-                                     state_timestamp=next(self.ts),
-                                     epoch=next(self.ts))
+                                     state_timestamp=self.ts(),
+                                     epoch=self.ts())
         filler_sr = own_shard_range.copy(lower=expected_sr[-1].upper)
         expected_sr.append(filler_sr)
         expected_ns = [{'name': sr.name, 'lower': sr.lower_str,
                         'upper': sr.upper_str} for sr in expected_sr]
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
 
         # create container
         req = Request.blank(
@@ -3774,7 +3774,7 @@ class TestContainerController(unittest.TestCase):
         self.assertIn(
             req.get_response(self.controller).status_int, (201, 202))
         # PUT some shard ranges
-        headers = {'X-Timestamp': next(self.ts).normal,
+        headers = {'X-Timestamp': self.ts().normal,
                    'X-Container-Sysmeta-Shard-Root': root_path,
                    'X-Backend-Record-Type': 'shard'}
         body = json.dumps(
@@ -3859,7 +3859,7 @@ class TestContainerController(unittest.TestCase):
 
     def _do_create_container_for_GET_namespaces(self):
         # make a container
-        ts_put = next(self.ts)
+        ts_put = self.ts()
         headers = {'X-Timestamp': ts_put.normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
@@ -3871,10 +3871,10 @@ class TestContainerController(unittest.TestCase):
                         ('yoghurt', '', ShardRange.FOUND),
                         ]
         shard_ranges = [
-            ShardRange('.sharded_a/_%s' % upper, next(self.ts),
+            ShardRange('.sharded_a/_%s' % upper, self.ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=next(self.ts),
-                       state=state, state_timestamp=next(self.ts))
+                       i * 100, i * 1000, meta_timestamp=self.ts(),
+                       state=state, state_timestamp=self.ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
@@ -3994,12 +3994,12 @@ class TestContainerController(unittest.TestCase):
     def test_GET_auto_record_type(self):
         # make a container
         ts_now = Timestamp.now()  # used when mocking Timestamp.now()
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
         # PUT some objects
         objects = [{'name': 'obj_%d' % i,
-                    'x-timestamp': next(self.ts).normal,
+                    'x-timestamp': self.ts().normal,
                     'x-content-type': 'text/plain',
                     'x-etag': 'etag_%d' % i,
                     'x-size': 1024 * i
@@ -4014,10 +4014,10 @@ class TestContainerController(unittest.TestCase):
         shard_bounds = [('', 'm', ShardRange.CLEAVED),
                         ('m', '', ShardRange.CREATED)]
         shard_ranges = [
-            ShardRange('.sharded_a/_%s' % upper, next(self.ts),
+            ShardRange('.sharded_a/_%s' % upper, self.ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=next(self.ts),
-                       state=state, state_timestamp=next(self.ts))
+                       i * 100, i * 1000, meta_timestamp=self.ts(),
+                       state=state, state_timestamp=self.ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
@@ -4087,7 +4087,7 @@ class TestContainerController(unittest.TestCase):
         self.assertEqual(headers, resp.headers)
 
         # move to sharding state
-        broker.enable_sharding(next(self.ts))
+        broker.enable_sharding(self.ts())
         self.assertTrue(broker.set_sharding_state())
         req = Request.blank('/sda1/p/a/c?format=json', method='GET',
                             headers={'X-Backend-Record-Type': 'auto'})
@@ -4142,13 +4142,13 @@ class TestContainerController(unittest.TestCase):
 
     def test_PUT_GET_object_to_sharding_container(self):
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
 
         def do_update(name, timestamp=None, headers=None):
             # Make a PUT request to container controller to update an object
-            timestamp = timestamp or next(self.ts)
+            timestamp = timestamp or self.ts()
             headers = headers or {}
             headers.update({'X-Timestamp': timestamp.internal,
                             'X-Size': 17,
@@ -4182,7 +4182,7 @@ class TestContainerController(unittest.TestCase):
         assert_broker_rows(broker, ['unsharded'], 1)
 
         # move container to sharding state
-        broker.enable_sharding(next(self.ts))
+        broker.enable_sharding(self.ts())
         self.assertTrue(broker.set_sharding_state())
         assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
         assert_broker_rows(broker.get_brokers()[1], [], 1)
@@ -4222,13 +4222,13 @@ class TestContainerController(unittest.TestCase):
     def _check_object_update_redirected_to_shard(self, method):
         expected_status = 204 if method == 'DELETE' else 201
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        headers = {'X-Timestamp': next(self.ts).normal}
+        headers = {'X-Timestamp': self.ts().normal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
 
         def do_update(name, timestamp=None, headers=None):
             # Make a PUT request to container controller to update an object
-            timestamp = timestamp or next(self.ts)
+            timestamp = timestamp or self.ts()
             headers = headers or {}
             headers.update({'X-Timestamp': timestamp.internal,
                             'X-Size': 17,
@@ -4259,7 +4259,7 @@ class TestContainerController(unittest.TestCase):
                              resp.headers['X-Backend-Redirect-Timestamp'])
 
         # sanity check
-        ts_bashful_orig = next(self.ts)
+        ts_bashful_orig = self.ts()
         mocked_fn = 'swift.container.backend.ContainerBroker.get_shard_ranges'
         with mock.patch(mocked_fn) as mock_get_shard_ranges:
             assert_not_redirected('bashful', ts_bashful_orig)
@@ -4267,10 +4267,10 @@ class TestContainerController(unittest.TestCase):
 
         shard_ranges = {
             'dopey': ShardRange(
-                '.sharded_a/sr_dopey', next(self.ts), '', 'dopey'),
+                '.sharded_a/sr_dopey', self.ts(), '', 'dopey'),
             'happy': ShardRange(
-                '.sharded_a/sr_happy', next(self.ts), 'dopey', 'happy'),
-            '': ShardRange('.sharded_a/sr_', next(self.ts), 'happy', '')
+                '.sharded_a/sr_happy', self.ts(), 'dopey', 'happy'),
+            '': ShardRange('.sharded_a/sr_', self.ts(), 'happy', '')
         }
         # start with only the middle shard range
         self._put_shard_range(shard_ranges['happy'])
@@ -4284,7 +4284,7 @@ class TestContainerController(unittest.TestCase):
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=next(self.ts)))
+                                      state_timestamp=self.ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'grumpy%s' % state
@@ -4304,12 +4304,12 @@ class TestContainerController(unittest.TestCase):
                               [obj['name'] for obj in get_listing(-1)])
 
         # set broker to sharding state
-        broker.enable_sharding(next(self.ts))
+        broker.enable_sharding(self.ts())
         self.assertTrue(broker.set_sharding_state())
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=next(self.ts)))
+                                      state_timestamp=self.ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'grumpier%s' % state
@@ -4336,19 +4336,19 @@ class TestContainerController(unittest.TestCase):
 
         # no shard for this object yet so it is accepted by root container
         # and stored in misplaced objects...
-        assert_not_redirected('dopey', timestamp=next(self.ts))
+        assert_not_redirected('dopey', timestamp=self.ts())
         self.assertIn('dopey', [obj['name'] for obj in get_listing(-1)])
         self.assertNotIn('dopey', [obj['name'] for obj in get_listing(0)])
 
         # now PUT the first shard range
         sr_dopey = shard_ranges['dopey']
         sr_dopey.update_state(ShardRange.CLEAVED,
-                              state_timestamp=next(self.ts))
+                              state_timestamp=self.ts())
         self._put_shard_range(sr_dopey)
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=next(self.ts)))
+                                      state_timestamp=self.ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'dopey%s' % state
@@ -4386,7 +4386,7 @@ class TestContainerController(unittest.TestCase):
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=next(self.ts)))
+                                      state_timestamp=self.ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'grumpiest%s' % state
@@ -5345,7 +5345,7 @@ class TestContainerController(unittest.TestCase):
 
     def _report_objects(self, path, objects):
         req = Request.blank(path, method='PUT', headers={
-            'x-timestamp': next(self.ts).internal})
+            'x-timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int // 100, 2, resp.body)
         for obj in objects:
@@ -5373,7 +5373,7 @@ class TestContainerController(unittest.TestCase):
             'bytes': 8,
             'content_type': 'application/octet-stream',
             'hash': '70c1db56f301c9e337b0099bd4174b28',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }]
         path = '/sda1/p/a/%s' % get_reserved_name('null')
         self._report_objects(path, objects)
@@ -5397,13 +5397,13 @@ class TestContainerController(unittest.TestCase):
             'bytes': 8,
             'content_type': 'application/octet-stream',
             'hash': '70c1db56f301c9e337b0099bd4174b28',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 8,
             'content_type': 'application/octet-stream',
             'hash': '70c1db56f301c9e337b0099bd4174b28',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }]
         path = '/sda1/p/a/%s' % get_reserved_name('null')
         self._report_objects(path, objects)
@@ -5440,13 +5440,13 @@ class TestContainerController(unittest.TestCase):
             'bytes': 8,
             'content_type': 'application/octet-stream',
             'hash': '70c1db56f301c9e337b0099bd4174b28',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 10,
             'content_type': 'application/octet-stream',
             'hash': '912ec803b2ce49e4a541068d495ab570',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }]
         path = '/sda1/p/a/%s' % get_reserved_name('null')
         self._report_objects(path, objects)
@@ -5490,25 +5490,25 @@ class TestContainerController(unittest.TestCase):
             'bytes': 8,
             'content_type': 'application/octet-stream',
             'hash': '70c1db56f301c9e337b0099bd4174b28',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 10,
             'content_type': 'application/octet-stream',
             'hash': '912ec803b2ce49e4a541068d495ab570',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('null', 'foo'),
             'bytes': 12,
             'content_type': 'application/octet-stream',
             'hash': 'acbd18db4cc2f85cedef654fccc4a4d8',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('nullish'),
             'bytes': 13,
             'content_type': 'application/octet-stream',
             'hash': '37b51d194a7513e45b56f6524f2d51f2',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }]
         path = '/sda1/p/a/%s' % get_reserved_name('null')
         self._report_objects(path, objects)
@@ -5535,25 +5535,25 @@ class TestContainerController(unittest.TestCase):
             'bytes': 8,
             'content_type': 'application/octet-stream',
             'hash': '70c1db56f301c9e337b0099bd4174b28',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('null', 'test02'),
             'bytes': 10,
             'content_type': 'application/octet-stream',
             'hash': '912ec803b2ce49e4a541068d495ab570',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('null', 'foo'),
             'bytes': 12,
             'content_type': 'application/octet-stream',
             'hash': 'acbd18db4cc2f85cedef654fccc4a4d8',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }, {
             'name': get_reserved_name('nullish'),
             'bytes': 13,
             'content_type': 'application/octet-stream',
             'hash': '37b51d194a7513e45b56f6524f2d51f2',
-            'timestamp': next(self.ts),
+            'timestamp': self.ts(),
         }]
         path = '/sda1/p/a/%s' % get_reserved_name('null')
         self._report_objects(path, objects)
@@ -5962,7 +5962,7 @@ class TestContainerController(unittest.TestCase):
                 dict((k, v) for k, v in captured_args.items()
                      if v is not None))
 
-        ts_put = next(self.ts)
+        ts_put = self.ts()
         req = Request.blank(
             '/sda1/p/a/c',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -6140,7 +6140,7 @@ class TestContainerController(unittest.TestCase):
                    'SERVER_NAME': '127.0.0.1',
                    'SERVER_PORT': '8080',
                    'SERVER_PROTOCOL': 'HTTP/1.0',
-                   'HTTP_X_TIMESTAMP': next(self.ts).internal,
+                   'HTTP_X_TIMESTAMP': self.ts().internal,
                    'CONTENT_LENGTH': '0',
                    'wsgi.version': (1, 0),
                    'wsgi.url_scheme': 'http',

@@ -23,13 +23,12 @@ from swift.common.request_helpers import get_reserved_name
 from swift.common.middleware import symlink
 from swift.common.middleware.versioned_writes import object_versioning as ov
 
-from test.unit import make_timestamp_iter
 from test.unit.common.middleware.test_slo import slo, md5hex
 from test.unit.common.middleware.s3api import (
     S3ApiTestCase, S3ApiTestCaseAcl, _gen_test_headers)
 
 
-def _prepare_mpu(swift, ts_iter, upload_id, num_segments,
+def _prepare_mpu(swift, ts_func, upload_id, num_segments,
                  segment_bucket='bucket+segments', segment_key='mpu'):
     manifest = []
     for i, letter in enumerate(string.ascii_lowercase):
@@ -48,7 +47,7 @@ def _prepare_mpu(swift, ts_iter, upload_id, num_segments,
             "bytes": size,
             "hash": etag,
             "content_type": "application/octet-stream",
-            "last_modified": next(ts_iter).isoformat,
+            "last_modified": ts_func().isoformat,
         })
     slo_etag = md5hex(''.join(s['hash'] for s in manifest))
     s3_hash = md5hex(binascii.a2b_hex(''.join(
@@ -76,12 +75,11 @@ class TestMpuGETorHEAD(S3ApiTestCase):
 
     def _wrap_app(self, app):
         self.slo = slo.filter_factory({'rate_limit_under_size': '0'})(app)
-        return super(TestMpuGETorHEAD, self)._wrap_app(self.slo)
+        return super()._wrap_app(self.slo)
 
     def setUp(self):
         # this will call our _wrap_app
-        super(TestMpuGETorHEAD, self).setUp()
-        self.ts = make_timestamp_iter()
+        super().setUp()
         manifest_headers, manifest_json = _prepare_mpu(
             self.swift, self.ts, 'X', 3)
         self.s3_etag = manifest_headers['X-Object-Sysmeta-S3Api-Etag']
@@ -330,7 +328,7 @@ class TestMpuGETorHEAD(S3ApiTestCase):
 class TestMpuGETorHEADAcl(TestMpuGETorHEAD, S3ApiTestCaseAcl):
 
     def setUp(self):
-        super(TestMpuGETorHEADAcl, self).setUp()
+        super().setUp()
         object_headers = _gen_test_headers(
             self.default_owner, self.grants, 'object')
         self.swift.update_sticky_response_headers(
@@ -353,8 +351,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
 
     def setUp(self):
         # this will call our _wrap_app
-        super(TestVersionedMpuGETorHEAD, self).setUp()
-        self.ts = make_timestamp_iter()
+        super().setUp()
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments',
                             swob.HTTPNoContent, {}, None)
         versions_container = get_reserved_name('versions', 'bucket')
@@ -372,7 +369,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             num_segments = 3 + v
             manifest_headers, manifest_json = _prepare_mpu(
                 self.swift, self.ts, upload_id, num_segments)
-            version_ts = next(self.ts)
+            version_ts = self.ts()
             # add in a little user-meta to keep versions stright
             manifest_version_headers = dict(manifest_headers, **{
                 'x-object-meta-user-notes': 'version%s' % v,
@@ -647,7 +644,7 @@ class TestVersionedMpuGETorHEADAcl(TestVersionedMpuGETorHEAD,
                                    S3ApiTestCaseAcl):
 
     def setUp(self):
-        super(TestVersionedMpuGETorHEADAcl, self).setUp()
+        super().setUp()
         object_headers = _gen_test_headers(
             self.default_owner, self.grants, 'object')
         for version_id in self.version_ids:

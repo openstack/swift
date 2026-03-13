@@ -43,20 +43,19 @@ from swift.common.http import is_success
 from swift.common.middleware.mpu import ObjectRef
 from swift.common.object_ref import HistoryId
 from swift.obj.expirer import ExpirerConfig
-from test import listen_zero, BaseTestCase
+from test import listen_zero
 from test.debug_logger import debug_logger, FakeStatsdClient, \
     FakeLabeledStatsdClient
 from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
     connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
-    mock_check_drive, FakeRing
+    mock_check_drive, FakeRing, BaseUnitTestCase
 from swift.obj import server as object_server
 from swift.obj import updater, diskfile
 from swift.common import utils, bufferedhttp, http_protocol
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
-    NullLogger, storage_directory, public, replication, encode_timestamps, \
-    Timestamp, md5
+from swift.common.utils import hash_path, mkdirs, NullLogger, \
+    storage_directory, public, replication, encode_timestamps, Timestamp, md5
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
 from swift.common.statsd_client import LabeledStatsdClient
@@ -148,11 +147,12 @@ class SameReqEnv(object):
 
 
 @patch_policies(test_policies)
-class TestObjectController(BaseTestCase):
+class TestObjectController(BaseUnitTestCase):
     """Test swift.obj.server.ObjectController"""
 
     def setUp(self):
         """Set up for testing swift.object.server.ObjectController"""
+        super().setUp()
         skip_if_no_xattrs()
         utils.HASH_PATH_SUFFIX = b'endcap'
         utils.HASH_PATH_PREFIX = b'startcap'
@@ -172,7 +172,6 @@ class TestObjectController(BaseTestCase):
         self.df_mgr = diskfile.DiskFileManager(self.conf,
                                                self.object_controller.logger)
 
-        self.ts = make_timestamp_iter()
         self.ec_policies = [p for p in POLICIES if p.policy_type == EC_POLICY]
         self.container_ring = FakeRing()
 
@@ -220,7 +219,7 @@ class TestObjectController(BaseTestCase):
 
         for method in ["PUT", "GET", "POST", "HEAD", "DELETE"]:
             in_body, res, out_body = op_table[method]
-            timestamp = normalize_timestamp(time())
+            timestamp = self.ts().internal
             req = Request.blank(
                 path, environ={'REQUEST_METHOD': method},
                 headers={'X-Timestamp': timestamp,
@@ -249,7 +248,7 @@ class TestObjectController(BaseTestCase):
         return statsd_client, statsd, resp
 
     def test_legacy_and_labeled_timing_stats_get_success(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         headers = {'X-Timestamp': timestamp,
                    'Content-Type': 'text/plain'}
 
@@ -282,7 +281,7 @@ class TestObjectController(BaseTestCase):
         }, statsd.calls)
 
     def test_legacy_and_labeled_timing_stats_put_post_success(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         headers = {'X-Timestamp': timestamp,
                    'Content-Type': 'text/plain'}
 
@@ -308,7 +307,7 @@ class TestObjectController(BaseTestCase):
             })]
         }, statsd.calls)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         headers['X-Timestamp'] = timestamp
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
@@ -331,7 +330,7 @@ class TestObjectController(BaseTestCase):
         }, statsd.calls)
 
     def test_legacy_and_labeled_timing_stats_head_success(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         headers = {'X-Timestamp': timestamp,
                    'Content-Type': 'text/plain'}
 
@@ -364,7 +363,7 @@ class TestObjectController(BaseTestCase):
         }, statsd.calls)
 
     def test_legacy_and_labeled_timing_stats_delete_success(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         headers = {'X-Timestamp': timestamp,
                    'Content-Type': 'text/plain'}
 
@@ -375,7 +374,7 @@ class TestObjectController(BaseTestCase):
             self.conf, req, now)
         self.assertEqual(resp.status_int, 201)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': timestamp})
@@ -509,7 +508,7 @@ class TestObjectController(BaseTestCase):
             req, additional_labels={'account': 'a', 'container': 'c', })
 
     def test_legacy_and_labeled_timing_stats_put_error(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         headers = {'X-Timestamp': timestamp,
                    'Content-Type': 'text/plain'}
 
@@ -519,7 +518,7 @@ class TestObjectController(BaseTestCase):
             req, additional_labels={'account': 'a', 'container': 'c', })
 
     def test_legacy_and_labeled_timing_stats_post_error(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         headers = {'X-Timestamp': timestamp,
                    'Content-Type': 'text/plain'}
 
@@ -537,7 +536,7 @@ class TestObjectController(BaseTestCase):
             additional_labels={'account': 'a', 'container': 'c', })
 
     def test_legacy_and_labeled_timing_stats_delete_error(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
             headers={'X-Timestamp': timestamp,
@@ -652,7 +651,7 @@ class TestObjectController(BaseTestCase):
         original_headers = self.object_controller.allowed_headers
         test_headers = 'content-encoding foo bar'.split()
         self.object_controller.allowed_headers = set(test_headers)
-        put_timestamp = next(self.ts)
+        put_timestamp = self.ts()
         headers = {'X-Timestamp': put_timestamp.internal,
                    'Content-Type': 'application/x-test',
                    'Foo': 'fooheader',
@@ -673,7 +672,7 @@ class TestObjectController(BaseTestCase):
             'Etag': etag,
         })
 
-        post_timestamp = next(self.ts)
+        post_timestamp = self.ts()
         headers = {'X-Timestamp': post_timestamp.internal,
                    'X-Object-Meta-3': 'Three',
                    'X-Object-Meta-4': 'Four',
@@ -721,7 +720,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(dict(resp.headers), expected_headers)
 
-        post_timestamp = next(self.ts)
+        post_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': post_timestamp.internal,
@@ -752,7 +751,7 @@ class TestObjectController(BaseTestCase):
 
         # test defaults
         self.object_controller.allowed_headers = original_headers
-        put_timestamp = next(self.ts)
+        put_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': put_timestamp.internal,
                                      'Content-Type': 'application/x-test',
@@ -795,7 +794,7 @@ class TestObjectController(BaseTestCase):
             'Last-Modified': date_header_format(put_timestamp),
         })
 
-        post_timestamp = next(self.ts)
+        post_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': post_timestamp.internal,
@@ -828,7 +827,7 @@ class TestObjectController(BaseTestCase):
         })
 
         # Test for empty metadata
-        post_timestamp = next(self.ts)
+        post_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': post_timestamp.internal,
@@ -860,8 +859,8 @@ class TestObjectController(BaseTestCase):
         })
 
     def test_POST_old_timestamp(self):
-        ts = time()
-        orig_timestamp = utils.Timestamp(ts).internal
+        older_timestamp = self.ts().internal
+        orig_timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': orig_timestamp,
                                      'Content-Type': 'application/x-test',
@@ -884,10 +883,9 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
         # Earlier timestamp should result in 409
-        timestamp = normalize_timestamp(ts - 1)
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
-                            headers={'X-Timestamp': timestamp,
+                            headers={'X-Timestamp': older_timestamp,
                                      'X-Object-Meta-5': 'Five',
                                      'X-Object-Meta-6': 'Six',
                                      'Content-Encoding': 'gzip',
@@ -897,7 +895,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'], orig_timestamp)
 
     def test_POST_conflicts_with_later_POST(self):
-        t_put = next(self.ts).internal
+        t_put = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -906,8 +904,8 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_post1 = next(self.ts).internal
-        t_post2 = next(self.ts).internal
+        t_post1 = self.ts().internal
+        t_post2 = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post2})
@@ -934,8 +932,8 @@ class TestObjectController(BaseTestCase):
         # a concurrent request may cause ondisk files to be removed between the
         # time they were listed and the time they were opened; verify that
         # appropriate response is returned to the client
-        t_put = next(self.ts).internal
-        t_post = next(self.ts).internal
+        t_put = self.ts().internal
+        t_post = self.ts().internal
 
         # PUT
         req = Request.blank('/sda1/p/a/c/o',
@@ -957,9 +955,9 @@ class TestObjectController(BaseTestCase):
         other_reqs = [Request.blank('/sda1/p/a/c/o',
                                     environ={'REQUEST_METHOD': 'POST'},
                                     headers={
-                                        'X-Timestamp': next(self.ts).internal,
+                                        'X-Timestamp': self.ts().internal,
                                         'X-Object-Meta-Test': 'other'})]
-        test_req.headers['X-Timestamp'] = next(self.ts).internal
+        test_req.headers['X-Timestamp'] = self.ts().internal
 
         # test requests concurrent with an on-disk file being unlinked...
         orig_read_metadata = diskfile._read_file_metadata
@@ -989,7 +987,7 @@ class TestObjectController(BaseTestCase):
         # HEAD
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'HEAD'},
-                            headers={'X-Timestamp': next(self.ts).internal})
+                            headers={'X-Timestamp': self.ts().internal})
         head_resp = req.get_response(self.object_controller)
         return resp, head_resp
 
@@ -1044,7 +1042,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual('other', head_resp.headers.get('X-Object-Meta-Test'))
 
     def test_POST_not_exist(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/fail',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': timestamp,
@@ -1055,7 +1053,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 404)
 
     def test_POST_invalid_path(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c', environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': timestamp,
                                      'X-Object-Meta-1': 'One',
@@ -1109,11 +1107,9 @@ class TestObjectController(BaseTestCase):
 
             return lambda *args, **kwargs: FakeConn(calls, response, with_exc)
 
-        ts = time()
-        timestamp = normalize_timestamp(ts)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': timestamp,
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Type': 'text/plain',
                      'Content-Length': '0'})
         resp = req.get_response(self.object_controller)
@@ -1121,7 +1117,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(ts + 1),
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Container-Host': '1.2.3.4:0',
                      'X-Container-Partition': '3',
                      'X-Container-Device': 'sda1',
@@ -1135,7 +1131,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(ts + 2),
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Container-Host': '1.2.3.4:0',
                      'X-Container-Partition': '3',
                      'X-Container-Device': 'sda1',
@@ -1149,7 +1145,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(ts + 3),
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Container-Host': '1.2.3.4:0',
                      'X-Container-Partition': '3',
                      'X-Container-Device': 'sda1',
@@ -1163,7 +1159,7 @@ class TestObjectController(BaseTestCase):
 
     def _test_POST_container_updates(self, policy, update_etag=None):
         # Test that POST requests result in correct calls to container_update
-        t = [next(self.ts) for _ in range(0, 5)]
+        t = [self.ts() for _ in range(0, 5)]
         calls_made = []
         update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
 
@@ -1383,7 +1379,7 @@ class TestObjectController(BaseTestCase):
                                       headers_out, objdevice, policy):
                 calls_made.append((headers_out, policy))
             calls_made = []
-            ts_put = next(self.ts)
+            ts_put = self.ts()
 
             # make PUT with given headers and verify correct etag is sent in
             # container update
@@ -1417,7 +1413,7 @@ class TestObjectController(BaseTestCase):
 
             # make a POST and verify container update has the same etag
             calls_made = []
-            ts_post = next(self.ts)
+            ts_post = self.ts()
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
                 headers={'X-Timestamp': ts_post.internal,
@@ -1476,7 +1472,7 @@ class TestObjectController(BaseTestCase):
             raise Exception('test')
 
         device_dir = os.path.join(self.testdir, 'sda1')
-        t_put = next(self.ts)
+        t_put = self.ts()
         update_etag = update_etag or '098f6bcd4621d373cade4e832627b4f6'
 
         put_headers = {
@@ -1531,7 +1527,7 @@ class TestObjectController(BaseTestCase):
 
         # POST with newer metadata returns success and container update
         # is expected
-        t_post = next(self.ts)
+        t_post = self.ts()
         post_headers = {
             'X-Trans-Id': 'post_trans_id',
             'X-Timestamp': t_post.internal,
@@ -1627,7 +1623,7 @@ class TestObjectController(BaseTestCase):
         # is persisted in the async pending file.
         policy = POLICIES[0]
         device_dir = os.path.join(self.testdir, 'sda1')
-        t_put = next(self.ts)
+        t_put = self.ts()
         update_etag = '098f6bcd4621d373cade4e832627b4f6'
 
         put_headers = {
@@ -1661,7 +1657,7 @@ class TestObjectController(BaseTestCase):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=put_headers, body=b'test')
         resp_headers = {'Location': '/.sharded_a/c_shard_1/o',
-                        'X-Backend-Redirect-Timestamp': next(self.ts).internal}
+                        'X-Backend-Redirect-Timestamp': self.ts().internal}
 
         with mocked_http_conn(301, headers=[resp_headers]) as conn, \
                 mock.patch('swift.common.utils.HASH_PATH_PREFIX', b''), \
@@ -1736,7 +1732,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_custom_async_update(self):
         policy = POLICIES[0]
         device_dir = os.path.join(self.testdir, 'sda1')
-        t_put = next(self.ts)
+        t_put = self.ts()
         account = 'a'
         container = 'c'
         obj = 'o'
@@ -1834,7 +1830,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_custom_container_update_without_hosts(self):
         policy = POLICIES[0]
         device_dir = os.path.join(self.testdir, 'sda1')
-        t_put = next(self.ts)
+        t_put = self.ts()
         account = 'a'
         container = 'c'
         obj = 'o'
@@ -1946,7 +1942,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(exp_update_requests, conn.requests)
 
     def test_POST_quarantine_zbyte(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -1968,7 +1964,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(time())})
+            headers={'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
 
@@ -1998,7 +1994,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_no_content_type(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '6'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
@@ -2007,7 +2003,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_invalid_content_type(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '6',
                      'Content-Type': '\xff\xff'})
         req.body = 'VERIFY'
@@ -2018,7 +2014,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_no_content_length(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Type': 'application/octet-stream'})
         req.body = 'VERIFY'
         del req.headers['Content-Length']
@@ -2028,7 +2024,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_zero_content_length(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Type': 'application/octet-stream'})
         req.body = ''
         self.assertEqual(req.headers['Content-Length'], '0')
@@ -2038,7 +2034,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_bad_transfer_encoding(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Type': 'application/octet-stream'})
         req.body = 'VERIFY'
         req.headers['Transfer-Encoding'] = 'bad'
@@ -2049,7 +2045,7 @@ class TestObjectController(BaseTestCase):
         # First PUT should succeed
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(self.ts).normal,
+            headers={'X-Timestamp': self.ts().normal,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream',
                      'If-None-Match': '*'})
@@ -2059,7 +2055,7 @@ class TestObjectController(BaseTestCase):
         # File should already exist so it should fail
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(self.ts).normal,
+            headers={'X-Timestamp': self.ts().normal,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream',
                      'If-None-Match': '*'})
@@ -2069,13 +2065,13 @@ class TestObjectController(BaseTestCase):
 
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'X-Timestamp': next(self.ts).normal})
+                            headers={'X-Timestamp': self.ts().normal})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 204)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': next(self.ts).normal,
+            headers={'X-Timestamp': self.ts().normal,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream',
                      'If-None-Match': '*'})
@@ -2085,7 +2081,7 @@ class TestObjectController(BaseTestCase):
 
     def test_PUT_if_none_match(self):
         # PUT with if-none-match set and nothing there should succeed
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2096,7 +2092,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         # PUT with if-none-match of the object etag should fail
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2126,10 +2122,10 @@ class TestObjectController(BaseTestCase):
         return headers
 
     def test_PUT_if_none_match_but_expired(self):
-        inital_put = next(self.ts)
-        put_before_expire = next(self.ts)
-        delete_at_timestamp = int(next(self.ts))
-        put_after_expire = next(self.ts)
+        inital_put = self.ts()
+        put_before_expire = self.ts()
+        delete_at_timestamp = int(self.ts())
+        put_after_expire = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
@@ -2164,7 +2160,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 201)
 
     def test_PUT_common(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2202,14 +2198,14 @@ class TestObjectController(BaseTestCase):
     def test_PUT_overwrite(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'VERIFY'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         sleep(.00001)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2234,8 +2230,8 @@ class TestObjectController(BaseTestCase):
                           'Content-Encoding': 'gzip'})
 
     def test_PUT_overwrite_to_older_ts_success(self):
-        old_timestamp = next(self.ts)
-        new_timestamp = next(self.ts)
+        old_timestamp = self.ts()
+        new_timestamp = self.ts()
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
@@ -2271,8 +2267,8 @@ class TestObjectController(BaseTestCase):
              'Content-Encoding': 'gzip'})
 
     def test_PUT_overwrite_to_newer_ts_failed(self):
-        old_timestamp = next(self.ts)
-        new_timestamp = next(self.ts)
+        old_timestamp = self.ts()
+        new_timestamp = self.ts()
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
@@ -2316,7 +2312,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_overwrite_w_delete_at(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'X-Delete-At': 9999999999,
                      'Content-Length': '6',
                      'Content-Type': 'application/octet-stream'})
@@ -2324,7 +2320,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
         sleep(.00001)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2349,8 +2345,8 @@ class TestObjectController(BaseTestCase):
                           'Content-Encoding': 'gzip'})
 
     def test_PUT_old_timestamp(self):
-        older_timestamp = next(self.ts)
-        orig_timestamp = next(self.ts)
+        older_timestamp = self.ts()
+        orig_timestamp = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': orig_timestamp.internal,
@@ -2423,7 +2419,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_no_etag(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Type': 'text/plain'})
         req.body = 'test'
         resp = req.get_response(self.object_controller)
@@ -2432,7 +2428,7 @@ class TestObjectController(BaseTestCase):
     def test_PUT_invalid_etag(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Type': 'text/plain',
                      'ETag': 'invalid'})
         req.body = 'test'
@@ -2440,7 +2436,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 422)
 
     def test_PUT_user_metadata(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2468,7 +2464,7 @@ class TestObjectController(BaseTestCase):
                           'X-Object-Meta-Two': 'Two'})
 
     def test_PUT_etag_in_footer(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp,
@@ -2514,7 +2510,7 @@ class TestObjectController(BaseTestCase):
                                   headers_out, objdevice, policy):
             calls_made.append((headers_out, policy))
         calls_made = []
-        ts_put = next(self.ts)
+        ts_put = self.ts()
 
         headers = {
             'X-Timestamp': ts_put.internal,
@@ -2609,7 +2605,7 @@ class TestObjectController(BaseTestCase):
         self._check_container_override_etag_preference(headers, footers)
 
     def test_PUT_etag_in_footer_mismatch(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp,
@@ -2640,7 +2636,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 422)
 
     def test_PUT_meta_in_footer(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp,
@@ -2674,7 +2670,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp},
@@ -2684,7 +2680,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.headers.get('X-Object-Sysmeta-X'), 'Y')
 
     def test_PUT_missing_footer_checksum(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp,
@@ -2714,7 +2710,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 400)
 
     def test_PUT_bad_footer_checksum(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp,
@@ -2747,7 +2743,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 422)
 
     def test_PUT_bad_footer_json(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp,
@@ -2777,7 +2773,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 400)
 
     def test_PUT_extra_mime_docs_ignored(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             headers={'X-Timestamp': timestamp,
@@ -2817,7 +2813,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(wsgi_input.tell(), len(wsgi_input.getvalue()))
 
     def test_PUT_user_metadata_no_xattr(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2846,7 +2842,7 @@ class TestObjectController(BaseTestCase):
                 pass
 
         with mock.patch.object(object_server, 'ChunkReadTimeout', FakeTimeout):
-            timestamp = normalize_timestamp(time())
+            timestamp = self.ts().internal
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                 headers={'X-Timestamp': timestamp,
@@ -2865,7 +2861,7 @@ class TestObjectController(BaseTestCase):
                 # that inherits from ValueError)
                 raise ValueError
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2877,7 +2873,7 @@ class TestObjectController(BaseTestCase):
 
     def test_PUT_system_metadata(self):
         # check that sysmeta is stored in diskfile
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp,
@@ -2909,7 +2905,7 @@ class TestObjectController(BaseTestCase):
                           'X-Object-Transient-Sysmeta-Foo': 'Bar'})
 
     def test_PUT_succeeds_with_later_POST(self):
-        t_put = next(self.ts).internal
+        t_put = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -2918,8 +2914,8 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_put2 = next(self.ts).internal
-        t_post = next(self.ts).internal
+        t_put2 = self.ts().internal
+        t_post = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post})
@@ -2947,7 +2943,7 @@ class TestObjectController(BaseTestCase):
 
     def test_POST_system_metadata(self):
         # check that diskfile sysmeta is not changed by a POST
-        timestamp1 = normalize_timestamp(time())
+        timestamp1 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp1,
@@ -2960,7 +2956,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        timestamp2 = normalize_timestamp(time())
+        timestamp2 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': timestamp2,
@@ -3002,7 +2998,7 @@ class TestObjectController(BaseTestCase):
 
     def test_POST_then_fetch_content_type(self):
         # check that content_type is updated by a POST
-        timestamp1 = next(self.ts)
+        timestamp1 = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp1.internal,
@@ -3013,7 +3009,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        timestamp2 = next(self.ts)
+        timestamp2 = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': timestamp2.internal,
@@ -3078,7 +3074,7 @@ class TestObjectController(BaseTestCase):
 
     def test_POST_transient_sysmeta(self):
         # check that diskfile transient system meta is changed by a POST
-        timestamp1 = normalize_timestamp(time())
+        timestamp1 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp1,
@@ -3091,7 +3087,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        timestamp2 = normalize_timestamp(time())
+        timestamp2 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': timestamp2,
@@ -3133,7 +3129,7 @@ class TestObjectController(BaseTestCase):
                               'X-Object-Transient-Sysmeta-Foo': 'Not Bar'})
 
     def test_PUT_then_fetch_system_metadata(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp.internal,
@@ -3173,7 +3169,7 @@ class TestObjectController(BaseTestCase):
         check_response(resp)
 
     def test_PUT_then_POST_then_fetch_system_metadata(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp.internal,
@@ -3190,7 +3186,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        timestamp2 = next(self.ts)
+        timestamp2 = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
             headers={'X-Timestamp': timestamp2.internal,
@@ -3235,7 +3231,7 @@ class TestObjectController(BaseTestCase):
         # by X-Backend-Replication-Headers
 
         # first PUT object
-        timestamp1 = normalize_timestamp(time())
+        timestamp1 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp1,
@@ -3269,7 +3265,7 @@ class TestObjectController(BaseTestCase):
                           'X-Object-Meta-1': 'meta1'})
 
         # PUT object again with X-Backend-Replication-Headers
-        timestamp2 = normalize_timestamp(time())
+        timestamp2 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp2,
@@ -3328,7 +3324,7 @@ class TestObjectController(BaseTestCase):
 
             return lambda *args, **kwargs: FakeConn(response, with_exc)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -3344,7 +3340,7 @@ class TestObjectController(BaseTestCase):
             with fake_spawn():
                 resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -3360,7 +3356,7 @@ class TestObjectController(BaseTestCase):
             with fake_spawn():
                 resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -3380,7 +3376,7 @@ class TestObjectController(BaseTestCase):
 
     def test_EC_PUT_GET_data(self):
         for policy in self.ec_policies:
-            ts = next(self.ts)
+            ts = self.ts()
             raw_data = (b'VERIFY' * policy.ec_segment_size)[:-432]
             frag_archives = encode_frag_archive_bodies(policy, raw_data)
             frag_index = random.randint(0, len(frag_archives) - 1)
@@ -3415,7 +3411,7 @@ class TestObjectController(BaseTestCase):
 
     def test_EC_PUT_GET_data_no_commit(self):
         for policy in self.ec_policies:
-            ts = next(self.ts)
+            ts = self.ts()
             raw_data = (b'VERIFY' * policy.ec_segment_size)[:-432]
             frag_archives = encode_frag_archive_bodies(policy, raw_data)
             frag_index = random.randint(0, len(frag_archives) - 1)
@@ -3465,7 +3461,7 @@ class TestObjectController(BaseTestCase):
         content_length = len(frag_archives[frag_index])
         # put EC frag archive
         req = Request.blank('/sda1/p/a/c/o', method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'Content-Type': 'application/verify',
             'Content-Length': content_length,
             'X-Object-Sysmeta-Ec-Frag-Index': frag_index,
@@ -3694,8 +3690,8 @@ class TestObjectController(BaseTestCase):
                                   part, hash_path_),
                 timestamp.internal + '.data')
 
-        ts_1 = next(self.ts)
-        ts_2 = next(self.ts)
+        ts_1 = self.ts()
+        ts_2 = self.ts()
         calls = []
         orig_makedirs = os.makedirs
 
@@ -3752,8 +3748,8 @@ class TestObjectController(BaseTestCase):
                                   part, hash_path_),
                 timestamp.internal + '.data')
 
-        ts_1 = next(self.ts)
-        ts_2 = next(self.ts)
+        ts_1 = self.ts()
+        ts_2 = self.ts()
         calls = []
         orig_makedirs = os.makedirs
 
@@ -3856,7 +3852,7 @@ class TestObjectController(BaseTestCase):
 
     def test_HEAD_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -3975,7 +3971,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 404)
         self.assertFalse('X-Backend-Timestamp' in resp.headers)
 
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp.internal,
                                      'Content-Type': 'application/x-test',
@@ -4073,7 +4069,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 404)
 
         sleep(.00001)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': timestamp,
@@ -4084,7 +4080,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 201)
 
         sleep(.00001)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
@@ -4098,7 +4094,7 @@ class TestObjectController(BaseTestCase):
                          utils.Timestamp(timestamp).internal)
 
     def test_GET_range_zero_byte_object(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/zero-byte',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -4114,7 +4110,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 200)
 
     def test_GET_range_not_satisfiable(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/zero-byte',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
@@ -4149,7 +4145,7 @@ class TestObjectController(BaseTestCase):
     def test_GET_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': normalize_timestamp(time()),
+                                'X-Timestamp': self.ts().internal,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4'})
         req.body = b'test'
@@ -4303,7 +4299,7 @@ class TestObjectController(BaseTestCase):
     def test_HEAD_if_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': normalize_timestamp(time()),
+                                'X-Timestamp': self.ts().internal,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4'})
         req.body = b'test'
@@ -4362,7 +4358,7 @@ class TestObjectController(BaseTestCase):
     def test_GET_if_none_match(self):
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': normalize_timestamp(time()),
+                                'X-Timestamp': self.ts().internal,
                                 'X-Object-Meta-Soup': 'gazpacho',
                                 'Content-Type': 'application/fizzbuzz',
                                 'Content-Length': '4'})
@@ -4416,7 +4412,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={
-                                'X-Timestamp': normalize_timestamp(time()),
+                                'X-Timestamp': self.ts().internal,
                                 'Content-Type': 'application/octet-stream',
                                 'Content-Length': '4'})
         req.body = b'test'
@@ -4467,7 +4463,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.etag, etag)
 
     def test_GET_if_modified_since(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': timestamp.internal,
@@ -4510,7 +4506,7 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 304)
 
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={
@@ -4529,7 +4525,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 304)
 
     def test_HEAD_if_modified_since(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': timestamp.internal,
@@ -4577,7 +4573,7 @@ class TestObjectController(BaseTestCase):
         resp = self.object_controller.GET(req)
         self.assertEqual(resp.status_int, 304)
 
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o2',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={
@@ -4596,7 +4592,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 304)
 
     def test_GET_if_unmodified_since(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={
                                 'X-Timestamp': timestamp.internal,
@@ -4644,7 +4640,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 200)
 
     def test_HEAD_if_unmodified_since(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -4689,7 +4685,7 @@ class TestObjectController(BaseTestCase):
     def _create_ondisk_fragments(self, policy):
         # Create some on disk files...
         # PUT at ts_0
-        ts_0 = next(self.ts)
+        ts_0 = self.ts()
         body = b'OLDER'
         headers = {'X-Timestamp': ts_0.internal,
                    'Content-Length': '5',
@@ -4709,7 +4705,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 201)
 
         # POST at ts_1
-        ts_1 = next(self.ts)
+        ts_1 = self.ts()
         headers = {'X-Timestamp': ts_1.internal,
                    'X-Backend-Storage-Policy-Index': int(policy)}
         headers['X-Object-Meta-Test'] = 'abc'
@@ -4720,7 +4716,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 202)
 
         # PUT again at ts_2 but without making the data file durable
-        ts_2 = next(self.ts)
+        ts_2 = self.ts()
         body = b'NEWER'
         headers = {'X-Timestamp': ts_2.internal,
                    'Content-Length': '5',
@@ -4932,7 +4928,7 @@ class TestObjectController(BaseTestCase):
 
     def test_GET_quarantine(self):
         # Test swift.obj.server.ObjectController.GET
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -4969,7 +4965,7 @@ class TestObjectController(BaseTestCase):
                 'etag_validate_pct': '0'}
         object_controller = object_server.ObjectController(
             conf, logger=self.logger)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5015,7 +5011,7 @@ class TestObjectController(BaseTestCase):
 
     def test_GET_quarantine_zbyte(self):
         # Test swift.obj.server.ObjectController.GET
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5044,7 +5040,7 @@ class TestObjectController(BaseTestCase):
 
     def test_GET_quarantine_range(self):
         # Test swift.obj.server.ObjectController.GET
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5427,7 +5423,7 @@ class TestObjectController(BaseTestCase):
         obj_controller = object_server.ObjectController(
             conf, logger=self.logger)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5530,7 +5526,7 @@ class TestObjectController(BaseTestCase):
         obj_controller = object_server.ObjectController(
             conf, logger=self.logger)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5547,7 +5543,7 @@ class TestObjectController(BaseTestCase):
         obj_controller = object_server.ObjectController(
             conf, logger=self.logger)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5562,7 +5558,7 @@ class TestObjectController(BaseTestCase):
         obj_controller = object_server.ObjectController(
             conf, logger=self.logger)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5577,7 +5573,7 @@ class TestObjectController(BaseTestCase):
         obj_controller = object_server.ObjectController(
             conf, logger=self.logger)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5593,7 +5589,7 @@ class TestObjectController(BaseTestCase):
         obj_controller = object_server.ObjectController(
             conf, logger=self.logger)
 
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test'})
@@ -5606,6 +5602,7 @@ class TestObjectController(BaseTestCase):
     @mock.patch("time.time", mock_time)
     def test_DELETE(self):
         # Test swift.obj.server.ObjectController.DELETE
+        timestamps = [self.ts() for _ in range(5)]
         req = Request.blank('/sda1/p/a/c',
                             environ={'REQUEST_METHOD': 'DELETE'})
         resp = req.get_response(self.object_controller)
@@ -5617,7 +5614,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 400)
 
         # The following should have created a tombstone file
-        timestamp = normalize_timestamp(1000)
+        timestamp = timestamps[1].internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
@@ -5633,7 +5630,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
         # The following should *not* have created a tombstone file.
-        timestamp = normalize_timestamp(999)
+        timestamp = timestamps[0].internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
@@ -5648,7 +5645,7 @@ class TestObjectController(BaseTestCase):
         self.assertTrue(os.path.isfile(ts_1000_file))
         self.assertEqual(len(os.listdir(os.path.dirname(ts_1000_file))), 1)
 
-        orig_timestamp = utils.Timestamp(1002).internal
+        orig_timestamp = timestamps[3].internal
         headers = {'X-Timestamp': orig_timestamp,
                    'Content-Type': 'application/octet-stream',
                    'Content-Length': '4'}
@@ -5667,7 +5664,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(len(os.listdir(os.path.dirname(data_1002_file))), 1)
 
         # The following should *not* have created a tombstone file.
-        timestamp = normalize_timestamp(1001)
+        timestamp = timestamps[2].internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
@@ -5683,7 +5680,7 @@ class TestObjectController(BaseTestCase):
         self.assertTrue(os.path.isfile(data_1002_file))
         self.assertEqual(len(os.listdir(os.path.dirname(ts_1001_file))), 1)
 
-        timestamp = normalize_timestamp(1003)
+        timestamp = timestamps[4].internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'DELETE'},
                             headers={'X-Timestamp': timestamp})
@@ -5705,7 +5702,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 400)
 
     def test_DELETE_succeeds_with_later_POST(self):
-        t_put = next(self.ts).internal
+        t_put = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': t_put,
@@ -5714,8 +5711,8 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
-        t_delete = next(self.ts).internal
-        t_post = next(self.ts).internal
+        t_delete = self.ts().internal
+        t_post = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o',
                             environ={'REQUEST_METHOD': 'POST'},
                             headers={'X-Timestamp': t_post})
@@ -5870,7 +5867,7 @@ class TestObjectController(BaseTestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
         # create a new object
-        create_timestamp = next(self.ts)
+        create_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o', method='PUT', body=b'test1',
                             headers={'X-Timestamp': create_timestamp.internal,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -5948,7 +5945,7 @@ class TestObjectController(BaseTestCase):
                          offset_timestamp.internal)
         self.assertEqual(resp.body, b'test2')
         # now overwrite with a newer time
-        overwrite_timestamp = next(self.ts)
+        overwrite_timestamp = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', method='PUT', body=b'test3',
             headers={'X-Timestamp': overwrite_timestamp.internal,
@@ -6024,7 +6021,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'],
                          offset_delete.internal)
         # and one more delete with a newer timestamp
-        delete_timestamp = next(self.ts)
+        delete_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c/o', method='DELETE',
                             headers={'X-Timestamp': delete_timestamp.internal,
                                      'X-Container-Host': '10.0.0.1:8080',
@@ -6166,7 +6163,7 @@ class TestObjectController(BaseTestCase):
                     'SERVER_PROTOCOL': 'HTTP/1.0',
                     'CONTENT_LENGTH': '0',
                     'CONTENT_TYPE': 'text/html',
-                    'HTTP_X_TIMESTAMP': normalize_timestamp(1.2),
+                    'HTTP_X_TIMESTAMP': self.ts().internal,
                     'wsgi.version': (1, 0),
                     'wsgi.url_scheme': 'http',
                     'wsgi.input': inbuf,
@@ -6195,7 +6192,7 @@ class TestObjectController(BaseTestCase):
                     'SERVER_PROTOCOL': 'HTTP/1.0',
                     'CONTENT_LENGTH': '0',
                     'CONTENT_TYPE': 'text/html',
-                    'HTTP_X_TIMESTAMP': normalize_timestamp(1.3),
+                    'HTTP_X_TIMESTAMP': self.ts().internal,
                     'wsgi.version': (1, 0),
                     'wsgi.url_scheme': 'http',
                     'wsgi.input': inbuf,
@@ -6246,7 +6243,7 @@ class TestObjectController(BaseTestCase):
             'Connection: close\r\nX-Timestamp: %s\r\n' \
             'Transfer-Encoding: chunked\r\n\r\n' \
             '2\r\noh\r\n4\r\n hai\r\n0\r\n\r\n'
-        s = s % normalize_timestamp(1.0)
+        s = s % self.ts().internal
         fd.write(s.encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
@@ -6277,7 +6274,7 @@ class TestObjectController(BaseTestCase):
             'Content-Length: 0\r\n' \
             'Transfer-Encoding: chunked\r\n\r\n' \
             '2\r\noh\r\n4\r\n hai\r\n0\r\n\r\n'
-        s = s % normalize_timestamp(1.0)
+        s = s % self.ts().internal
         fd.write(s.encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
@@ -6288,7 +6285,7 @@ class TestObjectController(BaseTestCase):
         s = 'GET /sda1/p/a/c/o HTTP/1.1\r\n' \
             'Host: localhost\r\n' \
             'X-Timestamp: %s\r\n' \
-            'Connection: close\r\n\r\n' % normalize_timestamp(2.0)
+            'Connection: close\r\n\r\n' % self.ts().internal
         fd.write(s.encode('ascii'))
         fd.flush()
         headers = readuntil2crlfs(fd)
@@ -6299,7 +6296,7 @@ class TestObjectController(BaseTestCase):
         killer.kill()
 
     def test_max_object_name_length(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         max_name_len = constraints.MAX_OBJECT_NAME_LENGTH
         req = Request.blank(
             '/sda1/p/a/c/' + ('1' * max_name_len),
@@ -6340,7 +6337,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '4', 'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
@@ -6348,7 +6345,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': SlowBody()},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '4', 'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 408)
@@ -6372,7 +6369,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT', 'wsgi.input': ShortBody()},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '4', 'Content-Type': 'text/plain'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 499)
@@ -6380,7 +6377,7 @@ class TestObjectController(BaseTestCase):
     def test_bad_sinces(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '4', 'Content-Type': 'text/plain'},
             body=b'    ')
         resp = req.get_response(self.object_controller)
@@ -6409,7 +6406,7 @@ class TestObjectController(BaseTestCase):
     def test_content_encoding(self):
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '4', 'Content-Type': 'text/plain',
                      'Content-Encoding': 'gzip'},
             body=b'    ')
@@ -6675,11 +6672,11 @@ class TestObjectController(BaseTestCase):
             container_updates.append((ip, port, method, path, headers))
 
         # put everything in the future; otherwise setting X-Delete-At may fail
-        self.ts = make_timestamp_iter(10)
+        self.ts_iter = make_timestamp_iter(10)
 
-        put_timestamp = next(self.ts).internal
+        put_timestamp = self.ts().internal
         delete_at_timestamp = utils.normalize_delete_at_timestamp(
-            next(self.ts).normal)
+            self.ts().normal)
         req_headers = {
             'Content-Type': 'text/plain',
             'X-Timestamp': put_timestamp,
@@ -6763,7 +6760,7 @@ class TestObjectController(BaseTestCase):
         def fake_http_connect(*args):
             raise Exception('test')
 
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         orig_http_connect = object_server.http_connect
         try:
             object_server.http_connect = fake_http_connect
@@ -6811,7 +6808,7 @@ class TestObjectController(BaseTestCase):
         orig_http_connect = object_server.http_connect
         try:
             for status in (199, 300, 503):
-                timestamp = next(self.ts)
+                timestamp = self.ts()
                 object_server.http_connect = fake_http_connect(status)
                 self.object_controller.async_update(
                     'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
@@ -6858,7 +6855,7 @@ class TestObjectController(BaseTestCase):
         orig_http_connect = object_server.http_connect
         try:
             for status in (200, 299):
-                timestamp = next(self.ts)
+                timestamp = self.ts()
                 object_server.http_connect = fake_http_connect(status)
                 self.object_controller.async_update(
                     'PUT', 'a', 'c', 'o', '127.0.0.1:1234', 1, 'sdc1',
@@ -6892,7 +6889,7 @@ class TestObjectController(BaseTestCase):
         orig_http_connect = object_server.http_connect
         try:
             for status in (200, 299):
-                timestamp = next(self.ts)
+                timestamp = self.ts()
                 object_server.http_connect = fake_http_connect()
                 self.object_controller.node_timeout = 0.001
                 self.object_controller.async_update(
@@ -6937,7 +6934,7 @@ class TestObjectController(BaseTestCase):
         def capture_updates(ip, port, method, path, headers, *args, **kwargs):
             container_updates.append((ip, port, method, path, headers))
 
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         req = Request.blank(
             '/sda1/0/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -6978,7 +6975,7 @@ class TestObjectController(BaseTestCase):
                     ip, port, method, path, headers, *args, **kwargs):
                 container_updates.append((ip, port, method, path, headers))
 
-            ts_put = next(self.ts)
+            ts_put = self.ts()
             headers = {
                 'X-Timestamp': ts_put.internal,
                 'X-Trans-Id': '123',
@@ -7058,7 +7055,7 @@ class TestObjectController(BaseTestCase):
             diskfile_mgr = self.object_controller._diskfile_router[policy]
             diskfile_mgr.pickle_async_update = fake_pickle_async_update
 
-            ts_put = next(self.ts)
+            ts_put = self.ts()
             headers = {
                 'X-Timestamp': ts_put.internal,
                 'X-Trans-Id': '123',
@@ -7153,7 +7150,7 @@ class TestObjectController(BaseTestCase):
             diskfile_mgr = self.object_controller._diskfile_router[policy]
             diskfile_mgr.pickle_async_update = fake_pickle_async_update
 
-            ts_put = next(self.ts)
+            ts_put = self.ts()
             headers = {
                 'X-Timestamp': ts_put.internal,
                 'X-Trans-Id': '123',
@@ -7231,7 +7228,7 @@ class TestObjectController(BaseTestCase):
 
     def test_container_update_async(self):
         policy = random.choice(list(POLICIES))
-        ts = next(self.ts)
+        ts = self.ts()
         req = Request.blank(
             '/sda1/0/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -7295,7 +7292,7 @@ class TestObjectController(BaseTestCase):
             # just capture the args to see that we would have called
             called_async_update_args.append([a, kw])
 
-        ts = next(self.ts)
+        ts = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -7355,7 +7352,7 @@ class TestObjectController(BaseTestCase):
             # just capture the args to see that we would have called
             called_async_update_args.append([a, kw])
 
-        ts = next(self.ts)
+        ts = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -7388,7 +7385,7 @@ class TestObjectController(BaseTestCase):
         def fake_async_update(*args):
             given_args.extend(args)
 
-        ts = next(self.ts)
+        ts = self.ts()
         req = Request.blank(
             '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -7419,7 +7416,7 @@ class TestObjectController(BaseTestCase):
         # Test how delete_at_update works with a request to overwrite an object
         # with delete-at metadata
         policy = random.choice(list(POLICIES))
-        ts = next(self.ts)
+        ts = self.ts()
 
         def do_test(method, headers, expected_args):
             given_args = []
@@ -7471,7 +7468,7 @@ class TestObjectController(BaseTestCase):
         def fake_async_update(*args):
             given_args.extend(args)
 
-        ts = next(self.ts)
+        ts = self.ts()
         self.object_controller.async_update = fake_async_update
         req = Request.blank(
             '/v1/a/c/o',
@@ -7798,7 +7795,7 @@ class TestObjectController(BaseTestCase):
 
         self.object_controller.delete_at_update = fake_delete_at_update
 
-        timestamp0 = normalize_timestamp(time())
+        timestamp0 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={'X-Timestamp': timestamp0,
@@ -7815,7 +7812,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Type': 'application/x-test',
                      'X-Backend-Storage-Policy-Index': int(policy)})
         resp = req.get_response(self.object_controller)
@@ -7823,7 +7820,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(given_args, [])
 
         sleep(.00001)
-        timestamp1 = normalize_timestamp(time())
+        timestamp1 = self.ts().internal
         delete_at_timestamp1 = str(int(time() + 1000))
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -7846,7 +7843,7 @@ class TestObjectController(BaseTestCase):
             given_args.pop()
 
         sleep(.00001)
-        timestamp2 = normalize_timestamp(time())
+        timestamp2 = self.ts().internal
         delete_at_timestamp2 = str(int(time() + 2000))
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -7878,7 +7875,7 @@ class TestObjectController(BaseTestCase):
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream',
                      'X-Backend-Storage-Policy-Index': int(policy),
@@ -7889,7 +7886,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(given_args, [])
 
         sleep(.00001)
-        timestamp1 = normalize_timestamp(time())
+        timestamp1 = self.ts().internal
         delete_at_timestamp1 = str(int(time() + 1000))
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
@@ -7914,7 +7911,7 @@ class TestObjectController(BaseTestCase):
             given_args.pop()
 
         sleep(.00001)
-        timestamp2 = normalize_timestamp(time())
+        timestamp2 = self.ts().internal
         delete_at_timestamp2 = str(int(time() + 2000))
         req = Request.blank(
             '/sda1/p/a/c/o',
@@ -8042,14 +8039,14 @@ class TestObjectController(BaseTestCase):
 
     def test_POST_but_expired(self):
         # We have an object that expires in the future
-        now = time()
-        delete_at_timestamp = int(now + 100)
+        ts_now = self.ts()
+        delete_at_timestamp = int(ts_now) + 100
 
         # PUT the object
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(now),
+                'X-Timestamp': ts_now.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8058,21 +8055,21 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status_int, 201)
 
         # It's accessible since it expires in the future
-        the_time = now + 2
+        the_time = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(the_time),
+            headers={'X-Timestamp': the_time,
                      'X-Delete-At': str(delete_at_timestamp)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
         # It's not accessible now since it expires in the past
-        the_time = delete_at_timestamp + 1
+        the_time = Timestamp(delete_at_timestamp + 1).internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(the_time),
+            headers={'X-Timestamp': the_time,
                      'X-Delete-At': str(delete_at_timestamp + 100)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
@@ -8081,22 +8078,22 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'},
-            headers={'X-Timestamp': normalize_timestamp(
-                delete_at_timestamp + 2), 'x-backend-open-expired': 'true'})
+            headers={'X-Timestamp': the_time,
+                     'x-backend-open-expired': 'true'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.headers.get('x-delete-at'),
                          str(delete_at_timestamp))
 
     def test_POST_with_x_backend_open_expired(self):
-        now = time()
-        delete_at_timestamp = int(now + 100)
+        ts_now = self.ts()
+        delete_at_timestamp = int(ts_now) + 100
 
         # Create the object at x-delete-at
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(now),
+                'X-Timestamp': ts_now.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8106,24 +8103,24 @@ class TestObjectController(BaseTestCase):
 
         # You can POST to an expired object with a much later x-delete-at
         # with x-backend-open-expired
-        the_time = delete_at_timestamp + 2
+        the_time = Timestamp(delete_at_timestamp + 1).internal
         new_delete_at_timestamp = int(delete_at_timestamp + 100)
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(the_time),
+                'X-Timestamp': the_time,
                 'X-Delete-At': str(new_delete_at_timestamp),
                 'x-backend-open-expired': 'true'}))
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
         # Verify the later x-delete-at
-        the_time = delete_at_timestamp + 2
+        the_time = Timestamp(delete_at_timestamp + 1).internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'},
-            headers={'X-Timestamp': normalize_timestamp(the_time),
+            headers={'X-Timestamp': the_time,
                      'x-backend-open-expired': 'false'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
@@ -8132,11 +8129,11 @@ class TestObjectController(BaseTestCase):
 
         # Verify object has expired
         # We have no x-delete-at in response
-        the_time = new_delete_at_timestamp + 1
+        the_time = Timestamp(new_delete_at_timestamp + 1).internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'},
-            headers={'X-Timestamp': normalize_timestamp(the_time),
+            headers={'X-Timestamp': the_time,
                      'x-backend-open-expired': 'false'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
@@ -8146,7 +8143,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'HEAD'},
-            headers={'X-Timestamp': normalize_timestamp(the_time),
+            headers={'X-Timestamp': the_time,
                      'x-backend-open-expired': 'true'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
@@ -8154,14 +8151,14 @@ class TestObjectController(BaseTestCase):
                          str(new_delete_at_timestamp))
 
     def test_POST_with_x_backend_replication(self):
-        now = time()
-        delete_at_timestamp = int(now + 100)
+        now = self.ts()
+        delete_at_timestamp = int(now) + 100
 
         # Create object with future x-delete-at
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(now),
+                'X-Timestamp': now.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8171,13 +8168,13 @@ class TestObjectController(BaseTestCase):
 
         # sending an x-backend-replication header lets you
         # modify x-delete-at, even when object is expired
-        the_time = delete_at_timestamp + 2
+        the_time = Timestamp(delete_at_timestamp + 2).internal
         new_delete_at_timestamp = delete_at_timestamp + 100
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(the_time),
+                'X-Timestamp': the_time,
                 'x-backend-replication': 'true',
                 'X-Delete-At': str(new_delete_at_timestamp)}))
         resp = req.get_response(self.object_controller)
@@ -8185,25 +8182,25 @@ class TestObjectController(BaseTestCase):
 
         # ...so the object becomes accessible again even without an
         # x-backend-replication or x-backend-open-expired header
-        the_time = delete_at_timestamp + 3
+        the_time = Timestamp(delete_at_timestamp + 3).internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(the_time),
+                'X-Timestamp': the_time,
                 'X-Delete-At': str(delete_at_timestamp + 101)}))
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 202)
 
     def test_POST_invalid_headers(self):
-        now = time()
-        delete_at_timestamp = int(now + 100)
+        ts_now = self.ts()
+        delete_at_timestamp = int(ts_now) + 100
 
         # Create the object at x-delete-at
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(now),
+                'X-Timestamp': ts_now.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8213,12 +8210,12 @@ class TestObjectController(BaseTestCase):
 
         # You cannot send an x-delete-at that is in the past with a POST even
         # when x-backend-open-expired is sent
-        the_time = delete_at_timestamp + 75
+        the_time = Timestamp(delete_at_timestamp + 75).internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(the_time),
+                'X-Timestamp': the_time,
                 'x-backend-open-expired': 'true',
                 'X-Delete-At': str(delete_at_timestamp - 50)}))
         resp = req.get_response(self.object_controller)
@@ -8226,12 +8223,12 @@ class TestObjectController(BaseTestCase):
 
         # Object server always ignores x-open-expired and
         # only understands x-backend-open-expired on expired objects
-        the_time = delete_at_timestamp + 2
+        the_time = Timestamp(delete_at_timestamp + 2).internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(the_time),
+                'X-Timestamp': the_time,
                 'x-open-expired': 'true',
                 'X-Delete-At': str(delete_at_timestamp + 100)}))
         resp = req.get_response(self.object_controller)
@@ -8239,14 +8236,13 @@ class TestObjectController(BaseTestCase):
 
     def test_DELETE_can_skip_updating_expirer_queue(self):
         policy = POLICIES.get_by_index(0)
-        test_time = time()
-        put_time = test_time
-        delete_time = test_time + 1
-        delete_at_timestamp = int(test_time + 10000)
+        ts_put = self.ts()
+        ts_delete = self.ts()
+        delete_at_timestamp = int(ts_put) + 10000
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(put_time),
+                'X-Timestamp': ts_put.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8259,7 +8255,7 @@ class TestObjectController(BaseTestCase):
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(delete_time),
+            headers={'X-Timestamp': ts_delete.internal,
                      'X-Backend-Clean-Expiring-Object-Queue': 'false',
                      'X-If-Delete-At': str(delete_at_timestamp)})
         resp = req.get_response(self.object_controller)
@@ -8275,16 +8271,15 @@ class TestObjectController(BaseTestCase):
 
     def test_x_if_delete_at_formats(self):
         policy = POLICIES.get_by_index(0)
-        test_time = time()
-        put_time = test_time
-        delete_time = test_time + 1
-        delete_at_timestamp = int(test_time + 10000)
+        ts_put = self.ts()
+        ts_delete = self.ts()
+        delete_at_timestamp = int(ts_put) + 10000
 
         def do_test(if_delete_at, expected_status):
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                 headers=self._update_delete_at_headers({
-                    'X-Timestamp': normalize_timestamp(put_time),
+                    'X-Timestamp': ts_put.internal,
                     'X-Delete-At': str(delete_at_timestamp),
                     'Content-Length': '4',
                     'Content-Type': 'application/octet-stream'}))
@@ -8297,7 +8292,7 @@ class TestObjectController(BaseTestCase):
 
             req = Request.blank(
                 '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-                headers={'X-Timestamp': normalize_timestamp(delete_time),
+                headers={'X-Timestamp': ts_delete.internal,
                          'X-Backend-Clean-Expiring-Object-Queue': 'false',
                          'X-If-Delete-At': if_delete_at})
             # Again, we don't care about async_pending files (for this test)
@@ -8332,12 +8327,13 @@ class TestObjectController(BaseTestCase):
         do_test(Timestamp(delete_at_timestamp, offset=15).internal, 412)
 
     def test_DELETE_but_expired(self):
-        test_time = time() + 10000
-        delete_at_timestamp = int(test_time + 100)
+        ts_now = self.ts()
+        ts_delete = Timestamp(ts_now, delta=-2000 * 1e5)
+        delete_at_timestamp = int(ts_now) + 100
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(test_time - 2000),
+                'X-Timestamp': ts_delete.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8345,26 +8341,25 @@ class TestObjectController(BaseTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
+        ts_delete = Timestamp(delete_at_timestamp, delta=1e5)
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(
-                delete_at_timestamp + 1)})
+            headers={'X-Timestamp': ts_delete.internal})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_if_delete_at_expired_still_deletes(self):
-        test_time = time() + 10
-        test_timestamp = normalize_timestamp(test_time)
-        delete_at_time = int(test_time + 10)
-        delete_at_timestamp = str(delete_at_time)
+        test_timestamp = self.ts()
+        delete_at_time = int(test_timestamp) + 10
+        delete_at_timestamp = Timestamp(delete_at_time)
         expired_time = delete_at_time + 1
-        expired_timestamp = normalize_timestamp(expired_time)
+        expired_timestamp = Timestamp(expired_time)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': test_timestamp,
-                'X-Delete-At': delete_at_timestamp,
+                'X-Timestamp': test_timestamp.internal,
+                'X-Delete-At': str(int(delete_at_timestamp)),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
         req.body = 'TEST'
@@ -8374,7 +8369,7 @@ class TestObjectController(BaseTestCase):
         # sanity
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': test_timestamp})
+            headers={'X-Timestamp': test_timestamp.internal})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(resp.body, b'TEST')
@@ -8382,13 +8377,13 @@ class TestObjectController(BaseTestCase):
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
                               hash_path('a', 'c', 'o')),
-            utils.Timestamp(test_timestamp).internal + '.data')
+            test_timestamp.internal + '.data')
         self.assertTrue(os.path.isfile(objfile))
 
         # move time past expiry
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
-            headers={'X-Timestamp': expired_timestamp})
+            headers={'X-Timestamp': expired_timestamp.internal})
         resp = req.get_response(self.object_controller)
         # request will 404
         self.assertEqual(resp.status_int, 404)
@@ -8399,8 +8394,8 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': delete_at_timestamp,
-                     'X-If-Delete-At': int(delete_at_time + 1)})
+            headers={'X-Timestamp': delete_at_timestamp.internal,
+                     'X-If-Delete-At': str(delete_at_time + 1)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
         self.assertTrue(os.path.isfile(objfile))
@@ -8409,8 +8404,8 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': delete_at_timestamp,
-                     'X-If-Delete-At': delete_at_timestamp})
+            headers={'X-Timestamp': delete_at_timestamp.internal,
+                     'X-If-Delete-At': str(delete_at_time)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 204)
         self.assertFalse(os.path.isfile(objfile))
@@ -8418,17 +8413,18 @@ class TestObjectController(BaseTestCase):
         # make the x-if-delete-at with all the right bits (again)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': delete_at_timestamp,
-                     'X-If-Delete-At': delete_at_timestamp})
+            headers={'X-Timestamp': delete_at_timestamp.internal,
+                     'X-If-Delete-At': str(delete_at_time)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 409)
         self.assertFalse(os.path.isfile(objfile))
 
         # overwrite with new content
+        ts_overwrite = Timestamp(test_timestamp, delta=100 * 1e5)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers={
-                'X-Timestamp': str(test_time + 100),
+                'X-Timestamp': ts_overwrite.internal,
                 'Content-Length': '0',
                 'Content-Type': 'application/octet-stream'})
         resp = req.get_response(self.object_controller)
@@ -8438,8 +8434,8 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': delete_at_timestamp,
-                     'X-If-Delete-At': delete_at_timestamp})
+            headers={'X-Timestamp': delete_at_timestamp.internal,
+                     'X-If-Delete-At': str(delete_at_time)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 409)
 
@@ -8447,16 +8443,16 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o-not-found',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': delete_at_timestamp,
-                     'X-If-Delete-At': delete_at_timestamp})
+            headers={'X-Timestamp': delete_at_timestamp.internal,
+                     'X-If-Delete-At': str(delete_at_time)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 404)
 
     def test_DELETE_if_delete_at(self):
-        test_time = time() + 10000
+        ts = Timestamp(self.ts(), delta=1000 * 1e5)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 99),
+            headers={'X-Timestamp': Timestamp(ts, delta=-99 * 1e5).internal,
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
@@ -8466,15 +8462,15 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 98)})
+            headers={'X-Timestamp': Timestamp(ts, delta=-98 * 1e5).internal})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 204)
 
-        delete_at_timestamp = int(test_time - 1)
+        delete_at_timestamp = int(ts) - 1
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(test_time - 97),
+                'X-Timestamp': Timestamp(ts, delta=-97 * 1e5).internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8485,23 +8481,23 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 95),
-                     'X-If-Delete-At': str(int(test_time))})
+            headers={'X-Timestamp': Timestamp(ts, delta=-95 * 1e5).internal,
+                     'X-If-Delete-At': str(int(ts))})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
 
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 95)})
+            headers={'X-Timestamp': Timestamp(ts, delta=-95 * 1e5).internal})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 204)
 
-        delete_at_timestamp = int(test_time - 1)
+        delete_at_timestamp = int(ts) - 1
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(test_time - 94),
+                'X-Timestamp': Timestamp(ts, delta=-94 * 1e5).internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8511,34 +8507,34 @@ class TestObjectController(BaseTestCase):
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 92),
-                     'X-If-Delete-At': str(int(test_time))})
+            headers={'X-Timestamp': Timestamp(ts, delta=-92 * 1e5).internal,
+                     'X-If-Delete-At': str(int(ts))})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 412)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 92),
+            headers={'X-Timestamp': Timestamp(ts, delta=-92 * 1e5).internal,
                      'X-If-Delete-At': delete_at_timestamp})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 204)
 
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': normalize_timestamp(test_time - 92),
+            headers={'X-Timestamp': Timestamp(ts, delta=-92 * 1e5).internal,
                      'X-If-Delete-At': 'abc'})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
 
     def test_extra_headers_contain_object_bytes(self):
-        timestamp1 = next(self.ts).normal
-        delete_at_timestamp1 = int(time() + 1000)
+        timestamp1 = self.ts()
+        delete_at_timestamp1 = int(timestamp1) + 1000
         delete_at_container1 = \
             self.object_controller.expirer_config.get_expirer_container(
                 delete_at_timestamp1, 'a', 'c', 'o')
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': timestamp1,
+            headers={'X-Timestamp': timestamp1.internal,
                      'Content-Length': '4096',
                      'Content-Type': 'application/octet-stream',
                      'X-Delete-At': str(delete_at_timestamp1),
@@ -8555,10 +8551,10 @@ class TestObjectController(BaseTestCase):
                 'x-content-type-timestamp': timestamp1
             })])
 
-        timestamp2 = next(self.ts).normal
+        timestamp2 = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': timestamp2,
+            headers={'X-Timestamp': timestamp2.internal,
                      'Content-Length': '5120',
                      'Content-Type': 'application/octet-stream',
                      'X-Delete-At': str(delete_at_timestamp1),
@@ -8576,11 +8572,11 @@ class TestObjectController(BaseTestCase):
             }
         )])
 
-        timestamp3 = next(self.ts).normal
-        delete_at_timestamp2 = str(int(next(self.ts)) + 2000)
+        timestamp3 = self.ts()
+        delete_at_timestamp2 = str(int(self.ts()) + 2000)
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': timestamp3,
+            headers={'X-Timestamp': timestamp3.internal,
                      'X-Delete-At': delete_at_timestamp2})
         with mock.patch.object(self.object_controller, 'delete_at_update') \
                 as fake_delete_at_update:
@@ -8597,11 +8593,11 @@ class TestObjectController(BaseTestCase):
             SameReqEnv(req), 'sda1', POLICIES[0]
         )])
 
-        timestamp4 = next(self.ts).normal
+        timestamp4 = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
-            headers={'X-Timestamp': timestamp4,
+            headers={'X-Timestamp': timestamp4.internal,
                      'Content-Type': 'application/octet-stream'})
         with mock.patch.object(self.object_controller, 'delete_at_update') \
                 as fake_delete_at_update:
@@ -8619,7 +8615,7 @@ class TestObjectController(BaseTestCase):
             container_updates.append((ip, port, method, path, headers))
 
         policy = random.choice(list(POLICIES))
-        delete_at = int(next(self.ts)) + 30
+        delete_at = int(self.ts()) + 30
         delete_at_container = \
             self.object_controller.expirer_config.get_expirer_container(
                 delete_at, 'a', 'c', 'o')
@@ -8639,7 +8635,7 @@ class TestObjectController(BaseTestCase):
         if policy.policy_type == EC_POLICY:
             base_headers['X-Object-Sysmeta-Ec-Frag-Index'] = '2'
 
-        put1_ts = next(self.ts)
+        put1_ts = self.ts()
         put1_size = 4042
         req1 = Request.blank(
             '/sda1/p/a/c/o', method='PUT', body='\x01' * put1_size,
@@ -8648,7 +8644,7 @@ class TestObjectController(BaseTestCase):
                 'Content-Length': str(put1_size),
                 'X-Trans-Id': 'txn1',
             }))
-        put2_ts = next(self.ts)
+        put2_ts = self.ts()
         put2_size = 2044
         req2 = Request.blank(
             '/sda1/p/a/c/o', method='PUT', body='\x02' * put2_size,
@@ -8714,9 +8710,9 @@ class TestObjectController(BaseTestCase):
             container_updates.append((ip, port, method, path, headers))
 
         policy = random.choice(list(POLICIES))
-        put_ts = next(self.ts)
+        put_ts = self.ts()
         put_size = 1548
-        put_delete_at = int(next(self.ts)) + 30
+        put_delete_at = int(self.ts()) + 30
         put_delete_at_container = \
             self.object_controller.expirer_config.get_expirer_container(
                 put_delete_at, 'a', 'c', 'o')
@@ -8767,7 +8763,7 @@ class TestObjectController(BaseTestCase):
         # reset container updates
         container_updates = []
 
-        delete_at = int(next(self.ts)) + 100
+        delete_at = int(self.ts()) + 100
         self.assertNotEqual(delete_at, put_delete_at)  # sanity
         delete_at_container = \
             self.object_controller.expirer_config.get_expirer_container(
@@ -8786,13 +8782,13 @@ class TestObjectController(BaseTestCase):
             'X-Delete-At-Device': 'sdm',
         }
 
-        post1_ts = next(self.ts)
+        post1_ts = self.ts()
         req1 = Request.blank(
             '/sda1/p/a/c/o', method='POST', headers=dict(base_headers, **{
                 'X-Timestamp': post1_ts.normal,
                 'X-Trans-Id': 'txn2',
             }))
-        post2_ts = next(self.ts)
+        post2_ts = self.ts()
         req2 = Request.blank(
             '/sda1/p/a/c/o', method='POST', headers=dict(base_headers, **{
                 'X-Timestamp': post2_ts.normal,
@@ -8879,7 +8875,7 @@ class TestObjectController(BaseTestCase):
             given_args.extend(args)
 
         self.object_controller.delete_at_update = fake_delete_at_update
-        timestamp1 = normalize_timestamp(time())
+        timestamp1 = self.ts().internal
         delete_at_timestamp1 = int(time() + 1000)
         delete_at_container1 = \
             self.object_controller.expirer_config.get_expirer_container(
@@ -8905,7 +8901,7 @@ class TestObjectController(BaseTestCase):
             given_args.pop()
 
         sleep(.00001)
-        timestamp2 = normalize_timestamp(time())
+        timestamp2 = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'DELETE'},
@@ -8919,14 +8915,13 @@ class TestObjectController(BaseTestCase):
 
     def test_PUT_can_skip_updating_expirer_queue(self):
         policy = POLICIES.get_by_index(0)
-        test_time = time()
-        put_time = test_time
-        overwrite_time = test_time + 1
-        delete_at_timestamp = int(test_time + 10000)
+        ts_put = self.ts()
+        ts_overwrite = self.ts()
+        delete_at_timestamp = int(ts_put) + 10000
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(put_time),
+                'X-Timestamp': ts_put.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8941,7 +8936,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(overwrite_time),
+            headers={'X-Timestamp': ts_overwrite.internal,
                      'X-Backend-Clean-Expiring-Object-Queue': 'false',
                      'Content-Length': '9',
                      'Content-Type': 'application/octet-stream'})
@@ -8959,15 +8954,14 @@ class TestObjectController(BaseTestCase):
 
     def test_PUT_can_skip_deleting_expirer_queue_but_still_inserts(self):
         policy = POLICIES.get_by_index(0)
-        test_time = time()
-        put_time = test_time
-        overwrite_time = test_time + 1
-        delete_at_timestamp_1 = int(test_time + 10000)
-        delete_at_timestamp_2 = int(test_time + 20000)
+        put_time = self.ts()
+        overwrite_time = self.ts()
+        delete_at_timestamp_1 = int(put_time) + 10000
+        delete_at_timestamp_2 = int(put_time) + 20000
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(put_time),
+                'X-Timestamp': put_time.internal,
                 'X-Delete-At': str(delete_at_timestamp_1),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -8983,7 +8977,7 @@ class TestObjectController(BaseTestCase):
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(overwrite_time),
+                'X-Timestamp': overwrite_time.internal,
                 'X-Backend-Clean-Expiring-Object-Queue': 'false',
                 'X-Delete-At': str(delete_at_timestamp_2),
                 'Content-Length': '9',
@@ -9009,10 +9003,11 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(async_pending_ops, ['PUT'])
 
     def test_PUT_delete_at_in_past(self):
+        ts_put = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
-                     'X-Delete-At': str(int(time() - 1)),
+            headers={'X-Timestamp': ts_put.internal,
+                     'X-Delete-At': str(int(ts_put) - 1),
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
@@ -9022,14 +9017,13 @@ class TestObjectController(BaseTestCase):
 
     def test_POST_can_skip_updating_expirer_queue(self):
         policy = POLICIES.get_by_index(0)
-        test_time = time()
-        put_time = test_time
-        overwrite_time = test_time + 1
-        delete_at_timestamp = int(test_time + 10000)
+        ts_put = self.ts()
+        ts_overwrite = self.ts()
+        delete_at_timestamp = int(ts_put) + 10000
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': normalize_timestamp(put_time),
+                'X-Timestamp': ts_put.internal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -9044,7 +9038,7 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(overwrite_time),
+            headers={'X-Timestamp': ts_overwrite.internal,
                      'X-Backend-Clean-Expiring-Object-Queue': 'false',
                      'X-Delete-At': ''})
         resp = req.get_response(self.object_controller)
@@ -9062,34 +9056,35 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(time()),
+            headers={'X-Timestamp': self.ts().internal,
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 201)
 
+        ts_post = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp': normalize_timestamp(time() + 1),
-                     'X-Delete-At': str(int(time() - 1))})
+            headers={'X-Timestamp': ts_post.internal,
+                     'X-Delete-At': str(int(ts_post) - 1)})
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
         self.assertTrue(b'X-Delete-At in past' in resp.body)
 
     def test_POST_delete_at_in_past_with_skewed_clock(self):
-        proxy_server_put_time = 1000
-        proxy_server_post_time = 1001
-        delete_at = 1050
-        obj_server_put_time = 1100
-        obj_server_post_time = 1101
+        proxy_ts_put = self.ts()
+        proxy_ts_post = self.ts()
+        delete_at_time = int(proxy_ts_put) + 50
+        obj_server_put_time = float(proxy_ts_put) + 100
+        obj_server_post_time = float(proxy_ts_put) + 101
 
         # test setup: make an object for us to POST to
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
-            headers={'X-Timestamp': normalize_timestamp(proxy_server_put_time),
+            headers={'X-Timestamp': proxy_ts_put.internal,
                      'Content-Length': '4',
                      'Content-Type': 'application/octet-stream'})
         req.body = 'TEST'
@@ -9102,9 +9097,8 @@ class TestObjectController(BaseTestCase):
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'POST'},
-            headers={'X-Timestamp':
-                     normalize_timestamp(proxy_server_post_time),
-                     'X-Delete-At': str(delete_at)})
+            headers={'X-Timestamp': proxy_ts_post.internal,
+                     'X-Delete-At': str(delete_at_time)})
         with mock.patch('swift.obj.server.time.time',
                         return_value=obj_server_post_time):
             resp = req.get_response(self.object_controller)
@@ -9183,7 +9177,7 @@ class TestObjectController(BaseTestCase):
             conf, logger=self.logger)
         for policy in self.iter_policies():
             # create a tombstone
-            ts = next(self.ts)
+            ts = self.ts()
             delete_request = Request.blank(
                 '/sda1/0/a/c/o', method='DELETE',
                 headers={
@@ -9279,7 +9273,7 @@ class TestObjectController(BaseTestCase):
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
 
         with mock.patch.object(diskfile, 'fallocate', fake_fallocate):
-            timestamp = normalize_timestamp(time())
+            timestamp = self.ts().internal
             body_reader = IgnoredBody()
             req = Request.blank(
                 '/sda1/p/a/c/o',
@@ -9308,7 +9302,7 @@ class TestObjectController(BaseTestCase):
 
         with mock.patch.object(diskfile, 'fs_has_free_space',
                                return_value=False):
-            timestamp = normalize_timestamp(time())
+            timestamp = self.ts().internal
             body_reader = IgnoredBody()
             req = Request.blank(
                 '/sda1/p/a/c/o',
@@ -9346,7 +9340,7 @@ class TestObjectController(BaseTestCase):
             self.assertEqual(resp.status_int, 507)
 
     def test_DELETE_with_full_drive(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -9358,7 +9352,7 @@ class TestObjectController(BaseTestCase):
 
         with mock.patch.object(diskfile, 'fs_has_free_space',
                                return_value=False):
-            timestamp = normalize_timestamp(time())
+            timestamp = self.ts().internal
             req = Request.blank(
                 '/sda1/p/a/c/o',
                 method='DELETE',
@@ -9368,7 +9362,7 @@ class TestObjectController(BaseTestCase):
             self.assertEqual(resp.status_int, 204)
 
     def test_chunked_DELETE_with_full_drive(self):
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank(
             '/sda1/p/a/c/o',
             environ={'REQUEST_METHOD': 'PUT'},
@@ -9391,7 +9385,7 @@ class TestObjectController(BaseTestCase):
 
         with mock.patch.object(diskfile, 'fs_has_free_space',
                                return_value=False):
-            timestamp = normalize_timestamp(time())
+            timestamp = self.ts().internal
             body_reader = IgnoredBody()
             req = Request.blank(
                 '/sda1/p/a/c/o',
@@ -9568,7 +9562,7 @@ class TestObjectController(BaseTestCase):
         obj_methods = ['PUT', 'HEAD', 'GET', 'POST', 'DELETE', 'OPTIONS']
         for method in obj_methods:
             env = {'REQUEST_METHOD': method,
-                   'HTTP_X_TIMESTAMP': next(self.ts).internal,
+                   'HTTP_X_TIMESTAMP': self.ts().internal,
                    'SCRIPT_NAME': '',
                    'PATH_INFO': '/sda1/p/a/c/o',
                    'SERVER_NAME': '127.0.0.1',
@@ -9590,7 +9584,7 @@ class TestObjectController(BaseTestCase):
     def test_create_reserved_namespace_object(self):
         path = '/sda1/p/a/%sc/%so' % (utils.RESERVED_STR, utils.RESERVED_STR)
         req = Request.blank(path, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'Content-Type': 'application/x-test',
             'Content-Length': 0,
         })
@@ -9600,7 +9594,7 @@ class TestObjectController(BaseTestCase):
     def test_create_reserved_namespace_object_in_user_container(self):
         path = '/sda1/p/a/c/%so' % utils.RESERVED_STR
         req = Request.blank(path, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'Content-Type': 'application/x-test',
             'Content-Length': 0,
         })
@@ -9614,7 +9608,7 @@ class TestObjectController(BaseTestCase):
         obj = get_reserved_name('o', 'v1')
         path = '/sda1/p/a/%s/%s' % (container, obj)
         req = Request.blank(path, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal,
+            'X-Timestamp': self.ts().internal,
             'Content-Type': 'application/x-test',
             'Content-Length': 0,
         })
@@ -9622,7 +9616,7 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.status, '201 Created')
 
         bad_req = Request.blank('/sda1/p/a/c/%s' % obj, method='PUT', headers={
-            'X-Timestamp': next(self.ts).internal})
+            'X-Timestamp': self.ts().internal})
         resp = bad_req.get_response(self.object_controller)
         self.assertEqual(resp.status, '400 Bad Request')
         self.assertEqual(resp.body, b'Invalid reserved-namespace object '
@@ -9630,12 +9624,12 @@ class TestObjectController(BaseTestCase):
 
         for method in ('GET', 'POST', 'DELETE'):
             req.method = method
-            req.headers['X-Timestamp'] = next(self.ts).internal
+            req.headers['X-Timestamp'] = self.ts().internal
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int // 100, 2)
 
             bad_req.method = method
-            req.headers['X-Timestamp'] = next(self.ts).internal
+            req.headers['X-Timestamp'] = self.ts().internal
             resp = bad_req.get_response(self.object_controller)
             self.assertEqual(resp.status, '400 Bad Request')
             self.assertEqual(resp.body, b'Invalid reserved-namespace object '
@@ -9790,7 +9784,7 @@ class TestObjectController(BaseTestCase):
         # update router post patch
         self.object_controller._diskfile_router = diskfile.DiskFileRouter(
             self.conf, self.object_controller.logger)
-        timestamp = normalize_timestamp(time())
+        timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
                             headers={'X-Timestamp': timestamp,
                                      'Content-Type': 'application/x-test',
@@ -9834,7 +9828,7 @@ class TestObjectController(BaseTestCase):
             self.assertFalse(os.path.isdir(object_dir))
             for method in methods:
                 headers = {
-                    'X-Timestamp': next(self.ts).internal,
+                    'X-Timestamp': self.ts().internal,
                     'Content-Type': 'application/x-test',
                     'X-Backend-Storage-Policy-Index': index}
                 if POLICIES[index].policy_type == EC_POLICY:
@@ -9854,7 +9848,7 @@ class TestObjectController(BaseTestCase):
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': method},
                                 headers={
-                                    'X-Timestamp': next(self.ts).internal,
+                                    'X-Timestamp': self.ts().internal,
                                     'Content-Type': 'application/x-test',
                                     'X-Backend-Storage-Policy-Index': index})
             req.body = 'VERIFY'
@@ -9864,10 +9858,10 @@ class TestObjectController(BaseTestCase):
             self.assertFalse(os.path.isdir(object_dir))
 
     def test_race_doesnt_quarantine(self):
-        existing_timestamp = next(self.ts)
-        delete_timestamp = next(self.ts)
-        put_timestamp = next(self.ts)
-        head_timestamp = next(self.ts)
+        existing_timestamp = self.ts()
+        delete_timestamp = self.ts()
+        put_timestamp = self.ts()
+        head_timestamp = self.ts()
 
         # make a .ts
         req = Request.blank(
@@ -9911,10 +9905,10 @@ class TestObjectController(BaseTestCase):
         self.assertEqual(resp.headers['X-Timestamp'], put_timestamp.normal)
 
     def test_race_with_PUT_POST_PUT(self):
-        existing_timestamp = next(self.ts)
-        post_timestamp = next(self.ts)
-        put_timestamp = next(self.ts)
-        head_timestamp = next(self.ts)
+        existing_timestamp = self.ts()
+        post_timestamp = self.ts()
+        put_timestamp = self.ts()
+        head_timestamp = self.ts()
 
         # make a .data
         req = Request.blank(

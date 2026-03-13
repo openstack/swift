@@ -19,7 +19,6 @@ import unittest
 import shutil
 
 from swift.account import replicator, backend, server
-from swift.common.utils import normalize_timestamp
 from swift.common.storage_policy import POLICIES
 
 from test.unit.common import test_db_replicator
@@ -33,7 +32,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
     def test_sync(self):
         broker = self._get_broker('a', node_index=0)
-        put_timestamp = normalize_timestamp(time.time())
+        put_timestamp = self.ts().internal
         broker.initialize(put_timestamp)
         # "replicate" to same database
         daemon = replicator.AccountReplicator({})

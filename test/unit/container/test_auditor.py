@@ -17,14 +17,13 @@ import unittest
 from unittest import mock
 import os
 
-from swift.common.utils import normalize_timestamp
 from swift.container import auditor
 from test.debug_logger import debug_logger
-from test.unit import with_tempdir
+from test.unit import with_tempdir, BaseUnitTestCase
 from test.unit.container import test_backend
 
 
-class TestAuditorMigrations(unittest.TestCase):
+class TestAuditorMigrations(BaseUnitTestCase):
 
     @with_tempdir
     @mock.patch('swift.common.db_auditor.dump_recon_cache')
@@ -34,7 +33,7 @@ class TestAuditorMigrations(unittest.TestCase):
         with test_backend.TestContainerBrokerBeforeSPI.old_broker() as \
                 old_ContainerBroker:
             broker = old_ContainerBroker(db_path, account='a', container='c')
-            broker.initialize(normalize_timestamp(0), -1)
+            broker.initialize(self.ts().internal, -1)
 
         with broker.get() as conn:
             try:

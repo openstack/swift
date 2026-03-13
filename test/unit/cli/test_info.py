@@ -14,14 +14,13 @@
 
 from argparse import Namespace
 import os
-import unittest
 from unittest import mock
 from shutil import rmtree
 from tempfile import mkdtemp
 
 from io import StringIO
 from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs, \
-    make_timestamp_iter
+    BaseUnitTestCase
 
 from swift.common import ring, utils
 from swift.common.swob import Request
@@ -40,10 +39,10 @@ from swift.obj.diskfile import write_metadata
                  StoragePolicy(1, 'one', False),
                  StoragePolicy(2, 'two', False),
                  StoragePolicy(3, 'three', False)])
-class TestCliInfoBase(unittest.TestCase):
+class TestCliInfoBase(BaseUnitTestCase):
     def setUp(self):
         skip_if_no_xattrs()
-        self.ts_iter = make_timestamp_iter()
+        super().setUp()
         self.orig_hp = utils.HASH_PATH_PREFIX, utils.HASH_PATH_SUFFIX
         utils.HASH_PATH_PREFIX = b'info'
         utils.HASH_PATH_SUFFIX = b'info'

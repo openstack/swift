@@ -22,6 +22,12 @@ from swift.common.http import HTTP_NO_CONTENT, HTTP_RESET_CONTENT, \
 from eventlet.green.http import client as http_client
 from html import escape
 
+import email._policybase
+
+# Starting in Python 3.14, non-ASCII header parsing got even more difficult.
+# See https://github.com/python/cpython/commit/c432d014
+email._policybase.validate_header_name = lambda name: None
+
 
 class SwiftHttpProtocol(wsgi.HttpProtocol):
     default_request_version = "HTTP/1.0"

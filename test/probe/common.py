@@ -22,7 +22,7 @@ from configparser import ConfigParser
 
 from unittest import mock
 import os
-from subprocess import Popen, PIPE
+import subprocess
 import sys
 from tempfile import mkdtemp
 from time import sleep, time
@@ -272,7 +272,7 @@ def get_ring(ring_name, required_replicas, required_devices,
         if not rsync_export:
             rsync_export = '{replication_ip}::%s' % server
         cmd = "rsync %s" % rsync_module_interpolation(rsync_export, dev)
-        p = Popen(cmd, shell=True, stdout=PIPE)
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
         stdout, _stderr = p.communicate()
         if p.returncode:
             raise unittest.SkipTest('unable to connect to rsync '
@@ -306,7 +306,7 @@ def get_policy(**kwargs):
 
 
 def run_cleanup(cmd):
-    p = Popen(cmd + " 2>&1", shell=True, stdout=PIPE)
+    p = subprocess.Popen(cmd + " 2>&1", shell=True, stdout=subprocess.PIPE)
     stdout, _stderr = p.communicate()
     if p.returncode:
         raise AssertionError(
@@ -526,7 +526,7 @@ class ProbeTest(unittest.TestCase):
 
     def kill_drive(self, device):
         if os.path.ismount(device):
-            os.system('sudo umount %s' % device)
+            subprocess.run(["sudo", "umount", device], check=True)
         else:
             renamer(device, device + "X")
 
@@ -535,7 +535,7 @@ class ProbeTest(unittest.TestCase):
         if os.path.isdir(disabled_name):
             renamer(disabled_name, device)
         else:
-            os.system('sudo mount %s' % device)
+            subprocess.run(["sudo", "mount", device], check=True)
 
     def make_internal_client(self, conf=None):
         tempdir = mkdtemp()

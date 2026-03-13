@@ -14,7 +14,6 @@
 # limitations under the License.
 import io
 import os
-import time
 import unittest
 
 import eventlet
@@ -1364,7 +1363,7 @@ class TestSender(SenderBase):
         object_parts = ('a', 'c', 'o')
         df = self._make_open_diskfile(device, part, *object_parts)
         object_hash = utils.hash_path(*object_parts)
-        delete_timestamp = utils.normalize_timestamp(time.time())
+        delete_timestamp = self.ts().internal
         df.delete(delete_timestamp)
         connection = FakeConnection()
         self.sender.job = {
@@ -1398,7 +1397,7 @@ class TestSender(SenderBase):
         object_parts = ('a', 'c', 'o')
         df = self._make_open_diskfile(device, part, *object_parts)
         object_hash = utils.hash_path(*object_parts)
-        delete_timestamp = utils.normalize_timestamp(Timestamp.now())
+        delete_timestamp = self.ts().internal
         df.delete(delete_timestamp)
         connection = FakeConnection()
         self.sender.job = {

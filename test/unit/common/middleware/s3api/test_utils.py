@@ -26,6 +26,8 @@ strs = [
     ('Owner', 'owner'),
     ('DisplayName', 'display_name'),
     ('AccessControlPolicy', 'access_control_policy'),
+    ('AWSAccessKeyId', 'a_w_s_access_key_id'),
+    ('CORSConfiguration', 'c_o_r_s_configuration'),
 ]
 
 

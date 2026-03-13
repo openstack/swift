@@ -37,8 +37,8 @@ from swift.common.storage_policy import StoragePolicy
 from swift.common.utils import md5
 from swift.common.utils.timestamp import Timestamp
 from swift.proxy.controllers.base import get_cache_key
-from test.unit import patch_policies, FakeMemcache, make_timestamp_iter, \
-    mock_timestamp_now, BaseUnitTestCase
+from test.unit import patch_policies, FakeMemcache, mock_timestamp_now, \
+    BaseUnitTestCase
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -64,6 +64,7 @@ def local_tz(func):
 
 class ObjectVersioningBaseTestCase(BaseUnitTestCase):
     def setUp(self):
+        super().setUp()
         self.app = FakeSwift()
         conf = {}
         self.sym = symlink.filter_factory(conf)(self.app)
@@ -74,7 +75,6 @@ class ObjectVersioningBaseTestCase(BaseUnitTestCase):
         self.cp = copy.filter_factory({})(self.ov)
         self.lf = listing_formats.ListingFilter(self.cp, {}, self.app.logger)
 
-        self.ts = make_timestamp_iter()
         cont_cache_version_on = {'sysmeta': {
             'versions-container': self.build_container_name('c'),
             'versions-enabled': 'true'}}
@@ -722,7 +722,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(Timestamp(ts_req, offset=1), ts)
 
     def test_PUT_overwrite_x_timestamp_with_offset(self):
-        ts_put = next(self.ts)
+        ts_put = self.ts()
         exp_version = (~ts_put).internal
         # make the PUT request with an offset timestamp...
         ts_put.offset = 123
@@ -780,7 +780,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             self.assertEqual(symlink_put_headers[k], v)
 
     def test_POST(self):
-        ts_put = next(self.ts)
+        ts_put = self.ts()
         self.app.register(
             'POST',
             self.build_versions_path(obj='o', version=(~ts_put).internal),
@@ -1165,8 +1165,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertNotIn('x-object-manifest', symlink_put_headers)
 
     def test_PUT_overwrite_object(self):
-        ts_iter = make_timestamp_iter()
-        ts_old, ts_new = next(ts_iter), next(ts_iter)
+        ts_old, ts_new = self.ts(), self.ts()
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
             {'x-timestamp': ts_old.normal,
@@ -1230,12 +1229,12 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
     def test_PUT_overwrite_object_with_data_timestamp_offset(self):
         # existing object that will be copied to versions container has
         # data timestamp with offset
-        ts_data_existing = next(self.ts)
-        ts_meta_existing = next(self.ts)
+        ts_data_existing = self.ts()
+        ts_meta_existing = self.ts()
         # the data timestamp without offset is used to construct the version id
         exp_vers_existing = (~ts_data_existing).internal
         ts_meta_existing.offset = 123
-        ts_put = next(self.ts)
+        ts_put = self.ts()
         exp_vers_put = (~ts_put).internal
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
@@ -2069,7 +2068,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
                          b' that the container is versioned')
 
     def test_PUT_version(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         etag = md5(b'old-version-etag', usedforsecurity=False).hexdigest()
@@ -2126,7 +2125,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertEqual(status, '411 Length Required')
 
     def test_PUT_version_not_found(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
@@ -2139,7 +2138,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertIn(b'version does not exist', body)
 
     def test_PUT_version_container_not_found(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
@@ -2466,7 +2465,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
 class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
 
     def test_PUT_version_versioning_disbaled(self):
-        timestamp = next(self.ts)
+        timestamp = self.ts()
         version_path = '%s?symlink=get' % self.build_versions_path(
             obj='o', version=(~timestamp).normal)
         etag = md5(b'old-version-etag', usedforsecurity=False).hexdigest()
@@ -3745,12 +3744,12 @@ class TestModuleFunctions(unittest.TestCase):
                              'not-versions'))
 
 
-class TestObjectContext(unittest.TestCase):
+class TestObjectContext(BaseUnitTestCase):
     def setUp(self):
+        super().setUp()
         app = FakeSwift()
         self.obj_context = object_versioning.ObjectContext(
             app, app.logger, 'v1', 'c', 'a', 'o', None, False, False)
-        self.ts_iter = make_timestamp_iter()
 
     def test_get_version(self):
         req = Request.blank('/', headers={})
@@ -3758,7 +3757,7 @@ class TestObjectContext(unittest.TestCase):
             self.obj_context.get_version(req)
         self.assertEqual('Missing X-Timestamp header', str(cm.exception))
 
-        ts = next(self.ts_iter)
+        ts = self.ts()
         headers = {'x-timestamp': ts.internal}
         req = Request.blank('/', headers=headers)
         self.assertEqual(ts.normal, self.obj_context.get_version(req))
@@ -3769,13 +3768,12 @@ class TestObjectContext(unittest.TestCase):
         self.assertEqual(ts.normal, self.obj_context.get_version(req))
 
     def test_get_null_version(self):
-        ts_iter = make_timestamp_iter()
-        ts_last_modified = next(ts_iter)
+        ts_last_modified = self.ts()
         last_modified = time.strftime(
             '%a, %d %b %Y %H:%M:%S GMT',
             time.gmtime(math.ceil(float(ts_last_modified))))
-        ts = next(ts_iter)
-        ts_backend = next(ts_iter)
+        ts = self.ts()
+        ts_backend = self.ts()
         ts_backend.offset = 123
 
         headers = {'last-modified': last_modified}

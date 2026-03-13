@@ -19,7 +19,6 @@ from argparse import Namespace
 import itertools
 import json
 from collections import defaultdict
-import unittest
 from unittest import mock
 
 from swift.proxy import server as proxy_server
@@ -41,8 +40,7 @@ from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, patch_policies,
-    FakeSource, StubResponse, CaptureIteratorFactory, make_timestamp_iter,
-    BaseUnitTestCase)
+    FakeSource, StubResponse, CaptureIteratorFactory, BaseUnitTestCase)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -1585,17 +1583,17 @@ class TestNodeIter(BaseTest):
         self.assertEqual(other_iter, ring.get_part_nodes(0))
 
 
-class TestGetterSource(unittest.TestCase):
+class TestGetterSource(BaseUnitTestCase):
     def _make_source(self, headers, node):
         resp = StubResponse(200, headers=headers)
         return GetterSource(self.app, resp, node)
 
     def setUp(self):
+        super().setUp()
         self.app = FakeApp()
         self.node = {'ip': '1.2.3.4', 'port': '999'}
         self.headers = {'X-Timestamp': '1234567.12345'}
         self.resp = StubResponse(200, headers=self.headers)
-        self.ts_iter = make_timestamp_iter()
 
     def test_init(self):
         src = GetterSource(self.app, self.resp, self.node)
@@ -1636,12 +1634,12 @@ class TestGetterSource(unittest.TestCase):
         # verify sorting by timestamp
         srcs = [
             self._make_source(
-                {'X-Timestamp': next(self.ts_iter).normal,
-                 'X-Put-Timestamp': next(self.ts_iter).normal},
+                {'X-Timestamp': self.ts().normal,
+                 'X-Put-Timestamp': self.ts().normal},
                 {'ip': '1.2.3.9', 'port': '7'}),
-            self._make_source({'X-Timestamp': next(self.ts_iter).normal},
+            self._make_source({'X-Timestamp': self.ts().normal},
                               {'ip': '1.2.3.7', 'port': '9'}),
-            self._make_source({'X-Timestamp': next(self.ts_iter).normal},
+            self._make_source({'X-Timestamp': self.ts().normal},
                               {'ip': '1.2.3.8', 'port': '8'}),
         ]
         actual = sorted(random.sample(srcs, k=len(srcs)),
@@ -1650,10 +1648,10 @@ class TestGetterSource(unittest.TestCase):
 
     def test_sort_by_x_backend_timestamp(self):
         # verify x-backend-timestamp is preferred over x-timestamp
-        src_headers = [{'X-Backend-Timestamp': next(self.ts_iter).internal}
+        src_headers = [{'X-Backend-Timestamp': self.ts().internal}
                        for _ in range(3)]
         for headers in reversed(src_headers):
-            headers['X-Timestamp'] = next(self.ts_iter).normal
+            headers['X-Timestamp'] = self.ts().normal
         srcs = [
             self._make_source(headers,
                               {'ip': '1.2.3.%d' % i, 'port': '%d' % i})
