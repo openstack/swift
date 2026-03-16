@@ -225,6 +225,39 @@ def patch_gunicorn():
 
     SocketUnreader.__init__ = swift_su_init
 
+    # Copy of gunicorn.http.body.ChunkedReader.read, but breaking the while
+    # loop after the first read to allow sending responses.
+    def swift_chunked_reader_read(self, size):
+        if not isinstance(size, int):
+            raise TypeError("size must be an integer type")
+        if size < 0:
+            raise ValueError("Size must be positive.")
+        if size == 0:
+            return b""
+
+        if self.parser:
+            while self.buf.tell() < size:
+                try:
+                    chunk = next(self.parser)
+                except StopIteration:
+                    self.parser = None
+                    break
+                if not chunk:
+                    # The parser yields b'' when input pauses exactly after a
+                    # chunk-size CRLF; treating that as data would return a
+                    # false EOF before the chunk body arrives.
+                    continue
+                self.buf.write(chunk)
+                break  # Changed from gunicorn.http.body.ChunkedReader.read
+
+        data = self.buf.getvalue()
+        ret, rest = data[:size], data[size:]
+        self.buf = BytesIO()
+        self.buf.write(rest)
+        return ret
+
+    gunicorn.http.body.ChunkedReader.read = swift_chunked_reader_read
+
     # Only after every patch above succeeded: a partial failure must not
     # leave the flag claiming the module is patched.
     _GUNICORN_PATCHED = True
