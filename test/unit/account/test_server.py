@@ -37,7 +37,7 @@ from swift.common.utils import (replication, public, mkdirs, storage_directory,
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 from test.debug_logger import debug_logger
 from test.unit import patch_policies, mock_check_drive, BaseUnitTestCase, \
-    mock_normal_timestamp_now
+    mock_normal_timestamp_now, DBCloseTrackingApp
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -51,9 +51,9 @@ class TestAccountController(BaseUnitTestCase):
         self.testdir = os.path.join(self.testdir_base, 'account_server')
         mkdirs(os.path.join(self.testdir, 'sda1'))
         self.logger = debug_logger()
-        self.controller = AccountController(
+        self.controller = DBCloseTrackingApp(AccountController(
             {'devices': self.testdir, 'mount_check': 'false'},
-            logger=self.logger)
+            logger=self.logger))
 
     def tearDown(self):
         """Tear down for testing swift.account.server.AccountController"""
@@ -138,7 +138,8 @@ class TestAccountController(BaseUnitTestCase):
     def test_DELETE_empty(self):
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT',
                                                   'HTTP_X_TIMESTAMP': '0'})
-        req.get_response(self.controller)
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
         req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'DELETE',
                                                   'HTTP_X_TIMESTAMP': '1'})
         resp = req.get_response(self.controller)

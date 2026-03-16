@@ -214,6 +214,12 @@ class FakeBroker(object):
             if 'container' in self.info:
                 self.path += '/' + self.info['container']
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        pass
+
     @contextmanager
     def lock(self):
         self.locked = True

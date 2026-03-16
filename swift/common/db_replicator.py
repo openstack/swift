@@ -979,8 +979,8 @@ class ReplicatorRpc(object):
             mkdirs(os.path.join(self.root, drive, 'tmp'))
             if not self._db_file_exists(db_file):
                 return HTTPNotFound()
-            return getattr(self, op)(
-                self.broker_class(db_file, logger=self.logger), args)
+            with self.broker_class(db_file, logger=self.logger) as broker:
+                return getattr(self, op)(broker, args)
 
     @contextmanager
     def debug_timing(self, name):
@@ -1090,8 +1090,8 @@ class ReplicatorRpc(object):
             return HTTPNotFound()
         if not os.path.exists(old_filename):
             return HTTPNotFound()
-        broker = self.broker_class(old_filename, logger=self.logger)
-        broker.newid(args[0])
+        with self.broker_class(old_filename, logger=self.logger) as broker:
+            broker.newid(args[0])
         renamer(old_filename, db_file)
         return HTTPNoContent()
 
@@ -1107,20 +1107,22 @@ class ReplicatorRpc(object):
         tmp_filename = os.path.join(self.root, drive, 'tmp', args[0])
         if self._abort_rsync_then_merge(db_file, tmp_filename):
             return HTTPNotFound()
-        new_broker = self.broker_class(tmp_filename, logger=self.logger)
-        existing_broker = self.broker_class(db_file, logger=self.logger)
-        db_file = existing_broker.db_file
-        point = -1
-        objects = existing_broker.get_items_since(point, 1000)
-        while len(objects):
-            new_broker.merge_items(objects)
-            point = objects[-1]['ROWID']
+        with self.broker_class(tmp_filename,
+                               logger=self.logger) as new_broker, \
+                self.broker_class(db_file,
+                                  logger=self.logger) as existing_broker:
+            db_file = existing_broker.db_file
+            point = -1
             objects = existing_broker.get_items_since(point, 1000)
-            sleep()
-        new_broker.merge_syncs(existing_broker.get_syncs())
-        self._post_rsync_then_merge_hook(existing_broker, new_broker)
-        new_broker.newid(args[0])
-        new_broker.update_metadata(existing_broker.metadata)
+            while len(objects):
+                new_broker.merge_items(objects)
+                point = objects[-1]['ROWID']
+                objects = existing_broker.get_items_since(point, 1000)
+                sleep()
+            new_broker.merge_syncs(existing_broker.get_syncs())
+            self._post_rsync_then_merge_hook(existing_broker, new_broker)
+            new_broker.newid(args[0])
+            new_broker.update_metadata(existing_broker.metadata)
         if self._abort_rsync_then_merge(db_file, tmp_filename):
             return HTTPNotFound()
         renamer(tmp_filename, db_file)

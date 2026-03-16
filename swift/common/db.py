@@ -124,8 +124,7 @@ class GreenDBConnection(sqlite3.Connection):
             timeout = BROKER_TIMEOUT
         self.timeout = timeout
         self.db_file = database
-        super(GreenDBConnection, self).__init__(
-            database, timeout=0, *args, **kwargs)
+        super().__init__(database, timeout=0, *args, **kwargs)
 
     def cursor(self, cls=None):
         if cls is None:
@@ -344,6 +343,14 @@ class DatabaseBroker(object):
         self._db_version = -1
         self.skip_commits = skip_commits
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a, **kw):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+
     def __str__(self):
         """
         Returns a string identifying the entity under broker to a human.
@@ -553,6 +560,8 @@ class DatabaseBroker(object):
         try:
             yield conn
             conn.rollback()
+            if self.conn:
+                self.conn.close()
             self.conn = conn
         except sqlite3.DatabaseError as e:
             try:
@@ -584,6 +593,8 @@ class DatabaseBroker(object):
             try:
                 conn.execute('ROLLBACK')
                 conn.isolation_level = orig_isolation_level
+                if self.conn:
+                    self.conn.close()
                 self.conn = conn
             except (Exception, Timeout):
                 logging.exception(

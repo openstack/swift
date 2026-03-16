@@ -477,6 +477,8 @@ class ContainerBroker(DatabaseBroker):
         Reloads the cached list of valid on disk db files for this broker.
         """
         # reset connection so the next access will use the correct DB file
+        if self.conn:
+            self.conn.close()
         self.conn = None
         self._db_files = get_db_files(self._init_db_file)
 
@@ -734,8 +736,10 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: True if the database has no active objects, False otherwise
         """
-        if not all(broker._empty() for broker in self.get_brokers()):
-            return False
+        for broker in self.get_brokers():
+            with broker:
+                if not broker._empty():
+                    return False
         if self.is_root_container() and self.sharding_initiated():
             # sharded shards don't get updates from their shards so their shard
             # usage should not be relied upon
@@ -945,7 +949,8 @@ class ContainerBroker(DatabaseBroker):
     def _get_alternate_object_stats(self):
         db_state = self.get_db_state()
         if db_state == SHARDING:
-            other_info = self.get_brokers()[0]._get_info()
+            with self.get_brokers()[0] as sub_broker:
+                other_info = sub_broker._get_info()
             stats = {'object_count': other_info['object_count'],
                      'bytes_used': other_info['bytes_used']}
         elif db_state == SHARDED and self.is_root_container():
@@ -2495,7 +2500,18 @@ class ContainerBroker(DatabaseBroker):
             last_shard_upper = own_shard_range.lower
 
         found_ranges = []
-        sub_broker = self.get_brokers()[0]
+        with self.get_brokers()[0] as sub_broker:
+            return self._find_shard_ranges(progress, progress_reliable,
+                                           found_ranges, existing_ranges,
+                                           limit, shard_size,
+                                           minimum_shard_size, object_count,
+                                           sub_broker, last_shard_upper,
+                                           own_shard_range)
+
+    def _find_shard_ranges(self, progress, progress_reliable, found_ranges,
+                           existing_ranges, limit, shard_size,
+                           minimum_shard_size, object_count, sub_broker,
+                           last_shard_upper, own_shard_range):
         index = len(existing_ranges)
         while limit is None or limit < 0 or len(found_ranges) < limit:
             if progress + shard_size + minimum_shard_size > object_count:
