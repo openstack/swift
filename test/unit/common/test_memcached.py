@@ -52,6 +52,7 @@ class MockedMemcachePool(memcached.MemcacheConnPool):
 class ExplodingMockMemcached(object):
     should_explode = True
     exploded = False
+    timeout = None
 
     def sendall(self, string):
         if self.should_explode:
@@ -68,6 +69,13 @@ class ExplodingMockMemcached(object):
         if self.should_explode:
             self.exploded = True
             raise socket.error(errno.EPIPE, os.strerror(errno.EPIPE))
+
+    # gettimeout/settimeout used without eventlet
+    def gettimeout(self):
+        return self.timeout
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
 
     def close(self):
         pass
@@ -91,6 +99,14 @@ class MockMemcached(object):
         self.read_return_none = False
         self.read_return_empty_str = False
         self.close_called = False
+        self.timeout = None
+
+    # gettimeout/settimeout used without eventlet
+    def gettimeout(self):
+        return self.timeout
+
+    def settimeout(self, timeout):
+        self.timeout = timeout
 
     def _get_absolute_exptime(self, exptime):
         exptime = int(exptime)
