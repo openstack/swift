@@ -81,6 +81,19 @@ Object storage policy used for object population and reporting. The default
 policy is used when this option is omitted. A non-default policy requires
 container_populate to be disabled. Reporting skips the shared container report
 for a non-default policy and runs the object report when enabled.
+.IP "\fBmetrics_filename\fR"
+Write the report as Prometheus metrics to this file, for a collector such as
+the node_exporter textfile collector. There is no default. The report writes
+no metrics file without this option. Every run replaces the whole file.
+Two runs that share a metrics_filename keep only the metrics of the run that
+finished last. Give each run a different metrics_filename, in a section or in a
+separate conf file. A run selected with --policy-name, --container-only or
+--object-only has no section, so it needs a separate conf file. A failed write
+prints an error to standard error after the report, and the exit status is 1.
+A failed run or a failed write leaves the file unchanged.
+.IP "\fBprom_user_label_<name>\fR"
+Add the label user_<name> to every metric that this report writes. Use only
+letters, digits and underscore in the name.
 .IP "\fBadditional sections\fR"
 An additional named section may override values from [dispersion]. Select it
 with the --section option to define an independent per-ring job.
@@ -106,6 +119,8 @@ with the --section option to define an independent per-ring job.
 .IP "# container_report = yes"
 .IP "# object_report = yes"
 .IP "# policy_name ="
+.IP "# metrics_filename = /var/lib/node_exporter/dispersion.prom"
+.IP "# prom_user_label_cluster = mycluster"
 .IP ""
 .IP "[object-1]"
 .IP "container_populate = no"
@@ -113,6 +128,7 @@ with the --section option to define an independent per-ring job.
 .IP "object_populate = yes"
 .IP "object_report = yes"
 .IP "policy_name = silver"
+.IP "metrics_filename = /var/lib/node_exporter/dispersion_silver.prom"
 .RE
 .PD
 

@@ -78,7 +78,9 @@ be verified.
 
 .IP "\fB-P, --policy-name\fR"
 Specify the object storage policy name. For a non-default policy, skip the
-container report and run the object report when enabled.
+container report and run the object report when enabled. This option does not
+change metrics_filename, so two policy runs that share a conf file overwrite
+each other's metrics. See dispersion.conf(5).
 
 .IP "\fB-s, --section\fR"
 Read overrides from the named dispersion.conf section.

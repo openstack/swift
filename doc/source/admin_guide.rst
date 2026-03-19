@@ -517,6 +517,20 @@ allows it to be more easily consumed by third party utilities::
     $ swift-dispersion-report -j
     {"object": {"retries:": 0, "missing_two": 0, "copies_found": 7863, "missing_one": 0, "copies_expected": 7863, "pct_found": 100.0, "overlapping": 0, "missing_all": 0}, "container": {"retries:": 0, "missing_two": 0, "copies_found": 12534, "missing_one": 0, "copies_expected": 12534, "pct_found": 100.0, "overlapping": 15, "missing_all": 0}}
 
+Set ``metrics_filename`` in ``dispersion.conf`` to also write the report as
+Prometheus metrics, for a collector such as the node_exporter textfile
+collector. The object metrics carry a ``policy`` label. The container metrics
+carry no such label, because Swift has one container ring.
+
+Every run replaces the whole metrics file. Two runs that share a
+``metrics_filename`` keep only the metrics of the run that finished last. Give
+each run a different ``metrics_filename``, in a section or in a separate conf
+file. A run selected with ``--policy-name``, ``--container-only`` or
+``--object-only`` has no section, so it needs a separate conf file::
+
+    $ swift-dispersion-report /etc/swift/dispersion.conf
+    $ swift-dispersion-report -P ec /etc/swift/dispersion_ec.conf
+
 You may select an object storage policy with ``--policy-name silver`` or
 ``-P silver``. If no policy is specified, the default policy is used. Container
 dispersion is shared by all object policies because Swift has one container

@@ -42,6 +42,14 @@ auth_key = testing
 # object_report = yes
 # policy_name = ec
 # ^ storage policy name to report/populate; omit to use the default policy
+#
+# Write the report as Prometheus metrics to this file, for a collector such
+# as the node_exporter textfile collector. Without it, the report writes no
+# metrics file.
+# metrics_filename = /var/lib/node_exporter/dispersion.prom
+#
+# Add the label user_cluster to every metric that the report writes.
+# prom_user_label_cluster = mycluster
 
 #
 # To run an independent job for a ring, keep the shared authentication
@@ -52,6 +60,16 @@ auth_key = testing
 # container_report = no
 # object_report = yes
 # policy_name = unu
+# metrics_filename = /var/lib/node_exporter/dispersion_unu.prom
+#
+# Every run replaces the whole metrics file. Two runs that share a
+# metrics_filename keep only the metrics of the run that finished last.
+# Give each run a different metrics_filename, in a section or in a
+# separate conf file. A run selected with -P, --container-only or
+# --object-only has no section, so it needs a separate conf file:
+#
+# swift-dispersion-report /etc/swift/dispersion.conf
+# swift-dispersion-report -P ec /etc/swift/dispersion_ec.conf
 #
 # You can define as many sections as you have policies to report on; each
 # run of swift-dispersion-report/-populate targets just the one section
@@ -61,6 +79,7 @@ auth_key = testing
 # container_report = no
 # object_report = yes
 # policy_name = ec
+# metrics_filename = /var/lib/node_exporter/dispersion_ec.prom
 #
 # Replace container samples with --container-only --purge. Replace object
 # samples with --object-only --policy-name POLICY --purge. Each command deletes
