@@ -1,0 +1,23 @@
+---
+features:
+  - |
+    Python 3.14 (with the GIL enabled) is now supported.
+
+  - |
+    Object expiration time is now exposed to S3 clients via the
+    ``x-amz-expiration`` header.
+
+  - |
+    ``swift-object-relinker`` now prefixes log messages with the invoked
+    action.
+
+fixes:
+  - |
+    Fixed a proxy server error when listing sharded versioned containers.
+
+  - |
+    The object reconstructor now correctly requests non-durable fragments
+    that have been moved via the container reconciler.
+
+  - |
+    Various other minor bug fixes and improvements.
