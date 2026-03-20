@@ -701,6 +701,34 @@ class TestObjectVersioning(BaseS3TestCase):
             self._sanitize_obj_listing(obj)
             versions.append(obj.pop('VersionId'))
         self.assertEqual(expected, objs)
+        self.assertFalse(resp.get('IsTruncated'))
+        self.assertNotIn('NextKeyMarker', resp)
+        self.assertNotIn('NextVersionIdMarker', resp)
+
+        resp = self.client.list_object_versions(Bucket=self.bucket_name,
+                                                MaxKeys=1)
+        objs = resp.get('Versions', [])
+        for obj in objs:
+            self._sanitize_obj_listing(obj)
+            obj.pop('VersionId')
+        self.assertEqual(expected[:1], objs)
+        self.assertTrue(resp.get('IsTruncated'))
+        self.assertEqual(expected[0]['Key'], resp.get('NextKeyMarker'))
+        self.assertEqual(versions[0], resp.get('NextVersionIdMarker'))
+
+        resp = self.client.list_object_versions(
+            Bucket=self.bucket_name,
+            KeyMarker=resp.get('NextKeyMarker'),
+            VersionIdMarker=resp.get('NextVersionIdMarker'),
+            MaxKeys=1)
+        objs = resp.get('Versions', [])
+        for obj in objs:
+            self._sanitize_obj_listing(obj)
+            obj.pop('VersionId')
+        self.assertEqual(expected[1:2], objs)
+        self.assertTrue(resp.get('IsTruncated'))
+        self.assertEqual(expected[1]['Key'], resp.get('NextKeyMarker'))
+        self.assertEqual(versions[1], resp.get('NextVersionIdMarker'))
 
     def test_copy_object(self):
         etags = []
