@@ -1602,7 +1602,90 @@ class TestContainerOperations(TestObjectVersioningBase):
             'version_id': obj1_v3['id'],
         }])
 
-    def test_list_version_marker(self):
+    def test_list_marker(self):
+        obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
+            self._prep_object_versions()
+
+        # list all versions in container
+        listing_parms = {'format': 'json',
+                         'marker': obj2_v1['name'],
+                         'versions': None}
+        prev_versions = self.env.container.files(parms=listing_parms)
+        for pv in prev_versions:
+            pv.pop('last_modified')
+        self.assertEqual(prev_versions, [{
+            'name': obj1_v4['name'],
+            'bytes': 0,
+            'content_type': 'application/x-deleted;swift_versions_deleted=1',
+            'hash': MD5_OF_EMPTY_STRING,
+            'is_latest': True,
+            'version_id': obj1_v4['id'],
+        }, {
+            'name': obj1_v3['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish13',
+            'hash': md5(b'version3', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v3['id'],
+        }, {
+            'name': obj1_v2['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish12',
+            'hash': md5(b'version2', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v2['id'],
+        }, {
+            'name': obj1_v1['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish11',
+            'hash': md5(b'version1', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v1['id'],
+        }])
+
+    def test_list_marker_and_version_marker_is_null(self):
+        obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
+            self._prep_object_versions()
+
+        # list all versions in container
+        listing_parms = {'format': 'json',
+                         'marker': obj2_v1['name'],
+                         'version_marker': 'null',
+                         'versions': None}
+        prev_versions = self.env.container.files(parms=listing_parms)
+        for pv in prev_versions:
+            pv.pop('last_modified')
+        self.assertEqual(prev_versions, [{
+            'name': obj1_v4['name'],
+            'bytes': 0,
+            'content_type': 'application/x-deleted;swift_versions_deleted=1',
+            'hash': MD5_OF_EMPTY_STRING,
+            'is_latest': True,
+            'version_id': obj1_v4['id'],
+        }, {
+            'name': obj1_v3['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish13',
+            'hash': md5(b'version3', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v3['id'],
+        }, {
+            'name': obj1_v2['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish12',
+            'hash': md5(b'version2', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v2['id'],
+        }, {
+            'name': obj1_v1['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish11',
+            'hash': md5(b'version1', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v1['id'],
+        }])
+
+    def test_list_marker_and_version_marker(self):
         obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
             self._prep_object_versions()
 
@@ -1631,7 +1714,7 @@ class TestContainerOperations(TestObjectVersioningBase):
             'version_id': obj1_v1['id'],
         }])
 
-    def test_list_version_marker_reverse(self):
+    def test_list_marker_and_version_marker_reverse(self):
         obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
             self._prep_object_versions()
 
