@@ -18,15 +18,20 @@ import unittest
 import uuid
 import random
 import time
+from collections import defaultdict
 
 from swift.common.direct_client import DirectClientException
 from swift.common.header_key_dict import HeaderKeyDict
+from swift.common.http import HTTP_NOT_FOUND
 from swift.common.internal_client import UnexpectedResponse
 from swift.common.manager import Manager
+from swift.common.storage_policy import POLICIES, EC_POLICY
 from swift.common.swob import wsgi_to_str, str_to_wsgi
-from swift.common.utils import md5
+from swift.common.utils import md5, Timestamp
 from swift.obj.reconstructor import ObjectReconstructor
-from test.probe.common import Body as ProbeBody, ECProbeTest
+from test.probe.brain import BrainSplitter
+from test.probe.common import (Body as ProbeBody, ECProbeTest,
+                               ENABLED_POLICIES)
 
 from swift.common import direct_client
 
@@ -638,6 +643,262 @@ class TestReconstructorRebuild(ECProbeTest):
         self.assertEqual(self.etag, etag)
         self.assertEqual(durable_timestamp,
                          headers.get('X-Backend-Data-Timestamp'))
+
+
+class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
+    """
+    Test that the reconstructor correctly handles timestamps with offsets
+    created by the reconciler when moving objects between storage policies.
+    """
+
+    def setUp(self):
+        super(TestReconstructorRebuildReconcilerOffset, self).setUp()
+        # identify the replication policy (not EC)
+        repl_policies = [p for p in ENABLED_POLICIES
+                         if p.policy_type != EC_POLICY]
+        if not repl_policies:
+            self.skipTest("Need a replication policy")
+        self.repl_policy = repl_policies[0]
+        self.ec_policy = self.policy
+        self.brain = BrainSplitter(self.url, self.token,
+                                   self.container_name.decode('utf8'),
+                                   self.object_name.decode('utf8'),
+                                   'container')
+
+    def _setup_reconciled_ec_object(self):
+        """
+        Create an EC object with an offset timestamp via reconciliation.
+
+        Uses a brain-split to create a container policy disagreement, PUTs
+        an object to the replication policy, then runs the reconciler to
+        move it to the EC policy. The reconciler adds offset=3 to the
+        timestamp, producing timestamps like
+        ``1234567890.12345_0000000000000003``.
+
+        Below are main attributes for use by test methods:
+          ``self.obj_etag``: the object data's MD5 checksum
+          ``self.ec_part``: the EC ring partition for the object
+          ``self.ec_nodes``: the EC primary nodes for the object
+          ``self.frag_etags``: dict mapping node index -> fragment etag
+          ``self.frag_headers``: dict mapping node index -> response headers
+          ``self.obj_timestamp``: Timestamp with offset from reconciler
+        """
+        # stop primary half, create container with EC policy on handoff half
+        self.brain.stop_primary_half()
+        self.brain.put_container(policy_index=int(self.ec_policy))
+        self.brain.start_primary_half()
+
+        # stop handoff half, create container with repl policy on primary
+        # half, and PUT the object which lands on replication policy
+        self.brain.stop_handoff_half()
+        self.brain.put_container(policy_index=int(self.repl_policy))
+        obj_data = b'reconciler-offset-test-data' * 1000
+        self.obj_etag = md5(obj_data, usedforsecurity=False).hexdigest()
+        self.brain.put_object(
+            headers={'x-object-meta-test': 'reconciler-offset'},
+            contents=obj_data)
+        self.brain.start_handoff_half()
+
+        # Verify split brain exists
+        container_part, container_nodes = self.container_ring.get_nodes(
+            self.account, self.container_name.decode('utf8'))
+        found_policy_indexes = set()
+        for node in container_nodes:
+            metadata = direct_client.direct_head_container(
+                node, container_part, self.account,
+                self.container_name.decode('utf8'))
+            found_policy_indexes.add(
+                metadata['X-Backend-Storage-Policy-Index'])
+        self.assertEqual(
+            len(found_policy_indexes), 2,
+            'Container nodes should disagree about policy, got %r'
+            % found_policy_indexes)
+
+        # Verify object exists on replication policy nodes
+        repl_ring = POLICIES.get_object_ring(
+            int(self.repl_policy), '/etc/swift')
+        repl_part, repl_nodes = repl_ring.get_nodes(
+            self.account, self.container_name.decode('utf8'),
+            self.object_name.decode('utf8'))
+        found_on_repl = False
+        for node in repl_nodes:
+            try:
+                direct_client.direct_head_object(
+                    node, repl_part, self.account,
+                    self.container_name.decode('utf8'),
+                    self.object_name.decode('utf8'),
+                    headers={'X-Backend-Storage-Policy-Index':
+                             int(self.repl_policy)})
+                found_on_repl = True
+                break
+            except direct_client.ClientException:
+                continue
+        self.assertTrue(found_on_repl,
+                        'Object not found on replication policy nodes')
+
+        # Run replicators/updaters to converge
+        self.get_to_final_state()
+        # Run the reconciler which will detect the object is in the wrong
+        # policy (repl) and move it to the correct policy (EC), adding offset=3
+        # to the timestamp.
+        Manager(['container-reconciler']).once()
+        # Run get_to_final_state again to ensure container listings are
+        # updated after the reconciler moved the object.
+        self.get_to_final_state()
+
+        # Verify container nodes now agree on EC policy
+        found_policy_indexes = set()
+        for node in container_nodes:
+            metadata = direct_client.direct_head_container(
+                node, container_part, self.account,
+                self.container_name.decode('utf8'))
+            found_policy_indexes.add(
+                metadata['X-Backend-Storage-Policy-Index'])
+        self.assertEqual(len(found_policy_indexes), 1,
+                         'Container nodes should agree on policy, got %r'
+                         % found_policy_indexes)
+        self.assertEqual(found_policy_indexes.pop(),
+                         str(int(self.ec_policy)))
+
+        # Verify object is now on EC policy with offset timestamp
+        ec_ring = POLICIES.get_object_ring(
+            int(self.ec_policy), '/etc/swift')
+        self.ec_part, self.ec_nodes = ec_ring.get_nodes(
+            self.account, self.container_name.decode('utf8'),
+            self.object_name.decode('utf8'))
+
+        self.frag_etags = {}
+        self.frag_headers = {}
+        for node in self.ec_nodes:
+            try:
+                hdrs, etag = self.direct_get(node, self.ec_part)
+                self.frag_etags[node['index']] = etag
+                self.frag_headers[node['index']] = hdrs
+            except direct_client.ClientException as err:
+                if err.http_status != HTTP_NOT_FOUND:
+                    raise
+
+        # we need at least ec_ndata fragments for reconstruction
+        self.assertGreaterEqual(
+            len(self.frag_etags), self.ec_policy.ec_ndata,
+            'Not enough EC fragments found after reconciliation: '
+            'found %d, need %d' % (len(self.frag_etags),
+                                   self.ec_policy.ec_ndata))
+
+        # Verify the timestamp has an offset (added by reconciler)
+        sample_ts_str = list(
+            self.frag_headers.values())[0]['X-Backend-Timestamp']
+        self.obj_timestamp = Timestamp(sample_ts_str)
+        self.assertGreater(
+            self.obj_timestamp.offset, 0,
+            'Expected timestamp with offset from reconciler, got %s'
+            % self.obj_timestamp.internal)
+
+        # Verify proxy GET returns correct data (may need retries due to
+        # cached container info in the proxy)
+        timeout = time.time() + 60
+        while True:
+            try:
+                headers, etag = self.proxy_get()
+                break
+            except ClientException as err:
+                if err.http_status != HTTP_NOT_FOUND:
+                    raise
+                if time.time() > timeout:
+                    self.fail('Timed out waiting for proxy GET after '
+                              'reconciliation')
+                time.sleep(1)
+        self.assertEqual(self.obj_etag, etag)
+
+    def test_rebuild_reconciled_object_with_offset_timestamp(self):
+
+        # This test exercises the fix for
+        # https://bugs.launchpad.net/swift/+bug/2143206 that changed frag_prefs
+        # from using Timestamp.normal to Timestamp.internal.
+        # When the reconciler moves an object from a replication policy to an
+        # EC policy, it adds a timestamp offset(offset=3). The test verifies
+        # that the reconstructor sends the internal timestamp format(which
+        # includes the offset) in fragment preferences, so that peer nodes
+        # match it and return the correct fragments.
+        self._setup_reconciled_ec_object()
+
+        # PUT a newer non-durable version (let's call it v2) on all EC nodes.
+        # This is critical for detecting a regression to the bug fix:
+        # v2 frags must be newer and must have at least as many bytes as v1
+        # frags.
+        v2_data = b'newer-non-durable-version' * 2000
+        internal_client = self.make_internal_client()
+        v2_body = ProbeBody(total=len(v2_data))
+        internal_client.upload_object(
+            v2_body, self.account,
+            self.container_name.decode('utf8'),
+            self.object_name.decode('utf8'),
+            {'x-backend-no-commit': 'True'})
+
+        # Verify each node has both v1 (durable) and v2 (non-durable)
+        dev_frag_etags = defaultdict(list)
+        for node in self.ec_nodes:
+            if node['index'] not in self.frag_etags:
+                continue
+            try:
+                etag = self.direct_get(node, self.ec_part)[1]
+                self.assertEqual(self.frag_etags[node['index']], etag)
+                dev_frag_etags[node['device']].append(etag)
+            except direct_client.DirectClientException:
+                pass  # some nodes may not have fragments
+            try:
+                dev_frag_etags[node['device']].append(self.direct_get(
+                    node, self.ec_part, require_durable=False)[1])
+            except direct_client.DirectClientException:
+                pass  # some nodes may not have fragments
+        # all devs have two distinct frags
+        self.assertEqual(
+            {dev: 2 for dev in dev_frag_etags.keys()},
+            {dev: len(set(etags)) for dev, etags in dev_frag_etags.items()},
+            dev_frag_etags
+        )
+
+        # Delete one EC fragment so it needs rebuilding
+        fail_index = list(self.frag_etags.keys())[0]
+        fail_node = [n for n in self.ec_nodes
+                     if n['index'] == fail_index][0]
+        orig_frag_etag = self.frag_etags[fail_index]
+
+        fail_list_idx = self.ec_nodes.index(fail_node)
+        self.break_nodes(self.ec_nodes, self.ec_part, [fail_list_idx], [])
+
+        # Verify the fragment is gone
+        self.assert_direct_get_fails(fail_node, self.ec_part, 404)
+
+        # Run the reconstructor to rebuild the missing fragment.
+        self.reconstructor.once()
+
+        # Verify the fragment was rebuilt correctly with v1 data
+        rebuilt_hdrs, rebuilt_frag_etag = self.direct_get(
+            fail_node, self.ec_part)
+
+        # With the prevous bug (Timestamp.normal in frag_prefs), the timestamp
+        # "1234567890.12345" won't match the actual offset timestamp
+        # "1234567890.12345_0000000000000003" on peer nodes.
+        self.assertEqual(orig_frag_etag, rebuilt_frag_etag,
+                         'Rebuilt fragment does not match original v1 '
+                         'fragment; reconstruction may have incorrectly '
+                         'used newer non-durable v2 data due to wrong '
+                         'timestamp format in fragment preferences')
+
+        # Verify the rebuilt fragment has the correct offset timestamp
+        rebuilt_ts = Timestamp(rebuilt_hdrs['X-Backend-Timestamp'])
+        self.assertEqual(self.obj_timestamp.internal, rebuilt_ts.internal,
+                         'Rebuilt fragment timestamp %s does not match '
+                         'expected %s' % (rebuilt_ts.internal,
+                                          self.obj_timestamp.internal))
+
+        # Verify the rebuilt fragment is durable
+        self.assertIn('X-Backend-Durable-Timestamp', rebuilt_hdrs)
+
+        # Proxy GET should still return correct data
+        headers, actual_etag = self.proxy_get()
+        self.assertEqual(self.obj_etag, actual_etag)
 
 
 class TestReconstructorRebuildUTF8(TestReconstructorRebuild):
