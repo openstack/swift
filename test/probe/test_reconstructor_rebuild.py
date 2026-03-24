@@ -18,14 +18,14 @@ import unittest
 import uuid
 import random
 import time
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 from swift.common.direct_client import DirectClientException
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_NOT_FOUND
 from swift.common.internal_client import UnexpectedResponse
 from swift.common.manager import Manager
-from swift.common.storage_policy import POLICIES, EC_POLICY
+from swift.common.storage_policy import POLICIES
 from swift.common.swob import wsgi_to_str, str_to_wsgi
 from swift.common.utils import md5, Timestamp
 from swift.obj.reconstructor import ObjectReconstructor
@@ -59,6 +59,10 @@ class Body(object):
         self.size += len(self.chunk)
         self.hasher.update(self.chunk)
         return self.chunk
+
+
+def _format_node(node):
+    return '%(ip)s:%(port)s/%(device)s#%(index)s' % node
 
 
 class TestReconstructorRebuild(ECProbeTest):
@@ -104,9 +108,6 @@ class TestReconstructorRebuild(ECProbeTest):
             resp_checksum.update(chunk)
         return HeaderKeyDict(headers), resp_checksum.hexdigest()
 
-    def _format_node(self, node):
-        return '%s#%s' % (node['device'], node['index'])
-
     def _assert_all_nodes_have_frag(self, extra_headers=None):
         # check all frags are in place
         failures = []
@@ -123,7 +124,7 @@ class TestReconstructorRebuild(ECProbeTest):
                 failures.append((node, err))
         if failures:
             self.fail('\n'.join(['    Node %r raised %r' %
-                                 (self._format_node(node), exc)
+                                 (_format_node(node), exc)
                                  for (node, exc) in failures]))
         return frag_headers, frag_etags
 
@@ -132,16 +133,16 @@ class TestReconstructorRebuild(ECProbeTest):
         # helper method to test a scenario with some nodes missing their
         # fragment and some nodes having non-durable fragments
         with self.subTest(
-                failed=[self._format_node(self.onodes[n]) for n in failed],
-                non_durable=[self._format_node(self.onodes[n])
+                failed=[_format_node(self.onodes[n]) for n in failed],
+                non_durable=[_format_node(self.onodes[n])
                              for n in non_durable]):
             self.break_nodes(self.onodes, self.opart, failed, non_durable)
 
         # make sure we can still GET the object and it is correct; the
         # proxy is doing decode on remaining fragments to get the obj
         with self.subTest(
-                failed=[self._format_node(self.onodes[n]) for n in failed],
-                non_durable=[self._format_node(self.onodes[n])
+                failed=[_format_node(self.onodes[n]) for n in failed],
+                non_durable=[_format_node(self.onodes[n])
                              for n in non_durable]):
             headers, etag = self.proxy_get()
             self.assertEqual(self.etag, etag)
@@ -159,8 +160,8 @@ class TestReconstructorRebuild(ECProbeTest):
 
         # check GET via proxy returns expected data and metadata
         with self.subTest(
-                failed=[self._format_node(self.onodes[n]) for n in failed],
-                non_durable=[self._format_node(self.onodes[n])
+                failed=[_format_node(self.onodes[n]) for n in failed],
+                non_durable=[_format_node(self.onodes[n])
                              for n in non_durable]):
             headers, etag = self.proxy_get()
             self.assertEqual(self.etag, etag)
@@ -171,8 +172,8 @@ class TestReconstructorRebuild(ECProbeTest):
                                  wsgi_to_str(headers[wsgi_key]))
         # check all frags are intact, durable and have expected metadata
         with self.subTest(
-                failed=[self._format_node(self.onodes[n]) for n in failed],
-                non_durable=[self._format_node(self.onodes[n])
+                failed=[_format_node(self.onodes[n]) for n in failed],
+                non_durable=[_format_node(self.onodes[n])
                              for n in non_durable]):
             frag_headers, frag_etags = self._assert_all_nodes_have_frag()
             self.assertEqual(self.frag_etags, frag_etags)
@@ -603,7 +604,7 @@ class TestReconstructorRebuild(ECProbeTest):
             self.assertNotEqual(durable_frag_etag, newest_frag_etag,
                                 'Expected non-durable v2 frag to differ '
                                 'from durable v1 frag on node %s'
-                                % self._format_node(node))
+                                % _format_node(node))
 
         # delete node 0's partition entirely so it needs rebuilding
         self.break_nodes(self.onodes, self.opart, [0], [])
@@ -651,15 +652,11 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
     created by the reconciler when moving objects between storage policies.
     """
 
+    @unittest.skipIf(len(ENABLED_POLICIES) < 2, "Need more than one policy")
     def setUp(self):
         super(TestReconstructorRebuildReconcilerOffset, self).setUp()
-        # identify the replication policy (not EC)
-        repl_policies = [p for p in ENABLED_POLICIES
-                         if p.policy_type != EC_POLICY]
-        if not repl_policies:
-            self.skipTest("Need a replication policy")
-        self.repl_policy = repl_policies[0]
-        self.ec_policy = self.policy
+        self.other_policy = random.choice([p for p in ENABLED_POLICIES
+                                           if p != self.policy])
         self.brain = BrainSplitter(self.url, self.token,
                                    self.container_name.decode('utf8'),
                                    self.object_name.decode('utf8'),
@@ -685,13 +682,13 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
         """
         # stop primary half, create container with EC policy on handoff half
         self.brain.stop_primary_half()
-        self.brain.put_container(policy_index=int(self.ec_policy))
+        self.brain.put_container(policy_index=int(self.policy))
         self.brain.start_primary_half()
 
         # stop handoff half, create container with repl policy on primary
         # half, and PUT the object which lands on replication policy
         self.brain.stop_handoff_half()
-        self.brain.put_container(policy_index=int(self.repl_policy))
+        self.brain.put_container(policy_index=int(self.other_policy))
         obj_data = b'reconciler-offset-test-data' * 1000
         self.obj_etag = md5(obj_data, usedforsecurity=False).hexdigest()
         self.brain.put_object(
@@ -702,39 +699,54 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
         # Verify split brain exists
         container_part, container_nodes = self.container_ring.get_nodes(
             self.account, self.container_name.decode('utf8'))
-        found_policy_indexes = set()
+        found_policy_indexes = {}
         for node in container_nodes:
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account,
                 self.container_name.decode('utf8'))
-            found_policy_indexes.add(
+            found_policy_indexes[_format_node(node)] = int(
                 metadata['X-Backend-Storage-Policy-Index'])
         self.assertEqual(
-            len(found_policy_indexes), 2,
+            Counter(found_policy_indexes.values()), {
+                int(self.policy): 1,
+                int(self.other_policy): 2,
+            },
             'Container nodes should disagree about policy, got %r'
             % found_policy_indexes)
 
         # Verify object exists on replication policy nodes
-        repl_ring = POLICIES.get_object_ring(
-            int(self.repl_policy), '/etc/swift')
-        repl_part, repl_nodes = repl_ring.get_nodes(
+        other_ring = POLICIES.get_object_ring(
+            int(self.other_policy), '/etc/swift')
+        other_part, other_nodes = other_ring.get_nodes(
             self.account, self.container_name.decode('utf8'),
             self.object_name.decode('utf8'))
-        found_on_repl = False
-        for node in repl_nodes:
+        found_on_other = {}
+        failures = {}
+        for node in other_nodes:
             try:
-                direct_client.direct_head_object(
-                    node, repl_part, self.account,
+                resp = direct_client.direct_head_object(
+                    node, other_part, self.account,
                     self.container_name.decode('utf8'),
                     self.object_name.decode('utf8'),
                     headers={'X-Backend-Storage-Policy-Index':
-                             int(self.repl_policy)})
-                found_on_repl = True
-                break
-            except direct_client.ClientException:
-                continue
-        self.assertTrue(found_on_repl,
-                        'Object not found on replication policy nodes')
+                             int(self.other_policy)})
+            except DirectClientException as e:
+                failures[_format_node(node)] = e
+            else:
+                found_on_other[_format_node(node)] = resp
+        if failures:
+            self.fail('\n'.join([
+                '    Node %r raised %r' % (node, exc)
+                for (node, exc) in failures.items()
+            ]))
+
+        expected_etag = '"%s"' % self.obj_etag
+        expected_count = self.other_policy.object_ring.replica_count
+        self.assertEqual(
+            Counter(resp['Etag'] for resp in found_on_other.values()),
+            {expected_etag: expected_count},
+            'Other policy nodes should agree about obj meta, got %r'
+            % found_on_other)
 
         # Run replicators/updaters to converge
         self.get_to_final_state()
@@ -747,48 +759,59 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
         self.get_to_final_state()
 
         # Verify container nodes now agree on EC policy
-        found_policy_indexes = set()
+        after_policy_indexes = {}
         for node in container_nodes:
             metadata = direct_client.direct_head_container(
                 node, container_part, self.account,
                 self.container_name.decode('utf8'))
-            found_policy_indexes.add(
+            after_policy_indexes[_format_node(node)] = int(
                 metadata['X-Backend-Storage-Policy-Index'])
-        self.assertEqual(len(found_policy_indexes), 1,
-                         'Container nodes should agree on policy, got %r'
-                         % found_policy_indexes)
-        self.assertEqual(found_policy_indexes.pop(),
-                         str(int(self.ec_policy)))
+        self.assertEqual(
+            Counter(after_policy_indexes.values()),
+            {int(self.policy): 3},
+            'Container nodes should agree about policy, got %r'
+            % after_policy_indexes)
 
         # Verify object is now on EC policy with offset timestamp
         ec_ring = POLICIES.get_object_ring(
-            int(self.ec_policy), '/etc/swift')
+            int(self.policy), '/etc/swift')
         self.ec_part, self.ec_nodes = ec_ring.get_nodes(
             self.account, self.container_name.decode('utf8'),
             self.object_name.decode('utf8'))
 
         self.frag_etags = {}
         self.frag_headers = {}
+        frag_failures = {}
         for node in self.ec_nodes:
+            node_key = _format_node(node)
             try:
                 hdrs, etag = self.direct_get(node, self.ec_part)
-                self.frag_etags[node['index']] = etag
-                self.frag_headers[node['index']] = hdrs
+                self.frag_etags[node_key] = etag
+                self.frag_headers[node_key] = hdrs
             except direct_client.ClientException as err:
-                if err.http_status != HTTP_NOT_FOUND:
-                    raise
-
-        # we need at least ec_ndata fragments for reconstruction
-        self.assertGreaterEqual(
-            len(self.frag_etags), self.ec_policy.ec_ndata,
-            'Not enough EC fragments found after reconciliation: '
-            'found %d, need %d' % (len(self.frag_etags),
-                                   self.ec_policy.ec_ndata))
+                frag_failures[node_key] = err
+        if frag_failures:
+            self.fail('\n'.join([
+                '    Node %r raised %r' % (node, exc)
+                for (node, exc) in frag_failures.items()
+            ]))
+        # sanity: we've dealing with replica_count responses here
+        all_the_things = (self.ec_nodes, self.frag_etags, self.frag_headers)
+        self.assertEqual(
+            {self.policy.object_ring.replica_count},
+            {len(a) for a in all_the_things})
+        # sanity: that's more than ndata
+        self.assertGreater(self.policy.object_ring.replica_count,
+                           self.policy.ec_ndata)
 
         # Verify the timestamp has an offset (added by reconciler)
-        sample_ts_str = list(
-            self.frag_headers.values())[0]['X-Backend-Timestamp']
-        self.obj_timestamp = Timestamp(sample_ts_str)
+
+        timestamp_headers = list(headers['X-Backend-Timestamp']
+                                 for headers in self.frag_headers.values())
+        # there should be only one consistent timestamp for all frags
+        self.assertEqual(1, len(set(timestamp_headers)),
+                         Counter(timestamp_headers))
+        self.obj_timestamp = Timestamp(timestamp_headers[0])
         self.assertGreater(
             self.obj_timestamp.offset, 0,
             'Expected timestamp with offset from reconciler, got %s'
@@ -824,11 +847,12 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
 
         # PUT a newer non-durable version (let's call it v2) on all EC nodes.
         # This is critical for detecting a regression to the bug fix:
-        # v2 frags must be newer and must have at least as many bytes as v1
-        # frags.
-        v2_data = b'newer-non-durable-version' * 2000
+        # v2 frags must be newer and must have at least as many bytes as the
+        # original frags.
         internal_client = self.make_internal_client()
-        v2_body = ProbeBody(total=len(v2_data))
+        orig_headers = random.choice(list(self.frag_headers.values()))
+        orig_length = int(orig_headers['X-Object-Sysmeta-Ec-Content-Length'])
+        v2_body = ProbeBody(total=2 * orig_length)
         internal_client.upload_object(
             v2_body, self.account,
             self.container_name.decode('utf8'),
@@ -836,33 +860,41 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
             {'x-backend-no-commit': 'True'})
 
         # Verify each node has both v1 (durable) and v2 (non-durable)
+        durable_frags = {}
+        non_durable_frags = {}
         dev_frag_etags = defaultdict(list)
         for node in self.ec_nodes:
-            if node['index'] not in self.frag_etags:
-                continue
-            try:
-                etag = self.direct_get(node, self.ec_part)[1]
-                self.assertEqual(self.frag_etags[node['index']], etag)
-                dev_frag_etags[node['device']].append(etag)
-            except direct_client.DirectClientException:
-                pass  # some nodes may not have fragments
-            try:
-                dev_frag_etags[node['device']].append(self.direct_get(
-                    node, self.ec_part, require_durable=False)[1])
-            except direct_client.DirectClientException:
-                pass  # some nodes may not have fragments
+            node_key = _format_node(node)
+            # this is the original (durable) fragment
+            headers, etag = self.direct_get(node, self.ec_part)
+            self.assertEqual(etag, self.frag_etags[node_key])
+            self.assertEqual(headers['X-Object-Sysmeta-Ec-Etag'],
+                             self.obj_etag)
+            self.assertEqual(headers['X-Backend-Data-Timestamp'],
+                             headers['X-Backend-Durable-Timestamp'])
+            self.assertIn('X-Backend-Durable-Timestamp', headers)
+            durable_frags[node_key] = headers
+            dev_frag_etags[node_key].append(etag)
+            # this is the new (non-durable) ProbeBody
+            headers, etag = self.direct_get(
+                node, self.ec_part, require_durable=False)
+            self.assertEqual(headers['X-Object-Sysmeta-Ec-Etag'],
+                             v2_body.etag)
+            self.assertGreater(
+                Timestamp(headers['X-Backend-Data-Timestamp']),
+                Timestamp(headers['X-Backend-Durable-Timestamp']))
+            non_durable_frags[node_key] = headers
+            dev_frag_etags[node_key].append(etag)
         # all devs have two distinct frags
         self.assertEqual(
-            {dev: 2 for dev in dev_frag_etags.keys()},
+            {_format_node(node): 2 for node in self.ec_nodes},
             {dev: len(set(etags)) for dev, etags in dev_frag_etags.items()},
             dev_frag_etags
         )
 
         # Delete one EC fragment so it needs rebuilding
-        fail_index = list(self.frag_etags.keys())[0]
-        fail_node = [n for n in self.ec_nodes
-                     if n['index'] == fail_index][0]
-        orig_frag_etag = self.frag_etags[fail_index]
+        fail_node = random.choice(self.ec_nodes)
+        orig_frag_etag = self.frag_etags[_format_node(fail_node)]
 
         fail_list_idx = self.ec_nodes.index(fail_node)
         self.break_nodes(self.ec_nodes, self.ec_part, [fail_list_idx], [])
@@ -894,7 +926,8 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
                                           self.obj_timestamp.internal))
 
         # Verify the rebuilt fragment is durable
-        self.assertIn('X-Backend-Durable-Timestamp', rebuilt_hdrs)
+        self.assertEqual(rebuilt_hdrs['X-Backend-Data-Timestamp'],
+                         rebuilt_hdrs['X-Backend-Durable-Timestamp'])
 
         # Proxy GET should still return correct data
         headers, actual_etag = self.proxy_get()
