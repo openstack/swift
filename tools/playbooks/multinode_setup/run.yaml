@@ -40,6 +40,15 @@
 
 - hosts: test-runner
   tasks:
+    # Older branches require tox 3.x; remove this once we drop rolling
+    # upgrade jobs for caracal and prior
+    - name: Downgrade tox
+      shell:
+        cmd: /home/zuul/.local/tox/bin/pip install -U 'tox<4'
+        executable: /bin/bash
+        chdir: '{{ zuul.project.src_dir }}'
+      when: '"{{ previous_swift_version | default("latest") }}" in ["wallaby-eom", "xena-eom", "yoga-eom", "zed-eom", "2023.1-eom", "2023.2-eol"]'
+
     - name: Run func tests with tempauth users
       include_role:
         name: tox
