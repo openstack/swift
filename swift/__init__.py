@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import warnings
-
 __version__ = None
 
 # First, try to get our version out of PKG-INFO. If we're installed,
@@ -45,11 +43,3 @@ if __version__ is None:
     _version_info = pbr.version.VersionInfo('swift')
     __version__ = _version_info.release_string()
     __canonical_version__ = _version_info.version_string()
-
-
-warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
-    'Python 2 is no longer supported by the Python core team. '
-    'Support for it is now deprecated in cryptography'))
-warnings.filterwarnings('ignore', message=(
-    'Python 3.6 is no longer supported by the Python core team. '
-    'Therefore, support for it is deprecated in cryptography'))
