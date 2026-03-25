@@ -5094,6 +5094,57 @@ class TestLRUCache(unittest.TestCase):
         # reuses cache space
         self.assertEqual(f.size(), 10)
 
+    def test_expired_entry_refresh_does_not_corrupt_cache(self):
+        # Verifies that refreshing an expired entry splices the stale link out
+        # of the doubly-linked list and removes it from the mapping before
+        # inserting the fresh entry.  This keeps the size count accurate so
+        # that no live entries are displaced, and ensures all subsequent
+        # evictions operate on valid live nodes.
+        #
+        # Expected state sequence (maxsize=2):
+        #   1. cache 2, then 1:
+        #      head <-> 2(LRU) <-> 1(MRU) <-> tail, mapping={2, 1}, size=2
+        #   2. advance past maxtime; refresh key 1: stale link spliced out,
+        #      del mapping[1], fresh_1 inserted ->
+        #      head <-> 2 <-> fresh_1 <-> tail, mapping={2, 1}, size=2
+        #   3. add key 3: evicts 2 (LRU) ->
+        #      head <-> fresh_1 <-> 3 <-> tail, mapping={1, 3}, size=2
+        #   4. add key 4: evicts fresh_1 (LRU) ->
+        #      head <-> 3 <-> 4 <-> tail, mapping={3, 4}, size=2
+        #   5. re-cache key 1: evicts 3 (LRU) ->
+        #      head <-> 4 <-> fresh_1_v2 <-> tail, mapping={4, 1}, size=2
+
+        @utils.LRUCache(maxsize=2, maxtime=30)
+        def f(*args):
+            return args
+
+        now = time.time()
+        future = now + 31
+
+        with patch('time.time', lambda: now):
+            f(2)   # list: 2
+            f(1)   # list: 2(LRU), 1(MRU)
+
+        with patch('time.time', lambda: future):
+            # Refreshing expired key 1 splices out the stale link and
+            # decrements the size before inserting the fresh entry, so
+            # both keys 1 and 2 remain in the cache afterwards.
+            f(1)
+            self.assertEqual(f.size(), 2,
+                             'key 2 was spuriously evicted during expiry '
+                             'refresh of key 1')
+
+            # Adding more entries drives evictions of live nodes, after which
+            # key 1 can be re-cached cleanly.
+            f(3)
+            f(4)
+            try:
+                f(1)
+            except KeyError:
+                self.fail(
+                    'KeyError raised: ghost link was left in the linked list '
+                    'after an expiry refresh, corrupting subsequent evictions')
+
     def test_set_maxtime(self):
         @utils.LRUCache(maxtime=30)
         def f(*args):
