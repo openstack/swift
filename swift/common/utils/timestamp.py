@@ -26,6 +26,8 @@ INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
 SHORT_FORMAT = NORMAL_FORMAT + '_%x'
 MAX_OFFSET = (16 ** 16) - 1
 PRECISION = 1e-5
+# raw time has units of PRECISION
+MAX_RAW_TIME = 999999999999999
 # Setting this to True will cause the internal format to always display
 # extended digits - even when the value is equivalent to the normalized form.
 # This isn't ideal during an upgrade when some servers might not understand
@@ -260,9 +262,13 @@ class Timestamp(object):
         return hash(self.internal)
 
     def __invert__(self):
-        if self.offset:
-            raise ValueError('Cannot invert timestamps with offsets')
-        return Timestamp((999999999999999 - self.raw) * PRECISION)
+        inv_float = (MAX_RAW_TIME - self.raw) * PRECISION
+        if not self.offset:
+            # legacy Timestamps did not allow inversion of hex_parts
+            inv_hex_part = 0
+        else:
+            inv_hex_part = MAX_OFFSET - self.offset
+        return Timestamp(inv_float, offset=inv_hex_part)
 
 
 def encode_timestamps(t1, t2=None, t3=None, explicit=False):
