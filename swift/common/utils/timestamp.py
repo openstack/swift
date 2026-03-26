@@ -262,12 +262,12 @@ class Timestamp(object):
         return hash(self.internal)
 
     def __invert__(self):
-        inv_float = (MAX_RAW_TIME - self.raw) * PRECISION
         if not self.offset:
-            # legacy Timestamps did not allow inversion of hex_parts
+            inv_float = (MAX_RAW_TIME - self.raw) * PRECISION
             inv_hex_part = 0
         else:
-            inv_hex_part = MAX_OFFSET - self.offset
+            inv_float = (MAX_RAW_TIME - self.raw - 1) * PRECISION
+            inv_hex_part = MAX_OFFSET + 1 - self.offset
         return Timestamp(inv_float, offset=inv_hex_part)
 
 
