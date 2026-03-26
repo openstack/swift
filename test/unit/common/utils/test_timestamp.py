@@ -780,17 +780,17 @@ class TestTimestamp(unittest.TestCase):
     def test_inversion_with_hex_part(self):
         ts = timestamp.Timestamp('0_2000000000000000')
         self.assertIsInstance(~ts, timestamp.Timestamp)
-        self.assertEqual((~ts).internal, '9999999999.99999_dfffffffffffffff')
+        self.assertEqual((~ts).internal, '9999999999.99998_e000000000000000')
 
         ts = timestamp.Timestamp('123456.789_200000000a000000')
         self.assertIsInstance(~ts, timestamp.Timestamp)
         self.assertEqual(ts.internal, '0000123456.78900_200000000a000000')
-        self.assertEqual((~ts).internal, '9999876543.21099_dffffffff5ffffff')
+        self.assertEqual((~ts).internal, '9999876543.21098_dffffffff6000000')
 
         ts = timestamp.Timestamp('123456.789_2000000000000000', offset=1)
         self.assertIsInstance(~ts, timestamp.Timestamp)
         self.assertEqual(ts.internal, '0000123456.78900_2000000000000001')
-        self.assertEqual((~ts).internal, '9999876543.21099_dffffffffffffffe')
+        self.assertEqual((~ts).internal, '9999876543.21098_dfffffffffffffff')
 
     def test_inversion(self):
         ts = timestamp.Timestamp('0')
@@ -812,6 +812,17 @@ class TestTimestamp(unittest.TestCase):
         self.assertEqual([(~x).internal for x in reversed(timestamps)],
                          sorted((~x).internal for x in timestamps))
 
+        timestamps = [
+            timestamp.Timestamp(123.456, offset=0),
+            timestamp.Timestamp(123.456, offset=3),
+            timestamp.Timestamp(123.456, offset=42),
+            timestamp.Timestamp(123.4567, offset=0),
+        ]
+        self.assertEqual(timestamps, sorted(timestamps))
+        self.assertEqual(
+            [~x for x in timestamps],
+            sorted((~x for x in timestamps), reverse=True))
+
         ts = timestamp.Timestamp.now()
         self.assertGreater(~ts, ts)  # NB: will break around 2128
 
@@ -831,6 +842,8 @@ class TestTimestamp(unittest.TestCase):
         do_test(timestamp.Timestamp('1755077566.123456'))
         do_test(timestamp.Timestamp(1755077566.123456))
         do_test(timestamp.Timestamp(1755077566.123456, offset=1))
+        do_test(timestamp.Timestamp(1755077566.123456,
+                                    offset=timestamp.MAX_OFFSET))
         do_test(timestamp.Timestamp.now())
 
 

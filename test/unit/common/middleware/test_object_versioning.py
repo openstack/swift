@@ -2075,7 +2075,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.app.register(
             'GET',
             self.build_versions_path(
-                obj='o', version='9999999939.99999_d123456789edcba9'),
+                obj='o', version='9999999939.99998_d123456789edcbaa'),
             swob.HTTPOk, {}, 'foobar')
         req = Request.blank(
             '/v1/a/c/o', method='GET',
@@ -2357,7 +2357,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.app.register(
             'DELETE',
             self.build_versions_path(
-                obj='o', version='9999999939.99999_d123456789edcba9'),
+                obj='o', version='9999999939.99998_d123456789edcbaa'),
             swob.HTTPNoContent, {}, '')
         req = Request.blank(
             '/v1/a/c/o', method='DELETE',
@@ -2370,7 +2370,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             ('DELETE',
              '%s?version-id=0000000060.00000_2edcba9876123456'
              % self.build_versions_path(
-                 obj='o', version='9999999939.99999_d123456789edcba9')),
+                 obj='o', version='9999999939.99998_d123456789edcbaa')),
         ])
 
 
@@ -2609,7 +2609,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         }, {
             'bytes': 8,
             'name': self.build_object_name(
-                'obj', '9999999989.99999_d123456789edcba9'),
+                'obj', '9999999989.99998_d123456789edcbaa'),
             'hash': 'ebdd8d46ecb4a07f6c433d67eb35d5f2',
             'last_modified': '1970-01-01T00:00:10.000000',
             'content_type': 'text/plain',
@@ -2930,7 +2930,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             '%s?marker=%s' % (
                 self.build_versions_path(),
                 self.build_object_name(
-                    'obj', '9999999989.99999_d123456789edcba9')),
+                    'obj', '9999999989.99998_d123456789edcbaa')),
             swob.HTTPOk, {},
             json.dumps(versions_listing_body[2:]).encode('utf8'))
         req = Request.blank(
