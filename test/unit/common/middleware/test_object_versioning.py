@@ -2730,7 +2730,6 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertEqual(status, '406 Not Acceptable')
 
     def test_list_versions_marker_missing_marker(self):
-
         self.app.register(
             'GET', '/v1/a/c', swob.HTTPOk,
             {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
@@ -2743,6 +2742,12 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '400 Bad Request')
         self.assertEqual(body, b'version_marker param requires marker')
+
+    def test_list_versions_marker_invalid(self):
+        self.app.register(
+            'GET', '/v1/a/c', swob.HTTPOk,
+            {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
+             SYSMETA_VERSIONS_ENABLED: True}, '{}')
 
         req = Request.blank(
             '/v1/a/c?versions&marker=obj&version_marker=id',
@@ -2832,6 +2837,8 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
              SYSMETA_VERSIONS_ENABLED: True},
             json.dumps(listing_body[1:]).encode('utf8'))
+
+        # marker
         req = Request.blank(
             '/v1/a/c?versions&marker=obj',
             environ={'REQUEST_METHOD': 'GET',
@@ -2842,8 +2849,45 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
         self.assertEqual(expected[1:], json.loads(body))
+        self.assertEqual([
+            ('/v1/a/c',
+             {'format': 'json', 'marker': 'obj', 'versions': ''}),
+            ('/v1/a/%00versions%00c',
+             {'delimiter': '',
+              'limit': '',
+              'marker': '\x00obj\x00:',
+              'prefix': '',
+              'reverse': ''})],
+            [(call.req.path, call.req.params) for call in self.app.call_list])
 
-        # version_marker
+        # marker and version_marker=null
+        self.app.clear_calls()
+        req = Request.blank(
+            '/v1/a/c?versions&marker=obj&version_marker=null',
+            environ={'REQUEST_METHOD': 'GET',
+                     'swift.cache': self.cache_version_on})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertIn(('X-Versions-Enabled', 'True'), headers)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+        self.assertEqual(expected[1:], json.loads(body))
+        self.assertEqual([
+            ('/v1/a/c',
+             {'format': 'json',
+              'marker': 'obj',
+              'version_marker': 'null',
+              'versions': ''}),
+            ('/v1/a/%00versions%00c',
+             {'delimiter': '',
+              'limit': '',
+              'marker': '\x00obj\x00:',
+              'prefix': '',
+              'reverse': ''})],
+            [(call.req.path, call.req.params) for call in self.app.call_list])
+
+        # marker and version_marker=<version>
+        self.app.clear_calls()
         self.app.register(
             'GET',
             '%s?marker=%s' % (
@@ -2866,6 +2910,19 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
         self.assertEqual(expected[3:], json.loads(body))
+        self.assertEqual([
+            ('/v1/a/c',
+             {'format': 'json',
+              'marker': 'obj',
+              'version_marker': '0000000010.00000',
+              'versions': ''}),
+            ('/v1/a/%00versions%00c',
+             {'delimiter': '',
+              'limit': '',
+              'marker': '\x00obj\x009999999989.99999',
+              'prefix': '',
+              'reverse': ''})],
+            [(call.req.path, call.req.params) for call in self.app.call_list])
 
         # version_marker with hex_part
         self.app.register(

@@ -1115,22 +1115,20 @@ class ContainerContext(ObjectVersioningContext):
         if not req.accept.best_match(['application/json']):
             raise HTTPNotAcceptable(request=req)
 
-        params = req.params
-        if 'version_marker' in params:
-            if 'marker' not in params:
-                raise HTTPBadRequest('version_marker param requires marker')
-
-            if params['version_marker'] != 'null':
+        params = dict(req.params)
+        if 'marker' in params:
+            if params.get('version_marker') in ('null', None):
+                params['marker'] = self._build_versions_object_prefix(
+                    params['marker']) + ':'  # just past all numbers
+            else:
                 try:
                     ts = Timestamp(params.pop('version_marker'))
                 except ValueError:
                     raise HTTPBadRequest('invalid version_marker param')
-
                 params['marker'] = self._build_versions_object_name(
                     params['marker'], ts.internal)
-        elif 'marker' in params:
-            params['marker'] = self._build_versions_object_prefix(
-                params['marker']) + ':'  # just past all numbers
+        elif 'version_marker' in params:
+            raise HTTPBadRequest('version_marker param requires marker')
 
         delim = params.get('delimiter', '')
         # Exclude the set of chars used in version_id from user delimiters
