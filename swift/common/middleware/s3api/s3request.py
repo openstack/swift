@@ -785,17 +785,6 @@ class SigV4Mixin(object):
 
         return self._signing_timestamp
 
-    @property
-    def timestamp(self):
-        # Unfortunately this overrides swob.Request.timestamp to return a
-        # completely different thing. It is left here for backwards
-        # compatibility only.
-        warnings.warn(
-            'S3Request.timestamp is deprecated; use the ``signing_timestamp`` '
-            'property instead.', DeprecationWarning, stacklevel=2
-        )
-        return self.signing_timestamp
-
     def _validate_expire_param(self):
         """
         Validate X-Amz-Expires in query parameter
@@ -1251,6 +1240,17 @@ class S3Request(swob.Request):
                 raise RequestTimeTooSkewed()
 
         return self._signing_timestamp
+
+    @property
+    def timestamp(self):
+        # Unfortunately this overrides swob.Request.timestamp to return a
+        # completely different thing. It is left here for backwards
+        # compatibility only.
+        warnings.warn(
+            'S3Request.timestamp is deprecated; use the ``signing_timestamp`` '
+            'property instead.', DeprecationWarning, stacklevel=2
+        )
+        return self.signing_timestamp
 
     @property
     def _is_header_auth(self):
