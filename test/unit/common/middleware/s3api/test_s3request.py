@@ -519,6 +519,8 @@ class TestRequest(S3ApiTestCase):
             timestamp = mktime(date_header['Date'])
 
         self.assertEqual(timestamp, int(sigv4_req.signing_timestamp))
+        # deprecated property still works
+        self.assertEqual(timestamp, int(sigv4_req.timestamp))
 
     def test_request_signing_timestamp_sigv4(self):
         access_denied_message = \
@@ -622,6 +624,8 @@ class TestRequest(S3ApiTestCase):
         else:
             self.fail('Invalid date header specified as test')
         self.assertEqual(timestamp, int(sigv2_req.signing_timestamp))
+        # deprecated property still works
+        self.assertEqual(timestamp, int(sigv2_req.timestamp))
 
     def test_request_signing_timestamp_sigv2(self):
         access_denied_message = \
