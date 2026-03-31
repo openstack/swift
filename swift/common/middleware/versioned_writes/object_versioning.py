@@ -1117,9 +1117,12 @@ class ContainerContext(ObjectVersioningContext):
 
         params = dict(req.params)
         if 'marker' in params:
-            if params.get('version_marker') in ('null', None):
+            if 'version_marker' not in params:
                 params['marker'] = self._build_versions_object_prefix(
-                    params['marker']) + ':'  # just past all numbers
+                    params['marker']) + ':'  # just past all timestamps
+            elif params['version_marker'] == 'null':
+                params['marker'] = self._build_versions_object_prefix(
+                    params['marker'])  # just before all timestamps
             else:
                 try:
                     ts = Timestamp(params.pop('version_marker'))
