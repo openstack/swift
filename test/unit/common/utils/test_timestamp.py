@@ -819,9 +819,18 @@ class TestTimestamp(unittest.TestCase):
             timestamp.Timestamp(123.4567, offset=0),
         ]
         self.assertEqual(timestamps, sorted(timestamps))
+        inverted_ts = [~x for x in timestamps]
         self.assertEqual(
-            [~x for x in timestamps],
-            sorted((~x for x in timestamps), reverse=True))
+            inverted_ts,
+            sorted(inverted_ts, reverse=True))
+
+        internal_inv = [t.internal for t in inverted_ts]
+        self.assertEqual(
+            internal_inv,
+            sorted(internal_inv, reverse=True))
+
+        parse_inv = [~timestamp.Timestamp(i) for i in internal_inv]
+        self.assertEqual(parse_inv, timestamps)
 
         ts = timestamp.Timestamp.now()
         self.assertGreater(~ts, ts)  # NB: will break around 2128
