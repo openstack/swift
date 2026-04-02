@@ -2109,14 +2109,21 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertIn(b're-enable object versioning', body)
 
     def test_PUT_version_invalid(self):
-        invalid_versions = ('null', 'something', '-10')
-        for version_id in invalid_versions:
+        def do_test(invalid_version):
             req = Request.blank(
                 '/v1/a/c/o', method='PUT',
+                headers={'Content-Length': '0'},
                 environ={'swift.cache': self.cache_version_on},
-                params={'version-id': invalid_versions})
+                params={'version-id': invalid_version})
             status, headers, body = self.call_ov(req)
             self.assertEqual(status, '400 Bad Request')
+
+        # 'null' is invalid in the context of a PUT?version_id=
+        do_test('null')
+        # these are invalid in any context...
+        do_test('something')
+        do_test('-10')
+        do_test('12345678901')
 
     def test_POST_error(self):
         req = Request.blank(
