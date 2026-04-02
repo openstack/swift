@@ -38,29 +38,6 @@ from swift.common import direct_client
 from swiftclient import client, ClientException
 
 
-class Body(object):
-
-    def __init__(self, total=3.5 * 2 ** 20):
-        self.total = int(total)
-        self.hasher = md5(usedforsecurity=False)
-        self.size = 0
-        self.chunk = b'test' * 16 * 2 ** 10
-
-    @property
-    def etag(self):
-        return self.hasher.hexdigest()
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        if self.size > self.total:
-            raise StopIteration()
-        self.size += len(self.chunk)
-        self.hasher.update(self.chunk)
-        return self.chunk
-
-
 def _format_node(node):
     return '%(ip)s:%(port)s/%(device)s#%(index)s' % node
 
