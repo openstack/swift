@@ -1103,8 +1103,14 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             self.assertEqual(symlink_put_headers[k], v)
         self.assertNotIn('x-object-manifest', symlink_put_headers)
 
-    def test_PUT_overwrite_object(self):
+    def test_PUT_overwrite_unversioned_object(self):
         ts_old, ts_new = self.ts(), self.ts()
+        # the copied source version id inverts the source GET response
+        # x-backend-timestamp which has internal format
+        exp_old_version = (~ts_old).internal
+        # the new version id inverts the PUT req x-timestamp which has internal
+        # format
+        exp_new_version = (~ts_new).internal
         self.app.register(
             'GET', '/v1/a/c/o', swob.HTTPOk,
             {'x-timestamp': ts_old.normal,
@@ -1113,11 +1119,11 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version=(~ts_old).normal),
+            self.build_versions_path(obj='o', version=exp_old_version),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT',
-            self.build_versions_path(obj='o', version=(~ts_new).internal),
+            self.build_versions_path(obj='o', version=exp_new_version),
             swob.HTTPCreated, {}, 'passed')
         self.app.register(
             'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
@@ -1144,9 +1150,9 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('GET', '/v1/a/c/o?symlink=get'),
             ('PUT',
-             self.build_versions_path(obj='o', version=(~ts_old).normal)),
+             self.build_versions_path(obj='o', version=exp_old_version)),
             ('PUT',
-             self.build_versions_path(obj='o', version=(~ts_new).internal)),
+             self.build_versions_path(obj='o', version=exp_new_version)),
             ('PUT', '/v1/a/c/o'),
         ])
 
@@ -1156,7 +1162,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
-            self.build_symlink_path('c', 'o', (~ts_new).internal),
+            self.build_symlink_path('c', 'o', exp_new_version),
             'x-object-sysmeta-symlink-target-etag': md5(
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
@@ -1164,6 +1170,74 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         symlink_put_headers = self.app.call_list[-1].headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
+
+    def _do_test_PUT_overwrite_unversioned_object_timestamp(
+            self, get_resp_headers, exp_old_version):
+        ts_new = self.ts()
+        exp_new_version = (~ts_new).internal
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk, get_resp_headers, 'passed')
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_old_version),
+            swob.HTTPCreated, {}, 'passed')
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_new_version),
+            swob.HTTPCreated, {}, 'passed')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        with mock_timestamp_now(ts_new):
+            status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT',
+             self.build_versions_path(obj='o', version=exp_old_version)),
+            ('PUT',
+             self.build_versions_path(obj='o', version=exp_new_version)),
+            ('PUT', '/v1/a/c/o'),
+        ])
+
+    def test_PUT_overwrite_unversioned_object_timestamp_with_hex_part(self):
+        # it's ok for the source x-backend-timestamp to have a hex part/offset
+        ts_old = Timestamp(self.ts(), offset=1)
+        get_resp_headers = {'x-timestamp': ts_old.normal,
+                            'x-backend-timestamp': ts_old.internal,
+                            'last-modified': date_header_format(ts_old)}
+        exp_old_version = (~ts_old).internal
+        self._do_test_PUT_overwrite_unversioned_object_timestamp(
+            get_resp_headers, exp_old_version)
+
+    def test_PUT_overwrite_unversioned_object_fallback_to_x_timestamp(self):
+        # if x-backend-timestamp is missing then source version is based on the
+        # normal format x-timestamp response header
+        ts_old = self.ts()
+        get_resp_headers = {'x-timestamp': ts_old.normal,
+                            'last-modified': date_header_format(ts_old)}
+        exp_old_version = (~(Timestamp(ts_old.normal))).internal
+        self._do_test_PUT_overwrite_unversioned_object_timestamp(
+            get_resp_headers, exp_old_version)
+
+    def test_PUT_overwrite_unversioned_object_fallback_to_last_modified(self):
+        # if x-backend-timestamp is missing then source version is based on the
+        # second-precision last-modified header
+        ts_old = self.ts()
+        get_resp_headers = {'last-modified': date_header_format(ts_old)}
+        exp_old_version = (~(Timestamp(ts_old.ceil()))).internal
+        self._do_test_PUT_overwrite_unversioned_object_timestamp(
+            get_resp_headers, exp_old_version)
 
     def test_new_version_get_errors(self):
         # GET on source fails, expect client error response,
@@ -1942,9 +2016,14 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
                          b' that the container is versioned')
 
     def test_PUT_version(self):
+        # verify that a PUT request with a version-id results in:
+        #   - a HEAD to check the version-id exists in versions container
+        #   - a PUT to create a symlink in the user container
         timestamp = self.ts()
+        client_version = timestamp.internal
+        internal_version = (~timestamp).internal
         version_path = '%s?symlink=get' % self.build_versions_path(
-            obj='o', version=(~timestamp).normal)
+            obj='o', version=internal_version)
         etag = md5(b'old-version-etag', usedforsecurity=False).hexdigest()
         self.app.register('HEAD', version_path, swob.HTTPNoContent, {
             'Content-Length': 10,
@@ -1955,18 +2034,18 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         req = Request.blank(
             '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on},
-            params={'version-id': timestamp.normal})
+            params={'version-id': client_version})
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(self.app.calls, [
             ('HEAD', version_path),
-            ('PUT', '/v1/a/c/o?version-id=%s' % timestamp.normal),
+            ('PUT', '/v1/a/c/o?version-id=%s' % client_version),
         ])
         obj_put_headers = self.app.call_list[-1].headers
         symlink_expected_headers = {
             SYSMETA_VERSIONS_SYMLINK: 'true',
             TGT_OBJ_SYSMETA_SYMLINK_HDR: self.build_symlink_path(
-                'c', 'o', (~timestamp).normal),
+                'c', 'o', internal_version),
             'x-object-sysmeta-symlink-target-etag': etag,
             'x-object-sysmeta-symlink-target-bytes': '10',
         }
@@ -1986,7 +2065,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             environ={'swift.cache': self.cache_version_on,
                      'HTTP_TRANSFER_ENCODING': 'chunked',
                      'CONTENT_LENGTH': None},
-            params={'version-id': '1'})
+            params={'version-id': self.ts().internal})
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '400 Bad Request')
 
@@ -1994,32 +2073,36 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         req = Request.blank(
             '/v1/a/c/o', method='PUT',
             environ={'swift.cache': self.cache_version_on},
-            params={'version-id': '1'})
+            params={'version-id': self.ts().internal})
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '411 Length Required')
 
     def test_PUT_version_not_found(self):
         timestamp = self.ts()
+        client_version = timestamp.internal
+        internal_version = (~timestamp).internal
         version_path = '%s?symlink=get' % self.build_versions_path(
-            obj='o', version=(~timestamp).normal)
+            obj='o', version=internal_version)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
         req = Request.blank(
             '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on},
-            params={'version-id': timestamp.normal})
+            params={'version-id': client_version})
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '404 Not Found')
         self.assertIn(b'version does not exist', body)
 
     def test_PUT_version_container_not_found(self):
         timestamp = self.ts()
+        client_version = timestamp.internal
+        internal_version = (~timestamp).internal
         version_path = '%s?symlink=get' % self.build_versions_path(
-            obj='o', version=(~timestamp).normal)
+            obj='o', version=internal_version)
         self.app.register('HEAD', version_path, swob.HTTPNotFound, {}, '')
         req = Request.blank(
             '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_on_but_busted},
-            params={'version-id': timestamp.normal})
+            params={'version-id': client_version})
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '500 Internal Error')
         self.assertIn(b'container does not exist', body)
@@ -2378,8 +2461,10 @@ class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
 
     def test_PUT_version_versioning_disbaled(self):
         timestamp = self.ts()
+        client_version = timestamp.internal
+        internal_version = (~timestamp).internal
         version_path = '%s?symlink=get' % self.build_versions_path(
-            obj='o', version=(~timestamp).normal)
+            obj='o', version=internal_version)
         etag = md5(b'old-version-etag', usedforsecurity=False).hexdigest()
         self.app.register('HEAD', version_path, swob.HTTPNoContent, {
             'Content-Length': 10,
@@ -2390,18 +2475,18 @@ class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
         req = Request.blank(
             '/v1/a/c/o', method='PUT', body=b'',
             environ={'swift.cache': self.cache_version_off},
-            params={'version-id': timestamp.normal})
+            params={'version-id': client_version})
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '201 Created')
         self.assertEqual(self.app.calls, [
             ('HEAD', version_path),
-            ('PUT', '/v1/a/c/o?version-id=%s' % timestamp.normal),
+            ('PUT', '/v1/a/c/o?version-id=%s' % client_version),
         ])
         obj_put_headers = self.app.call_list[-1].headers
         symlink_expected_headers = {
             SYSMETA_VERSIONS_SYMLINK: 'true',
             TGT_OBJ_SYSMETA_SYMLINK_HDR: self.build_symlink_path(
-                'c', 'o', (~timestamp).normal),
+                'c', 'o', internal_version),
             'x-object-sysmeta-symlink-target-etag': etag,
             'x-object-sysmeta-symlink-target-bytes': '10',
         }
