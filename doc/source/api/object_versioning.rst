@@ -90,7 +90,7 @@ Example Using ``X-Versions-Location``
       <length><object_name>/<timestamp>
 
    Where ``length`` is the 3-character, zero-padded hexadecimal
-   character length of the object, ``<object_name>`` is the object name,
+   character length of the object name, ``<object_name>`` is the object name,
    and ``<timestamp>`` is the time when the object was initially created
    as a current version.
 
@@ -229,7 +229,7 @@ Example Using ``X-History-Location``
       <length><object_name>/<timestamp>
 
    Where ``length`` is the 3-character, zero-padded hexadecimal
-   character length of the object, ``<object_name>`` is the object name,
+   character length of the object name, ``<object_name>`` is the object name,
    and ``<timestamp>`` is the time when the object was initially created
    as a current version.
 
