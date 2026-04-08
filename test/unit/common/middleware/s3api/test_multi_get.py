@@ -375,8 +375,8 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
                 'x-object-meta-user-notes': 'version%s' % v,
                 'x-backend-timestamp': version_ts.internal,
             })
-            self.version_ids.append(version_ts.normal)
-            obj_version_path = get_reserved_name('mpu', (~version_ts).normal)
+            self.version_ids.append(version_ts.internal)
+            obj_version_path = get_reserved_name('mpu', (~version_ts).internal)
             self.swift.register(
                 'GET', '/v1/AUTH_test/%s/%s' % (
                     versions_container, obj_version_path),
@@ -424,7 +424,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket'),
             ('GET', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?version-id=%s' % (
-                 (~utils.Timestamp(self.version_ids[0])).normal,
+                 (~utils.Timestamp(self.version_ids[0])).internal,
                  self.version_ids[0])),
             ('HEAD', '/v1/AUTH_test/bucket+segments'),
             ('GET', '/v1/AUTH_test/bucket+segments/mpu/X0/1'
@@ -438,7 +438,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             expected_calls.insert(3, (
                 'HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
                 '?version-id=%s' % (
-                    (~utils.Timestamp(self.version_ids[0])).normal,
+                    (~utils.Timestamp(self.version_ids[0])).internal,
                     self.version_ids[0])
             ))
         self.assertEqual(self.swift.calls, expected_calls)
@@ -458,7 +458,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket'),
             ('GET', '/v1/AUTH_test/bucket/mpu'),
             ('GET', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s' % (
-                ~utils.Timestamp(self.version_ids[2])).normal),
+                ~utils.Timestamp(self.version_ids[2])).internal),
             ('HEAD', '/v1/AUTH_test/bucket+segments'),
             ('GET', '/v1/AUTH_test/bucket+segments/mpu/X2/1'
              '?multipart-manifest=get'),
@@ -477,7 +477,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             expected_calls = expected_calls[:3] + [
                 ('HEAD', '/v1/AUTH_test/bucket/mpu'),
                 ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00'
-                 '%s' % (~utils.Timestamp(self.version_ids[2])).normal),
+                 '%s' % (~utils.Timestamp(self.version_ids[2])).internal),
             ] + expected_calls[3:]
         self.assertEqual(expected_calls, self.swift.calls)
 
@@ -496,7 +496,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket'),
             ('HEAD', '/v1/AUTH_test/bucket/mpu'),
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s' % (
-                ~utils.Timestamp(self.version_ids[2])).normal),
+                ~utils.Timestamp(self.version_ids[2])).internal),
         ], self.swift.calls)
 
     def test_mpu_HEAD_version(self):
@@ -517,7 +517,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket'),
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?version-id=%s' % (
-                 (~utils.Timestamp(self.version_ids[1])).normal,
+                 (~utils.Timestamp(self.version_ids[1])).internal,
                  self.version_ids[1])),
         ], self.swift.calls)
 
@@ -540,7 +540,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket'),
             ('GET', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?part-number=5&version-id=%s' % (
-                 (~utils.Timestamp(self.version_ids[2])).normal,
+                 (~utils.Timestamp(self.version_ids[2])).internal,
                  self.version_ids[2])),
             ('HEAD', '/v1/AUTH_test/bucket+segments'),
             ('GET', '/v1/AUTH_test/bucket+segments/mpu/X2/5'
@@ -550,7 +550,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             expected_calls.insert(3, (
                 'HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
                 '?version-id=%s' % (
-                    (~utils.Timestamp(self.version_ids[2])).normal,
+                    (~utils.Timestamp(self.version_ids[2])).internal,
                     self.version_ids[2])
             ))
         self.assertEqual(expected_calls, self.swift.calls)
@@ -574,11 +574,11 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket'),
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?part-number=3&version-id=%s' % (
-                 (~utils.Timestamp(self.version_ids[2])).normal,
+                 (~utils.Timestamp(self.version_ids[2])).internal,
                  self.version_ids[2])),
             ('GET', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?part-number=3&version-id=%s' % (
-                 (~utils.Timestamp(self.version_ids[2])).normal,
+                 (~utils.Timestamp(self.version_ids[2])).internal,
                  self.version_ids[2])),
         ])
 
@@ -601,7 +601,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('GET', '/v1/AUTH_test/bucket/mpu?part-number=4'),
             ('GET', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?part-number=4' % (
-                 ~utils.Timestamp(self.version_ids[2])).normal),
+                 ~utils.Timestamp(self.version_ids[2])).internal),
             ('HEAD', '/v1/AUTH_test/bucket+segments'),
             ('GET', '/v1/AUTH_test/bucket+segments/mpu/X2/4'
              '?multipart-manifest=get'),
@@ -610,7 +610,7 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             expected_calls = expected_calls[:3] + [
                 ('HEAD', '/v1/AUTH_test/bucket/mpu'),
                 ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00'
-                 '%s' % (~utils.Timestamp(self.version_ids[2])).normal),
+                 '%s' % (~utils.Timestamp(self.version_ids[2])).internal),
             ] + expected_calls[3:]
         self.assertEqual(expected_calls, self.swift.calls)
 
@@ -632,11 +632,11 @@ class TestVersionedMpuGETorHEAD(S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test/bucket/mpu?part-number=5'),
             ('HEAD', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?part-number=5' % (
-                 ~utils.Timestamp(self.version_ids[2])).normal),
+                 ~utils.Timestamp(self.version_ids[2])).internal),
             ('GET', '/v1/AUTH_test/bucket/mpu?part-number=5'),
             ('GET', '/v1/AUTH_test/\x00versions\x00bucket/\x00mpu\x00%s'
              '?part-number=5' % (
-                 ~utils.Timestamp(self.version_ids[2])).normal),
+                 ~utils.Timestamp(self.version_ids[2])).internal),
         ])
 
 
@@ -650,7 +650,7 @@ class TestVersionedMpuGETorHEADAcl(TestVersionedMpuGETorHEAD,
         for version_id in self.version_ids:
             # s3acl would add the default object ACL on PUT to each version
             version_path = '/v1/AUTH_test/\x00versions\x00bucket/' \
-                '\x00mpu\x00%s' % (~utils.Timestamp(version_id)).normal
+                '\x00mpu\x00%s' % (~utils.Timestamp(version_id)).internal
             self.swift.update_sticky_response_headers(
                 version_path, object_headers)
         # this is used to flag insertion of expected HEAD pre-flight request of
