@@ -445,11 +445,12 @@ class ObjectContext(ObjectVersioningContext):
             drain_and_close(get_resp)
             return get_resp
 
-        # if there's an existing object, then copy it to
-        # X-Versions-Location
+        # if there's an existing object, then copy it to the versions container
         ts_source = get_resp.headers.get(
-            'x-timestamp',
-            str(parse_date_header(get_resp.headers['last-modified'])))
+            'x-backend-timestamp',
+            get_resp.headers.get('x-timestamp',
+                                 str(parse_date_header(
+                                     get_resp.headers['last-modified']))))
         vers_obj_name = self._build_versions_object_name(
             object_name, ts_source)
 
