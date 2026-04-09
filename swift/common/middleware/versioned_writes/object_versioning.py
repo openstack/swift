@@ -222,15 +222,12 @@ def build_versions_object_name(object_name, version):
     Get the name of the versions object for given ``object_name`` and
     ``version``.
 
-    :param object_name: name of object
-    :param version: version of object
+    :param object_name: (str) name of object
+    :param version: (str) version of object
     :return: a version name in the reserved namespace
     """
-    # Drop any offset from ts. Timestamp offsets are never exposed to
-    # clients, so Timestamp.normal is sufficient to define a version as
-    # perceived by clients.
     if version != 'null':
-        version = (~Timestamp(Timestamp(version).normal)).internal
+        version = (~Timestamp(version)).internal
     return get_reserved_name(object_name, version)
 
 
@@ -371,12 +368,11 @@ class ObjectContext(ObjectVersioningContext):
         timestamp_str = resp.headers.get(
             'x-backend-data-timestamp',
             resp.headers.get(
-                'x-timestamp',
-                str(parse_date_header(resp.headers['last-modified']))))
-        # Drop any offset from ts. Timestamp offsets are never exposed to
-        # clients, so Timestamp.normal is sufficient to define a version as
-        # perceived by clients.
-        return Timestamp(timestamp_str).normal
+                'x-backend-timestamp',
+                resp.headers.get(
+                    'x-timestamp',
+                    str(parse_date_header(resp.headers['last-modified'])))))
+        return Timestamp(timestamp_str).internal
 
     def _get_source_object(self, req, path_info):
         # make a pre_auth request in case the user has write access
@@ -552,8 +548,7 @@ class ObjectContext(ObjectVersioningContext):
             drain_and_close(get_resp)
             return
 
-        # if there's an existing object, then copy it to
-        # X-Versions-Location
+        # if there's an existing object, then copy it to the versions container
         if self.s3_compat:
             version = 'null'
         else:
@@ -1276,22 +1271,21 @@ class ContainerContext(ObjectVersioningContext):
         if not req.accept.best_match(['application/json']):
             raise HTTPNotAcceptable(request=req)
 
-        params = req.params
-        if 'version_marker' in params:
-            if 'marker' not in params:
-                raise HTTPBadRequest('version_marker param requires marker')
-
-            if params['version_marker'] != 'null':
+        params = dict(req.params)
+        if 'marker' in params:
+            if params.get('version_marker') in ('null', None):
+                params['marker'] = build_versions_object_max_name(
+                    params['marker'])
+            else:
                 try:
                     version = params.pop('version_marker')
                     validate_version(version)
                 except ValueError:
                     raise HTTPBadRequest('invalid version_marker param')
-
                 params['marker'] = build_versions_object_name(
                     params['marker'], version)
-        elif 'marker' in params:
-            params['marker'] = build_versions_object_max_name(params['marker'])
+        elif 'version_marker' in params:
+            raise HTTPBadRequest('version_marker param requires marker')
 
         delim = params.get('delimiter', '')
         # Exclude the set of chars used in version_id from user delimiters

@@ -30,6 +30,7 @@ from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
 from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     ACLPublicRead
+from swift.common.middleware.s3api.s3api import filter_factory
 from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
 
 from test.unit.common.middleware.helpers import normalize_path
@@ -1110,6 +1111,39 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         elem = fromstring(body, 'ListVersionsResult')
         self.assertEqual(elem.find('./MaxKeys').text, '7')
         self.assertEqual(elem.find('./IsTruncated').text, 'true')
+        self.assertEqual(elem.find('./NextKeyMarker').text, 'rose')
+        self.assertEqual(elem.find('./NextVersionIdMarker').text, '2')
+        self._assert_delete_markers(elem)
+        versions = elem.findall('./Version')
+        self.assertEqual(len(versions), 6)
+
+        expected = []
+        for o in self.objects_list[:5]:
+            name = o['name']
+            expected.append((name, 'true', 'null'))
+            if name == 'rose':
+                expected.append((name, 'false', '1'))
+        discovered = [
+            tuple(e.find('./%s' % key).text for key in (
+                'Key', 'IsLatest', 'VersionId'))
+            for e in versions
+        ]
+        self.assertEqual(expected, discovered)
+
+    def test_bucket_GET_with_versions_max_limit(self):
+        conf = dict(self.conf, max_bucket_listing=7)
+        app = filter_factory({}, **conf)(self.app)
+        self._add_versions_request()
+        req = Request.blank('/junk?versions',
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_app(req, app)
+
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body, 'ListVersionsResult')
+        self.assertEqual(elem.find('./IsTruncated').text, 'true')
+        self.assertEqual(elem.find('./NextKeyMarker').text, 'rose')
+        self.assertEqual(elem.find('./NextVersionIdMarker').text, '2')
         self._assert_delete_markers(elem)
         versions = elem.findall('./Version')
         self.assertEqual(len(versions), 6)
@@ -1138,6 +1172,8 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         elem = fromstring(body, 'ListVersionsResult')
         self.assertEqual(elem.find('./MaxKeys').text, '3')
         self.assertEqual(elem.find('./IsTruncated').text, 'true')
+        self.assertEqual(elem.find('./NextKeyMarker').text, 'rose')
+        self.assertEqual(elem.find('./NextVersionIdMarker').text, '2')
         self._assert_delete_markers(elem)
         versions = elem.findall('./Version')
         self.assertEqual(len(versions), 2)

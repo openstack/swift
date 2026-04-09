@@ -2917,7 +2917,15 @@ class LRUCache(object):
                     try:
                         return self.get_cached(link, *key)
                     except KeyError:
-                        pass
+                        # Entry timed out. Splice the stale link out of the
+                        # list and remove it from the mapping so that the
+                        # size count is accurate. Without this, set_cache
+                        # would see the cache at capacity, evict a live entry
+                        # to make room, and leave the ghost link in the list
+                        # to corrupt a future eviction.
+                        link[self.PREV][self.NEXT] = link[self.NEXT]
+                        link[self.NEXT][self.PREV] = link[self.PREV]
+                        del self.mapping[key]
                 value = f(*key)
                 self.set_cache(value, *key)
                 return value

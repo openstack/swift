@@ -798,16 +798,34 @@ class TestTimestamp(unittest.TestCase):
         check_is_earlier(b'-9999.999')
         check_is_earlier(u'-1234_5678')
 
+    def test_inversion_with_hex_part(self):
+        ts = timestamp.Timestamp('0_2000000000000000')
+        self.assertIsInstance(~ts, timestamp.Timestamp)
+        self.assertEqual((~ts).internal, '9999999999.99998_e000000000000000')
+
+        ts = timestamp.Timestamp('123456.789_200000000a000000')
+        self.assertIsInstance(~ts, timestamp.Timestamp)
+        self.assertEqual(ts.internal, '0000123456.78900_200000000a000000')
+        self.assertEqual((~ts).internal, '9999876543.21098_dffffffff6000000')
+
+        ts = timestamp.Timestamp('123456.789_2000000000000000', offset=1)
+        self.assertIsInstance(~ts, timestamp.Timestamp)
+        self.assertEqual(ts.internal, '0000123456.78900_2000000000000001')
+        self.assertEqual((~ts).internal, '9999876543.21098_dfffffffffffffff')
+
     def test_inversion(self):
-        ts = timestamp.Timestamp(0)
-        self.assertIsInstance(~ts, timestamp.Timestamp)
-        self.assertEqual((~ts).internal, '9999999999.99999')
+        ts = timestamp.Timestamp('0')
+        inv_ts = ~ts
+        self.assertIsInstance(inv_ts, timestamp.Timestamp)
+        self.assertEqual((inv_ts).internal, '9999999999.99999')
 
-        ts = timestamp.Timestamp(123456.789)
-        self.assertIsInstance(~ts, timestamp.Timestamp)
+        ts = timestamp.Timestamp('123456.789')
+        inv_ts = ~ts
+        self.assertIsInstance(inv_ts, timestamp.Timestamp)
         self.assertEqual(ts.internal, '0000123456.78900')
-        self.assertEqual((~ts).internal, '9999876543.21099')
+        self.assertEqual((inv_ts).internal, '9999876543.21099')
 
+    def test_inversion_sorting(self):
         timestamps = sorted(timestamp.Timestamp(random.random() * 1e10)
                             for _ in range(20))
         self.assertEqual([x.internal for x in timestamps],
@@ -815,31 +833,48 @@ class TestTimestamp(unittest.TestCase):
         self.assertEqual([(~x).internal for x in reversed(timestamps)],
                          sorted((~x).internal for x in timestamps))
 
+        timestamps = [
+            timestamp.Timestamp(123.456, offset=0),
+            timestamp.Timestamp(123.456, offset=3),
+            timestamp.Timestamp(123.456, offset=42),
+            timestamp.Timestamp(123.4567, offset=0),
+        ]
+        self.assertEqual(timestamps, sorted(timestamps))
+        inverted_ts = [~x for x in timestamps]
+        self.assertEqual(
+            inverted_ts,
+            sorted(inverted_ts, reverse=True))
+
+        internal_inv = [t.internal for t in inverted_ts]
+        self.assertEqual(
+            internal_inv,
+            sorted(internal_inv, reverse=True))
+
+        parse_inv = [~timestamp.Timestamp(i) for i in internal_inv]
+        self.assertEqual(parse_inv, timestamps)
+
         ts = timestamp.Timestamp.now()
         self.assertGreater(~ts, ts)  # NB: will break around 2128
 
-        ts = timestamp.Timestamp.now(offset=1)
-        with self.assertRaises(ValueError) as caught:
-            ~ts
-        self.assertEqual(caught.exception.args[0],
-                         'Cannot invert timestamps with offsets')
-
     def test_inversion_reversibility(self):
-        ts = timestamp.Timestamp(1755077566.523385)
-        inv = ~ts
-        inv_inv = ~inv
-        self.assertEqual(ts, inv_inv)
-        self.assertEqual(ts.normal, inv_inv.normal)
+        def do_test(ts):
+            inv = ~ts
+            inv_inv = ~inv
+            self.assertEqual(ts, inv_inv)
+            self.assertEqual(ts.normal, inv_inv.normal)
+            self.assertEqual(ts.internal, inv_inv.internal)
 
-        inv_inv_inv = ~inv_inv
-        self.assertEqual(inv, inv_inv_inv)
-        self.assertEqual(inv.normal, inv_inv_inv.normal)
+            inv_inv_inv = ~inv_inv
+            self.assertEqual(inv, inv_inv_inv)
+            self.assertEqual(inv.normal, inv_inv_inv.normal)
+            self.assertEqual(inv.internal, inv_inv_inv.internal)
 
-        ts = timestamp.Timestamp.now()
-        inv = ~ts
-        inv_inv = ~inv
-        self.assertEqual(ts, inv_inv)
-        self.assertEqual(ts.normal, inv_inv.normal)
+        do_test(timestamp.Timestamp('1755077566.123456'))
+        do_test(timestamp.Timestamp(1755077566.123456))
+        do_test(timestamp.Timestamp(1755077566.123456, offset=1))
+        do_test(timestamp.Timestamp(1755077566.123456,
+                                    offset=timestamp.MAX_OFFSET))
+        do_test(timestamp.Timestamp.now())
 
 
 class TestTimestampEncoding(unittest.TestCase):

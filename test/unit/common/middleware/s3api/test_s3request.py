@@ -14,6 +14,7 @@
 # limitations under the License.
 import base64
 import io
+import warnings
 from datetime import timedelta
 import hashlib
 from unittest.mock import patch, MagicMock
@@ -26,7 +27,7 @@ from swift.common import swob
 from swift.common.middleware.s3api import s3request, s3response, controllers
 from swift.common.middleware.s3api.exception import S3InputChecksumMismatch
 from swift.common.swob import Request, HTTPNoContent
-from swift.common.middleware.s3api.utils import mktime, Config
+from swift.common.middleware.s3api.utils import mktime, Config, S3Timestamp
 from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
     Grant, encode_acl
@@ -40,6 +41,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     InvalidPartArgument, InvalidPartNumber, InvalidRequest, \
     XAmzContentSHA256Mismatch, ErrorResponse, S3NotImplemented
 from swift.common.utils import checksum
+from swift.common.utils.timestamp import Timestamp
 from test.debug_logger import debug_logger
 from test.unit import requires_crc32c, requires_crc64nvme
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
@@ -445,7 +447,44 @@ class TestRequest(S3ApiTestCase):
         except ErrorResponse as err:
             self.fail('Unexpected exception raised: %s' % err)
 
-    def _test_request_timestamp_sigv4(self, date_header):
+    def test_sig_v4_request_signing_timestamp_is_not_x_timestamp(self):
+        date_header = self.get_v4_amz_date_header()
+        signing_timestamp = S3Timestamp(
+            mktime(date_header, SIGV4_X_AMZ_DATE_FORMAT))
+        ts1 = Timestamp(1678000000.12345)
+        self.assertNotEqual(signing_timestamp, ts1)  # sanity check
+
+        scope_date = date_header.split('T', 1)[0]
+        headers = {
+            'X-Amz-Date': date_header,
+            'X-Timestamp': ts1.internal,
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
+                'SignedHeaders=%s,'
+                'Signature=X' % (
+                    scope_date,
+                    ';'.join(sorted(['host', 'x-amz-date']))),
+            'X-Amz-Content-SHA256': '0' * 64}
+
+        sw_req = Request.blank('/', headers=headers)
+        self.assertEqual(ts1, sw_req.timestamp)
+        self.assertEqual(ts1.internal, sw_req.headers['X-Timestamp'])
+
+        sigv4_req = SigV4Request(sw_req.environ, conf=self.s3api.conf)
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            self.assertNotEqual(ts1, sigv4_req.timestamp)
+        self.assertEqual(ts1.internal, sigv4_req.headers['X-Timestamp'])
+        self.assertEqual(signing_timestamp, sigv4_req.signing_timestamp)
+        self.assertEqual(signing_timestamp.amz_date_format,
+                         sigv4_req.headers['X-Amz-Date'])
+
+        sw_req1 = sigv4_req.to_swift_req('GET', '/a', None)
+        self.assertEqual(ts1, sw_req1.timestamp)
+        self.assertEqual(ts1.internal, sw_req1.headers['X-Timestamp'])
+
+    def _test_request_signing_timestamp_sigv4(self, date_header):
         # signature v4 here
         environ = {
             'REQUEST_METHOD': 'GET'}
@@ -479,24 +518,26 @@ class TestRequest(S3ApiTestCase):
         elif 'Date' in date_header:
             timestamp = mktime(date_header['Date'])
 
+        self.assertEqual(timestamp, int(sigv4_req.signing_timestamp))
+        # deprecated property still works
         self.assertEqual(timestamp, int(sigv4_req.timestamp))
 
-    def test_request_timestamp_sigv4(self):
+    def test_request_signing_timestamp_sigv4(self):
         access_denied_message = \
             b'AWS authentication requires a valid Date or x-amz-date header'
 
         # normal X-Amz-Date header
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header()}
-        self._test_request_timestamp_sigv4(date_header)
+        self._test_request_signing_timestamp_sigv4(date_header)
 
         # normal Date header
         date_header = {'Date': self.get_date_header()}
-        self._test_request_timestamp_sigv4(date_header)
+        self._test_request_signing_timestamp_sigv4(date_header)
 
         # mangled X-Amz-Date header
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header()[:-1]}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -504,7 +545,7 @@ class TestRequest(S3ApiTestCase):
         # mangled Date header
         date_header = {'Date': self.get_date_header()[20:]}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -512,7 +553,7 @@ class TestRequest(S3ApiTestCase):
         # Negative timestamp
         date_header = {'X-Amz-Date': '00160523T054055Z'}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -520,7 +561,7 @@ class TestRequest(S3ApiTestCase):
         # far-past Date header
         date_header = {'Date': 'Tue, 07 Jul 999 21:53:04 GMT'}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -529,45 +570,45 @@ class TestRequest(S3ApiTestCase):
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
             timedelta(minutes=-10)
         )}
-        self._test_request_timestamp_sigv4(date_header)
+        self._test_request_signing_timestamp_sigv4(date_header)
 
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
             timedelta(minutes=-10)
         )}
         with self.assertRaises(RequestTimeTooSkewed) as cm, \
                 patch.object(self.s3api.conf, 'allowable_clock_skew', 300):
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         # near-future X-Amz-Date headers
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
             timedelta(minutes=10)
         )}
-        self._test_request_timestamp_sigv4(date_header)
+        self._test_request_signing_timestamp_sigv4(date_header)
 
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
             timedelta(minutes=10)
         )}
         with self.assertRaises(RequestTimeTooSkewed) as cm, \
                 patch.object(self.s3api.conf, 'allowable_clock_skew', 300):
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         date_header = {'X-Amz-Date': self.get_v4_amz_date_header(
             timedelta(days=1)
         )}
         with self.assertRaises(RequestTimeTooSkewed) as cm:
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         # far-future Date header
         date_header = {'Date': 'Tue, 07 Jul 9999 21:53:04 GMT'}
         with self.assertRaises(RequestTimeTooSkewed) as cm:
-            self._test_request_timestamp_sigv4(date_header)
+            self._test_request_signing_timestamp_sigv4(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(b'The difference between the request time and the '
                       b'current time is too large.', cm.exception.body)
 
-    def _test_request_timestamp_sigv2(self, date_header):
-        # signature v4 here
+    def _test_request_signing_timestamp_sigv2(self, date_header):
+        # signature v2 here
         environ = {
             'REQUEST_METHOD': 'GET'}
 
@@ -582,24 +623,26 @@ class TestRequest(S3ApiTestCase):
             timestamp = mktime(req.headers.get('Date'))
         else:
             self.fail('Invalid date header specified as test')
+        self.assertEqual(timestamp, int(sigv2_req.signing_timestamp))
+        # deprecated property still works
         self.assertEqual(timestamp, int(sigv2_req.timestamp))
 
-    def test_request_timestamp_sigv2(self):
+    def test_request_signing_timestamp_sigv2(self):
         access_denied_message = \
             b'AWS authentication requires a valid Date or x-amz-date header'
 
         # In v2 format, normal X-Amz-Date header is same
         date_header = {'X-Amz-Date': self.get_date_header()}
-        self._test_request_timestamp_sigv2(date_header)
+        self._test_request_signing_timestamp_sigv2(date_header)
 
         # normal Date header
         date_header = {'Date': self.get_date_header()}
-        self._test_request_timestamp_sigv2(date_header)
+        self._test_request_signing_timestamp_sigv2(date_header)
 
         # mangled X-Amz-Date header
         date_header = {'X-Amz-Date': self.get_date_header()[:-20]}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv2(date_header)
+            self._test_request_signing_timestamp_sigv2(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -607,7 +650,7 @@ class TestRequest(S3ApiTestCase):
         # mangled Date header
         date_header = {'Date': self.get_date_header()[:-20]}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv2(date_header)
+            self._test_request_signing_timestamp_sigv2(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -615,7 +658,7 @@ class TestRequest(S3ApiTestCase):
         # Negative timestamp
         date_header = {'X-Amz-Date': '00160523T054055Z'}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv2(date_header)
+            self._test_request_signing_timestamp_sigv2(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -623,7 +666,7 @@ class TestRequest(S3ApiTestCase):
         # far-past Date header
         date_header = {'Date': 'Tue, 07 Jul 999 21:53:04 GMT'}
         with self.assertRaises(AccessDenied) as cm:
-            self._test_request_timestamp_sigv2(date_header)
+            self._test_request_signing_timestamp_sigv2(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(access_denied_message, cm.exception.body)
@@ -631,11 +674,49 @@ class TestRequest(S3ApiTestCase):
         # far-future Date header
         date_header = {'Date': 'Tue, 07 Jul 9999 21:53:04 GMT'}
         with self.assertRaises(RequestTimeTooSkewed) as cm:
-            self._test_request_timestamp_sigv2(date_header)
+            self._test_request_signing_timestamp_sigv2(date_header)
 
         self.assertEqual('403 Forbidden', cm.exception.args[0])
         self.assertIn(b'The difference between the request time and the '
                       b'current time is too large.', cm.exception.body)
+
+    def test_s3_request_timestamp_deprecation(self):
+        date_header = self.get_v4_amz_date_header()
+        scope_date = date_header.split('T', 1)[0]
+        headers = {
+            'X-Amz-Date': date_header,
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
+                'SignedHeaders=%s,'
+                'Signature=X' % (
+                    scope_date,
+                    ';'.join(['host', 'x-amz-date'])),
+            'X-Amz-Content-SHA256': '0' * 64}
+        sw_req = Request.blank('/', headers=headers)
+        sw_req.ensure_x_timestamp()
+        sigv4_req = SigV4Request(sw_req.environ, conf=self.s3api.conf)
+        with warnings.catch_warnings(record=True) as cm:
+            warnings.resetwarnings()
+            warnings.simplefilter('always', DeprecationWarning)
+            _ = sigv4_req.timestamp
+        msgs = [str(warning.message)
+                for warning in cm
+                if str(warning.message).startswith('S3Request')]
+        self.assertEqual(
+            ['S3Request.timestamp is deprecated; use the '
+             '``signing_timestamp`` property instead.'],
+            msgs)
+
+        def check_not_deprecated(req):
+            with warnings.catch_warnings(record=True) as cm:
+                warnings.resetwarnings()
+                warnings.simplefilter('always', DeprecationWarning)
+                _ = req.timestamp
+            self.assertFalse(cm)
+
+        check_not_deprecated(super(S3Request, sigv4_req))
+        check_not_deprecated(sw_req)
 
     def test_headers_to_sign_sigv4(self):
         environ = {

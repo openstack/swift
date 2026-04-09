@@ -15,6 +15,7 @@
 
 import base64
 import binascii
+import warnings
 from collections import defaultdict, OrderedDict
 import contextlib
 from email.header import Header
@@ -605,7 +606,7 @@ class SigCheckerV4(BaseSigChecker):
     def _string_to_sign(self):
         return b'\n'.join([
             b'AWS4-HMAC-SHA256',
-            self.req.timestamp.amz_date_format.encode('ascii'),
+            self.req.signing_timestamp.amz_date_format.encode('ascii'),
             '/'.join(self.req.scope.values()).encode('utf8'),
             sha256(self.req._canonical_request()).hexdigest().encode('ascii')])
 
@@ -629,7 +630,7 @@ class SigCheckerV4(BaseSigChecker):
         """
         return b'\n'.join([
             b'AWS4-HMAC-SHA256-PAYLOAD',
-            self.req.timestamp.amz_date_format.encode('ascii'),
+            self.req.signing_timestamp.amz_date_format.encode('ascii'),
             '/'.join(self.req.scope.values()).encode('utf8'),
             self.signature.encode('utf8'),
             sha256(b'').hexdigest().encode('utf8'),
@@ -675,7 +676,7 @@ class SigCheckerV4(BaseSigChecker):
             canonical_trailers = b'\n'
         return b'\n'.join([
             b'AWS4-HMAC-SHA256-TRAILER',
-            self.req.timestamp.amz_date_format.encode('ascii'),
+            self.req.signing_timestamp.amz_date_format.encode('ascii'),
             '/'.join(self.req.scope.values()).encode('utf8'),
             self.signature.encode('utf8'),
             sha256(canonical_trailers).hexdigest().encode('utf8'),
@@ -739,13 +740,23 @@ class SigV4Mixin(object):
         return not self._is_query_auth
 
     @property
-    def timestamp(self):
+    def signing_timestamp(self):
         """
-        Return timestamp string according to the auth type
-        The difference from v2 is v4 have to see 'X-Amz-Date' even though
-        it's query auth type.
+        Return timestamp at which the client signed the request.
+
+        Note: this differs from the X-Timestamp that Swift assigns to the
+        request.
+
+        For a query auth, this is derived from the X-Amz-Date query parameter.
+        For header auth this is derived from the X-Amz-Date header if it
+        exists, otherwise the Date header.
+
+        The difference from v2 is that v4 looks for the 'X-Amz-Date' parameter
+        in a query auth type request url.
+
+        :return: S3Timestamp instance
         """
-        if not self._timestamp:
+        if not self._signing_timestamp:
             try:
                 if self._is_query_auth and 'X-Amz-Date' in self.params:
                     # NOTE(andrey-mp): Date in Signature V4 has different
@@ -770,12 +781,12 @@ class SigV4Mixin(object):
                                    reason='invalid_date')
 
             try:
-                self._timestamp = S3Timestamp(timestamp)
+                self._signing_timestamp = S3Timestamp(timestamp)
             except ValueError:
                 # Must be far-future; blame clock skew
                 raise RequestTimeTooSkewed()
 
-        return self._timestamp
+        return self._signing_timestamp
 
     def _validate_expire_param(self):
         """
@@ -803,7 +814,7 @@ class SigV4Mixin(object):
         if err:
             raise AuthorizationQueryParametersError(err)
 
-        if int(self.timestamp) + expires < S3Timestamp.now():
+        if int(self.signing_timestamp) + expires < S3Timestamp.now():
             raise AccessDenied('Request has expired', reason='expired')
 
     def _parse_query_authentication(self):
@@ -1016,7 +1027,7 @@ class SigV4Mixin(object):
     @property
     def scope(self):
         return OrderedDict([
-            ('date', self.timestamp.amz_date_format.split('T')[0]),
+            ('date', self.signing_timestamp.amz_date_format.split('T')[0]),
             ('region', self.location),
             ('service', SERVICE),
             ('terminal', 'aws4_request'),
@@ -1066,7 +1077,7 @@ class S3Request(swob.Request):
         swob.Request.__init__(self, env)
         self.conf = conf or Config()
         self.location = self.conf.location
-        self._timestamp = None
+        self._signing_timestamp = None
         self.access_key, self.signature = self._parse_auth_info()
         self.bucket_in_host = parse_host(self.environ,
                                          self.conf.storage_domains)
@@ -1192,14 +1203,20 @@ class S3Request(swob.Request):
         return part_number
 
     @property
-    def timestamp(self):
+    def signing_timestamp(self):
         """
-        S3Timestamp from Date header. If X-Amz-Date header specified, it
-        will be prior to Date header.
+        Return the timestamp at which the client signed the request.
 
-        :return : S3Timestamp instance
+        Note: this differs from the X-Timestamp that Swift assigns to the
+        request.
+
+        For a query auth, this is derived from the Timestamp query parameter.
+        For header auth this is derived from the X-Amz-Date header if it
+        exists, otherwise the Date header.
+
+        :return: S3Timestamp instance
         """
-        if not self._timestamp:
+        if not self._signing_timestamp:
             try:
                 if self._is_query_auth and 'Timestamp' in self.params:
                     # If Timestamp specified in query, it should be prior
@@ -1220,12 +1237,23 @@ class S3Request(swob.Request):
                                    'or x-amz-date header',
                                    reason='invalid_date')
             try:
-                self._timestamp = S3Timestamp(timestamp)
+                self._signing_timestamp = S3Timestamp(timestamp)
             except ValueError:
                 # Must be far-future; blame clock skew
                 raise RequestTimeTooSkewed()
 
-        return self._timestamp
+        return self._signing_timestamp
+
+    @property
+    def timestamp(self):
+        # Unfortunately this overrides swob.Request.timestamp to return a
+        # completely different thing. It is left here for backwards
+        # compatibility only.
+        warnings.warn(
+            'S3Request.timestamp is deprecated; use the ``signing_timestamp`` '
+            'property instead.', DeprecationWarning, stacklevel=2
+        )
+        return self.signing_timestamp
 
     @property
     def _is_header_auth(self):
@@ -1326,12 +1354,12 @@ class S3Request(swob.Request):
 
         # Anyways, request timestamp should be validated
         epoch = S3Timestamp.zero()
-        if self.timestamp < epoch:
+        if self.signing_timestamp < epoch:
             raise AccessDenied(reason='invalid_date')
 
         # If the standard date is too far ahead or behind, it is an
         # error
-        delta = abs(int(self.timestamp) - int(S3Timestamp.now()))
+        delta = abs(int(self.signing_timestamp) - int(S3Timestamp.now()))
         if delta > self.conf.allowable_clock_skew:
             raise RequestTimeTooSkewed()
 

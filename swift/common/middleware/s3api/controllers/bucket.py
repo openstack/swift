@@ -175,7 +175,7 @@ class BucketController(Controller):
                 SubElement(elem, 'NextKeyMarker').text = \
                     objects[-1]['name']
                 SubElement(elem, 'NextVersionIdMarker').text = \
-                    objects[-1].get('version') or 'null'
+                    objects[-1].get('version_id') or 'null'
             if 'subdir' in objects[-1]:
                 SubElement(elem, 'NextKeyMarker').text = \
                     objects[-1]['subdir']
