@@ -18,7 +18,6 @@ import base64
 import hashlib
 import json
 import unittest
-from datetime import datetime
 from unittest import mock
 
 from swift.common import swob
@@ -691,7 +690,6 @@ class TestS3ApiMultiDeleteNoAcl(BaseS3ApiMultiDelete, S3ApiTestCase):
                                 'Date': self.get_date_header(),
                                 'Content-MD5': content_md5},
                             body=body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
 
         status, headers, body = self.call_s3api(req)
@@ -727,7 +725,6 @@ class TestS3ApiMultiDeleteAcl(BaseS3ApiMultiDelete, S3ApiTestCaseAcl):
                                      'Date': self.get_date_header(),
                                      'Content-MD5': content_md5},
                             body=body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
 
         return self.call_s3api(req)

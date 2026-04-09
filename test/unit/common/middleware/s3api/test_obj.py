@@ -15,7 +15,6 @@
 
 import binascii
 import unittest
-from datetime import datetime
 import functools
 from hashlib import sha256
 import os
@@ -708,7 +707,6 @@ class BaseS3ApiObj(object):
                      'Content-MD5': content_md5,
                      'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
@@ -739,7 +737,6 @@ class BaseS3ApiObj(object):
                      'Content-MD5': content_md5,
                      'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
@@ -764,7 +761,6 @@ class BaseS3ApiObj(object):
                      'Content-MD5': content_md5,
                      'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
@@ -788,7 +784,6 @@ class BaseS3ApiObj(object):
                 'x-amz-content-sha256': body_sha,
                 'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
 
         # Test V4 signature processing and access_user_id setting
@@ -837,7 +832,6 @@ class BaseS3ApiObj(object):
                 'x-amz-content-sha256': '0' * 64,
                 'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
         self.assertNotIn('swift.access_logging', req.environ)
         status, headers, body = self.call_s3api(req)
@@ -865,7 +859,6 @@ class BaseS3ApiObj(object):
                 'x-amz-content-sha256': 'not the hash',
                 'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '400')
@@ -891,7 +884,6 @@ class BaseS3ApiObj(object):
                 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
                 'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
 
         # Test V4 UNSIGNED-PAYLOAD signature processing and access_user_id
@@ -948,7 +940,6 @@ class BaseS3ApiObj(object):
                             environ={'REQUEST_METHOD': 'PUT'},
                             headers=put_headers)
 
-        req.date = datetime.now()
         req.content_type = 'text/plain'
         return self.call_s3api(req)
 
@@ -1376,7 +1367,6 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
                      'Content-MD5': content_md5,
                      'Date': self.get_date_header()},
             body=self.object_body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
         status, headers, body = self.call_s3api(req)
         self.assertEqual('200 ', status[:4], body)
