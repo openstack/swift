@@ -453,6 +453,8 @@ class ContainerController(Controller):
             ``HTTPServiceUnavailable`` may be returned. Otherwise, the given
             ``resp`` is returned with a body that is an object listing.
         """
+        self.logger.debug('GET listing from %s shards for: %s',
+                          len(namespaces), req.path_qs)
         # The history of containers that have returned namespaces is
         # maintained in the request environ so that loops can be avoided by
         # forcing an object listing if the same container is visited again.
@@ -464,7 +466,8 @@ class ContainerController(Controller):
         #      shard may return the root's namespace.
         shard_listing_history = req.environ.setdefault(
             'swift.shard_listing_history', [])
-        policy_key = 'X-Backend-Storage-Policy-Index'
+        shard_listing_history.append((self.account_name, self.container_name))
+
         # Set the root container policy index in the request, unless it is
         # already set, so that all shards will return listings for that policy
         # index. We'll copy this request's headers into shard listing
@@ -476,10 +479,9 @@ class ContainerController(Controller):
         # sharding_state==sharded; in both cases we can assume that the
         # response is "modern enough" to include
         # 'X-Backend-Storage-Policy-Index'.
-        req.headers.setdefault(policy_key, resp.headers[policy_key])
-        shard_listing_history.append((self.account_name, self.container_name))
-        self.logger.debug('GET listing from %s shards for: %s',
-                          len(namespaces), req.path_qs)
+        root_policy = req.headers.setdefault(
+            'X-Backend-Storage-Policy-Index',
+            resp.headers['X-Backend-Storage-Policy-Index'])
 
         objects = []
         req_limit = constrain_req_limit(req, CONTAINER_LISTING_LIMIT)
@@ -570,14 +572,17 @@ class ContainerController(Controller):
                 return HTTPServiceUnavailable(request=req)
             shard_policy = shard_resp.headers.get(
                 'X-Backend-Record-Storage-Policy-Index',
-                shard_resp.headers[policy_key]
+                shard_resp.headers['X-Backend-Storage-Policy-Index']
             )
-            if shard_policy != req.headers[policy_key]:
+            if shard_policy != root_policy:
                 self.logger.error(
                     'Aborting listing from shards due to bad shard policy '
-                    'index: %s (expected %s)',
-                    shard_policy, req.headers[policy_key])
+                    'index: %s (expected %s)', shard_policy, root_policy)
                 return HTTPServiceUnavailable(request=req)
+            else:
+                # report the requested policy index in the response
+                resp.headers['X-Backend-Record-Storage-Policy-Index'] = \
+                    root_policy
             self.logger.debug(
                 'Found %d objects in shard (state=%s), total = %d',
                 len(objs), sharding_state, len(objs) + len(objects))
