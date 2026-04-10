@@ -12,7 +12,6 @@
 
 import json
 import os
-import sys
 import unittest
 from argparse import Namespace
 from textwrap import dedent
@@ -2922,9 +2921,9 @@ class TestManageShardRanges(unittest.TestCase):
             main(['db file', 'repair', '--dry-run', '--yes'])
         self.assertEqual(2, cm.exception.code)
         err_lines = err.getvalue().split('\n')
-        runner = os.path.basename(sys.argv[0])
+        self.assertTrue(err_lines[0].startswith('usage: '), err_lines[0])
         self.assertIn(
-            'usage: %s path_to_file repair [-h] [--yes | --dry-run]' % runner,
+            ' path_to_file repair [-h] [--yes | --dry-run]',
             err_lines[0])
         self.assertIn(
             "argument --yes/-y: not allowed with argument --dry-run/-n",
