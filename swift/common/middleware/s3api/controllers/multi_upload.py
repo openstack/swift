@@ -656,12 +656,16 @@ class UploadController(Controller):
                 'Conditional uploads are not supported.')
 
         resp, is_marker = _get_upload_info(req, self.app, upload_id)
-        if (is_marker and
-                resp.sw_headers.get('X-Backend-Timestamp') >= Timestamp.now()):
+        marker_delta = (
+            float(Timestamp(resp.sw_headers.get('X-Backend-Timestamp', '0')))
+            - float(Timestamp.now()))
+        if is_marker and marker_delta >= 0:
             # Somehow the marker was created in the future w.r.t. this thread's
             # clock. The manifest PUT may succeed but the subsequent marker
             # DELETE will fail, so don't attempt either.
-            raise ServiceUnavailable
+            self.logger.error('Unable to Complete Multipart Upload,'
+                              ' marker is %0.5fs newer', marker_delta)
+            raise ServiceUnavailable(reason='mpu_clock_skew')
 
         headers = {'Accept': 'application/json',
                    sysmeta_header('object', 'upload-id'): upload_id}

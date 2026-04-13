@@ -2084,17 +2084,31 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             ('HEAD', '/v1/AUTH_test'),
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket+segments/object/X')])
+        self.assertEqual(['s3:err:ServiceUnavailable.mpu_clock_skew'],
+                         req.environ['swift.log_info'])
+        self.assertEqual(
+            {
+                'account.info.cache.disabled.200': 1,
+                'container.info.cache.disabled.204': 1,
+                '503.ServiceUnavailable.mpu_clock_skew': 1,
+            }, self.s3api.logger.logger.statsd_client.get_stats_counts())
 
     def test_object_multipart_upload_complete_marker_ts_now(self):
         marker_timestamp = now_timestamp = Timestamp.now()
         self._do_test_object_multipart_upload_complete_marker_in_future(
             marker_timestamp, now_timestamp)
+        self.assertEqual(
+            'Unable to Complete Multipart Upload, marker is 0.00000s newer',
+            self.logger.get_lines_for_level('error')[-1])
 
     def test_object_multipart_upload_complete_marker_ts_in_future(self):
         marker_timestamp = Timestamp.now()
         now_timestamp = Timestamp(float(marker_timestamp) - 1)
         self._do_test_object_multipart_upload_complete_marker_in_future(
             marker_timestamp, now_timestamp)
+        self.assertEqual(
+            'Unable to Complete Multipart Upload, marker is 1.00000s newer',
+            self.logger.get_lines_for_level('error')[-1])
 
     def test_object_multipart_upload_complete_409_on_marker_delete(self):
         # verify that clock skew preventing an upload marker DELETE results in
