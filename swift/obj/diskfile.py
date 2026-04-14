@@ -72,7 +72,8 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
     DiskFileDeleted, DiskFileError, DiskFileNotOpen, PathNotDir, \
     ReplicationLockTimeout, DiskFileExpired, DiskFileXattrNotSupported, \
-    DiskFileBadMetadataChecksum, PartitionLockTimeout, DiskFileStateChanged
+    DiskFileBadMetadataChecksum, PartitionLockTimeout, DiskFileStateChanged, \
+    DiskFileHashLocationMismatch
 from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import (
     get_policy_string, split_policy_string, PolicyError, POLICIES,
@@ -1542,17 +1543,24 @@ class BaseDiskFileManager(object):
                                                self.logger, device_dirs,
                                                auditor_type)
 
-    def get_diskfile_from_audit_location(self, audit_location):
+    def get_diskfile_from_audit_location(
+            self, audit_location,
+            quarantine_hash_location_mismatch=False):
         """
         Returns a BaseDiskFile instance for an object at the given
         AuditLocation.
 
         :param audit_location: object location to be audited
+        :param quarantine_hash_location_mismatch: if True, objects whose hash
+            does not match their on-disk location will be quarantined; if
+            False (the default), only an error will be logged
         """
         dev_path = self.get_dev_path(audit_location.device, mount_check=False)
         return self.diskfile_cls.from_hash_dir(
             self, audit_location.path, dev_path,
-            audit_location.partition, policy=audit_location.policy)
+            audit_location.partition, policy=audit_location.policy,
+            quarantine_hash_location_mismatch=(
+                quarantine_hash_location_mismatch))
 
     def get_diskfile_and_filenames_from_hash(self, device, partition,
                                              object_hash, policy, **kwargs):
@@ -2129,6 +2137,7 @@ class BaseDiskFileReader(object):
     :param etag_validate_frac: the probability that we should perform etag
                                validation during a complete file read
     """
+
     def __init__(self, fp, data_file, obj_size, etag,
                  disk_chunk_size, keep_cache_size, device_path, logger,
                  quarantine_hook, use_splice, pipe_size, diskfile,
@@ -2169,7 +2178,7 @@ class BaseDiskFileReader(object):
         return self._diskfile.manager
 
     def _init_checks(self):
-        if self._fp.tell() == 0:
+        if self._fp is not None and self._fp.tell() == 0:
             self._started_at_0 = True
             if random.random() < self._etag_validate_frac:
                 self._iter_etag = md5(usedforsecurity=False)
@@ -2458,6 +2467,9 @@ class BaseDiskFile(object):
     :param open_expired: if True, open() will not raise a DiskFileExpired if
                          object is expired
     :param next_part_power: the next partition power to be used
+    :param quarantine_hash_location_mismatch: if True, objects whose hash
+        does not match their on-disk location will be quarantined; if
+        False (the default), only an error will be logged
     """
     reader_cls = None  # must be set by subclasses
     writer_cls = None  # must be set by subclasses
@@ -2465,7 +2477,8 @@ class BaseDiskFile(object):
     def __init__(self, mgr, device_path, partition,
                  account=None, container=None, obj=None, _datadir=None,
                  policy=None, use_splice=False, pipe_size=None,
-                 open_expired=False, next_part_power=None, **kwargs):
+                 open_expired=False, next_part_power=None,
+                 quarantine_hash_location_mismatch=False, **kwargs):
         self._manager = mgr
         self._device_path = device_path
         self._logger = mgr.logger
@@ -2481,6 +2494,8 @@ class BaseDiskFile(object):
         # and mounting XFS with the 'dirsync' mount option which should result
         # in all entry fops being carried out synchronously.
         self._dirs_created = 0
+        self._quarantine_hash_location_mismatch = (
+            quarantine_hash_location_mismatch)
         self.policy = policy
         self.next_part_power = next_part_power
         self.timing_breakdown = kwargs.get('timing_breakdown')
@@ -2588,9 +2603,12 @@ class BaseDiskFile(object):
         return Timestamp(t)
 
     @classmethod
-    def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition, policy):
+    def from_hash_dir(cls, mgr, hash_dir_path, device_path, partition, policy,
+                      quarantine_hash_location_mismatch=False):
         return cls(mgr, device_path, partition, _datadir=hash_dir_path,
-                   policy=policy)
+                   policy=policy,
+                   quarantine_hash_location_mismatch=(
+                       quarantine_hash_location_mismatch))
 
     def open(self, modernize=False, current_time=None):
         """
@@ -2780,16 +2798,23 @@ class BaseDiskFile(object):
     def validate_metadata(self):
         return ('Content-Length' in self._datafile_metadata)
 
-    def _verify_name_matches_hash(self, data_file):
+    def _verify_name_matches_hash(self, name, data_file):
         """
-
+        Verify object name hash matches directory location.
+        :param name: object name from metadata
         :param data_file: data file name, used when quarantines occur
+        :raises DiskFileHashLocationMismatch: if hash doesn't match
         """
         hash_from_fs = os.path.basename(self._datadir)
-        hash_from_name = hash_path(self._name.lstrip('/'))
+        hash_from_name = hash_path(name.lstrip('/'))
+
         if hash_from_fs != hash_from_name:
-            raise self._quarantine(
-                data_file,
+            if self._quarantine_hash_location_mismatch:
+                raise self._quarantine(
+                    data_file,
+                    "Hash of name in metadata does not match "
+                    "directory name")
+            raise DiskFileHashLocationMismatch(
                 "Hash of name in metadata does not match directory name")
 
     def _verify_data_file(self, data_file, fp, current_time):
@@ -2974,12 +2999,16 @@ class BaseDiskFile(object):
                 self._metadata.pop('Content-Type-Timestamp', None)
         else:
             self._metadata.update(self._datafile_metadata)
+
         if self._name is None:
             # If we don't know our name, we were just given a hash dir at
             # instantiation, so we'd better validate that the name hashes back
-            # to us
-            self._name = self._metadata['name']
-            self._verify_name_matches_hash(data_file)
+            # to us; assign self._name only after the check succeeds so that
+            # a reused instance does not skip the check on a second open().
+            name = self._metadata['name']
+            self._verify_name_matches_hash(name, data_file)
+            self._name = name
+
         self._verify_data_file(data_file, fp, current_time)
         return fp
 

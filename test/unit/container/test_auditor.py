@@ -18,6 +18,8 @@ from unittest import mock
 import os
 
 from swift.container import auditor
+from swift.common.utils import hash_path
+from swift.common.exceptions import DatabaseHashLocationMismatch
 from test.debug_logger import debug_logger
 from test.unit import with_tempdir, BaseUnitTestCase
 from test.unit.container import test_backend
@@ -63,6 +65,74 @@ class TestAuditorMigrations(BaseUnitTestCase):
         }
         for k, v in expected.items():
             self.assertEqual(info[k], v)
+
+
+class TestContainerAuditorHashMismatch(unittest.TestCase):
+
+    def test_hash_location_mismatch_raises_exception(self):
+        """Test that _audit raises exception for hash mismatch"""
+        mock_broker = mock.Mock()
+        mock_broker.db_dir = ('/srv/containers/0/'
+                              '000/00000000000000000000000000000000')
+
+        info = {
+            'account': 'test_account',
+            'container': 'test_container',
+            'object_count': 0,
+            'bytes_used': 0,
+        }
+
+        auditor_instance = auditor.ContainerAuditor({}, logger=debug_logger())
+
+        with self.assertRaises(DatabaseHashLocationMismatch) as cm:
+            auditor_instance._audit(info, mock_broker)
+
+        self.assertIn('Hash of account/container names does not match',
+                      str(cm.exception))
+        self.assertIn('test_account/test_container', str(cm.exception))
+
+    def test_hash_location_match_passes(self):
+        """Test that _audit passes when hash matches"""
+        account = 'test_account'
+        container = 'test_container'
+        container_hash = hash_path(account, container)
+
+        mock_broker = mock.Mock()
+        mock_broker.db_dir = '/srv/containers/0/%s/%s' % (
+            container_hash[-3:], container_hash)
+
+        info = {
+            'account': account,
+            'container': container,
+            'object_count': 0,
+            'bytes_used': 0,
+        }
+
+        auditor_instance = auditor.ContainerAuditor({}, logger=debug_logger())
+
+        result = auditor_instance._audit(info, mock_broker)
+        self.assertIsNone(result)
+
+    def test_audit_exception_handler_no_quarantine(self):
+        auditor_instance = auditor.ContainerAuditor({}, logger=debug_logger())
+
+        mock_broker = mock.Mock()
+        mock_broker.is_deleted.return_value = False
+        mock_broker.db_dir = (
+            '/srv/containers/0/000/00000000000000000000000000000000')
+        mock_broker.get_info.return_value = {
+            'account': 'test_account',
+            'container': 'test_container',
+            'object_count': 0,
+            'bytes_used': 0,
+        }
+
+        with mock.patch.object(auditor_instance, 'broker_class',
+                               return_value=mock_broker):
+            auditor_instance.audit('/fake/path/test.db')
+
+        self.assertEqual(auditor_instance.failures, 1)
+        mock_broker.quarantine.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -73,6 +73,10 @@ class DiskFileQuarantined(DiskFileError):
     pass
 
 
+class DiskFileHashLocationMismatch(DiskFileError):
+    pass
+
+
 class DiskFileCollision(DiskFileError):
     pass
 
@@ -126,6 +130,10 @@ class DatabaseAuditorException(SwiftException):
 
 
 class InvalidAccountInfo(DatabaseAuditorException):
+    pass
+
+
+class DatabaseHashLocationMismatch(DatabaseAuditorException):
     pass
 
 

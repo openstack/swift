@@ -26,14 +26,15 @@ from swift.common.concurrency import Timeout
 
 from swift.obj import diskfile, replicator
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
-    DiskFileDeleted, DiskFileExpired, QuarantineRequest
+    DiskFileDeleted, DiskFileExpired, QuarantineRequest, \
+    DiskFileHashLocationMismatch
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import (
     config_auto_int_value, dump_recon_cache, get_logger, list_from_csv,
     listdir, load_pkg_resource, parse_prefixed_conf, EventletRateLimiter,
     readconf, round_robin_iter, unlink_paths_older_than, parse_options,
-    get_prefixed_logger)
+    get_prefixed_logger, config_true_value, set_swift_dir)
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 
 
@@ -95,6 +96,8 @@ class AuditorWorker(object):
         self.total_bytes_processed = 0
         self.total_files_processed = 0
         self.passes = 0
+        self.quarantine_hash_location_mismatch = config_true_value(
+            conf.get('quarantine_when_hash_location_mismatch', 'false'))
         self.quarantines = 0
         self.errors = 0
         self.rcache = rcache
@@ -255,7 +258,10 @@ class AuditorWorker(object):
         # this method doesn't normally raise errors, even if the audit
         # location does not exist; if this raises an unexpected error it
         # will get logged in failsafe
-        df = diskfile_mgr.get_diskfile_from_audit_location(location)
+        df = diskfile_mgr.get_diskfile_from_audit_location(
+            location,
+            quarantine_hash_location_mismatch=(
+                self.quarantine_hash_location_mismatch))
         reader = None
         try:
             with df.open(modernize=True):
@@ -285,6 +291,14 @@ class AuditorWorker(object):
                     raise df._quarantine(
                         df._data_file,
                         "Requested by %s" % watcher.watcher_name)
+        except DiskFileHashLocationMismatch as err:
+            self.logger.increment('errors')
+            self.errors += 1
+            self.logger.error(
+                'ERROR Object %(obj)s has hash path mismatch '
+                '(possible hash_path_prefix/suffix change): '
+                '%(err)s', {
+                    'obj': location, 'err': err})
         except DiskFileQuarantined as err:
             self.quarantines += 1
             self.logger.error('ERROR Object %(obj)s failed audit and was'
@@ -319,6 +333,8 @@ class ObjectAuditor(Daemon):
 
     def __init__(self, conf, logger=None, **options):
         self.conf = conf
+        if conf.get('swift_dir'):
+            set_swift_dir(conf['swift_dir'])
         self.logger = logger or get_logger(conf, log_route='object-auditor')
         self.devices = conf.get('devices', '/srv/node')
         self.concurrency = int(conf.get('concurrency', 1))

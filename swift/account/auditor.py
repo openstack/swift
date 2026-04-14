@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 
 from swift.account.backend import AccountBroker
-from swift.common.exceptions import InvalidAccountInfo
+from swift.common.exceptions import InvalidAccountInfo, \
+    DatabaseHashLocationMismatch
 from swift.common.daemon import run_daemon
 from swift.common.db_auditor import DatabaseAuditor
-from swift.common.utils import parse_options
+from swift.common.utils import parse_options, hash_path
 
 
 class AccountAuditor(DatabaseAuditor):
@@ -47,6 +49,15 @@ class AccountAuditor(DatabaseAuditor):
                 'does not match the sum of %(key)s across policies (%(sum)s)'
                 % {'key': key, 'account': info.get('account'),
                    'total': info[key], 'sum': policy_totals[key]})
+
+        account_name = info.get('account')
+        if account_name:
+            expected_hash = hash_path(account_name)
+            actual_hash = os.path.basename(broker.db_dir)
+            if expected_hash != actual_hash:
+                raise DatabaseHashLocationMismatch(
+                    'Hash of account name does not match directory '
+                    'name for account %s' % account_name)
 
 
 def main():

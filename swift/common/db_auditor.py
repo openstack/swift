@@ -21,9 +21,10 @@ from swift.common.concurrency import Timeout
 
 import swift.common.db
 from swift.common.utils import get_logger, audit_location_generator, \
-    config_true_value, dump_recon_cache, EventletRateLimiter
+    config_true_value, dump_recon_cache, EventletRateLimiter, set_swift_dir
 from swift.common.daemon import Daemon
-from swift.common.exceptions import DatabaseAuditorException
+from swift.common.exceptions import DatabaseAuditorException, \
+    DatabaseHashLocationMismatch
 from swift.common.recon import DEFAULT_RECON_CACHE_PATH, \
     server_type_to_recon_file
 
@@ -47,6 +48,8 @@ class DatabaseAuditor(Daemon):
 
     def __init__(self, conf, logger=None):
         self.conf = conf
+        if conf.get('swift_dir'):
+            set_swift_dir(conf['swift_dir'])
         self.logger = logger or get_logger(conf, log_route='{}-auditor'.format(
             self.server_type))
         self.devices = conf.get('devices', '/srv/node')
@@ -145,6 +148,13 @@ class DatabaseAuditor(Daemon):
                 self.logger.increment('passes')
                 self.passes += 1
                 self.logger.debug('Audit passed for %s', broker)
+        except DatabaseHashLocationMismatch as e:
+            self.logger.increment('failures')
+            self.failures += 1
+            self.logger.error(
+                'ERROR %s %s has hash path mismatch '
+                '(possible hash_path_prefix/suffix change): %s',
+                self.server_type.title(), path, str(e))
         except DatabaseAuditorException as e:
             self.logger.increment('failures')
             self.failures += 1

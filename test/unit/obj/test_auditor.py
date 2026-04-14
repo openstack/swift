@@ -34,7 +34,7 @@ from test.unit.obj.common import write_diskfile
 from swift.obj import auditor, replicator
 from swift.obj.watchers.dark_data import DarkDataWatcher
 from swift.obj.diskfile import (
-    DiskFile, write_metadata, invalidate_hash, get_data_dir,
+    DiskFile, write_metadata, read_metadata, invalidate_hash, get_data_dir,
     DiskFileManager, ECDiskFileManager, AuditLocation, clear_auditor_status,
     get_auditor_status, HASH_FILE, HASH_INVALIDATIONS_FILE)
 from swift.common.exceptions import ClientException
@@ -461,7 +461,7 @@ class TestAuditor(TestAuditorBase):
         auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
                                                self.rcache, self.devices)
 
-        def blowup(*args):
+        def blowup(*args, **kwargs):
             raise NameError('tpyo')
         with mock.patch.object(DiskFileManager,
                                'get_diskfile_from_audit_location', blowup):
@@ -504,6 +504,139 @@ class TestAuditor(TestAuditorBase):
         # ... it should get quarantined
         self.assertFalse(os.path.exists(self.disk_file._datadir))
         self.assertEqual(1, auditor_worker.quarantines)
+
+    def test_audit_hash_location_mismatch_not_quarantined(self):
+        self.conf['quarantine_when_hash_location_mismatch'] = 'false'
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+
+        timestamp = self.ts().internal
+        data = b'test data'
+        etag = md5(data, usedforsecurity=False)
+        with self.disk_file.create() as writer:
+            writer.write(data)
+            metadata = {
+                'ETag': etag.hexdigest(),
+                'X-Timestamp': timestamp,
+                'Content-Length': str(len(data)),
+            }
+            writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
+
+        datadir = self.disk_file._datadir
+        datafiles = [f for f in os.listdir(datadir) if f.endswith('.data')]
+        datafile_path = os.path.join(datadir, datafiles[0])
+
+        # Modify metadata
+        meta = read_metadata(datafile_path)
+        meta['name'] = '/a/c/different_object'
+        write_metadata(datafile_path, meta)
+
+        pre_quarantines = auditor_worker.quarantines
+        pre_errors = auditor_worker.errors
+
+        auditor_worker.object_audit(
+            AuditLocation(datadir, 'sda', '0', policy=self.disk_file.policy))
+
+        # Verify: errors incremented, quarantines NOT incremented
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines)
+        self.assertEqual(auditor_worker.errors, pre_errors + 1)
+
+        # Verify error message logged
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertTrue(
+            any('hash path mismatch' in line for line in error_lines))
+
+        # Verify object still exists (not quarantined)
+        self.assertTrue(os.path.exists(datadir))
+
+    def test_audit_hash_location_mismatch_quarantine_with_config_true(self):
+        conf = dict(self.conf)
+        conf['quarantine_when_hash_location_mismatch'] = 'true'
+        auditor_worker = auditor.AuditorWorker(conf, self.logger,
+                                               self.rcache, self.devices)
+
+        timestamp = self.ts().internal
+        data = b'test data'
+        etag = md5(data, usedforsecurity=False)
+        with self.disk_file.create() as writer:
+            writer.write(data)
+            metadata = {
+                'ETag': etag.hexdigest(),
+                'X-Timestamp': timestamp,
+                'Content-Length': str(len(data)),
+            }
+            writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
+
+        datadir = self.disk_file._datadir
+        datafiles = [f for f in os.listdir(datadir) if f.endswith('.data')]
+        datafile_path = os.path.join(datadir, datafiles[0])
+
+        # Modify metadata
+        meta = read_metadata(datafile_path)
+        meta['name'] = '/a/c/different_object'
+        write_metadata(datafile_path, meta)
+
+        pre_quarantines = auditor_worker.quarantines
+
+        auditor_worker.object_audit(
+            AuditLocation(datadir, 'sda', '0', policy=self.disk_file.policy))
+
+        # Verify: quarantines incremented
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
+
+        # Verify error message logged
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertTrue(
+            any('quarantined' in line for line in error_lines))
+
+        # Verify object was quarantined
+        self.assertFalse(os.path.exists(datafile_path))
+
+    def test_audit_real_corruption_still_quarantined(self):
+        auditor_worker = auditor.AuditorWorker(self.conf, self.logger,
+                                               self.rcache, self.devices)
+
+        timestamp = self.ts().internal
+        data = b'test data for corruption'
+        etag = md5(data, usedforsecurity=False)
+        with self.disk_file.create() as writer:
+            writer.write(data)
+            metadata = {
+                'ETag': etag.hexdigest(),
+                'X-Timestamp': timestamp,
+                'Content-Length': str(len(data)),
+            }
+            writer.put(metadata)
+            writer.commit(Timestamp(timestamp))
+
+        # Corrupt the data file
+        datadir = self.disk_file._datadir
+        datafiles = [f for f in os.listdir(datadir) if f.endswith('.data')]
+        datafile_path = os.path.join(datadir, datafiles[0])
+
+        # Change ETag to wrong value (simulates corruption)
+        meta = read_metadata(datafile_path)
+        meta['ETag'] = 'wrong_checksum_value'
+        write_metadata(datafile_path, meta)
+
+        pre_quarantines = auditor_worker.quarantines
+        pre_errors = auditor_worker.errors
+
+        auditor_worker.object_audit(
+            AuditLocation(datadir, 'sda', '0', policy=self.disk_file.policy))
+
+        # Verify: quarantines incremented, errors NOT incremented
+        self.assertEqual(auditor_worker.quarantines, pre_quarantines + 1)
+        self.assertEqual(auditor_worker.errors, pre_errors)
+
+        # Verify quarantine message logged
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertTrue(any('quarantined' in line for line in error_lines))
+
+        # Verify object was quarantined (moved)
+        self.assertFalse(os.path.exists(datadir))
 
     def test_rsync_tempfile_timeout_auto_option(self):
         # if we don't have access to the replicator config section we'll use

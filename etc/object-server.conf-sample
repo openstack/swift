@@ -619,6 +619,12 @@ use = egg:swift#backend_ratelimit
 # to 86400 (1 day).
 # rsync_tempfile_timeout = auto
 
+# When set to false, objects with hash location mismatches (e.g., due to
+# swift_hash_path_prefix or swift_hash_path_suffix changes in swift.conf)
+# will be logged as errors instead of being quarantined. This allows for
+# recovery when hash values are accidentally changed. Default is false.
+# quarantine_when_hash_location_mismatch = false
+
 # A comma-separated list of watcher entry points. This lets operators
 # programmatically see audited objects.
 #

@@ -57,7 +57,8 @@ from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
     DiskFileDeviceUnavailable, DiskFileDeleted, DiskFileNotOpen, \
     DiskFileError, ReplicationLockTimeout, DiskFileCollision, \
     DiskFileExpired, SwiftException, DiskFileNoSpace, \
-    DiskFileXattrNotSupported, PartitionLockTimeout, DiskFileStateChanged
+    DiskFileXattrNotSupported, PartitionLockTimeout, DiskFileStateChanged, \
+    DiskFileHashLocationMismatch
 from swift.common.storage_policy import (
     POLICIES, get_policy_string, StoragePolicy, ECStoragePolicy, REPL_POLICY,
     EC_POLICY, PolicyError)
@@ -1321,6 +1322,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
     won't get picked up by test runners because it doesn't subclass
     unittest.TestCase and doesn't have [Tt]est in the name.
     """
+
     def _get_diskfile(self, policy, frag_index=None, **kwargs):
         df_mgr = self.df_router[policy]
         return df_mgr.get_diskfile('sda1', '0', 'a', 'c', 'o',
@@ -5754,7 +5756,28 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self.df_mgr.get_diskfile_from_audit_location(
             diskfile.AuditLocation(hashdir, self.existing_device, '0',
                                    policy=POLICIES.default))
+        # quarantine_when_hash_location_mismatch defaults to False
+        self.assertRaises(DiskFileHashLocationMismatch, df.open)
+        self.assertIsNone(df._quarantined_dir)
+
+    def test_from_audit_location_with_mismatched_hash_quarantine_true(self):
+        df, df_data = self._create_test_file(
+            b'blah blah',
+            account='this', container='is', obj='right')
+        hashdir = df._datadir
+        datafilename = [f for f in os.listdir(hashdir)
+                        if f.endswith('.data')][0]
+        datafile = os.path.join(hashdir, datafilename)
+        meta = diskfile.read_metadata(datafile)
+        meta['name'] = '/this/is/wrong'
+        diskfile.write_metadata(datafile, meta)
+
+        df = self.df_mgr.get_diskfile_from_audit_location(
+            diskfile.AuditLocation(hashdir, self.existing_device, '0',
+                                   policy=POLICIES.default),
+            quarantine_hash_location_mismatch=True)
         self.assertRaises(DiskFileQuarantined, df.open)
+        self.assertTrue(df._quarantined_dir)
 
     def test_close_error(self):
 
