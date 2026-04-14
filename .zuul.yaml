@@ -275,29 +275,6 @@
         SERVICE_HOST: ""
 
 - job:
-    name: swift-tox-func-ceph-s3tests-tempauth
-    parent: unittests
-    voting: false
-    nodeset: centos-9-stream
-    description: |
-      Setup a SAIO dev environment and run ceph-s3tests
-    timeout: 5400
-    vars:
-      tox_environment:
-        COLUMNS: 240
-      s3_acl: yes
-    pre-run:
-      - tools/playbooks/common/install_dependencies.yaml
-      - tools/playbooks/saio_single_node_setup/setup_saio.yaml
-      - tools/playbooks/saio_single_node_setup/add_s3api.yaml
-      - tools/playbooks/saio_single_node_setup/make_rings.yaml
-      - tools/playbooks/common/restart_swift.yaml
-    run: tools/playbooks/ceph-s3tests/run.yaml
-    post-run:
-      - tools/playbooks/probetests/post.yaml
-      - tools/playbooks/ceph-s3tests/post.yaml
-
-- job:
     name: swift-tox-func-s3api-compat-tests-tempauth
     parent: unittests
     nodeset: centos-9-stream
@@ -655,14 +632,6 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(unit|functional|probe|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG)$
-        - swift-tox-func-ceph-s3tests-tempauth:
-            irrelevant-files:
-              - ^(api-ref|releasenotes)/.*$
-              # Keep doc/saio -- we use those sample configs in the saio playbooks
-              # Also keep doc/s3api -- it holds known failures for these tests
-              - ^doc/(requirements.txt|(manpages|source)/.*)$
-              - ^test/.*$
-              - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
         - swift-tox-func-s3api-compat-tests-tempauth:
             irrelevant-files:
               - ^(api-ref|releasenotes)/.*$
