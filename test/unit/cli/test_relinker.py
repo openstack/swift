@@ -130,15 +130,17 @@ class TestRelinker(unittest.TestCase):
                       % attempts)
         return _hash, part, next_part, obj_path
 
-    def _create_object(self, policy, part, _hash, ext='.data',
-                       remove_objects_dir=True):
+    def _recreate_objects_dir(self, policy):
+        # unconditionally remove and then re-create the objects dir for policy
         objects_dir = os.path.join(self.devices, self.existing_device,
                                    get_policy_string('objects', policy))
+        shutil.rmtree(objects_dir, ignore_errors=True)
+        os.mkdir(objects_dir)
+        return objects_dir
 
-        if remove_objects_dir:
-            shutil.rmtree(objects_dir, ignore_errors=True)
-        if not os.path.exists(objects_dir):
-            os.mkdir(objects_dir)
+    def _create_object(self, policy, part, _hash, ext='.data'):
+        objects_dir = os.path.join(self.devices, self.existing_device,
+                                   get_policy_string('objects', policy))
         objdir = os.path.join(objects_dir, str(part), _hash[-3:], _hash)
         os.makedirs(objdir)
         timestamp = utils.Timestamp.now()
@@ -157,9 +159,7 @@ class TestRelinker(unittest.TestCase):
         self.part = part
         self.next_part = next_part
         self.obj_path = obj_path
-        objects_dir = os.path.join(self.devices, self.existing_device,
-                                   get_policy_string('objects', policy))
-
+        objects_dir = self._recreate_objects_dir(policy)
         self.objdir, self.object_fname, self.obj_ts = self._create_object(
             policy, part, _hash, ext)
 
@@ -2598,9 +2598,10 @@ class TestRelinker(unittest.TestCase):
         part2 = utils.get_partition_for_hash(hash2, self.rb.part_power)
         self.assertEqual(part1, part2)
 
-        objdir1, fname1, _ = self._create_object(0, part1, hash1)
-        objdir2, fname2, _ = self._create_object(0, part2, hash2,
-                                                 remove_objects_dir=False)
+        policy = 0
+        self._recreate_objects_dir(policy)
+        objdir1, fname1, _ = self._create_object(policy, part1, hash1)
+        objdir2, fname2, _ = self._create_object(policy, part2, hash2)
 
         self.rb.prepare_increase_partition_power()
         self._save_ring()
@@ -2650,9 +2651,10 @@ class TestRelinker(unittest.TestCase):
 
         # objects are created in the partition they are expected to be in so
         # so they are not actually selected for cleanup
-        objdir1, fname1, _ = self._create_object(0, part1, hash1)
-        objdir2, fname2, _ = self._create_object(0, part2, hash2,
-                                                 remove_objects_dir=False)
+        policy = 0
+        self._recreate_objects_dir(policy)
+        objdir1, fname1, _ = self._create_object(policy, part1, hash1)
+        objdir2, fname2, _ = self._create_object(policy, part2, hash2)
 
         with self._mock_relinker():
             self.assertEqual(0, relinker.main([
@@ -2703,6 +2705,7 @@ class TestRelinker(unittest.TestCase):
         # next part *will* be handled during cleanup
         _hash, pol_1_part, pol_1_next_part, objpath = self._get_object_name(
             lambda part: part < 2 ** (PART_POWER - 1))
+        self._recreate_objects_dir(POLICIES[1])
         self._create_object(POLICIES[1], pol_1_part, _hash)
 
         state_files = {
