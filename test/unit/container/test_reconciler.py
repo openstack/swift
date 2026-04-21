@@ -28,8 +28,6 @@ import random
 import eventlet
 
 from collections import defaultdict
-from datetime import datetime
-from datetime import timezone
 import urllib.parse
 from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 from swift.common.swob import Request
@@ -47,11 +45,6 @@ from test.unit import FakeRing, fake_http_connect, patch_policies, \
     DEFAULT_TEST_EC_TYPE, make_timestamp_iter, mock_timestamp_now, \
     BaseUnitTestCase
 from test.unit.common.middleware import helpers
-
-
-def timestamp_to_last_modified(timestamp):
-    dt = datetime.fromtimestamp(float(Timestamp(timestamp)), timezone.utc)
-    return dt.strftime('%Y-%m-%dT%H:%M:%S.%f')
 
 
 def container_resp_headers(**kwargs):
@@ -213,7 +206,7 @@ class TestReconcilerUtils(BaseUnitTestCase):
         got = reconciler.parse_raw_obj({
             'name': "2:/AUTH_bob/con/obj",
             'hash': ts[0].internal,
-            'last_modified': timestamp_to_last_modified(ts[1]),
+            'last_modified': ts[1].isoformat,
             'content_type': 'application/x-delete',
         })
         self.assertEqual(got['q_policy_index'], 2)
@@ -221,14 +214,14 @@ class TestReconcilerUtils(BaseUnitTestCase):
         self.assertEqual(got['container'], 'con')
         self.assertEqual(got['obj'], 'obj')
         self.assertEqual(got['q_ts'], ts[0])
-        self.assertEqual(got['q_record'], ts[1])
+        self.assertEqual(got['q_record'], ts[1].normalized())
         self.assertEqual(got['q_op'], 'DELETE')
 
         ts = [self.ts() for _ in range(4)]
         got = reconciler.parse_raw_obj({
             'name': "1:/AUTH_bob/con/obj",
             'hash': ts[0].internal,
-            'last_modified': timestamp_to_last_modified(ts[1]),
+            'last_modified': ts[1].isoformat,
             'content_type': 'application/x-put',
         })
         self.assertEqual(got['q_policy_index'], 1)
@@ -236,7 +229,7 @@ class TestReconcilerUtils(BaseUnitTestCase):
         self.assertEqual(got['container'], 'con')
         self.assertEqual(got['obj'], 'obj')
         self.assertEqual(got['q_ts'], ts[0])
-        self.assertEqual(got['q_record'], ts[1])
+        self.assertEqual(got['q_record'], ts[1].normalized())
         self.assertEqual(got['q_op'], 'PUT')
 
         # the 'hash' field in object listing has the raw 'created_at' value
@@ -245,7 +238,7 @@ class TestReconcilerUtils(BaseUnitTestCase):
         got = reconciler.parse_raw_obj({
             'name': "1:/AUTH_bob/con/obj",
             'hash': timestamp_str,
-            'last_modified': timestamp_to_last_modified(ts[1]),
+            'last_modified': ts[1].isoformat,
             'content_type': 'application/x-put',
         })
         self.assertEqual(got['q_policy_index'], 1)
@@ -253,14 +246,14 @@ class TestReconcilerUtils(BaseUnitTestCase):
         self.assertEqual(got['container'], 'con')
         self.assertEqual(got['obj'], 'obj')
         self.assertEqual(got['q_ts'], ts[0])
-        self.assertEqual(got['q_record'], ts[1])
+        self.assertEqual(got['q_record'], ts[1].normalized())
         self.assertEqual(got['q_op'], 'PUT')
 
         # negative test
         obj_info = {
             'name': "1:/AUTH_bob/con/obj",
             'hash': ts[0].internal,
-            'last_modified': timestamp_to_last_modified(ts[1]),
+            'last_modified': ts[1].isoformat,
         }
         self.assertRaises(ValueError, reconciler.parse_raw_obj, obj_info)
         obj_info['content_type'] = 'foo'

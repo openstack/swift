@@ -36,7 +36,8 @@ from swift.common.utils import (replication, public, mkdirs, storage_directory,
                                 Timestamp)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 from test.debug_logger import debug_logger
-from test.unit import patch_policies, mock_check_drive, BaseUnitTestCase
+from test.unit import patch_policies, mock_check_drive, BaseUnitTestCase, \
+    mock_normal_timestamp_now
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -329,9 +330,7 @@ class TestAccountController(BaseUnitTestCase):
         put_timestamp = self.ts()
         req = Request.blank('/sda1/p/a', method='PUT', headers={
             'x-timestamp': put_timestamp.internal})
-        created_at_timestamp = self.ts()
-        with mock.patch('swift.account.backend.Timestamp.now',
-                        return_value=created_at_timestamp):
+        with mock_normal_timestamp_now() as created_at_timestamp:
             resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         # do a HEAD

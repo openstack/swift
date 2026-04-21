@@ -39,16 +39,17 @@ from swift.common.swob import (Request, WsgiBytesIO, HTTPNoContent,
 import swift.container
 from swift.container import server as container_server
 from swift.common import constraints
-from swift.common.utils import (Timestamp, mkdirs, public, replication,
+from swift.common.utils.timestamp import Timestamp
+from swift.common.utils import (mkdirs, public, replication,
                                 storage_directory, lock_parent_directory,
                                 ShardRange, RESERVED_STR, Namespace)
 from test.debug_logger import debug_logger
-from test.unit import fake_http_connect, mock_check_drive
+from test.unit import fake_http_connect, mock_check_drive, patch_policies, \
+    BaseUnitTestCase, mock_timestamp_now, mock_normal_timestamp_now
 from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 
 from test import listen_zero
-from test.unit import patch_policies, BaseUnitTestCase, mock_timestamp_now
 
 
 @contextmanager
@@ -206,11 +207,9 @@ class TestContainerController(BaseUnitTestCase):
         put_timestamp = self.ts()
         expected_last_modified = Response(
             last_modified=put_timestamp.ceil()).headers['Last-Modified']
-        created_at_timestamp = self.ts()
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
             'x-timestamp': put_timestamp.internal})
-        with mock.patch('swift.container.backend.Timestamp.now',
-                        return_value=created_at_timestamp):
+        with mock_normal_timestamp_now() as created_at_timestamp:
             resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 201)
         # do a HEAD
@@ -1758,7 +1757,7 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(resp.status_int, 201)
 
         # PUT an *empty* shard range
-        sr = ShardRange('.shards_a/c', self.ts(), 'l', 'u', 0, 0,
+        sr = ShardRange('.shards_a/c', self.normal_ts(), 'l', 'u', 0, 0,
                         state=ShardRange.ACTIVE)
         req = Request.blank(
             path,
@@ -2586,7 +2585,7 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(resp.status_int, 412)
 
     def test_PUT_shard_range_autocreates_shard_container(self):
-        shard_range = ShardRange('.shards_a/shard_c', self.ts())
+        shard_range = ShardRange('.shards_a/shard_c', self.normal_ts())
         put_timestamp = self.ts().internal
         headers = {'X-Backend-Record-Type': 'shard',
                    'X-Timestamp': put_timestamp,
@@ -2649,7 +2648,7 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(201, resp.status_int)
 
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        broker.enable_sharding(self.ts())
+        broker.enable_sharding(self.normal_ts())
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
 
@@ -2666,7 +2665,7 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(404, resp.status_int)
 
         # shard range PUT is accepted but container remains deleted
-        shard_range = ShardRange('.shards_a/shard_c', self.ts(),
+        shard_range = ShardRange('.shards_a/shard_c', self.normal_ts(),
                                  state=ShardRange.ACTIVE)
         headers = {'X-Backend-Record-Type': 'shard',
                    'X-Timestamp': self.ts().internal,
@@ -2685,7 +2684,7 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(404, resp.status_int)
 
         # unless shard range has non-zero stats, then container is revived
-        shard_range.update_meta(99, 1234, meta_timestamp=self.ts())
+        shard_range.update_meta(99, 1234, meta_timestamp=self.normal_ts())
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers,
                             body=json.dumps([dict(shard_range)]))
         resp = req.get_response(self.controller)
@@ -2699,15 +2698,15 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual('99', resp.headers['X-Container-Object-Count'])
 
     def test_PUT_shard_range_json_in_body(self):
-        oldest_ts = self.ts()  # used for stale shard range PUT later
+        oldest_ts = self.normal_ts()  # used for stale shard range PUT later
         shard_bounds = [('', 'ham', ShardRange.ACTIVE),
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', '', ShardRange.CREATED)]
         shard_ranges = [
-            ShardRange('.shards_a/_%s' % upper, self.ts(),
+            ShardRange('.shards_a/_%s' % upper, self.normal_ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=self.ts(),
-                       state=state, state_timestamp=self.ts())
+                       i * 100, i * 1000, meta_timestamp=self.normal_ts(),
+                       state=state, state_timestamp=self.normal_ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
 
         put_timestamp = self.ts().internal
@@ -2760,10 +2759,10 @@ class TestContainerController(BaseUnitTestCase):
                                         broker.get_shard_ranges())
         self.assertEqual(put_timestamp, broker.get_info()['put_timestamp'])
 
-        older_ts = self.ts()  # used for stale shard range PUT later
+        older_ts = self.normal_ts()  # used for stale shard range PUT later
         # updated and new shard ranges
         shard_ranges[1].bytes_used += 100
-        shard_ranges[1].meta_timestamp = self.ts()
+        shard_ranges[1].meta_timestamp = self.normal_ts()
         body = json.dumps([dict(sr) for sr in shard_ranges[1:]])
         headers['X-Timestamp'] = self.ts().internal
         req = Request.blank(
@@ -2797,7 +2796,7 @@ class TestContainerController(BaseUnitTestCase):
 
         # deleted shard range
         shard_ranges[0].deleted = 1
-        shard_ranges[0].timestamp = self.ts()
+        shard_ranges[0].timestamp = self.normal_ts()
         body = json.dumps([dict(shard_ranges[0])])
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -2827,7 +2826,7 @@ class TestContainerController(BaseUnitTestCase):
         check_bad_body('')
         check_bad_body('["not a shard range"]')
         check_bad_body('[[]]')
-        bad_shard_range = dict(ShardRange('a/c', self.ts()))
+        bad_shard_range = dict(ShardRange('a/c', self.normal_ts()))
         bad_shard_range.pop('timestamp')
         check_bad_body(json.dumps([bad_shard_range]))
 
@@ -2852,9 +2851,9 @@ class TestContainerController(BaseUnitTestCase):
 
     def test_PUT_GET_shard_ranges(self):
         # make a container
-        ts_now = Timestamp.now()  # used when mocking Timestamp.now()
+        normal_ts_now = self.normal_ts()
         ts_put = self.ts()
-        headers = {'X-Timestamp': ts_put.normal}
+        headers = {'X-Timestamp': ts_put.internal}
         req = Request.blank('/sda1/p/a/c', method='PUT', headers=headers)
         self.assertEqual(201, req.get_response(self.controller).status_int)
         # PUT some objects
@@ -2878,10 +2877,10 @@ class TestContainerController(BaseUnitTestCase):
                         ('yoghurt', '', ShardRange.FOUND),
                         ]
         shard_ranges = [
-            ShardRange('.sharded_a/_%s' % upper, self.ts(),
+            ShardRange('.sharded_a/_%s' % upper, self.normal_ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=self.ts(),
-                       state=state, state_timestamp=self.ts())
+                       i * 100, i * 1000, meta_timestamp=self.normal_ts(),
+                       state=state, state_timestamp=self.normal_ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
@@ -2913,12 +2912,12 @@ class TestContainerController(BaseUnitTestCase):
             req = Request.blank('/sda1/p/%s?format=json%s' %
                                 (path, params), method='GET',
                                 headers={'X-Backend-Record-Type': 'shard'})
-            with mock_timestamp_now(ts_now):
+            with mock_normal_timestamp_now(normal_ts_now):
                 resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_type, 'application/json')
             expected = [
-                dict(sr, last_modified=Timestamp(sr.timestamp).isoformat)
+                dict(sr, last_modified=sr.timestamp.isoformat)
                 for sr in expected_shard_ranges]
             self.assertEqual(expected, json.loads(resp.body))
             self.assertIn('X-Backend-Record-Type', resp.headers)
@@ -2937,12 +2936,12 @@ class TestContainerController(BaseUnitTestCase):
             req = Request.blank('/sda1/p/%s?format=json%s' %
                                 (path, params), method='GET',
                                 headers=req_headers)
-            with mock_timestamp_now(ts_now):
+            with mock_normal_timestamp_now(normal_ts_now):
                 resp = req.get_response(self.controller)
             self.assertEqual(resp.status_int, 200)
             self.assertEqual(resp.content_type, 'application/json')
             expected = [
-                dict(sr, last_modified=Timestamp(sr.timestamp).isoformat)
+                dict(sr, last_modified=sr.timestamp.isoformat)
                 for sr in expected_shard_ranges]
             self.assertEqual(expected, json.loads(resp.body))
             self.assertIn('X-Backend-Record-Type', resp.headers)
@@ -2992,7 +2991,7 @@ class TestContainerController(BaseUnitTestCase):
 
         # listing shards don't cover entire namespace so expect an extra filler
         extra_shard_range = ShardRange(
-            'a/c', ts_now, shard_ranges[2].upper, ShardRange.MAX, 0, 0,
+            'a/c', normal_ts_now, shard_ranges[2].upper, ShardRange.MAX, 0, 0,
             state=ShardRange.ACTIVE)
         expected = shard_ranges[:3] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&states=listing')
@@ -3006,7 +3005,7 @@ class TestContainerController(BaseUnitTestCase):
             params='&states=listing&reverse=true&end_marker=pickle')
         # updating shards don't cover entire namespace so expect a filler
         extra_shard_range = ShardRange(
-            'a/c', ts_now, shard_ranges[3].upper, ShardRange.MAX, 0, 0,
+            'a/c', normal_ts_now, shard_ranges[3].upper, ShardRange.MAX, 0, 0,
             state=ShardRange.ACTIVE)
         expected = shard_ranges[1:4] + [extra_shard_range]
         check_shard_GET(expected, 'a/c', params='&states=updating')
@@ -3015,7 +3014,7 @@ class TestContainerController(BaseUnitTestCase):
         # when no listing shard ranges cover the requested namespace range then
         # filler is for entire requested namespace
         extra_shard_range = ShardRange(
-            'a/c', ts_now, 'treacle', ShardRange.MAX, 0, 0,
+            'a/c', normal_ts_now, 'treacle', ShardRange.MAX, 0, 0,
             state=ShardRange.ACTIVE)
         check_shard_GET([extra_shard_range], 'a/c',
                         params='&states=listing&marker=treacle')
@@ -3023,7 +3022,7 @@ class TestContainerController(BaseUnitTestCase):
             [extra_shard_range], 'a/c',
             params='&states=listing&reverse=true&end_marker=treacle')
         extra_shard_range = ShardRange(
-            'a/c', ts_now, 'treacle', 'walnut', 0, 0,
+            'a/c', normal_ts_now, 'treacle', 'walnut', 0, 0,
             state=ShardRange.ACTIVE)
         params = '&states=listing&marker=treacle&end_marker=walnut'
         check_shard_GET([extra_shard_range], 'a/c', params=params)
@@ -3114,7 +3113,7 @@ class TestContainerController(BaseUnitTestCase):
             params='&states=listing&reverse=true&marker=egg')
         self.assertIsNone(
             resp.headers.get('X-Backend-Override-Shard-Name-Filter'))
-        ts_epoch = self.ts()
+        ts_epoch = self.normal_ts()
         broker.enable_sharding(ts_epoch)
         self.assertTrue(broker.set_sharding_state())
         check_shard_GET(
@@ -3133,8 +3132,8 @@ class TestContainerController(BaseUnitTestCase):
         # params and return listing shard ranges for entire namespace if
         # X-Backend-Override-Shard-Name-Filter == 'sharded'
         self.assertTrue(broker.set_sharded_state())
-        ts_now = self.ts()
-        with mock_timestamp_now(ts_now):
+        normal_ts_now = self.normal_ts()
+        with mock_normal_timestamp_now(normal_ts_now):
             extra_shard_range = broker.get_own_shard_range()
         extra_shard_range.lower = shard_ranges[2].upper
         extra_shard_range.upper = ShardRange.MAX
@@ -3166,7 +3165,7 @@ class TestContainerController(BaseUnitTestCase):
 
         # delete a shard range
         shard_range = shard_ranges[1]
-        shard_range.set_deleted(timestamp=self.ts())
+        shard_range.set_deleted(timestamp=self.normal_ts())
         self._put_shard_range(shard_range)
 
         self._assert_shard_ranges_equal(shard_ranges[:1] + shard_ranges[2:],
@@ -3218,20 +3217,20 @@ class TestContainerController(BaseUnitTestCase):
         # the shard's namespace
         shard_path = '.shards_a/c_f'
         ts_now = Timestamp.now()  # used when mocking Timestamp.now()
-        own_shard_range = ShardRange(shard_path, self.ts(),
+        own_shard_range = ShardRange(shard_path, self.normal_ts(),
                                      'b', 'f', 100, 1000,
-                                     meta_timestamp=self.ts(),
+                                     meta_timestamp=self.normal_ts(),
                                      state=ShardRange.SHRUNK,
-                                     state_timestamp=self.ts(),
-                                     epoch=self.ts())
+                                     state_timestamp=self.normal_ts(),
+                                     epoch=self.normal_ts())
         shard_ranges = []
         for lower, upper in (('a', 'd'), ('d', 'g')):
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, self.ts(),
+                ShardRange('.shards_a/c_%s' % upper, self.normal_ts(),
                            lower, upper, 100, 1000,
-                           meta_timestamp=self.ts(),
+                           meta_timestamp=self.normal_ts(),
                            state=ShardRange.ACTIVE,
-                           state_timestamp=self.ts()))
+                           state_timestamp=self.normal_ts()))
 
         # create container
         headers = {'X-Timestamp': self.ts().normal}
@@ -3315,16 +3314,16 @@ class TestContainerController(BaseUnitTestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, self.ts(),
+                ShardRange('.shards_a/c_%s' % upper, self.normal_ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=self.ts(),
-                           state=state, state_timestamp=self.ts()))
+                           meta_timestamp=self.normal_ts(),
+                           state=state, state_timestamp=self.normal_ts()))
             lower = upper
 
         def do_test(root_path, path, params, expected_states):
             expected = [
                 sr for sr in shard_ranges if sr.state in expected_states]
-            own_shard_range = ShardRange(path, self.ts(), '', '',
+            own_shard_range = ShardRange(path, self.normal_ts(), '', '',
                                          state=ShardRange.ACTIVE)
             expected.append(own_shard_range.copy(lower=expected[-1].upper))
             expected = [dict(sr, last_modified=sr.timestamp.isoformat)
@@ -3389,10 +3388,10 @@ class TestContainerController(BaseUnitTestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, self.ts(),
+                ShardRange('.shards_a/c_%s' % upper, self.normal_ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=self.ts(),
-                           state=state, state_timestamp=self.ts()))
+                           meta_timestamp=self.normal_ts(),
+                           state=state, state_timestamp=self.normal_ts()))
             lower = upper
         # create container
         headers = {'X-Timestamp': self.ts().normal}
@@ -3429,7 +3428,7 @@ class TestContainerController(BaseUnitTestCase):
         headers = {'X-Timestamp': self.ts().normal,
                    'X-Backend-Record-Type': 'shard'}
         for sr in shard_ranges[::2]:
-            sr.set_deleted(timestamp=self.ts())
+            sr.set_deleted(timestamp=self.normal_ts())
         body = json.dumps([dict(sr) for sr in shard_ranges])
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -3443,7 +3442,7 @@ class TestContainerController(BaseUnitTestCase):
         headers = {'X-Timestamp': self.ts().normal,
                    'X-Backend-Record-Type': 'shard'}
         for sr in shard_ranges[1::2]:
-            sr.set_deleted(timestamp=self.ts())
+            sr.set_deleted(timestamp=self.normal_ts())
         body = json.dumps([dict(sr) for sr in shard_ranges])
         req = Request.blank(
             '/sda1/p/a/c', method='PUT', headers=headers, body=body)
@@ -3460,10 +3459,10 @@ class TestContainerController(BaseUnitTestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, self.ts(),
+                ShardRange('.shards_a/c_%s' % upper, self.normal_ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=self.ts(),
-                           state=state, state_timestamp=self.ts()))
+                           meta_timestamp=self.normal_ts(),
+                           state=state, state_timestamp=self.normal_ts()))
             lower = upper
         # create container
         headers = {'X-Timestamp': self.ts().normal}
@@ -3541,16 +3540,16 @@ class TestContainerController(BaseUnitTestCase):
             return resp
 
         # initially not all shards are shrinking and root is sharded
-        own_sr = ShardRange('a/c', self.ts(), '', '',
+        own_sr = ShardRange('a/c', self.normal_ts(), '', '',
                             state=ShardRange.SHARDED)
         shard_bounds = [('', 'f', ShardRange.SHRUNK, True),
                         ('f', 't', ShardRange.SHRINKING, False),
                         ('t', '', ShardRange.ACTIVE, False)]
         shard_ranges = [
-            ShardRange('.shards_a/_%s' % upper, self.ts(),
+            ShardRange('.shards_a/_%s' % upper, self.normal_ts(),
                        lower, upper, state=state, deleted=deleted)
             for (lower, upper, state, deleted) in shard_bounds]
-        overlap = ShardRange('.shards_a/c_bad', self.ts(), '', 'f',
+        overlap = ShardRange('.shards_a/c_bad', self.normal_ts(), '', 'f',
                              state=ShardRange.FOUND)
 
         # create container and PUT some shard ranges
@@ -3562,7 +3561,7 @@ class TestContainerController(BaseUnitTestCase):
         put_shard_ranges(shard_ranges + [own_sr, overlap])
 
         # do *not* expect own shard range in default case (no states param)
-        ts_now = self.ts()
+        ts_now = self.normal_ts()
         expected = [dict(sr, last_modified=sr.timestamp.isoformat)
                     for sr in [overlap] + shard_ranges]
         resp = do_test(ts_now, {})
@@ -3582,12 +3581,12 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(expected, json.loads(resp.body))
 
         # update shards to all shrinking and root to active
-        shard_ranges[-1].update_state(ShardRange.SHRINKING, self.ts())
-        own_sr.update_state(ShardRange.ACTIVE, self.ts())
+        shard_ranges[-1].update_state(ShardRange.SHRINKING, self.normal_ts())
+        own_sr.update_state(ShardRange.ACTIVE, self.normal_ts())
         put_shard_ranges(shard_ranges + [own_sr])
 
         # do *not* expect own shard range in default case (no states param)
-        ts_now = self.ts()
+        ts_now = self.normal_ts()
         expected = [dict(sr, last_modified=sr.timestamp.isoformat)
                     for sr in [overlap] + shard_ranges]
         resp = do_test(ts_now, {})
@@ -3614,14 +3613,14 @@ class TestContainerController(BaseUnitTestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, self.ts(),
+                ShardRange('.shards_a/c_%s' % upper, self.normal_ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=self.ts(),
-                           state=state, state_timestamp=self.ts()))
+                           meta_timestamp=self.normal_ts(),
+                           state=state, state_timestamp=self.normal_ts()))
             lower = upper
         expected_sr = [
             sr for sr in shard_ranges if sr.state in expected_states]
-        own_shard_range = ShardRange(path, self.ts(), '', '',
+        own_shard_range = ShardRange(path, self.normal_ts(), '', '',
                                      state=ShardRange.ACTIVE)
         filler_sr = own_shard_range.copy(lower=expected_sr[-1].upper)
         expected_sr.append(filler_sr)
@@ -3749,19 +3748,19 @@ class TestContainerController(BaseUnitTestCase):
         for state in sorted(ShardRange.STATES.keys()):
             upper = str(state)
             shard_ranges.append(
-                ShardRange('.shards_a/c_%s' % upper, self.ts(),
+                ShardRange('.shards_a/c_%s' % upper, self.normal_ts(),
                            lower, upper, state * 100, state * 1000,
-                           meta_timestamp=self.ts(),
-                           state=state, state_timestamp=self.ts()))
+                           meta_timestamp=self.normal_ts(),
+                           state=state, state_timestamp=self.normal_ts()))
             lower = upper
         expected_sr = [
             sr for sr in shard_ranges if sr.state in expected_states]
-        own_shard_range = ShardRange(path, self.ts(), '', '',
+        own_shard_range = ShardRange(path, self.normal_ts(), '', '',
                                      100, 1000,
-                                     meta_timestamp=self.ts(),
+                                     meta_timestamp=self.normal_ts(),
                                      state=ShardRange.ACTIVE,
-                                     state_timestamp=self.ts(),
-                                     epoch=self.ts())
+                                     state_timestamp=self.normal_ts(),
+                                     epoch=self.normal_ts())
         filler_sr = own_shard_range.copy(lower=expected_sr[-1].upper)
         expected_sr.append(filler_sr)
         expected_ns = [{'name': sr.name, 'lower': sr.lower_str,
@@ -3874,10 +3873,10 @@ class TestContainerController(BaseUnitTestCase):
                         ('yoghurt', '', ShardRange.FOUND),
                         ]
         shard_ranges = [
-            ShardRange('.sharded_a/_%s' % upper, self.ts(),
+            ShardRange('.sharded_a/_%s' % upper, self.normal_ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=self.ts(),
-                       state=state, state_timestamp=self.ts())
+                       i * 100, i * 1000, meta_timestamp=self.normal_ts(),
+                       state=state, state_timestamp=self.normal_ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
@@ -4017,10 +4016,10 @@ class TestContainerController(BaseUnitTestCase):
         shard_bounds = [('', 'm', ShardRange.CLEAVED),
                         ('m', '', ShardRange.CREATED)]
         shard_ranges = [
-            ShardRange('.sharded_a/_%s' % upper, self.ts(),
+            ShardRange('.sharded_a/_%s' % upper, self.normal_ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=self.ts(),
-                       state=state, state_timestamp=self.ts())
+                       i * 100, i * 1000, meta_timestamp=self.normal_ts(),
+                       state=state, state_timestamp=self.normal_ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
         for shard_range in shard_ranges:
             self._put_shard_range(shard_range)
@@ -4090,7 +4089,7 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(headers, resp.headers)
 
         # move to sharding state
-        broker.enable_sharding(self.ts())
+        broker.enable_sharding(self.normal_ts())
         self.assertTrue(broker.set_sharding_state())
         req = Request.blank('/sda1/p/a/c?format=json', method='GET',
                             headers={'X-Backend-Record-Type': 'auto'})
@@ -4185,7 +4184,7 @@ class TestContainerController(BaseUnitTestCase):
         assert_broker_rows(broker, ['unsharded'], 1)
 
         # move container to sharding state
-        broker.enable_sharding(self.ts())
+        broker.enable_sharding(self.normal_ts())
         self.assertTrue(broker.set_sharding_state())
         assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
         assert_broker_rows(broker.get_brokers()[1], [], 1)
@@ -4270,10 +4269,10 @@ class TestContainerController(BaseUnitTestCase):
 
         shard_ranges = {
             'dopey': ShardRange(
-                '.sharded_a/sr_dopey', self.ts(), '', 'dopey'),
+                '.sharded_a/sr_dopey', self.normal_ts(), '', 'dopey'),
             'happy': ShardRange(
-                '.sharded_a/sr_happy', self.ts(), 'dopey', 'happy'),
-            '': ShardRange('.sharded_a/sr_', self.ts(), 'happy', '')
+                '.sharded_a/sr_happy', self.normal_ts(), 'dopey', 'happy'),
+            '': ShardRange('.sharded_a/sr_', self.normal_ts(), 'happy', '')
         }
         # start with only the middle shard range
         self._put_shard_range(shard_ranges['happy'])
@@ -4287,7 +4286,7 @@ class TestContainerController(BaseUnitTestCase):
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=self.ts()))
+                                      state_timestamp=self.normal_ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'grumpy%s' % state
@@ -4307,12 +4306,12 @@ class TestContainerController(BaseUnitTestCase):
                               [obj['name'] for obj in get_listing(-1)])
 
         # set broker to sharding state
-        broker.enable_sharding(self.ts())
+        broker.enable_sharding(self.normal_ts())
         self.assertTrue(broker.set_sharding_state())
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=self.ts()))
+                                      state_timestamp=self.normal_ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'grumpier%s' % state
@@ -4346,12 +4345,12 @@ class TestContainerController(BaseUnitTestCase):
         # now PUT the first shard range
         sr_dopey = shard_ranges['dopey']
         sr_dopey.update_state(ShardRange.CLEAVED,
-                              state_timestamp=self.ts())
+                              state_timestamp=self.normal_ts())
         self._put_shard_range(sr_dopey)
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=self.ts()))
+                                      state_timestamp=self.normal_ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'dopey%s' % state
@@ -4389,7 +4388,7 @@ class TestContainerController(BaseUnitTestCase):
         for state in ShardRange.STATES:
             self.assertTrue(
                 sr_happy.update_state(state,
-                                      state_timestamp=self.ts()))
+                                      state_timestamp=self.normal_ts()))
             self._put_shard_range(sr_happy)
             with self.subTest(state=state):
                 obj_name = 'grumpiest%s' % state
@@ -4468,10 +4467,8 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(stats[-1][0][1], 1000.99)
 
     def test_PUT_GET_shards_timing_metrics(self):
-        ts = (Timestamp(t).internal for t in
-              itertools.count(int(time.time())))
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
-            'X-Timestamp': next(ts)})
+            'X-Timestamp': self.ts().internal})
         resp = req.get_response(self.controller)
         # PUT shard ranges.
         self.logger.clear()
@@ -4479,13 +4476,13 @@ class TestContainerController(BaseUnitTestCase):
                         ('ham', 'salami', ShardRange.ACTIVE),
                         ('salami', '', ShardRange.CREATED)]
         shard_ranges = [
-            ShardRange('.shards_a/_%s' % upper, next(ts),
+            ShardRange('.shards_a/_%s' % upper, self.normal_ts(),
                        lower, upper,
-                       i * 100, i * 1000, meta_timestamp=next(ts),
-                       state=state, state_timestamp=next(ts))
+                       i * 100, i * 1000, meta_timestamp=self.normal_ts(),
+                       state=state, state_timestamp=self.normal_ts())
             for i, (lower, upper, state) in enumerate(shard_bounds)]
         headers = {'X-Backend-Record-Type': 'shard',
-                   'X-Timestamp': next(ts),
+                   'X-Timestamp': self.ts().internal,
                    'X-Container-Sysmeta-Test': 'set',
                    'X-Container-Meta-Test': 'persisted'}
         body = json.dumps([dict(sr) for sr in shard_ranges[:2]])
@@ -5813,54 +5810,143 @@ class TestContainerController(BaseUnitTestCase):
             self.assertEqual(resp.status_int, 204,
                              "%d on param %s" % (resp.status_int, param))
 
-    def test_put_auto_create(self):
-        def do_test(expected_status, path, extra_headers=None, body=None):
-            headers = {'x-timestamp': Timestamp(1).internal,
-                       'x-size': '0',
-                       'x-content-type': 'text/plain',
-                       'x-etag': 'd41d8cd98f00b204e9800998ecf8427e'}
-            if extra_headers:
-                headers.update(extra_headers)
-            req = Request.blank('/sda1/p/' + path,
-                                environ={'REQUEST_METHOD': 'PUT'},
-                                headers=headers, body=body)
-            resp = req.get_response(self.controller)
-            self.assertEqual(resp.status_int, expected_status)
-
-        do_test(404, 'a/c/o')
-        do_test(404, '.a/c/o', {'X-Backend-Auto-Create': 'no'})
-        do_test(201, '.a/c/o')
-        do_test(404, 'a/.c/o')
-        do_test(404, 'a/c/.o')
-        do_test(201, 'a/c/o', {'X-Backend-Auto-Create': 'yes'})
-
-        do_test(404, '.shards_a/c/o')
+    def test_auto_create_success_with_shard_ranges_put(self):
+        # this is a PUT to the container path with record-type shard
+        backend_path = '/sda1/p/.shard_a/c'
+        ts = self.ts()
+        # N.B. no x-backend-auto-create header!
         create_shard_headers = {
+            'X-Timestamp': ts.internal,
             'X-Backend-Record-Type': 'shard',
-            'X-Backend-Storage-Policy-Index': '0'}
-        do_test(404, '.shards_a/c', create_shard_headers, '[]')
-        create_shard_headers['X-Backend-Auto-Create'] = 't'
-        do_test(201, '.shards_a/c', create_shard_headers, '[]')
-
-    def test_delete_auto_create(self):
-        def do_test(expected_status, path, extra_headers=None):
-            headers = {'x-timestamp': Timestamp(1).internal}
-            if extra_headers:
-                headers.update(extra_headers)
-            req = Request.blank('/sda1/p/' + path,
-                                environ={'REQUEST_METHOD': 'DELETE'},
-                                headers=headers)
+            'X-Backend-Storage-Policy-Index': '0',
+        }
+        body = json.dumps([]).encode()
+        req = Request.blank(backend_path, method='PUT',
+                            headers=create_shard_headers,
+                            body=body)
+        with mock_normal_timestamp_now() as ts_created:
             resp = req.get_response(self.controller)
-            self.assertEqual(resp.status_int, expected_status)
+        self.assertEqual(201, resp.status_int)
+        # check the db timestamps...
+        req = Request.blank(backend_path, headers={
+            'x-backend-record-type': 'shard',
+            'accept': 'application/json',
+        })
+        resp = req.get_response(self.controller)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual([], json.loads(resp.body))
+        self.assertEqual('shard', resp.headers.get('x-backend-record-type'))
+        self.assertEqual(ts_created.internal,
+                         resp.headers.get('X-Backend-Timestamp'))
+        self.assertEqual(Timestamp.zero().internal,
+                         resp.headers.get('X-Backend-Delete-Timestamp'))
+        # the request timestamp is normalized for the container DB initialize
+        self.assertEqual(ts.normal,
+                         resp.headers.get('X-Backend-Put-Timestamp'))
+        self.assertEqual(ts.normal,
+                         resp.headers.get('X-Backend-Status-Changed-At'))
 
-        do_test(404, 'a/c/o')
-        do_test(404, '.a/c/o', {'X-Backend-Auto-Create': 'false'})
-        do_test(204, '.a/c/o')
-        do_test(404, 'a/.c/o')
-        do_test(404, 'a/.c/.o')
-        do_test(404, '.shards_a/c/o')
-        do_test(204, 'a/c/o', {'X-Backend-Auto-Create': 'true'})
-        do_test(204, '.shards_a/c/o', {'X-Backend-Auto-Create': 'true'})
+    def _do_test_auto_create_success_with_obj_req(
+            self, method, path, extra_headers, expected_status):
+        ts = self.ts()
+        headers = {'x-timestamp': ts.internal,
+                   'x-size': '0',
+                   'x-content-type': 'text/plain',
+                   'x-etag': 'd41d8cd98f00b204e9800998ecf8427e'}
+        headers.update(extra_headers)
+        backend_path = '/sda1/p/' + path
+        req = Request.blank(backend_path, method=method, headers=headers)
+        with mock_normal_timestamp_now() as ts_created:
+            resp = req.get_response(self.controller)
+        self.assertEqual(expected_status, resp.status_int)
+        # check the db timestamps...
+        req = Request.blank(backend_path, method='HEAD')
+        resp = req.get_response(self.controller)
+        self.assertEqual(ts_created.internal,
+                         resp.headers.get('X-Backend-Timestamp'))
+        self.assertEqual(Timestamp.zero().internal,
+                         resp.headers.get('X-Backend-Delete-Timestamp'))
+        # the request timestamp is normalized for the container DB initialize
+        self.assertEqual(ts.normal,
+                         resp.headers.get('X-Backend-Put-Timestamp'))
+        self.assertEqual(ts.normal,
+                         resp.headers.get('X-Backend-Status-Changed-At'))
+
+    def test_auto_create_success_with_obj_put(self):
+        # regular accounts can opt-in
+        self._do_test_auto_create_success_with_obj_req(
+            'PUT', 'a/c/o', {'X-Backend-Auto-Create': 'yes'}, 201)
+
+    def test_auto_create_success_with_obj_delete(self):
+        # regular accounts can opt-in
+        self._do_test_auto_create_success_with_obj_req(
+            'DELETE', 'a/c/o', {'X-Backend-Auto-Create': 'true'}, 204)
+
+    def test_auto_create_success_with_obj_put_dot_account(self):
+        # dot account containers auto created by default
+        self._do_test_auto_create_success_with_obj_req(
+            'PUT', '.a/c/o', {}, 201)
+
+    def test_auto_create_success_with_obj_delete_dot_account(self):
+        # dot account containers auto created by default
+        self._do_test_auto_create_success_with_obj_req(
+            'DELETE', '.a/c/o', {}, 204)
+
+    def test_auto_create_success_with_obj_put_shards_account(self):
+        # shard containers *require* opt-in
+        self._do_test_auto_create_success_with_obj_req(
+            'PUT', '.shards_a/c/o', {'X-Backend-Auto-Create': 'yes'}, 201)
+
+    def test_auto_create_success_with_obj_delete_shards_account(self):
+        # shard containers *require* opt-in
+        self._do_test_auto_create_success_with_obj_req(
+            'DELETE', '.shards_a/c/o', {'X-Backend-Auto-Create': 'true'}, 204)
+
+    def _do_test_auto_create_not_found_with_obj_req(
+            self, method, path, extra_headers=None):
+        ts = self.ts()
+        headers = {'x-timestamp': ts.internal,
+                   'x-size': '0',
+                   'x-content-type': 'text/plain',
+                   'x-etag': 'd41d8cd98f00b204e9800998ecf8427e'}
+        if extra_headers:
+            headers.update(extra_headers)
+        backend_path = '/sda1/p/' + path
+        req = Request.blank(backend_path, method=method, headers=headers)
+        resp = req.get_response(self.controller)
+        self.assertEqual(404, resp.status_int)
+
+    def test_auto_create_not_found_with_obj_put(self):
+        # regular accounts don't auto create by default
+        self._do_test_auto_create_not_found_with_obj_req('PUT', 'a/c/o')
+        self._do_test_auto_create_not_found_with_obj_req('PUT', 'a/.c/o')
+        self._do_test_auto_create_not_found_with_obj_req('PUT', 'a/c/.o')
+
+    def test_auto_create_not_found_with_obj_delete(self):
+        # regular accounts don't auto create by default
+        self._do_test_auto_create_not_found_with_obj_req('DELETE', 'a/c/o')
+        self._do_test_auto_create_not_found_with_obj_req('DELETE', 'a/.c/o')
+        self._do_test_auto_create_not_found_with_obj_req('DELETE', 'a/c/.o')
+
+    def test_auto_create_not_found_with_obj_put_dot_account(self):
+        # you can turn *off* auto create on dot accounts
+        self._do_test_auto_create_not_found_with_obj_req(
+            'PUT', '.a/c/o', {'X-Backend-Auto-Create': 'no'})
+
+    def test_auto_create_not_found_with_obj_delete_dot_account(self):
+        # you can turn *off* auto create on dot accounts
+        self._do_test_auto_create_not_found_with_obj_req(
+            'DELETE', '.a/c/o', {'X-Backend-Auto-Create': 'no'})
+
+    def test_auto_create_not_found_with_obj_put_shards_account(self):
+        # despite being dot accounts, shard db requires explict opt-in
+        self._do_test_auto_create_not_found_with_obj_req(
+            'PUT', '.shards_a/c/o')
+
+    def test_auto_create_not_found_with_obj_delete_shards_account(self):
+        # despite being dot accounts, shard db requires explict opt-in
+        self._do_test_auto_create_not_found_with_obj_req(
+            'DELETE', '.shards_a/c/o')
 
     def test_content_type_on_HEAD(self):
         Request.blank('/sda1/p/a/o',

@@ -25,6 +25,7 @@ from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs, \
 from swift.common import ring, utils
 from swift.common.swob import Request
 from swift.common.storage_policy import StoragePolicy, POLICIES
+from swift.common.utils.timestamp import NormalTimestamp
 from swift.cli.info import (print_db_info_metadata, print_ring_locations,
                             print_info, print_obj_metadata, print_obj,
                             InfoSystemExit, print_item_locations,
@@ -241,7 +242,7 @@ No system metadata found in db file
                          sorted(exp_out.split('\n')))
 
     def test_print_db_info_metadata_with_shard_ranges(self):
-        timestamps = [utils.Timestamp(i) for i in range(4)]
+        timestamps = [NormalTimestamp(i) for i in range(4)]
         shard_ranges = [utils.ShardRange(
             name='.sharded_a/shard_range_%s' % i,
             timestamp=timestamps[i], lower='%da' % i,
@@ -329,9 +330,9 @@ Shard Ranges (3):
 
         shard_ranges = [utils.ShardRange(
             name='.sharded_a/shard_range_%s' % i,
-            timestamp=utils.Timestamp(i), lower='%02da' % i,
+            timestamp=NormalTimestamp(i), lower='%02da' % i,
             upper='%02dz' % i, object_count=i, bytes_used=i,
-            meta_timestamp=utils.Timestamp(i)) for i in range(1, 20)]
+            meta_timestamp=NormalTimestamp(i)) for i in range(1, 20)]
         shard_ranges[0].state = utils.ShardRange.CLEAVED
         shard_ranges[1].state = utils.ShardRange.CREATED
 
@@ -395,7 +396,7 @@ Shard Ranges (19):
                          exp_out.strip().split('\n'))
 
     def test_print_db_info_metadata_with_shard_ranges_bis(self):
-        timestamps = [utils.Timestamp(i) for i in range(4)]
+        timestamps = [NormalTimestamp(i) for i in range(4)]
         shard_ranges = [utils.ShardRange(
             name='.sharded_a/shard_range_%s' % i,
             timestamp=timestamps[i], lower=u'%d\u30a2' % i,

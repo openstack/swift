@@ -31,8 +31,9 @@ from swift.common.daemon import run_daemon
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import HTTPOk, HTTPAccepted
 from swift.common.http import is_success
-from swift.common.utils import Timestamp, majority_size, get_db_files, \
-    parse_options, node_to_string
+from swift.common.utils import majority_size, get_db_files, parse_options, \
+    node_to_string
+from swift.common.utils.timestamp import NormalTimestamp
 
 
 def check_merge_own_shard_range(shards, broker, logger, source):
@@ -100,7 +101,7 @@ class ContainerReplicator(db_replicator.Replicator):
         if is_success(response.status):
             remote_info = json.loads(response.data.decode('ascii'))
             if incorrect_policy_index(info, remote_info):
-                status_changed_at = Timestamp.now()
+                status_changed_at = NormalTimestamp.now()
                 broker.set_storage_policy_index(
                     remote_info['storage_policy_index'],
                     timestamp=status_changed_at.internal)
@@ -410,7 +411,7 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
         """
         info = broker.get_replication_info()
         if incorrect_policy_index(info, remote_info):
-            status_changed_at = Timestamp.now().internal
+            status_changed_at = NormalTimestamp.now().internal
             broker.set_storage_policy_index(
                 remote_info['storage_policy_index'],
                 timestamp=status_changed_at)

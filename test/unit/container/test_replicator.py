@@ -29,8 +29,10 @@ from swift.common.swob import HTTPServerError
 from swift.container import replicator, backend, server, sync_store
 from swift.container.reconciler import (
     MISPLACED_OBJECTS_ACCOUNT, get_reconciler_container_name)
-from swift.common.utils import Timestamp, encode_timestamps, ShardRange, \
-    get_db_files, make_db_file_path, MD5_OF_EMPTY_STRING, quote, node_to_string
+from swift.common.utils import ShardRange, get_db_files, make_db_file_path, \
+    MD5_OF_EMPTY_STRING, quote, node_to_string
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp, \
+    encode_timestamps
 from swift.common.storage_policy import POLICIES
 
 from test.debug_logger import debug_logger
@@ -663,6 +665,17 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             self.assertEqual(local_info['storage_policy_index'], expected, err)
             self.assertEqual(remote_info['storage_policy_index'],
                              local_info['storage_policy_index'])
+            for key in ('created_at', 'put_timestamp', 'delete_timestamp',
+                        'status_changed_at'):
+                # for now databases timestamp fields are normal timestamps
+                ts_local = Timestamp(local_info[key])
+                self.assert_valid_normal_timestamp(ts_local)
+                ts_remote = Timestamp(remote_info[key])
+                self.assert_valid_normal_timestamp(ts_remote)
+            for key in ('created_at', 'put_timestamp', 'delete_timestamp'):
+                ts_local = Timestamp(local_info[key])
+                ts_remote = Timestamp(remote_info[key])
+                self.assertEqual(ts_local, ts_remote)
             test_db_replicator.TestReplicatorSync.tearDown(self)
             test_db_replicator.TestReplicatorSync.setUp(self)
 
@@ -1482,9 +1495,9 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         daemon.logger.clear()
 
         # db has shard ranges, not deleted
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         broker.merge_shard_ranges(
-            [ShardRange('.shards_a/c', Timestamp.now(), '', 'm')])
+            [ShardRange('.shards_a/c', NormalTimestamp.now(), '', 'm')])
         self.assertTrue(broker.sharding_required())  # sanity check
         res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
@@ -1496,7 +1509,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         daemon.logger.clear()
 
         # db sharding, not deleted
-        self._goto_sharding_state(broker, Timestamp.now())
+        self._goto_sharding_state(broker, NormalTimestamp.now())
         self.assertTrue(broker.sharding_required())  # sanity check
         orig_info = broker.get_replication_info()
         res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
@@ -1523,7 +1536,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # db sharded, should not be here, new shard ranges (e.g. from reverse
         # replication), deleted
         broker.merge_shard_ranges(
-            [ShardRange('.shards_a/c', Timestamp.now(), '', 'm')])
+            [ShardRange('.shards_a/c', NormalTimestamp.now(), '', 'm')])
         res = daemon.cleanup_post_replicate(broker, orig_info, [True] * 3)
         self.assertTrue(res)
         self.assertFalse(os.path.exists(broker.db_file))
@@ -1554,8 +1567,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
             bounds = (('', 'g'), ('g', 'r'), ('r', ''))
             shard_ranges = [
-                ShardRange('.shards_a/sr-%s' % upper, Timestamp.now(), lower,
-                           upper, i + 1, 10 * (i + 1))
+                ShardRange('.shards_a/sr-%s' % upper, NormalTimestamp.now(),
+                           lower, upper, i + 1, 10 * (i + 1))
                 for i, (lower, upper) in enumerate(bounds)
             ]
 
@@ -1634,11 +1647,11 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         default_osr = other_broker.get_own_shard_range()
         self.assertIsNone(default_osr.epoch)
         osr_with_epoch = other_broker.get_own_shard_range()
-        osr_with_epoch.epoch = Timestamp.now()
+        osr_with_epoch.epoch = NormalTimestamp.now()
         osr_with_different_epoch = other_broker.get_own_shard_range()
-        osr_with_different_epoch.epoch = Timestamp.now()
+        osr_with_different_epoch.epoch = NormalTimestamp.now()
         default_osr_newer = ShardRange(**dict(default_osr))
-        default_osr_newer.timestamp = Timestamp.now()
+        default_osr_newer.timestamp = NormalTimestamp.now()
 
         # local_osr, remote_osr, exp_merge, exp_warning, exp_rpc_warning
         tests = (
@@ -1706,7 +1719,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         bounds = (('', 'g'), ('g', 'r'), ('r', ''))
         shard_ranges = [
-            ShardRange('.shards_a/sr-%s' % upper, Timestamp.now(), lower,
+            ShardRange('.shards_a/sr-%s' % upper, NormalTimestamp.now(), lower,
                        upper, i + 1, 10 * (i + 1))
             for i, (lower, upper) in enumerate(bounds)
         ]
@@ -1742,7 +1755,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
                          daemon.logger.statsd_client.get_stats_counts())
 
         # now enable local broker for sharding
-        own_sr = broker.enable_sharding(Timestamp.now())
+        own_sr = broker.enable_sharding(NormalTimestamp.now())
         # update one shard range
         shard_ranges[1].update_meta(13, 123)
         broker.merge_shard_ranges(shard_ranges[1])
@@ -1770,7 +1783,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         # delete one shard range
         shard_ranges[0].deleted = 1
-        shard_ranges[0].timestamp = Timestamp.now()
+        shard_ranges[0].timestamp = NormalTimestamp.now()
         broker.merge_shard_ranges(shard_ranges[0])
         # sanity check
         broker_ranges = broker.get_all_shard_range_data()
@@ -1779,7 +1792,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         check_stats(daemon)
 
         # put a shard range again
-        shard_ranges[2].timestamp = Timestamp.now()
+        shard_ranges[2].timestamp = NormalTimestamp.now()
         shard_ranges[2].object_count = 0
         broker.merge_shard_ranges(shard_ranges[2])
         # sanity check
@@ -1789,12 +1802,12 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         check_stats(daemon)
 
         # update same shard range on local and remote, remote later
-        shard_ranges[-1].meta_timestamp = Timestamp.now()
+        shard_ranges[-1].meta_timestamp = NormalTimestamp.now()
         shard_ranges[-1].bytes_used += 1000
         broker.merge_shard_ranges(shard_ranges[-1])
         remote_shard_ranges = remote_broker.get_shard_ranges(
             include_deleted=True)
-        remote_shard_ranges[-1].meta_timestamp = Timestamp.now()
+        remote_shard_ranges[-1].meta_timestamp = NormalTimestamp.now()
         remote_shard_ranges[-1].bytes_used += 2000
         remote_broker.merge_shard_ranges(remote_shard_ranges[-1])
         # sanity check
@@ -1809,7 +1822,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         deleted_ranges = [sr for sr in remote_shard_ranges if sr.deleted]
         self.assertEqual([shard_ranges[0]], deleted_ranges)
         deleted_ranges[0].deleted = 0
-        deleted_ranges[0].timestamp = Timestamp.now()
+        deleted_ranges[0].timestamp = NormalTimestamp.now()
         remote_broker.merge_shard_ranges(deleted_ranges[0])
         # sanity check
         remote_broker_ranges = remote_broker.get_all_shard_range_data()
@@ -1835,7 +1848,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         broker.put_object('obj', Timestamp.now().internal, 0, 'text/plain',
                           MD5_OF_EMPTY_STRING)
         # get an own shard range into local broker
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         self.assertFalse(broker.sharding_initiated())
 
         replicate_hook = mock.MagicMock()
@@ -1872,7 +1885,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker = self._get_broker('a', 'c', node_index=1)
         remote_broker.initialize(put_time, POLICIES.default.idx)
         # get an own shard range into remote broker
-        remote_broker.enable_sharding(Timestamp.now())
+        remote_broker.enable_sharding(NormalTimestamp.now())
 
         replicate_calls = []
 
@@ -1946,7 +1959,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_broker = self._get_broker('a', 'c', node_index=1)
         remote_broker.initialize(put_time, POLICIES.default.idx)
         # ensure the remote has at least one shard range
-        remote_broker.enable_sharding(Timestamp.now())
+        remote_broker.enable_sharding(NormalTimestamp.now())
         # put an object into local broker
         broker.put_object('obj', Timestamp.now().internal, 0, 'text/plain',
                           MD5_OF_EMPTY_STRING)
@@ -1976,12 +1989,12 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         bounds = (('', 'g'), ('g', 'r'), ('r', ''))
         shard_ranges = [
-            ShardRange('.shards_a/sr-%s' % upper, Timestamp.now(), lower,
+            ShardRange('.shards_a/sr-%s' % upper, NormalTimestamp.now(), lower,
                        upper, i + 1, 10 * (i + 1))
             for i, (lower, upper) in enumerate(bounds)
         ]
         # add first shard range
-        own_sr = broker.enable_sharding(Timestamp.now())
+        own_sr = broker.enable_sharding(NormalTimestamp.now())
         broker.merge_shard_ranges(shard_ranges[:1])
 
         # "replicate"
@@ -2019,7 +2032,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         # delete and add some more shard ranges
         shard_ranges[0].deleted = 1
-        shard_ranges[0].timestamp = Timestamp.now()
+        shard_ranges[0].timestamp = NormalTimestamp.now()
         for shard_range in shard_ranges:
             broker.merge_shard_ranges(shard_range)
         daemon = self._run_once(node)
@@ -2112,7 +2125,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         bounds = (('', 'a'), ('a', 'b'), ('b', 'c'), ('c', ''))
         shard_ranges = [
             ShardRange(
-                '.sharded_a/sr-%s' % upper, Timestamp.now(), lower, upper)
+                '.sharded_a/sr-%s' % upper, NormalTimestamp.now(),
+                lower, upper)
             for i, (lower, upper) in enumerate(bounds)
         ]
         return {'broker': broker,
@@ -2223,7 +2237,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         remote_context = self._setup_replication_test(1)
         self._merge_object(index=4, **remote_context)
         remote_broker = remote_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(remote_broker, epoch=epoch)
         remote_context['shard_ranges'][0].object_count = 101
         remote_context['shard_ranges'][0].bytes_used = 1010
@@ -2261,7 +2275,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_broker = local_context['broker']
         self._merge_object(index=0, **local_context)
         self._merge_object(index=1, **local_context)
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch)
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(2, 8), **local_context)
@@ -2344,7 +2358,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context = self._setup_replication_test(0)
         self._merge_object(index=slice(0, 3), **local_context)
         local_broker = local_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch)
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(3, 11), **local_context)
@@ -2431,7 +2445,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context = self._setup_replication_test(0)
         self._merge_object(index=slice(0, 3), **local_context)
         local_broker = local_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch)
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(3, 11), **local_context)
@@ -2476,7 +2490,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         local_context = self._setup_replication_test(0)
         self._merge_object(index=slice(0, 5), **local_context)
         local_broker = local_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch)
         self._merge_shard_range(index=0, **local_context)
         self._merge_object(index=slice(5, 10), **local_context)
@@ -2535,7 +2549,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     def test_replication_local_sharded_remote_missing(self):
         local_context = self._setup_replication_test(0)
         local_broker = local_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch)
         local_context['shard_ranges'][0].object_count = 99
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
@@ -2598,7 +2612,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     def _check_replication_local_sharded_remote_unsharded(self, repl_conf):
         local_context = self._setup_replication_test(0)
         local_broker = local_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch)
         local_context['shard_ranges'][0].object_count = 99
         local_context['shard_ranges'][0].state = ShardRange.ACTIVE
@@ -2650,7 +2664,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     def _check_replication_local_sharded_remote_sharding(self, repl_conf):
         local_context = self._setup_replication_test(0)
         local_broker = local_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch=epoch)
         local_context['shard_ranges'][0].object_count = 99
         local_context['shard_ranges'][0].bytes_used = 999
@@ -2715,7 +2729,7 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
     def _check_replication_local_sharded_remote_sharded(self, repl_conf):
         local_context = self._setup_replication_test(0)
         local_broker = local_context['broker']
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         self._goto_sharding_state(local_broker, epoch)
         local_context['shard_ranges'][0].object_count = 99
         local_context['shard_ranges'][0].bytes_used = 999
@@ -2783,8 +2797,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         def mock_rsync_then_merge(*args):
             remote_broker.merge_shard_ranges(
-                ShardRange('.shards_a/cc', Timestamp.now()))
-            self._goto_sharding_state(remote_broker, Timestamp.now())
+                ShardRange('.shards_a/cc', NormalTimestamp.now()))
+            self._goto_sharding_state(remote_broker, NormalTimestamp.now())
             return orig_func(*args)
 
         with mock.patch(
@@ -2823,8 +2837,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         def mock_rsync_then_merge(*args):
             remote_broker.merge_shard_ranges(
-                ShardRange('.shards_a/cc', Timestamp.now()))
-            self._goto_sharding_state(remote_broker, Timestamp.now())
+                ShardRange('.shards_a/cc', NormalTimestamp.now()))
+            self._goto_sharding_state(remote_broker, NormalTimestamp.now())
             self._goto_sharded_state(remote_broker)
             return orig_func(*args)
 
@@ -2867,8 +2881,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             # remote starts sharding while rpc call is merging
             if not calls:
                 remote_broker.merge_shard_ranges(
-                    ShardRange('.shards_a/cc', Timestamp.now()))
-                self._goto_sharding_state(remote_broker, Timestamp.now())
+                    ShardRange('.shards_a/cc', NormalTimestamp.now()))
+                self._goto_sharding_state(remote_broker, NormalTimestamp.now())
             calls.append(args)
             return orig_get_items_since(broker, *args)
 
@@ -2909,8 +2923,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
             result = orig_get_items_since(broker, *args)
             if calls:
                 remote_broker.merge_shard_ranges(
-                    ShardRange('.shards_a/cc', Timestamp.now()))
-                self._goto_sharding_state(remote_broker, Timestamp.now())
+                    ShardRange('.shards_a/cc', NormalTimestamp.now()))
+                self._goto_sharding_state(remote_broker, NormalTimestamp.now())
                 self._goto_sharded_state(remote_broker)
             calls.append(args)
             return result

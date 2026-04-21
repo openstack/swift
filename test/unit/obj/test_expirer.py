@@ -19,7 +19,8 @@ import itertools
 from time import time
 from unittest import main, TestCase
 from test.debug_logger import debug_logger
-from test.unit import FakeRing, mocked_http_conn, BaseUnitTestCase
+from test.unit import FakeRing, mocked_http_conn, BaseUnitTestCase, \
+    mock_normal_timestamp_now, mock_normal_timestamp_now_with_iter
 from tempfile import mkdtemp
 from shutil import rmtree
 from collections import defaultdict
@@ -29,7 +30,7 @@ from unittest import mock
 import urllib.parse
 
 from swift.common import internal_client, utils, swob
-from swift.common.utils import Timestamp
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.common.swob import Response
 from swift.obj import expirer, diskfile
 from swift.obj.expirer import ExpirerConfig
@@ -1322,6 +1323,27 @@ class TestObjectExpirer(BaseUnitTestCase):
             'processing 2 unexpected task containers (e.g. 86300 86401)'
         ])
 
+    def test_get_task_containers_uses_normal_timestamp(self):
+        # Verify that get_task_containers_to_expire uses NormalTimestamp.now()
+        # for the wall-clock comparison by shifting the mock time into the
+        # past and validating the result based on behavior
+        now = int(time())
+        mock_past = now - 100
+        past_container = str(now - 200)
+        between_container = str(now - 50)
+        container_list = [
+            {'name': past_container},
+            {'name': between_container},
+        ]
+        with mock.patch.object(self.expirer.swift, 'iter_containers',
+                               return_value=container_list), \
+                mock_normal_timestamp_now(NormalTimestamp(mock_past)):
+            result = self.expirer.get_task_containers_to_expire(
+                'task_account')
+        # past_container (now-200) is before mock_past (now-100): included
+        # between_container (now-50) is after mock_past: excluded
+        self.assertEqual(result, [past_container])
+
     def _expirer_run_once_with_mocks(self, now=None, stub_pop_queue=None):
         """
         call self.expirer.run_once() with some things (optionally) stubbed out
@@ -1378,6 +1400,69 @@ class TestObjectExpirer(BaseUnitTestCase):
         self._expirer_run_once_with_mocks(now=now)
         # we processed all tasks in all valid containers
         self.assertEqual(task_per_container * 2, self.expirer.report_objects)
+
+    def test_iter_task_container_uses_normal_timestamp(self):
+        # Verify that _iter_task_container uses NormalTimestamp.now() for the
+        # wall-clock comparison by shifting the mock time into the past
+        now = self.now
+        mock_past = now - 100
+        past_time = str(now - 200)
+        between_time = str(now - 50)
+        past_time_container = self.get_expirer_container(past_time)
+        aco_dict = {
+            '.expiring_objects': {
+                past_time_container: [
+                    {'name': past_time + '-a0/c0/o0'},
+                    {'name': between_time + '-a1/c1/o1'},
+                ],
+            }
+        }
+        fake_swift = FakeInternalClient(aco_dict)
+        x = expirer.ObjectExpirer(self.conf, logger=debug_logger(),
+                                  swift=fake_swift)
+        with mock_normal_timestamp_now(NormalTimestamp(mock_past)):
+            tasks = list(x._iter_task_container(
+                '.expiring_objects', past_time_container, 0, 1))
+        # past_time (now-200) is before mock_past (now-100): yielded
+        # between_time (now-50) is after mock_past: not yielded (break)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]['target_path'], 'a0/c0/o0')
+
+    def test_iter_task_delay_reaping_uses_normal_timestamp(self):
+        # Verify the delay_reaping boundary in _iter_task_container uses
+        # NormalTimestamp by shifting time() into the past and validating
+        # task behavior
+        now = self.now
+        mock_past = now - 100
+        delay = 300.0
+        # mock boundary = mock_past - delay = now - 400
+        # real boundary = now - delay = now - 300
+        # Task at now - 350: between the two boundaries
+        delete_ts_val = str(now - 350)
+        task_container = self.get_expirer_container(delete_ts_val)
+        aco_dict = {
+            '.expiring_objects': {
+                task_container: [
+                    {'name': delete_ts_val + '-a1/c1/o1'},
+                ],
+            }
+        }
+        fake_swift = FakeInternalClient(aco_dict)
+        self.conf['delay_reaping_a1'] = delay
+        x = expirer.ObjectExpirer(self.conf, logger=debug_logger(),
+                                  swift=fake_swift)
+        with mock_normal_timestamp_now_with_iter(
+                [NormalTimestamp(now), NormalTimestamp(mock_past - delay)]):
+            tasks = list(x._iter_task_container(
+                '.expiring_objects', task_container, 0, 1))
+        # delete_ts (now-350) > NormalTimestamp(mock_past - delay = now-400)
+        # is True, so the task should be delayed.
+        # If real time were used: delete_ts (now-350) >
+        # NormalTimestamp(now-300) would be False
+        self.assertEqual(len(tasks), 0)
+        self.assertEqual(
+            {'tasks.delayed': 1},
+            x.logger.statsd_client.get_stats_counts())
 
     def test_iter_task_to_expire(self):
         # In this test, all tasks are assigned to the tested expirer

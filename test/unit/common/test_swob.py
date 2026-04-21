@@ -830,11 +830,17 @@ class TestRequest(unittest.TestCase):
     def test_datetime_properties(self):
         req = swob.Request.blank('/hi/there', body='hi')
 
-        req.if_unmodified_since = 0
-        self.assertIsInstance(req.if_unmodified_since, datetime.datetime)
-        if_unmodified_since = req.if_unmodified_since
-        req.if_unmodified_since = if_unmodified_since
-        self.assertEqual(if_unmodified_since, req.if_unmodified_since)
+        def do_test_roundtrip(value):
+            req.if_unmodified_since = value
+            self.assertIsInstance(req.if_unmodified_since, datetime.datetime)
+            if_unmodified_since = req.if_unmodified_since
+            req.if_unmodified_since = if_unmodified_since
+            self.assertEqual(if_unmodified_since, req.if_unmodified_since)
+
+        do_test_roundtrip(0)
+        do_test_roundtrip(1234.5678)
+        do_test_roundtrip(utils.Timestamp(1234.5678))
+        do_test_roundtrip(utils.NormalTimestamp(1234.5678))
 
         req.if_unmodified_since = 'something'
         self.assertEqual(req.headers['If-Unmodified-Since'], 'something')
@@ -858,6 +864,9 @@ class TestRequest(unittest.TestCase):
         self.assertEqual('Tue, 10 Jun 2014 21:40:08 GMT',
                          swob.date_header_format(1402436408.91203))
         ts = utils.Timestamp('1764019169.37945')
+        self.assertEqual('Mon, 24 Nov 2025 21:19:30 GMT',
+                         swob.date_header_format(ts))
+        ts = utils.NormalTimestamp('1764019169.37945')
         self.assertEqual('Mon, 24 Nov 2025 21:19:30 GMT',
                          swob.date_header_format(ts))
 

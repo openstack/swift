@@ -24,9 +24,10 @@ from urllib.parse import parse_qs, quote, quote_plus
 
 from swift.common import swob
 from swift.common.swob import Request, parse_date_header
-from swift.common.utils import json, md5, Timestamp
+from swift.common.utils import json, md5
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 
-from test.unit import FakeMemcache, patch_policies
+from test.unit import FakeMemcache, patch_policies, mock_normal_timestamp_now
 from test.unit.common.middleware.s3api import S3ApiTestCase, S3ApiTestCaseAcl
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 from swift.common.middleware.s3api.etree import fromstring, tostring
@@ -2075,8 +2076,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
                             body=XML)
 
         # marker created in the future
-        with patch('swift.common.middleware.s3api.controllers.multi_upload.'
-                   'Timestamp.now', return_value=now_timestamp):
+        with mock_normal_timestamp_now(now_timestamp):
             status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '503')
         self.assertEqual('ServiceUnavailable', self._get_error_code(body))
@@ -2093,8 +2093,11 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
                 '503.ServiceUnavailable.mpu_clock_skew': 1,
             }, self.s3api.logger.logger.statsd_client.get_stats_counts())
 
-    def test_object_multipart_upload_complete_marker_ts_now(self):
-        marker_timestamp = now_timestamp = Timestamp.now()
+    def test_object_multipart_upload_complete_marker_ts_exactly_now(self):
+        # use a NormalTimestamp for marker so that it exactly equals the
+        # request thread time
+        marker_timestamp = Timestamp.now()
+        now_timestamp = marker_timestamp.normalized()
         self._do_test_object_multipart_upload_complete_marker_in_future(
             marker_timestamp, now_timestamp)
         self.assertEqual(
@@ -2102,13 +2105,44 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             self.logger.get_lines_for_level('error')[-1])
 
     def test_object_multipart_upload_complete_marker_ts_in_future(self):
+        # marker timestamp is newer than the request thread
         marker_timestamp = Timestamp.now()
-        now_timestamp = Timestamp(float(marker_timestamp) - 1)
+        now_timestamp = NormalTimestamp(float(marker_timestamp) - 1)
         self._do_test_object_multipart_upload_complete_marker_in_future(
             marker_timestamp, now_timestamp)
         self.assertEqual(
             'Unable to Complete Multipart Upload, marker is 1.00000s newer',
             self.logger.get_lines_for_level('error')[-1])
+
+    def test_object_multipart_upload_complete_marker_uses_normal_timestamp(
+            self):
+        # Verify that the future-marker check uses NormalTimestamp.now()
+        # (not Timestamp.now()). We mock NormalTimestamp.now() to a time in
+        # the past so that the marker appears to be in the future relative to
+        # the mock, triggering a 503. If the production code were using
+        # unmocked Timestamp.now(), the marker would be in the past and no
+        # error would occur.
+        marker_timestamp = Timestamp.now()
+        past_time = NormalTimestamp(float(marker_timestamp) - 10)
+        segment_bucket = '/v1/AUTH_test/bucket+segments'
+        self.swift.register('HEAD', segment_bucket + '/object/X',
+                            swob.HTTPOk,
+                            {'x-object-meta-foo': 'bar',
+                             'content-type': 'application/directory',
+                             'x-object-sysmeta-s3api-has-content-type': 'yes',
+                             'x-object-sysmeta-s3api-content-type':
+                                 'baz/quux',
+                             'X-Backend-Timestamp': marker_timestamp.internal},
+                            None)
+        req = Request.blank('/bucket/object?uploadId=X',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(skew=100), },
+                            body=XML)
+        with mock_normal_timestamp_now(past_time):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '503')
+        self.assertEqual('ServiceUnavailable', self._get_error_code(body))
 
     def test_object_multipart_upload_complete_409_on_marker_delete(self):
         # verify that clock skew preventing an upload marker DELETE results in
