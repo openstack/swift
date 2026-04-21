@@ -746,31 +746,21 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
             'X-Storage-Policy': self.policy.name,
             'X-Versions-Enabled': 'true',
         })
+        self.user_container_to_shard = container_name
+        self.user_brain = BrainSplitter(
+            self.url, self.token, self.user_container_to_shard,
+            None, 'container')
         self.container_to_shard = '\x00versions\x00' + container_name
         self.brain = BrainSplitter(
             self.url, self.token, self.container_to_shard,
             None, 'container')
 
-    def test_sharding_listing(self):
-        # verify parameterised listing of a container during sharding
-        all_obj_names = self._make_object_names(3) * self.max_shard_size
-        all_obj_names.extend(self._make_object_names(self.max_shard_size,
-                                                     start=3))
-        obj_names = all_obj_names[::2]
-        obj_names_and_versions = self.put_objects(obj_names)
+    @staticmethod
+    def sort_key(obj_and_ver):
+        obj, ver = obj_and_ver
+        return obj, ~Timestamp(ver)
 
-        def sort_key(obj_and_ver):
-            obj, ver = obj_and_ver
-            return obj, ~Timestamp(ver)
-
-        obj_names_and_versions.sort(key=sort_key)
-        # choose some names approx in middle of each expected shard range
-        markers = [
-            obj_names_and_versions[i]
-            for i in range(self.max_shard_size // 4,
-                           2 * self.max_shard_size,
-                           self.max_shard_size // 2)]
-
+    def do_listing_checks(self, markers, objects):
         def check_listing(objects, **params):
             params['versions'] = ''
             qs = '&'.join('%s=%s' % param for param in params.items())
@@ -789,7 +779,7 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
                     Timestamp('0'),
                 )
                 expected = [o for o in objects
-                            if end_marker < sort_key(o) < marker]
+                            if end_marker < self.sort_key(o) < marker]
                 expected.reverse()
             else:
                 marker = (
@@ -802,7 +792,7 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
                     ~Timestamp('0'),
                 )
                 expected = [o for o in objects
-                            if marker < sort_key(o) < end_marker]
+                            if marker < self.sort_key(o) < end_marker]
             if 'limit' in params:
                 expected = expected[:params['limit']]
             self.assertEqual(expected, listing)
@@ -816,54 +806,70 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
             self.assertEqual(exp_status, cm.exception.http_status)
             return cm.exception
 
-        def do_listing_checks(objects):
-            check_listing(objects)
-            check_listing(objects,
-                          marker=markers[0][0], version_marker=markers[0][1])
-            check_listing(objects,
-                          marker=markers[0][0], version_marker=markers[0][1],
-                          limit=self.max_shard_size // 10)
-            check_listing(objects,
-                          marker=markers[0][0], version_marker=markers[0][1],
-                          limit=self.max_shard_size // 4)
-            check_listing(objects,
-                          marker=markers[0][0], version_marker=markers[0][1],
-                          limit=self.max_shard_size // 2)
-            check_listing(objects,
-                          marker=markers[1][0], version_marker=markers[1][1])
-            check_listing(objects,
-                          marker=markers[1][0], version_marker=markers[1][1],
-                          limit=self.max_shard_size // 10)
-            check_listing(objects,
-                          marker=markers[2][0], version_marker=markers[2][1],
-                          limit=self.max_shard_size // 4)
-            check_listing(objects,
-                          marker=markers[2][0], version_marker=markers[2][1],
-                          limit=self.max_shard_size // 2)
-            check_listing(objects, reverse=True)
-            check_listing(objects, reverse=True,
-                          marker=markers[1][0], version_marker=markers[1][1])
+        check_listing(objects)
+        check_listing(objects,
+                      marker=markers[0][0], version_marker=markers[0][1])
+        check_listing(objects,
+                      marker=markers[0][0], version_marker=markers[0][1],
+                      limit=self.max_shard_size // 10)
+        check_listing(objects,
+                      marker=markers[0][0], version_marker=markers[0][1],
+                      limit=self.max_shard_size // 4)
+        check_listing(objects,
+                      marker=markers[0][0], version_marker=markers[0][1],
+                      limit=self.max_shard_size // 2)
+        check_listing(objects,
+                      marker=markers[1][0], version_marker=markers[1][1])
+        check_listing(objects,
+                      marker=markers[1][0], version_marker=markers[1][1],
+                      limit=self.max_shard_size // 10)
+        check_listing(objects,
+                      marker=markers[2][0], version_marker=markers[2][1],
+                      limit=self.max_shard_size // 4)
+        check_listing(objects,
+                      marker=markers[2][0], version_marker=markers[2][1],
+                      limit=self.max_shard_size // 2)
+        check_listing(objects, reverse=True)
+        check_listing(objects, reverse=True,
+                      marker=markers[1][0], version_marker=markers[1][1])
 
-            check_listing(objects, prefix='obj')
-            check_listing([], prefix='zzz')
-            # delimiter
-            headers, listing = client.get_container(
-                self.url, self.token, self.container_name,
-                query_string='delimiter=-')
-            self.assertEqual([{'subdir': 'obj-'}], listing)
-            headers, listing = client.get_container(
-                self.url, self.token, self.container_name,
-                query_string='delimiter=j-')
-            self.assertEqual([{'subdir': 'obj-'}], listing)
+        check_listing(objects, prefix='obj')
+        check_listing([], prefix='zzz')
+        # delimiter
+        headers, listing = client.get_container(
+            self.url, self.token, self.container_name,
+            query_string='delimiter=-')
+        self.assertEqual([{'subdir': 'obj-'}], listing)
+        headers, listing = client.get_container(
+            self.url, self.token, self.container_name,
+            query_string='delimiter=j-')
+        self.assertEqual([{'subdir': 'obj-'}], listing)
 
-            limit = self.cluster_info['swift']['container_listing_limit']
-            exc = check_listing_fails(412, limit=limit + 1)
-            self.assertIn(b'Maximum limit', exc.http_response_content)
-            exc = check_listing_fails(400, delimiter='%ff')
-            self.assertIn(b'not valid UTF-8', exc.http_response_content)
+        limit = self.cluster_info['swift']['container_listing_limit']
+        exc = check_listing_fails(412, limit=limit + 1)
+        self.assertIn(b'Maximum limit', exc.http_response_content)
+        exc = check_listing_fails(400, delimiter='%ff')
+        self.assertIn(b'not valid UTF-8', exc.http_response_content)
+
+    def test_sharding_listing_versions_container_sharded(self):
+        # verify parameterised listing of a container during sharding; only the
+        # versions container is sharded
+        all_obj_names = self._make_object_names(3) * self.max_shard_size
+        all_obj_names.extend(self._make_object_names(self.max_shard_size,
+                                                     start=3))
+        obj_names = all_obj_names[::2]
+        obj_names_and_versions = self.put_objects(obj_names)
+
+        obj_names_and_versions.sort(key=self.sort_key)
+        # choose some names approx in middle of each expected shard range
+        markers = [
+            obj_names_and_versions[i]
+            for i in range(self.max_shard_size // 4,
+                           2 * self.max_shard_size,
+                           self.max_shard_size // 2)]
 
         # sanity checks
-        do_listing_checks(obj_names_and_versions)
+        self.do_listing_checks(markers, obj_names_and_versions)
 
         # Shard the container. Use an internal_client so we get an implicit
         # X-Backend-Allow-Reserved-Names header
@@ -891,7 +897,7 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()  # confirm no sysmeta deleted
         self.assert_container_post_ok('sharding')
-        do_listing_checks(obj_names_and_versions)
+        self.do_listing_checks(markers, obj_names_and_versions)
 
         # put some new objects spread through entire namespace
         new_obj_names = all_obj_names[1::4]
@@ -906,8 +912,8 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
         exp_obj_names_and_versions += [
             o for o in obj_names_and_versions
             if '\x00' + o[0] > shard_ranges[1].upper]
-        exp_obj_names_and_versions.sort(key=sort_key)
-        do_listing_checks(exp_obj_names_and_versions)
+        exp_obj_names_and_versions.sort(key=self.sort_key)
+        self.do_listing_checks(markers, exp_obj_names_and_versions)
 
         # run all the sharders again and the last two shard ranges get cleaved
         self.sharders.once(additional_args='--partitions=%s' % self.brain.part)
@@ -917,19 +923,91 @@ class TestContainerShardingObjectVersioning(BaseAutoContainerSharding):
 
         exp_obj_names_and_versions = \
             obj_names_and_versions + new_obj_names_and_versions
-        exp_obj_names_and_versions.sort(key=sort_key)
-        do_listing_checks(exp_obj_names_and_versions)
+        exp_obj_names_and_versions.sort(key=self.sort_key)
+        self.do_listing_checks(markers, exp_obj_names_and_versions)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
 
         # delete original objects
         self.delete_objects(obj_names_and_versions)
-        new_obj_names_and_versions.sort(key=sort_key)
-        do_listing_checks(new_obj_names_and_versions)
+        new_obj_names_and_versions.sort(key=self.sort_key)
+        self.do_listing_checks(markers, new_obj_names_and_versions)
         self.assert_container_delete_fails()
         self.assert_container_has_shard_sysmeta()
         self.assert_container_post_ok('sharded')
+
+    def test_sharding_listing_user_and_versions_container_sharded(self):
+        # verify parameterised listing of a container during sharding; both the
+        # user and versions container are sharded
+        # test for https://bugs.launchpad.net/swift/+bug/2143220
+        obj_names = self._make_object_names(self.max_shard_size)
+        obj_names_and_versions = self.put_objects(obj_names)
+        obj_names_and_versions.extend(self.put_objects(obj_names))
+
+        obj_names_and_versions.sort(key=self.sort_key)
+        # choose some names approx in middle of each expected shard range
+        markers = [
+            obj_names_and_versions[i]
+            for i in range(self.max_shard_size // 4,
+                           2 * self.max_shard_size,
+                           self.max_shard_size // 2)]
+
+        # sanity checks
+        self. do_listing_checks(markers, obj_names_and_versions)
+
+        # Shard the versions container. Use an internal_client so we get an
+        # implicit X-Backend-Allow-Reserved-Names header
+        self.internal_client.set_container_metadata(
+            self.account, self.container_to_shard, {
+                'X-Container-Sysmeta-Sharding': 'True',
+            })
+        # First run the 'leader' in charge of scanning, which finds all shard
+        # ranges and cleaves first two
+        self.sharders.once(number=self.brain.node_numbers[0],
+                           additional_args='--partitions=%s' % self.brain.part)
+        # Then run sharder on other nodes which will also cleave first two
+        # shard ranges
+        for n in self.brain.node_numbers[1:]:
+            self.sharders.once(
+                number=n,
+                additional_args='--partitions=%s' % self.brain.part)
+        for n in self.brain.node_numbers:
+            self.sharders.once(
+                number=n,
+                additional_args='--partitions=%s' % self.brain.part)
+
+        # sanity check shard range states
+        self.assert_container_states('sharded', 4)
+        shard_ranges = self.get_container_shard_ranges()
+        self.assertLengthEqual(shard_ranges, 4)
+        self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges)
+
+        # Shard the user container.
+        self.internal_client.set_container_metadata(
+            self.account, self.user_container_to_shard, {
+                'X-Container-Sysmeta-Sharding': 'True',
+            })
+        self.sharders.once(
+            number=self.user_brain.node_numbers[0],
+            additional_args='--partitions=%s' % self.user_brain.part)
+        # Then run sharder on other nodes which will also cleave first two
+        # shard ranges
+        for n in self.user_brain.node_numbers[1:]:
+            self.sharders.once(
+                number=n,
+                additional_args='--partitions=%s' % self.user_brain.part)
+
+        # sanity check shard range states
+        for node in self.user_brain.nodes:
+            self.assert_container_state(
+                node, 'sharded', 2, container=self.user_container_to_shard,
+                part=self.user_brain.part)
+        shard_ranges = self.get_container_shard_ranges(
+            container=self.user_container_to_shard)
+        self.assertLengthEqual(shard_ranges, 2)
+        self.assert_shard_range_state(ShardRange.ACTIVE, shard_ranges[:2])
+        self. do_listing_checks(markers, obj_names_and_versions)
 
 
 class TestContainerSharding(BaseAutoContainerSharding):

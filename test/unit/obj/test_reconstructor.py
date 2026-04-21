@@ -5156,7 +5156,7 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         self.logger.clear()
         return self.df
 
-    def test_reconstruct_fa_no_errors(self):
+    def _do_test_reconstruct_fa_no_errors(self):
         job = {
             'partition': 0,
             'policy': self.policy,
@@ -5213,12 +5213,19 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                              self.policy)
             self.assertIn('X-Backend-Fragment-Preferences', called_header)
             self.assertEqual(
-                [{'timestamp': self.obj_timestamp.normal, 'exclude': []}],
+                [{'timestamp': self.obj_timestamp.internal, 'exclude': []}],
                 json.loads(called_header['X-Backend-Fragment-Preferences']))
             self.assertIn('X-Backend-Replication', called_header)
         # no error and warning
         self.assertFalse(self.logger.get_lines_for_level('error'))
         self.assertFalse(self.logger.get_lines_for_level('warning'))
+
+    def test_reconstruct_fa_no_errors(self):
+        self._do_test_reconstruct_fa_no_errors()
+
+    def test_reconstruct_fa_no_errors_timestamp_with_offset(self):
+        self.obj_timestamp = Timestamp(self.obj_timestamp, offset=1)
+        self._do_test_reconstruct_fa_no_errors()
 
     def test_reconstruct_fa_errors_works(self):
         job = {

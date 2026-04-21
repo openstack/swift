@@ -19,27 +19,12 @@ import os
 
 from unittest.util import safe_repr
 
-import warnings
-warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
-    'Python 2 is no longer supported by the Python core team. '
-    'Support for it is now deprecated in cryptography, '
-    'and will be removed in a future release.'))
-warnings.filterwarnings('ignore', module='cryptography|OpenSSL', message=(
-    'Python 2 is no longer supported by the Python core team. '
-    'Support for it is now deprecated in cryptography, '
-    'and will be removed in the next release.'))
-warnings.filterwarnings('ignore', message=(
-    'Python 3.6 is no longer supported by the Python core team. '
-    'Therefore, support for it is deprecated in cryptography '
-    'and will be removed in a future release.'))
-
 import unittest
 
 from eventlet.green import socket
 
 from swift.common.utils import readconf
-from swift.common.utils.timestamp import Timestamp
-
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 
 # Work around what seems to be a Python bug.
 # c.f. https://bugs.launchpad.net/swift/+bug/820185.
@@ -128,3 +113,16 @@ class BaseTestCase(unittest.TestCase):
             return Timestamp(timestamp)
         except (ValueError, TypeError) as e:
             self.fail('Invalid timestamp (%r): %r' % (timestamp, e))
+
+    def assert_valid_normal_timestamp(self, timestamp):
+        """
+        Helper that asserts the given timestamp is a valid NormalTimestamp
+        representation.
+
+        :param timestamp: a string or instance of BaseTimestamp
+        :returns: a NormalTimestamp
+        """
+        try:
+            return NormalTimestamp(timestamp)
+        except (ValueError, TypeError) as e:
+            self.fail('Invalid NormalTimestamp (%r): %r' % (timestamp, e))

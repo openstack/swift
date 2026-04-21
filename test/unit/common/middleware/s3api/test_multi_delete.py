@@ -18,13 +18,11 @@ import base64
 import hashlib
 import json
 import unittest
-from datetime import datetime
 from unittest import mock
 
 from swift.common import swob
 from swift.common.swob import Request
 
-from test.unit import make_timestamp_iter
 from test.unit.common.middleware.s3api import S3ApiTestCase, S3ApiTestCaseAcl
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
@@ -32,10 +30,10 @@ from swift.common.middleware.s3api.etree import fromstring, tostring, \
 from swift.common.utils import checksum, md5
 
 
-class BaseS3ApiMultiDelete(object):
+class BaseS3ApiMultiDelete:
 
     def setUp(self):
-        super(BaseS3ApiMultiDelete, self).setUp()
+        super().setUp()
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key1',
                             swob.HTTPOk, {}, None)
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/Key2',
@@ -43,7 +41,6 @@ class BaseS3ApiMultiDelete(object):
         self.swift.register('HEAD',
                             '/v1/AUTH_test/bucket/business/caf\xc3\xa9',
                             swob.HTTPOk, {}, None)
-        self.ts = make_timestamp_iter()
 
     def test_object_multi_DELETE_to_object(self):
         elem = Element('Delete')
@@ -408,12 +405,12 @@ class BaseS3ApiMultiDelete(object):
             'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent, {
                 'X-Container-Sysmeta-Versions-Enabled': 'True',
             }, None)
-        t1 = next(self.ts)
+        t1 = self.ts()
         key1 = '/v1/AUTH_test/bucket/Key1' \
             '?symlink=get&version-id=%s' % t1.normal
         self.swift.register('HEAD', key1, swob.HTTPOk, {}, None)
         self.swift.register('DELETE', key1, swob.HTTPNoContent, {}, None)
-        t2 = next(self.ts)
+        t2 = self.ts()
         key2 = '/v1/AUTH_test/bucket/Key2' \
             '?symlink=get&version-id=%s' % t2.normal
         # this 404 could just mean it's a delete marker
@@ -473,12 +470,12 @@ class BaseS3ApiMultiDelete(object):
     def test_object_multi_DELETE_versioned_suspended(self):
         self.swift.register(
             'HEAD', '/v1/AUTH_test/bucket', swob.HTTPNoContent, {}, None)
-        t1 = next(self.ts)
+        t1 = self.ts()
         key1 = '/v1/AUTH_test/bucket/Key1' + \
             '?symlink=get&version-id=%s' % t1.normal
         self.swift.register('HEAD', key1, swob.HTTPOk, {}, None)
         self.swift.register('DELETE', key1, swob.HTTPNoContent, {}, None)
-        t2 = next(self.ts)
+        t2 = self.ts()
         key2 = '/v1/AUTH_test/bucket/Key2' + \
             '?symlink=get&version-id=%s' % t2.normal
         self.swift.register('HEAD', key2, swob.HTTPNotFound, {}, None)
@@ -693,7 +690,6 @@ class TestS3ApiMultiDeleteNoAcl(BaseS3ApiMultiDelete, S3ApiTestCase):
                                 'Date': self.get_date_header(),
                                 'Content-MD5': content_md5},
                             body=body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
 
         status, headers, body = self.call_s3api(req)
@@ -729,7 +725,6 @@ class TestS3ApiMultiDeleteAcl(BaseS3ApiMultiDelete, S3ApiTestCaseAcl):
                                      'Date': self.get_date_header(),
                                      'Content-MD5': content_md5},
                             body=body)
-        req.date = datetime.now()
         req.content_type = 'text/plain'
 
         return self.call_s3api(req)

@@ -1,3 +1,21 @@
+swift (2.37.1, OpenStack Gazpacho)
+
+    * Python 3.14 (with the GIL enabled) is now supported.
+
+    * Object expiration time is now exposed to S3 clients via the
+      `x-amz-expiration` header.
+
+    * Fixed a proxy server error when listing sharded versioned containers.
+
+    * The object reconstructor now correctly requests non-durable fragments
+      that have been moved via the container reconciler.
+
+    * `swift-object-relinker` now prefixes log messages with the invoked
+      action.
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (2.37.0)
 
     * The s3token middleware now passes service auth tokens to Keystone

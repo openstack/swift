@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
-import unittest
 from datetime import datetime
 from datetime import timezone
 import email
@@ -28,7 +27,7 @@ from swift.common.middleware.s3api.s3api import filter_factory
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.subresource import Owner, encode_acl, \
     Grant, User, ACL, PERMISSIONS, AllUsers, AuthenticatedUsers
-from test import BaseTestCase
+from test.unit import BaseUnitTestCase
 
 from test.unit.common.middleware.helpers import FakeSwift
 from test.debug_logger import FakeLabeledStatsdClient
@@ -87,10 +86,10 @@ class FakeAuthApp(object):
         return self.app(env, start_response)
 
 
-class S3ApiTestCase(BaseTestCase):
+class S3ApiTestCase(BaseUnitTestCase):
 
     def __init__(self, name):
-        unittest.TestCase.__init__(self, name)
+        super().__init__(name)
 
     def _wrap_app(self, app):
         return FakeAuthApp(app)

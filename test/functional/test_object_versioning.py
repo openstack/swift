@@ -177,6 +177,14 @@ class TestObjectVersioningBase(Base):
             o['content_type']
             for o in container.files(parms=listing_parms)])
 
+    def put_version(self, obj, vers):
+        body = vers.encode('utf8')
+        resp = obj.write(body, hdrs={
+            'Content-Type': 'text/%s' % vers,
+            'ETag': md5(body, usedforsecurity=False).hexdigest(),
+        }, return_resp=True)
+        return resp.getheader('x-object-version-id')
+
 
 class TestObjectVersioning(TestObjectVersioningBase):
 
@@ -1602,7 +1610,101 @@ class TestContainerOperations(TestObjectVersioningBase):
             'version_id': obj1_v3['id'],
         }])
 
-    def test_list_version_marker(self):
+    def test_list_marker(self):
+        obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
+            self._prep_object_versions()
+
+        # list all versions in container
+        listing_parms = {'format': 'json',
+                         'marker': obj2_v1['name'],
+                         'versions': None}
+        prev_versions = self.env.container.files(parms=listing_parms)
+        for pv in prev_versions:
+            pv.pop('last_modified')
+        self.assertEqual(prev_versions, [{
+            'name': obj1_v4['name'],
+            'bytes': 0,
+            'content_type': 'application/x-deleted;swift_versions_deleted=1',
+            'hash': MD5_OF_EMPTY_STRING,
+            'is_latest': True,
+            'version_id': obj1_v4['id'],
+        }, {
+            'name': obj1_v3['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish13',
+            'hash': md5(b'version3', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v3['id'],
+        }, {
+            'name': obj1_v2['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish12',
+            'hash': md5(b'version2', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v2['id'],
+        }, {
+            'name': obj1_v1['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish11',
+            'hash': md5(b'version1', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v1['id'],
+        }])
+
+    def test_list_marker_and_version_marker_is_null(self):
+        obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
+            self._prep_object_versions()
+
+        # list all versions after obj2 'null' version
+        # note: there isn't an actual obj2 null version so the version_marker
+        # is just an arbitrary point in the namespace
+        listing_parms = {'format': 'json',
+                         'marker': obj2_v1['name'],
+                         'version_marker': 'null',
+                         'versions': None}
+        prev_versions = self.env.container.files(parms=listing_parms)
+        for pv in prev_versions:
+            pv.pop('last_modified')
+        self.assertEqual(prev_versions, [{
+            'name': obj2_v1['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish20',
+            'hash': '966634ebf2fc135707d6753692bf4b1e',
+            # XXX is_latest should be True for obj2_v1
+            # see https://bugs.launchpad.net/swift/+bug/2147042
+            'is_latest': False,
+            'version_id': obj2_v1['id'],
+        }, {
+            'name': obj1_v4['name'],
+            'bytes': 0,
+            'content_type': 'application/x-deleted;swift_versions_deleted=1',
+            'hash': MD5_OF_EMPTY_STRING,
+            'is_latest': True,
+            'version_id': obj1_v4['id'],
+        }, {
+            'name': obj1_v3['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish13',
+            'hash': md5(b'version3', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v3['id'],
+        }, {
+            'name': obj1_v2['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish12',
+            'hash': md5(b'version2', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v2['id'],
+        }, {
+            'name': obj1_v1['name'],
+            'bytes': 8,
+            'content_type': 'text/jibberish11',
+            'hash': md5(b'version1', usedforsecurity=False).hexdigest(),
+            'is_latest': False,
+            'version_id': obj1_v1['id'],
+        }])
+
+    def test_list_marker_and_version_marker(self):
         obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
             self._prep_object_versions()
 
@@ -1631,7 +1733,140 @@ class TestContainerOperations(TestObjectVersioningBase):
             'version_id': obj1_v1['id'],
         }])
 
-    def test_list_version_marker_reverse(self):
+    def test_list_versions_pagination(self):
+        obja = self.env.container.file('a' + Utils.create_name())
+        obja_v1 = self.put_version(obja, 'v1')
+        objb = self.env.container.file('b' + Utils.create_name())
+        objb_v1 = self.put_version(objb, 'v1')
+        objb_v2 = self.put_version(objb, 'v2')
+        objb_v3 = self.put_version(objb, 'v3')
+        objc = self.env.container.file('c' + Utils.create_name())
+        objc_v1 = self.put_version(objc, 'v1')
+
+        # sanity check: list all versions
+        # note: versions listed newest to oldest for each obj
+        exp_obj_versions = [(obja.name, obja_v1, True),
+                            (objb.name, objb_v3, True),
+                            (objb.name, objb_v2, False),
+                            (objb.name, objb_v1, False),
+                            (objc.name, objc_v1, True)]
+        listing_parms = {'format': 'json',
+                         'versions': None}
+        actual_list = self.env.container.files(parms=listing_parms)
+        self.assertEqual(exp_obj_versions,
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in actual_list])
+
+        # Now list page-by-page...
+        listing_parms = {'format': 'json',
+                         'limit': 3,
+                         'versions': None}
+        actual_sub_list = self.env.container.files(parms=listing_parms)
+        self.assertEqual(exp_obj_versions[:3],
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in actual_sub_list])
+        concatenated_sub_lists = actual_sub_list
+
+        listing_parms = {'format': 'json',
+                         'limit': 3,
+                         'marker': actual_sub_list[-1]['name'],
+                         'version_marker': actual_sub_list[-1]['version_id'],
+                         'versions': None}
+        actual_sub_list = self.env.container.files(parms=listing_parms)
+        self.assertEqual(exp_obj_versions[3:],
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in actual_sub_list])
+        concatenated_sub_lists.extend(actual_sub_list)
+
+        self.assertEqual(exp_obj_versions,
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in concatenated_sub_lists])
+
+    def test_list_versions_pagination_with_null_version(self):
+        obja = self.env.container.file('a' + Utils.create_name())
+        obja_v1 = self.put_version(obja, 'v1')
+
+        objb = self.env.container.file('b' + Utils.create_name())
+        objb_v1 = self.put_version(objb, 'v1')
+        objb_v2 = self.put_version(objb, 'v2')
+
+        # disable versioning
+        self.env.container.update_metadata(
+            hdrs={self.env.versions_header_key: 'False'})
+        self.assertFalse(
+            config_true_value(self.env.container.info()['versions_enabled']))
+
+        # overwrite objb while versioning is disabled to create a 'version'
+        # that will be reported as 'null' in the listing
+        # note: the 'null' version id doesn't get reported in GET/HEAD response
+        objb_vnull = self.put_version(objb, 'vnull')
+        self.assertIsNone(objb_vnull)
+
+        # re-enable versioning
+        self.env.container.update_metadata(
+            hdrs={self.env.versions_header_key: 'True'})
+        self.assertTrue(
+            config_true_value(self.env.container.info()['versions_enabled']))
+
+        objc = self.env.container.file('c' + Utils.create_name())
+        objc_v1 = self.put_version(objc, 'v1')
+
+        # sanity check: list all versions
+        # versions are listed newest to oldest, so the objb null version is
+        # listed before other older objb versions
+        exp_obj_versions = [(obja.name, obja_v1, True),
+                            (objb.name, 'null', True),
+                            (objb.name, objb_v2, False),
+                            (objb.name, objb_v1, False),
+                            (objc.name, objc_v1, True)]
+        listing_parms = {'format': 'json',
+                         'versions': None}
+        actual_list = self.env.container.files(parms=listing_parms)
+        self.assertEqual(exp_obj_versions,
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in actual_list])
+
+        # Now list page-by-page...
+        # the first 2 entries end with the latest objb version which is 'null'
+        listing_parms = {'format': 'json',
+                         'limit': 2,
+                         'versions': None}
+        actual_sub_list = self.env.container.files(parms=listing_parms)
+        self.assertEqual(exp_obj_versions[:2],
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in actual_sub_list])
+        concatenated_sub_lists = actual_sub_list
+
+        # continue with 2 more objb versions older than 'null'...
+        listing_parms = {'format': 'json',
+                         'limit': 2,
+                         'marker': actual_sub_list[-1]['name'],
+                         'version_marker': actual_sub_list[-1]['version_id'],
+                         'versions': None}
+        self.assertEqual('null', listing_parms['version_marker'])  # sanity
+        actual_sub_list = self.env.container.files(parms=listing_parms)
+        self.assertEqual(exp_obj_versions[2:4],
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in actual_sub_list])
+        concatenated_sub_lists.extend(actual_sub_list)
+
+        # there's one more version to list...
+        listing_parms = {'format': 'json',
+                         'limit': 2,
+                         'marker': actual_sub_list[-1]['name'],
+                         'version_marker': actual_sub_list[-1]['version_id'],
+                         'versions': None}
+        actual_sub_list = self.env.container.files(parms=listing_parms)
+        self.assertEqual(exp_obj_versions[4:],
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in actual_sub_list])
+        concatenated_sub_lists.extend(actual_sub_list)
+
+        self.assertEqual(exp_obj_versions,
+                         [(obj['name'], obj['version_id'], obj['is_latest'])
+                          for obj in concatenated_sub_lists])
+
+    def test_list_marker_and_version_marker_reverse(self):
         obj1_v1, obj1_v2, obj1_v3, obj1_v4, obj2_v1, obj3_v1 = \
             self._prep_object_versions()
 

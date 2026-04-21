@@ -132,22 +132,23 @@ class PathRewritingApp:
     """
     # note: tests deliberately use this explicit rewriting middleware rather
     # than relying on the behavior of other middleware that might change
-    def __init__(self, app, logger):
+    def __init__(self, app, logger, modified_method=None, modified_path=None):
         self.app = app
         self.logger = logger
+        self.modified_method = modified_method
+        self.modified_path = modified_path
 
     def __call__(self, env, start_response):
-        orig_path = env['PATH_INFO']
         req = Request(env)
-        parts = req.split_path(4, rest_with_last=True)
-        parts[2] += '+segments'
-        env['PATH_INFO'] = '/' + '/'.join(parts)
+        if self.modified_method:
+            env['REQUEST_METHOD'] = self.modified_method
+        if self.modified_path:
+            env['PATH_INFO'] = self.modified_path
         try:
             resp = req.get_response(self.app)
         except Exception:
             self.logger.exception('PathRewritingApp (re-raising)')
             raise
-        env['PATH_INFO'] = orig_path
         return resp(self.app, start_response)
 
 
@@ -157,8 +158,9 @@ def start_response(*args):
 
 class BaseTestProxyLogging(unittest.TestCase):
 
-    def assertLabeledUpdateStats(self, exp_metrics_values_labels):
-        statsd_calls = self.statsd.calls['update_stats']
+    def assertLabeledUpdateStats(self, exp_metrics_values_labels, statsd=None):
+        statsd = statsd or self.statsd
+        statsd_calls = statsd.calls['update_stats']
         for statsd_call in statsd_calls:
             statsd_call[1]['labels'] = dict(statsd_call[1]['labels'])
         exp_calls = []
@@ -166,8 +168,9 @@ class BaseTestProxyLogging(unittest.TestCase):
             exp_calls.append(((metric, value), {'labels': labels}))
         self.assertEqual(exp_calls, statsd_calls)
 
-    def assertLabeledTimingStats(self, exp_metrics_values_labels):
-        statsd_calls = self.statsd.calls['timing']
+    def assertLabeledTimingStats(self, exp_metrics_values_labels, statsd=None):
+        statsd = statsd or self.statsd
+        statsd_calls = statsd.calls['timing']
         exp_calls = []
         for metric, value, labels in exp_metrics_values_labels:
             exp_calls.append(((metric, mock.ANY), {'labels': labels}))
@@ -412,6 +415,8 @@ class TestProxyLogging(BaseTestProxyLogging):
         # get_logger, ultimately tracing back to our hard-coded
         # statsd_tail_prefix
         self.logger.logger.statsd_client._prefix = 'proxy-server.'
+        self.subreq_logger = debug_logger()
+        self.subreq_logger.logger.statsd_client._prefix = 'proxy-server.'
         conf = {
             'log_statsd_host': 'host',
             'log_statsd_port': 8125,
@@ -419,6 +424,7 @@ class TestProxyLogging(BaseTestProxyLogging):
             'statsd_emit_legacy': True,
         }
         self.statsd = debug_labeled_statsd_client(conf)
+        self.subreq_statsd = debug_labeled_statsd_client(conf)
         account_labels = {
             'account': 'a',
             'resource': 'account',
@@ -584,7 +590,7 @@ class TestProxyLogging(BaseTestProxyLogging):
         log_adapter = app.access_logger
         self.assertEqual('my-proxy-access', log_adapter.name)
         self.assertEqual('alice', app.access_logger.server)
-        self.assertEqual(logging.WARN, log_adapter.logger.level)
+        self.assertEqual(logging.WARNING, log_adapter.logger.level)
         self.assertEqual(('access.com', 6789),
                          log_adapter.logger.handlers[0].address)
         self.assertEqual(SysLogHandler.LOG_LOCAL6,
@@ -733,13 +739,15 @@ class TestProxyLogging(BaseTestProxyLogging):
         fake_app = FakeApp(body=b'7 bytes')
 
         def app_wrapper(env, start_response):
-            # Fake how s3api would set swift.backend_path. We need to set
-            # PATH_INFO to be the backend_path so that FakeApp does the right
-            # thing w.r.t. the policy index headers, but the original request's
-            # PATH_INFO should be unchanged.
+            # Fake how s3api would set swift.backend_path.
+            # Fake how rightmost logging would set base_labels['account']
+            # We need to set PATH_INFO to be the backend_path so that FakeApp
+            # does the right thing w.r.t. the policy index headers, but the
+            # original request's PATH_INFO should be unchanged.
             env_copy = dict(env)
             env_copy['PATH_INFO'] = backend_path
             env['swift.backend_path'] = backend_path
+            env['swift.base_labels']['account'] = 'AUTH_test'
             return fake_app(env_copy, start_response)
 
         app = proxy_logging.ProxyLoggingMiddleware(
@@ -786,8 +794,8 @@ class TestProxyLogging(BaseTestProxyLogging):
             'container': 'bucket'}
         check_stats(self._do_test_log_request_s3_sigv4(
             'PUT', '/bucket', '/v1/AUTH_test/bucket'), exp_labels)
-        # swift.backend_path is authoritative...
-        exp_labels['container'] = 'bucket+segments'
+        # note: swift.backend_path is NOT used for statsd metric labels in
+        # leftmost proxy_logging
         check_stats(self._do_test_log_request_s3_sigv4(
             'PUT', '/bucket', '/v1/AUTH_test/bucket+segments'), exp_labels)
 
@@ -823,7 +831,8 @@ class TestProxyLogging(BaseTestProxyLogging):
         check_stats(self._do_test_log_request_s3_sigv4(
             'GET', '/bucket/obj/blah', '/v1/AUTH_test/bucket/obj/blah'),
             exp_labels)
-        exp_labels['container'] = 'bucket+segments'
+        # note: swift.backend_path is NOT used for statsd metric labels in
+        # leftmost proxy_logging
         check_stats(self._do_test_log_request_s3_sigv4(
             'GET', '/bucket/obj', '/v1/AUTH_test/bucket+segments/obj1234'),
             exp_labels)
@@ -1079,14 +1088,7 @@ class TestProxyLogging(BaseTestProxyLogging):
                 FakeApp(), {}, logger=self.logger)
             app.statsd = self.statsd
             req = Request.blank('/v1/a/', environ={'REQUEST_METHOD': method})
-            app.update_swift_base_labels(req)
             now = 10000.0
-            app.log_request(req, 299, 11, 3, now, now + 1.17)
-            self.assertTiming('account.%s.299.timing' % exp_method, app,
-                              exp_timing=1.17 * 1000)
-            self.assertUpdateStats([
-                ('account.%s.299.xfer' % exp_method, 11 + 3),
-            ], app)
             exp_labels = {
                 'resource': 'account',
                 'method': exp_method,
@@ -1094,6 +1096,12 @@ class TestProxyLogging(BaseTestProxyLogging):
                 'status': 299,
                 'account': 'a'
             }
+            app.log_request(req, 299, 11, 3, now, now + 1.17, exp_labels)
+            self.assertTiming('account.%s.299.timing' % exp_method, app,
+                              exp_timing=1.17 * 1000)
+            self.assertUpdateStats([
+                ('account.%s.299.xfer' % exp_method, 11 + 3),
+            ], app)
             self.assertLabeledTimingStats([
                 ('swift_proxy_server_request_timing', 1.17 * 1000, exp_labels),
             ])
@@ -1123,14 +1131,7 @@ class TestProxyLogging(BaseTestProxyLogging):
                 app.statsd = self.statsd
                 req = Request.blank('/v1/a/c',
                                     environ={'REQUEST_METHOD': method})
-                app.update_swift_base_labels(req)
                 now = 10000.0
-                app.log_request(req, 911, 4, 43, now, now + 1.01)
-                self.assertTiming('container.%s.911.timing' % exp_method, app,
-                                  exp_timing=1.01 * 1000)
-                self.assertUpdateStats([
-                    ('container.%s.911.xfer' % exp_method, 4 + 43),
-                ], app)
                 exp_labels = {
                     'resource': 'container',
                     'method': exp_method,
@@ -1139,6 +1140,12 @@ class TestProxyLogging(BaseTestProxyLogging):
                     'account': 'a',
                     'container': 'c'
                 }
+                app.log_request(req, 911, 4, 43, now, now + 1.01, exp_labels)
+                self.assertTiming('container.%s.911.timing' % exp_method, app,
+                                  exp_timing=1.01 * 1000)
+                self.assertUpdateStats([
+                    ('container.%s.911.xfer' % exp_method, 4 + 43),
+                ], app)
                 self.assertLabeledTimingStats([
                     ('swift_proxy_server_request_timing', 1.01 * 1000,
                      exp_labels),
@@ -1346,28 +1353,6 @@ class TestProxyLogging(BaseTestProxyLogging):
         self.assertEqual(resp_body, b'FAKE APP')
         self.assertTiming('object.policy.0.GET.200.timing',
                           app, exp_timing=2.71828182846 * 1000)
-        self.assertUpdateStats([
-            ('object.GET.200.xfer', 8),
-            ('object.policy.0.GET.200.xfer', 8),
-        ], app)
-        self.assertLabeledUpdateStats([
-            ('swift_proxy_server_request_body_bytes', 0, {
-                'resource': 'object',
-                'api': 'S3',
-                'method': 'GET',
-                'status': 200,
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'policy': '0'}),
-            ('swift_proxy_server_response_body_bytes', 8, {
-                'resource': 'object',
-                'api': 'S3',
-                'method': 'GET',
-                'status': 200,
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'policy': '0'})
-        ])
 
     def test_invalid_log_config(self):
         with self.assertRaises(ValueError):
@@ -1387,7 +1372,6 @@ class TestProxyLogging(BaseTestProxyLogging):
         app.statsd = self.statsd
         req = Request.blank('/', environ={'REQUEST_METHOD': 'GET',
                                           'swift.source': 'SOS'})
-        app.update_swift_base_labels(req)
         resp = app(req.environ, start_response)
         resp_body = b''.join(resp)
         log_parts = self._log_parts(app)
@@ -2078,7 +2062,7 @@ class TestProxyLogging(BaseTestProxyLogging):
         body = b''.join(body_iter)
         return status, headers, body
 
-    def test_xfer_stats_put(self):
+    def test_xfer_stats_put_object(self):
         buffer_str = (b'some stuff\n'
                       b'some other stuff\n'
                       b'some additional extra stuff\n')
@@ -2089,56 +2073,41 @@ class TestProxyLogging(BaseTestProxyLogging):
         # statsd calls expected while the request body is being read...
         # (these are in the form expected by assertLabeledUpdateStats)
         exp_req_stats_per_iter = []
+        exp_req_labels = {'account': 'a',
+                          'api': 'swift',
+                          'container': 'c',
+                          'method': 'PUT',
+                          'resource': 'object'}
         nbytes = 0
         while nbytes + 5 <= buffer_len:
             iter_stats = [
-                ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                    'account': 'a',
-                    'api': 'swift',
-                    'container': 'c',
-                    'method': 'PUT',
-                    'resource': 'container'})
+                ('swift_proxy_server_request_body_streaming_bytes',
+                 5, exp_req_labels)
             ]
             exp_req_stats_per_iter.append(iter_stats)
-
             nbytes += 5
+
         if nbytes < buffer_len:
             iter_stats = [
                 ('swift_proxy_server_request_body_streaming_bytes',
-                 buffer_len - nbytes, {
-                     'account': 'a',
-                     'api': 'swift',
-                     'container': 'c',
-                     'method': 'PUT',
-                     'resource': 'container'})
+                 buffer_len - nbytes, exp_req_labels)
             ]
             exp_req_stats_per_iter.append(iter_stats)
-            # statsd calls expected while the response is being handled...
+        # statsd calls expected while the response is being handled...
+        exp_resp_labels = {'account': 'a',
+                           'api': 'swift',
+                           'container': 'c',
+                           'method': 'PUT',
+                           'resource': 'object',
+                           'policy': '0',
+                           'status': 200}
         expect_resp_stats = [
             ('swift_proxy_server_response_body_streaming_bytes',
-             len('FAKE APP'), {
-                 'resource': 'container',
-                 'method': 'PUT',
-                 'api': 'swift',
-                 'status': 200,
-                 'policy': '0',
-                 'account': 'a',
-                 'container': 'c'}),
-            ('swift_proxy_server_request_body_bytes', buffer_len, {
-                'resource': 'container',
-                'api': 'swift',
-                'method': 'PUT',
-                'status': 200,
-                'account': 'a',
-                'container': 'c'}),
+             len('FAKE APP'), exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             buffer_len, exp_resp_labels),
             ('swift_proxy_server_response_body_bytes',
-             len('FAKE APP'), {
-                 'account': 'a',
-                 'api': 'swift',
-                 'container': 'c',
-                 'method': 'PUT',
-                 'resource': 'container',
-                 'status': 200}),
+             len('FAKE APP'), exp_resp_labels),
         ]
         captured_req_stats_per_iter = []
 
@@ -2166,7 +2135,7 @@ class TestProxyLogging(BaseTestProxyLogging):
             FakeApp(read_callback=capture_stats), conf, logger=self.logger)
         app.statsd = self.statsd
         req = Request.blank(
-            '/v1/a/c',
+            '/v1/a/c/o',
             environ={'REQUEST_METHOD': 'PUT',
                      'wsgi.input': BytesIO(buffer_str),
                      })
@@ -2181,11 +2150,62 @@ class TestProxyLogging(BaseTestProxyLogging):
         # just has the response handling statsd calls...
         self.assertLabeledUpdateStats(expect_resp_stats)
         self.assertUpdateStats([
-            ('container.PUT.200.xfer',
-             buffer_len + len('FAKE APP')),
+            ('object.PUT.200.xfer', buffer_len + len('FAKE APP')),
+            ('object.policy.0.PUT.200.xfer', buffer_len + len('FAKE APP'))
         ], app)
 
-    def test_xfer_stats_get(self):
+    def test_xfer_stats_get_object(self):
+        buffers = [b'some stuff\n',
+                   b'some other stuff\n',
+                   b'some additional stuff\n']
+        buffer_len = sum(len(b) for b in buffers)
+        conf = {
+            'log_headers': 'yes',
+            'statsd_label_mode': 'dogstatsd',
+            'statsd_emit_buffer_xfer_bytes_seconds': 0,
+        }
+        app = proxy_logging.ProxyLoggingMiddleware(
+            FakeApp(
+                body=buffers,
+            ), conf, logger=self.logger)
+        app.statsd = self.statsd
+        req = Request.blank(
+            '/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
+        resp = app(req.environ, start_response)
+        resp_body = b''.join(resp)
+        expected_resp = b''.join(buffers)
+        log_parts = self._log_parts(app)
+        self.assertEqual(log_parts[3], 'GET')
+        self.assertEqual(log_parts[4], '/v1/a/c/o')
+        self.assertEqual(log_parts[5], 'HTTP/1.0')
+        self.assertEqual(log_parts[6], '200')
+        self.assertEqual(resp_body, expected_resp)
+        self.assertEqual(log_parts[11], str(buffer_len))
+        self.assertUpdateStats([
+            ('object.GET.200.xfer', buffer_len),
+            ('object.policy.0.GET.200.xfer', buffer_len),
+        ], app)
+        exp_resp_labels = {'account': 'a',
+                           'api': 'swift',
+                           'container': 'c',
+                           'method': 'GET',
+                           'resource': 'object',
+                           'policy': '0',
+                           'status': 200}
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_server_response_body_streaming_bytes',
+             11, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             17, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             22, exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             0, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             buffer_len, exp_resp_labels),
+        ])
+
+    def test_xfer_stats_get_container(self):
         buffers = [b'some stuff\n',
                    b'some other stuff\n',
                    b'some additional stuff\n']
@@ -2216,48 +2236,26 @@ class TestProxyLogging(BaseTestProxyLogging):
             ('container.GET.200.xfer',
              buffer_len),
         ], app)
+        exp_resp_labels = {'account': 'a',
+                           'api': 'swift',
+                           'container': 'c',
+                           'method': 'GET',
+                           'resource': 'container',
+                           'status': 200}
         self.assertLabeledUpdateStats([
-            ('swift_proxy_server_response_body_streaming_bytes', 11, {
-                'account': 'a',
-                'api': 'swift',
-                'container': 'c',
-                'method': 'GET',
-                'policy': '0',
-                'resource': 'container',
-                'status': 200}),
-            ('swift_proxy_server_response_body_streaming_bytes', 17, {
-                'account': 'a',
-                'api': 'swift',
-                'container': 'c',
-                'method': 'GET',
-                'policy': '0',
-                'resource': 'container',
-                'status': 200}),
-            ('swift_proxy_server_response_body_streaming_bytes', 22, {
-                'account': 'a',
-                'api': 'swift',
-                'container': 'c',
-                'method': 'GET',
-                'policy': '0',
-                'resource': 'container',
-                'status': 200}),
-            ('swift_proxy_server_request_body_bytes', 0, {
-                'resource': 'container',
-                'api': 'swift',
-                'method': 'GET',
-                'status': 200,
-                'account': 'a',
-                'container': 'c'}),
-            ('swift_proxy_server_response_body_bytes', buffer_len, {
-                'resource': 'container',
-                'api': 'swift',
-                'method': 'GET',
-                'status': 200,
-                'account': 'a',
-                'container': 'c'}),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             11, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             17, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             22, exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             0, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             buffer_len, exp_resp_labels),
         ])
 
-    def test_xfer_stats_emit_frequency_put(self):
+    def test_xfer_stats_emit_frequency_put_container(self):
 
         conf = {
             'statsd_label_mode': 'dogstatsd',
@@ -2288,51 +2286,33 @@ class TestProxyLogging(BaseTestProxyLogging):
             ('container.PUT.200.xfer',
              buffer_len + len('FAKE APP')),
         ], app)
+        exp_req_labels = {'account': 'a',
+                          'api': 'swift',
+                          'container': 'c',
+                          'method': 'PUT',
+                          'resource': 'container'}
+        exp_resp_labels = {'resource': 'container',
+                           'api': 'swift',
+                           'method': 'PUT',
+                           'status': 200,
+                           'account': 'a',
+                           'container': 'c'}
         self.assertLabeledUpdateStats([
-            ('swift_proxy_server_request_body_streaming_bytes', 20, {
-                'account': 'a',
-                'api': 'swift',
-                'container': 'c',
-                'method': 'PUT',
-                'resource': 'container'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 25, {
-                'account': 'a',
-                'api': 'swift',
-                'container': 'c',
-                'method': 'PUT',
-                'resource': 'container'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 14, {
-                'account': 'a',
-                'api': 'swift',
-                'container': 'c',
-                'method': 'PUT',
-                'resource': 'container'}),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             20, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             25, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             14, exp_req_labels),
             ('swift_proxy_server_response_body_streaming_bytes',
-             len('FAKE APP'), {
-                 'resource': 'container',
-                 'api': 'swift',
-                 'method': 'PUT',
-                 'status': 200,
-                 'policy': '0',
-                 'account': 'a',
-                 'container': 'c'}),
-            ('swift_proxy_server_request_body_bytes', buffer_len, {
-                'resource': 'container',
-                'api': 'swift',
-                'method': 'PUT',
-                'status': 200,
-                'account': 'a',
-                'container': 'c'}),
-            ('swift_proxy_server_response_body_bytes', 8, {
-                'account': 'a',
-                'api': 'swift',
-                'container': 'c',
-                'method': 'PUT',
-                'resource': 'container',
-                'status': 200})
+             len('FAKE APP'), exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             buffer_len, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             8, exp_resp_labels)
         ])
 
-    def test_xfer_stats_emit_frequency_get(self):
+    def test_xfer_stats_emit_frequency_get_container(self):
 
         buffers = [b'some stuff\n',
                    b'some other stuff\n',
@@ -2360,59 +2340,63 @@ class TestProxyLogging(BaseTestProxyLogging):
             ('container.GET.200.xfer', buffer_len),
         ], app
         )
+        exp_resp_labels = {'account': 'a',
+                           'container': 'c',
+                           'api': 'swift',
+                           'method': 'GET',
+                           'resource': 'container',
+                           'status': 200}
         self.assertLabeledUpdateStats([
-            ('swift_proxy_server_response_body_streaming_bytes', 58, {
-                'account': 'a',
-                'container': 'c',
-                'api': 'swift',
-                'method': 'GET',
-                'policy': '0',
-                'resource': 'container',
-                'status': 200}),
-            ('swift_proxy_server_request_body_bytes', 0, {
-                'resource': 'container',
-                'api': 'swift',
-                'method': 'GET',
-                'status': 200,
-                'account': 'a',
-                'container': 'c'}),
-            ('swift_proxy_server_response_body_bytes', buffer_len, {
-                'resource': 'container',
-                'api': 'swift',
-                'method': 'GET',
-                'status': 200,
-                'account': 'a',
-                'container': 'c'}),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             58, exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             0, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             buffer_len, exp_resp_labels),
         ])
 
-    def _make_logged_pipeline(self, storage_domain=None, rewrite_path=False):
+    def _make_logged_pipeline(self, storage_domain=None,
+                              modified_method=None,
+                              modified_path=None,
+                              leftmost_proxy_logging=True,
+                              rightmost_proxy_logging=True):
         # make a pipeline:
         # proxy_logging s3api fake_auth [rewrite_path] proxy_logging fake_swift
         fake_swift = FakeSwift(test_read_size=5)
-        app = proxy_logging.ProxyLoggingMiddleware(fake_swift, {
-            'access_log_route': 'subrequest',
-        }, logger=self.logger)
-        if rewrite_path:
-            app = PathRewritingApp(app, self.logger)
+        if rightmost_proxy_logging:
+            app = subreq_app = proxy_logging.ProxyLoggingMiddleware(
+                fake_swift,
+                {'access_log_route': 'subrequest',
+                 'statsd_emit_buffer_xfer_bytes_seconds': 0},
+                logger=self.subreq_logger)
+            subreq_app.statsd = self.subreq_statsd
+        else:
+            app = subreq_app = fake_swift
+        if modified_method or modified_path:
+            app = PathRewritingApp(
+                app, self.logger, modified_method=modified_method,
+                modified_path=modified_path)
         app = FakeAuthApp(app)
         app._pipeline_final_app = fake_swift
         app = s3api_filter_factory({
-            'force_swift_request_proxy_log': False,
+            'force_swift_request_proxy_log': True,
             'storage_domain': storage_domain,
         })(app)
-        proxy_logging_conf = {
-            'access_log_route': 'proxy_access',
-            'statsd_label_mode': 'dogstatsd',
-            'statsd_emit_buffer_xfer_bytes_seconds': 0,
-            'storage_domain': storage_domain,
-        }
-        app = proxy_logging.ProxyLoggingMiddleware(
-            app, proxy_logging_conf, logger=self.logger)
-        app.statsd = self.statsd
-        return app, fake_swift
+        if leftmost_proxy_logging:
+            proxy_logging_conf = {
+                'access_log_route': 'proxy_access',
+                'statsd_emit_buffer_xfer_bytes_seconds': 0,
+                'storage_domain': storage_domain,
+            }
+            app = proxy_logging.ProxyLoggingMiddleware(
+                app, proxy_logging_conf, logger=self.logger)
+            app.statsd = self.statsd
+        return app, subreq_app, fake_swift
 
-    def test_xfer_stats_put_s3api(self):
-        app, swift = self._make_logged_pipeline(rewrite_path=True)
+    def test_xfer_stats_put_object_s3api(self):
+        backend_path = '/v1/AUTH_test/bucket+segments/object'
+        app, subreq_app, swift = self._make_logged_pipeline(
+            modified_path=backend_path)
         buffer_str = (b'some stuff\n'
                       b'some other stuff\n'
                       b'some additional stuff\n')
@@ -2420,7 +2404,7 @@ class TestProxyLogging(BaseTestProxyLogging):
         etag = md5(buffer_str, usedforsecurity=False).hexdigest()
         last_modified = 'Fri, 01 Apr 2014 12:00:00 GMT'
 
-        swift.register('PUT', '/v1/AUTH_test/bucket+segments/object',
+        swift.register('PUT', backend_path,
                        HTTPCreated,
                        {'etag': etag,
                         'last-modified': last_modified,
@@ -2443,47 +2427,40 @@ class TestProxyLogging(BaseTestProxyLogging):
         status, headers, body = self._do_test_call_app(req, app)
         self.assertEqual('200 OK', status)
 
-        self.assertEqual('/v1/AUTH_test/bucket/object',
-                         req.environ['swift.backend_path'])
+        self.assertEqual(backend_path, req.environ['swift.backend_path'])
         base_labels = req.environ.get('swift.base_labels')
         self.assertIsNotNone(base_labels)
 
-        self.assertEqual(swift.calls, [
-            ('PUT', '/v1/AUTH_test/bucket+segments/object'),
-        ])
+        self.assertEqual(swift.calls, [('PUT', backend_path)])
 
         self.assertUpdateStats([
             ('object.PUT.200.xfer', buffer_len),
             ('object.policy.0.PUT.200.xfer', buffer_len)
         ], app)
 
-        stats = []
+        exp_stats = []
+        exp_req_labels = {'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'resource': 'object',
+                          'api': 'S3'}
+        exp_resp_labels = {'resource': 'object',
+                           'api': 'S3',
+                           'method': 'PUT',
+                           'status': 200,
+                           'account': 'AUTH_test',
+                           'container': 'bucket',
+                           'policy': '0'}
         for i in range(10):
-            stats.append(
-                ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                    'account': 'AUTH_test',
-                    'container': 'bucket',
-                    'method': 'PUT',
-                    'resource': 'object',
-                    'api': 'S3'}))
-        stats += [
-            ('swift_proxy_server_request_body_bytes', buffer_len, {
-                'resource': 'object',
-                'api': 'S3',
-                'method': 'PUT',
-                'status': 200,
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'policy': '0'}),
-            ('swift_proxy_server_response_body_bytes', 0, {
-                'resource': 'object',
-                'api': 'S3',
-                'method': 'PUT',
-                'status': 200,
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'policy': '0'})]
-        self.assertLabeledUpdateStats(stats)
+            exp_stats.append(
+                ('swift_proxy_server_request_body_streaming_bytes',
+                 5, exp_req_labels))
+        exp_stats += [
+            ('swift_proxy_server_request_body_bytes',
+             buffer_len, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             0, exp_resp_labels)]
+        self.assertLabeledUpdateStats(exp_stats)
 
         req = Request.blank('/bucket/object',
                             environ={'REQUEST_METHOD': 'GET'},
@@ -2492,8 +2469,8 @@ class TestProxyLogging(BaseTestProxyLogging):
         status, headers, body = self._do_test_call_app(req, app)
         self.assertEqual(status.split()[0], '200')
 
-    def test_xfer_stats_get_s3api(self):
-        app, swift = self._make_logged_pipeline()
+    def test_xfer_stats_get_object_s3api(self):
+        app, subreq_app, swift = self._make_logged_pipeline()
         buffers = [b'some stuff\n',
                    b'some other stuff\n',
                    b'some additional stuff\n']
@@ -2535,54 +2512,28 @@ class TestProxyLogging(BaseTestProxyLogging):
             ('object.policy.0.GET.200.xfer', buffer_len)
         ], app)
 
+        exp_resp_labels = {'resource': 'object',
+                           'method': 'GET',
+                           'status': 200,
+                           'policy': '0',
+                           'account': 'AUTH_test',
+                           'container': 'bucket',
+                           'api': 'S3'}
         self.assertLabeledUpdateStats([
-            ('swift_proxy_server_response_body_streaming_bytes', 11, {
-                'resource': 'object',
-                'method': 'GET',
-                'status': 200,
-                'policy': '0',
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'api': 'S3'
-            }),
-            ('swift_proxy_server_response_body_streaming_bytes', 17, {
-                'resource': 'object',
-                'method': 'GET',
-                'status': 200,
-                'policy': '0',
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'api': 'S3'
-            }),
-            ('swift_proxy_server_response_body_streaming_bytes', 22, {
-                'resource': 'object',
-                'method': 'GET',
-                'status': 200,
-                'policy': '0',
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'api': 'S3'
-            }),
-            ('swift_proxy_server_request_body_bytes', 0, {
-                'resource': 'object',
-                'api': 'S3',
-                'method': 'GET',
-                'status': 200,
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'policy': '0'}),
-            ('swift_proxy_server_response_body_bytes', buffer_len, {
-                'resource': 'object',
-                'api': 'S3',
-                'method': 'GET',
-                'status': 200,
-                'account': 'AUTH_test',
-                'container': 'bucket',
-                'policy': '0'}),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             11, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             17, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             22, exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             0, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             buffer_len, exp_resp_labels),
         ])
 
     def test_base_labels_put_swift(self):
-        app, swift = self._make_logged_pipeline()
+        app, subreq_app, swift = self._make_logged_pipeline()
         buffer_str = (b'some stuff\n'
                       b'some other stuff\n'
                       b'some additional stuff\n')
@@ -2625,7 +2576,7 @@ class TestProxyLogging(BaseTestProxyLogging):
         ])
 
     def test_base_labels_put_s3api(self):
-        app, swift = self._make_logged_pipeline()
+        app, subreq_app, swift = self._make_logged_pipeline()
         buffer_str = (b'some stuff\n'
                       b'some other stuff\n'
                       b'some additional stuff\n')
@@ -2670,7 +2621,7 @@ class TestProxyLogging(BaseTestProxyLogging):
         ])
 
     def test_base_label_v4_auth_headers_GET(self):
-        app, swift = self._make_logged_pipeline()
+        app, subreq_app, swift = self._make_logged_pipeline()
         buffers = [b'some stuff\n',
                    b'some other stuff\n',
                    b'some additional stuff\n']
@@ -2714,51 +2665,28 @@ class TestProxyLogging(BaseTestProxyLogging):
             ('GET', '/v1/AUTH_test/bucket/object'),
         ])
 
+        exp_resp_labels = {'method': 'GET',
+                           'api': 'S3',
+                           'resource': 'object',
+                           'container': 'bucket',
+                           'account': 'AUTH_test',
+                           'policy': '0',
+                           'status': 200}
         self.assertLabeledUpdateStats([
-            ('swift_proxy_server_response_body_streaming_bytes', 11, {
-                'method': 'GET',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test',
-                'policy': '0',
-                'status': 200}),
-            ('swift_proxy_server_response_body_streaming_bytes', 17, {
-                'method': 'GET',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test',
-                'policy': '0',
-                'status': 200}),
-            ('swift_proxy_server_response_body_streaming_bytes', 22, {
-                'method': 'GET',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test',
-                'policy': '0',
-                'status': 200}),
-            ('swift_proxy_server_request_body_bytes', 0, {
-                'method': 'GET',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test',
-                'status': 200,
-                'policy': '0'}),
-            ('swift_proxy_server_response_body_bytes', 50, {
-                'method': 'GET',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test',
-                'status': 200,
-                'policy': '0'})
+            ('swift_proxy_server_response_body_streaming_bytes',
+             11, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             17, exp_resp_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             22, exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             0, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             50, exp_resp_labels)
         ])
 
     def test_base_label_v4_auth_headers_PUT(self):
-        app, swift = self._make_logged_pipeline()
+        app, subreq_app, swift = self._make_logged_pipeline()
         buffer_str = (b'some stuff\n'
                       b'some other stuff\n'
                       b'some additional stuff\n')
@@ -2808,86 +2736,47 @@ class TestProxyLogging(BaseTestProxyLogging):
             ('PUT', '/v1/AUTH_test/bucket/object'),
         ])
 
+        exp_req_labels = {'method': 'PUT',
+                          'api': 'S3',
+                          'resource': 'object',
+                          'container': 'bucket',
+                          'account': 'AUTH_test'}
+        exp_resp_labels = {'method': 'PUT',
+                           'api': 'S3',
+                           'resource': 'object',
+                           'container': 'bucket',
+                           'account': 'AUTH_test',
+                           'status': 200, 'policy': '0'}
         self.assertLabeledUpdateStats([
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_streaming_bytes', 5, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test'}),
-            ('swift_proxy_server_request_body_bytes', 50, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test',
-                'status': 200, 'policy': '0'}),
-            ('swift_proxy_server_response_body_bytes', 0, {
-                'method': 'PUT',
-                'api': 'S3',
-                'resource': 'object',
-                'container': 'bucket',
-                'account': 'AUTH_test',
-                'status': 200,
-                'policy': '0'})
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_request_body_bytes',
+             50, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             0, exp_resp_labels)
         ])
 
     def test_base_labels_put_s3api_storage_domain(self):
-        app, swift = self._make_logged_pipeline(storage_domain='domain')
+        app, subreq_app, swift = self._make_logged_pipeline(
+            storage_domain='domain')
         buffer_str = (b'some stuff\n'
                       b'some other stuff\n'
                       b'some additional stuff\n')
@@ -2933,6 +2822,244 @@ class TestProxyLogging(BaseTestProxyLogging):
         self.assertEqual(swift.calls, [
             ('PUT', '/v1/AUTH_test/ahost/object'),
         ])
+
+    def test_leftmost_and_rightmost_stats_and_logs_modified_subrequest(self):
+        # Verify the stats and logs emitted by both leftmost and rightmost
+        # proxy-logging. A subrequest method and path are modified w.r.t.
+        # the client request.
+        # A client PUT request is modified to a POST subrequest to a different
+        # container. This doesn't typically happen in Swift middlewares, but
+        # serves the purpose of testing method and path modifications while
+        # using an object PUT request that the s3api accepts.
+        backend_path = '/v1/AUTH_test/bucket+segments/object'
+        app, subreq_app, swift = self._make_logged_pipeline(
+            modified_method='POST', modified_path=backend_path)
+        app.log_msg_template = \
+            '{method} {path} {status_int} {source} {account} {container}'
+        subreq_app.log_msg_template = \
+            '{method} {path} {status_int} {source} {account} {container}'
+        swift.register('POST', backend_path, HTTPCreated, {}, b'ciao')
+
+        date_header = email.utils.formatdate(time.time() + 0)
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'PUT',
+                'wsgi.input': BytesIO(b'hello'),
+            },
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+                'Date': date_header,
+            },
+        )
+
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('200 OK', status)
+        self.assertEqual(swift.calls, [('POST', backend_path)])
+
+        base_labels = req.environ.get('swift.base_labels')
+        self.assertEqual({'account': 'AUTH_test',
+                          'api': 'S3',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'resource': 'object'},
+                         base_labels)
+
+        # verify leftmost stats...
+        self.assertUpdateStats([
+            ('object.PUT.200.xfer', 9),
+            ('object.policy.0.PUT.200.xfer', 9)
+        ], app)
+        exp_req_labels = {'account': 'AUTH_test',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'resource': 'object',
+                          'api': 'S3'}
+        exp_resp_labels = {'account': 'AUTH_test',
+                           'api': 'S3',
+                           'container': 'bucket',
+                           'method': 'PUT',
+                           'policy': '0',
+                           'resource': 'object',
+                           'status': 200}
+        exp_req_streaming_stats = [
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+        ]
+        exp_other_stats = [
+            ('swift_proxy_server_response_body_streaming_bytes',
+             4, exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             5, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             4, exp_resp_labels)
+        ]
+        exp_leftmost_stats = exp_req_streaming_stats + exp_other_stats
+        self.assertLabeledUpdateStats(exp_leftmost_stats, self.statsd)
+
+        # verify rightmost stats...
+        # the rightmost proxy_logging sees a 201 response for the PUT...
+        exp_rightmost_other_stats = [
+            (name, size, dict(labels, status=201))
+            for (name, size, labels) in exp_other_stats
+        ]
+        # the rightmost proxy_logging labels use the backend method and path...
+        exp_rightmost_stats = [
+            (name, size, dict(labels, method='POST',
+                              container='bucket%2Bsegments'))
+            for (name, size, labels)
+            in exp_req_streaming_stats + exp_rightmost_other_stats
+        ]
+        self.assertLabeledUpdateStats(exp_rightmost_stats, self.subreq_statsd)
+
+        # verify leftmost log line
+        lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(1, len(lines))
+        log_parts = lines[0].split(' ')
+        # XXX container from backend_path is not double quoted!
+        exp = ['PUT', '/bucket/object', '200', '-', 'AUTH_test',
+               'bucket%2Bsegments']
+        self.assertEqual(exp, log_parts)
+
+        # verify rightmost log line
+        lines = self.subreq_logger.get_lines_for_level('info')
+        self.assertEqual(1, len(lines))
+        log_parts = lines[0].split(' ')
+        exp = ['POST', '/v1/AUTH_test/bucket%252Bsegments/object', '201', 'S3',
+               'AUTH_test', 'bucket%252Bsegments']
+        self.assertEqual(exp, log_parts)
+
+    def test_leftmost_only_stats_and_logs_modified_subrequest(self):
+        # Verify the stats and logs emitted by leftmost proxy-logging when
+        # there is no rightmost proxy-logging. The subrequest path is modified
+        # w.r.t. the client request.
+        backend_path = '/v1/AUTH_test/bucket+segments/object'
+        app, _, swift = self._make_logged_pipeline(
+            modified_path=backend_path, rightmost_proxy_logging=False)
+        app.log_msg_template = \
+            '{method} {path} {status_int} {source} {account} {container}'
+        swift.register('PUT', backend_path, HTTPCreated, {}, b'ciao')
+
+        date_header = email.utils.formatdate(time.time() + 0)
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'PUT',
+                'wsgi.input': BytesIO(b'hello'),
+            },
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+                'Date': date_header,
+            },
+        )
+
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('200 OK', status)
+        self.assertEqual(swift.calls, [('PUT', backend_path)])
+
+        base_labels = req.environ.get('swift.base_labels')
+        # XXX: there is no account label, not even 'UNKNOWN'
+        self.assertEqual({'api': 'S3',
+                          'container': 'bucket',
+                          'method': 'PUT',
+                          'resource': 'object'},
+                         base_labels)
+
+        # verify leftmost stats...
+        self.assertUpdateStats([
+            ('object.PUT.200.xfer', 9),
+            ('object.policy.0.PUT.200.xfer', 9)
+        ], app)
+
+        # XXX: there are no streaming body stats because they are conditional
+        # on the account label being set
+        exp_resp_labels = {'resource': 'object',
+                           'api': 'S3',
+                           'method': 'PUT',
+                           'status': 200,
+                           'container': 'bucket',
+                           'policy': '0'}
+        exp_leftmost_stats = [
+            ('swift_proxy_server_request_body_bytes', 5, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes', 4, exp_resp_labels),
+        ]
+        self.assertLabeledUpdateStats(exp_leftmost_stats, self.statsd)
+
+        # verify leftmost log line
+        lines = self.logger.get_lines_for_level('info')
+        self.assertEqual(1, len(lines))
+        log_parts = lines[0].split(' ')
+        # XXX container from backend_path is not double quoted!
+        exp = ['PUT', '/bucket/object', '200', '-', 'AUTH_test',
+               'bucket%2Bsegments']
+        self.assertEqual(exp, log_parts)
+
+    def test_rightmost_only_stats_and_logs_modified_subrequest(self):
+        # Verify the stats and logs emitted by rightmost proxy-logging when
+        # there is no leftmost proxy-logging. The subrequest path is modified
+        # w.r.t. the client request.
+        backend_path = '/v1/AUTH_test/bucket+segments/object'
+        app, subreq_app, swift = self._make_logged_pipeline(
+            modified_path=backend_path, leftmost_proxy_logging=False)
+        subreq_app.log_msg_template = \
+            '{method} {path} {status_int} {source} {account} {container}'
+        swift.register('PUT', backend_path, HTTPCreated, {}, b'ciao')
+
+        date_header = email.utils.formatdate(time.time() + 0)
+        req = Request.blank(
+            '/bucket/object',
+            environ={
+                'REQUEST_METHOD': 'PUT',
+                'wsgi.input': BytesIO(b'hello'),
+            },
+            headers={
+                'Authorization': 'AWS test:tester:hmac',
+                'Date': date_header,
+            },
+        )
+
+        status, headers, body = self._do_test_call_app(req, app)
+        self.assertEqual('200 OK', status)
+        self.assertEqual(swift.calls, [('PUT', backend_path)])
+
+        # base labels were not installed in the *client* request environ
+        base_labels = req.environ.get('swift.base_labels')
+        self.assertIsNone(base_labels)
+
+        # note: the api is "swift" because the request has a full swift path by
+        # the time base_labels are initialised by the *rightmost* proxy_logging
+        exp_req_labels = {'account': 'AUTH_test',
+                          'container': 'bucket%2Bsegments',
+                          'method': 'PUT',
+                          'resource': 'object',
+                          'api': 'swift'}
+        exp_resp_labels = {'account': 'AUTH_test',
+                           'api': 'swift',
+                           'container': 'bucket%2Bsegments',
+                           'method': 'PUT',
+                           'policy': '0',
+                           'resource': 'object',
+                           'status': 201}
+        exp_rightmost_stats = [
+            ('swift_proxy_server_request_body_streaming_bytes',
+             5, exp_req_labels),
+            ('swift_proxy_server_response_body_streaming_bytes',
+             4, exp_resp_labels),
+            ('swift_proxy_server_request_body_bytes',
+             5, exp_resp_labels),
+            ('swift_proxy_server_response_body_bytes',
+             4, exp_resp_labels)
+        ]
+        # verify rightmost stats...
+        self.assertLabeledUpdateStats(exp_rightmost_stats, self.subreq_statsd)
+
+        # verify rightmost log line
+        lines = self.subreq_logger.get_lines_for_level('info')
+        self.assertEqual(1, len(lines))
+        log_parts = lines[0].split(' ')
+        exp = ['PUT', '/v1/AUTH_test/bucket%252Bsegments/object', '201', 'S3',
+               'AUTH_test', 'bucket%252Bsegments']
+        self.assertEqual(exp, log_parts)
 
     def test_log_query_string(self):
         app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})

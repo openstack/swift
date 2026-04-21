@@ -24,8 +24,8 @@ from itertools import zip_longest
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.swob import Request, bytes_to_wsgi, str_to_wsgi, wsgi_quote
-from swift.common.utils import ShardRange, Timestamp, Namespace, \
-    NamespaceBoundList
+from swift.common.utils import ShardRange, Namespace, NamespaceBoundList
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, get_container_info, get_cache_key
@@ -743,7 +743,7 @@ class TestGetShardedContainer(BaseTestContainerController):
                                     expected_objects=expected_objects)
 
         # GET all objects - sharding, final shard range points back to root
-        root_range = ShardRange('a/c', Timestamp.now(), 'pie', '')
+        root_range = ShardRange('a/c', NormalTimestamp.now(), 'pie', '')
         mock_responses = [
             # status, body, headers
             (200, ns_dicts[:2] + [dict(root_range)], root_shard_resp_hdrs),
@@ -1135,7 +1135,7 @@ class TestGetShardedContainer(BaseTestContainerController):
                                     expected_objects=expected_objects)
 
         # GET all objects - sharding, final shard range points back to root
-        root_range = ShardRange('a/c', Timestamp.now(), 'pie', '')
+        root_range = ShardRange('a/c', NormalTimestamp.now(), 'pie', '')
         mock_responses = [
             # status, body, headers
             (200, ns_dicts[:2] + [dict(root_range)], root_shard_resp_hdrs),
@@ -2747,17 +2747,30 @@ class TestGetShardedContainer(BaseTestContainerController):
     def test_GET_sharded_container_sharding_shard_mixed_policies(self):
         # scenario: one shard is in process of sharding, shards have different
         # policy than root, expect listing to always request root policy index
+        # GET root -> shards
+        #             GET shard_0 -> objects
+        #             GET shard_1 -> [sub_shard_0, sub_shard_1, filler=shard_1]
+        #                            GET sub_shard_0 -> objects
+        #                            GET sub_shard_1 -> objects
+        #                            GET filler -> objects
+        #             GET shard_2 -> objects
         shard_bounds = (('', 'ham'), ('ham', 'pie'), ('pie', ''))
         namespaces, ns_dicts, sr_objs = self.create_server_response_data(
             shard_bounds)
-        shard_obj_resp_hdrs = self._make_shard_resp_hdrs(
-            sr_objs, extra_hdrs={
-                'X-Backend-Storage-Policy-Index': 1,
-                'X-Backend-Record-Storage-Policy-Index': 0})
+        shard_0_obj_resp_hdrs, shard_1_obj_resp_hdrs, shard_2_obj_resp_hdrs = \
+            self._make_shard_resp_hdrs(sr_objs)
+        # all responses from shards have 'X-Backend-Storage-Policy-Index': 1
+        # obj record responses have 'X-Backend-Record-Storage-Policy-Index': 0
+        shard_0_obj_resp_hdrs.update({
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Storage-Policy-Index': 0})
         # second shard is sharding and has cleaved two out of three sub shards
-        shard_obj_resp_hdrs[1]['X-Backend-Sharding-State'] = 'sharding'
-        shard_1_shard_resp_hdrs = dict(shard_obj_resp_hdrs[1])
-        shard_1_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
+        shard_1_shard_resp_hdrs = dict(shard_1_obj_resp_hdrs)
+        # no 'X-Backend-Record-Storage-Policy-Index' in shard record responses
+        shard_1_shard_resp_hdrs.update({
+            'X-Backend-Sharding-State': 'sharding',
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Type': 'shard'})
         shard_1_shard_resp_hdrs.update(self.RESP_SHARD_FORMAT_HEADERS)
 
         sub_shard_bounds = (('ham', 'juice'), ('juice', 'lemon'))
@@ -2772,6 +2785,16 @@ class TestGetShardedContainer(BaseTestContainerController):
                 'X-Backend-Storage-Policy-Index': 1,
                 'X-Backend-Record-Storage-Policy-Index': 0})
 
+        shard_1_filler_obj_resp_hdrs = dict(shard_1_obj_resp_hdrs)
+        shard_1_filler_obj_resp_hdrs.update({
+            'X-Backend-Sharding-State': 'sharding',
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Storage-Policy-Index': 0})
+
+        shard_2_obj_resp_hdrs.update({
+            'X-Backend-Storage-Policy-Index': 1,
+            'X-Backend-Record-Storage-Policy-Index': 0})
+
         all_objects = []
         for objects in sr_objs:
             all_objects.extend(objects)
@@ -2784,6 +2807,7 @@ class TestGetShardedContainer(BaseTestContainerController):
                           'X-Container-Bytes-Used': size_all_objects,
                           'X-Container-Meta-Flavour': 'peach',
                           'X-Backend-Storage-Policy-Index': 0}
+        # no 'X-Backend-Record-Storage-Policy-Index' in shard record responses
         root_shard_resp_hdrs = dict(root_resp_hdrs)
         root_shard_resp_hdrs['X-Backend-Record-Type'] = 'shard'
         root_shard_resp_hdrs.update(self.RESP_SHARD_FORMAT_HEADERS)
@@ -2791,13 +2815,13 @@ class TestGetShardedContainer(BaseTestContainerController):
         mock_responses = [
             # status, body, headers
             (200, ns_dicts, root_shard_resp_hdrs),
-            (200, sr_objs[0], shard_obj_resp_hdrs[0]),
+            (200, sr_objs[0], shard_0_obj_resp_hdrs),
             (200, sub_ns_dicts + [filler_sr_dict], shard_1_shard_resp_hdrs),
             (200, sub_sr_objs[0], sub_shard_resp_hdrs[0]),
             (200, sub_sr_objs[1], sub_shard_resp_hdrs[1]),
             (200, sr_objs[1][len(sub_sr_objs[0] + sub_sr_objs[1]):],
-             shard_obj_resp_hdrs[1]),
-            (200, sr_objs[2], shard_obj_resp_hdrs[2])
+             shard_1_filler_obj_resp_hdrs),
+            (200, sr_objs[2], shard_2_obj_resp_hdrs)
         ]
         # NB marker always advances to last object name
         expected_requests = [
@@ -3012,7 +3036,7 @@ class TestGetShardedContainerLegacy(TestGetShardedContainer):
     def create_server_namespace_dict(self, name, lower, upper):
         # return a dict representation of an instance of the type the backend
         # server returns for shard format = 'namespace'
-        return dict(ShardRange(name, Timestamp.now(), lower, upper,
+        return dict(ShardRange(name, NormalTimestamp.now(), lower, upper,
                                state=ShardRange.ACTIVE))
 
     def create_server_response_data(self, bounds, states=None,
@@ -3023,7 +3047,7 @@ class TestGetShardedContainerLegacy(TestGetShardedContainer):
             states = []
         shard_ranges = [
             ShardRange(name_prefix + bound[1].replace('/', '-'),
-                       Timestamp.now(), bound[0], bound[1], state=state)
+                       NormalTimestamp.now(), bound[0], bound[1], state=state)
             for bound, state in zip_longest(
                 bounds, states, fillvalue=ShardRange.FOUND)]
         sr_dicts = [dict(sr, last_modified=sr.timestamp.isoformat)
@@ -3393,7 +3417,7 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
             captured_hdrs.update(req.headers)
             return None, shard_resp
 
-        # header in response -> header added to request
+        # header in response but not in request -> header added to request
         captured_hdrs = {}
         req = Request.blank('/v1/a/c', environ={'REQUEST_METHOD': 'GET'})
         resp_hdrs = dict(self.root_resp_hdrs)
@@ -3432,7 +3456,10 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
         self.assertEqual(
             captured_hdrs['X-Backend-Storage-Policy-Index'], '1')
 
-        # header not added to request if not root request
+        # header added to request even when swift.shard_listing_history exists;
+        # the shard_listing_history may relate to a previous listing using the
+        # same request environ, e.g. when listing a user and a versions
+        # container
         captured_hdrs = {}
         req = Request.blank('/v1/a/c',
                             environ={
@@ -3442,7 +3469,7 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
         resp = mock.MagicMock(status_int=200,
                               headers=self.root_resp_hdrs,
                               request=req)
-        resp.headers['X-Backend-Storage-Policy-Index'] = '0'
+        resp.headers['X-Backend-Storage-Policy-Index'] = '2'
         with mock.patch('swift.proxy.controllers.container.'
                         'ContainerController._get_container_listing',
                         mock_get_container_listing):
@@ -3450,7 +3477,9 @@ class TestGetPathNamespaceCaching(BaseTestContainerControllerGetPath):
             controller = controller_cls(self.app, **d)
             controller._get_from_shards(req, resp, list(self.namespaces))
 
-        self.assertNotIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+        self.assertIn('X-Backend-Storage-Policy-Index', captured_hdrs)
+        self.assertEqual(
+            captured_hdrs['X-Backend-Storage-Policy-Index'], '2')
 
         # existing X-Backend-Storage-Policy-Index in request is respected
         captured_hdrs = {}
@@ -4119,7 +4148,7 @@ class TestGetPathNamespaceCachingLegacy(TestGetPathNamespaceCaching):
     def _setup_namespace_stubs(self):
         # old container servers always returned full format ShardRange dicts
         self._stub_namespaces = [
-            dict(ShardRange(timestamp=Timestamp.now(), **ns))
+            dict(ShardRange(timestamp=NormalTimestamp.now(), **ns))
             for ns in self.ns_dicts]
         self._stub_namespaces_dump = json.dumps(self._stub_namespaces).encode(
             'ascii')
@@ -4133,8 +4162,9 @@ class TestGetExplicitRecordType(BaseTestContainerControllerGetPath):
         self._setup_shard_range_stubs()
 
     def _setup_shard_range_stubs(self):
-        self._stub_shards = [dict(ShardRange(timestamp=Timestamp.now(), **ns))
-                             for ns in self.ns_dicts]
+        self._stub_shards = [
+            dict(ShardRange(timestamp=NormalTimestamp.now(), **ns))
+            for ns in self.ns_dicts]
         self._stub_shards_dump = json.dumps(self.ns_dicts).encode('ascii')
 
     def _do_test_GET_shard_ranges_no_cache(self, sharding_state, req_params,

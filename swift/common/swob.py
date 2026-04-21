@@ -51,10 +51,10 @@ from io import StringIO
 import urllib
 
 from swift.common.header_key_dict import HeaderKeyDict
-from swift.common.utils import reiterate, split_path, Timestamp, pairs, \
+from swift.common.utils import reiterate, split_path, pairs, \
     close_if_possible, closing_if_possible, config_true_value, friendly_close
 from swift.common.exceptions import InvalidTimestamp
-
+from swift.common.utils.timestamp import Timestamp, BaseTimestamp
 
 RESPONSE_REASONS = {
     100: ('Continue', ''),
@@ -139,7 +139,7 @@ DATE_HEADER_FORMAT_STRING = "%a, %d %b %Y %H:%M:%S GMT"
 
 def date_header_format(value):
     """
-    Given a Timestamp or numeric epoch, return a string in the IMF-fixdate
+    Given a BaseTimestamp or numeric epoch, return a string in the IMF-fixdate
     format specified by RFC7231 [1] and defined in RFC5322 [2], e.g.:
 
         Sun, 06 Nov 1994 08:49:37 GMT
@@ -147,16 +147,16 @@ def date_header_format(value):
     This format should be used for headers such as Date, Last-Modified,
     If-Modified-Since and If-Unmodified-Since.
 
-    If ``value`` is a Timestamp instance then ``value.ceil()`` is used as the
-    numeric epoch.
+    If ``value`` is a BaseTimestamp instance then ``value.ceil()`` is used as
+    the numeric epoch.
 
     [1] https://datatracker.ietf.org/doc/html/rfc7231#section-7.1.1.1
     [2] https://datatracker.ietf.org/doc/html/rfc5322
 
-    :param value: a Timestamp or numeric epoch
+    :param value: a BaseTimestamp or numeric epoch
     :returns: an RFC5322 format HTTP date string.
     """
-    if isinstance(value, Timestamp):
+    if isinstance(value, BaseTimestamp):
         value = value.ceil()
     return time.strftime(DATE_HEADER_FORMAT_STRING, time.gmtime(value))
 
@@ -179,7 +179,8 @@ def _datetime_property(header):
     Set and retrieve the datetime value of self.headers[header]
     (Used by both request and response)
     The header is parsed on retrieval and a datetime object is returned.
-    The header can be set using a datetime, numeric value, Timestamp, or str.
+    The header can be set using a datetime, numeric value, BaseTimestamp, or
+    str.
     If a value of None is given, the header is deleted.
 
     :param header: name of the header, e.g. "Content-Length"
@@ -194,7 +195,7 @@ def _datetime_property(header):
                 return None
 
     def setter(self, value):
-        if isinstance(value, (float, int, Timestamp)):
+        if isinstance(value, (float, int, BaseTimestamp)):
             self.headers[header] = date_header_format(value)
         elif isinstance(value, datetime):
             self.headers[header] = value.strftime(DATE_HEADER_FORMAT_STRING)
