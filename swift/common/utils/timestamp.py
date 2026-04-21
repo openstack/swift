@@ -25,7 +25,8 @@ from email.utils import parsedate
 NORMAL_FORMAT = "%016.05f"
 INTERNAL_FORMAT = NORMAL_FORMAT + '_%016x'
 SHORT_FORMAT = NORMAL_FORMAT + '_%x'
-MAX_OFFSET = (16 ** 16) - 1
+HEX_PART_DIGITS = 16
+MAX_OFFSET = (16 ** HEX_PART_DIGITS) - 1
 PRECISION = 1e-5
 # raw time has units of PRECISION
 MAX_RAW_TIME = 999999999999999
@@ -36,80 +37,61 @@ MAX_RAW_TIME = 999999999999999
 FORCE_INTERNAL = False  # or True
 
 
+def _coerce(value):
+    """
+    Coerce ``value`` to an instance of a subclass of BaseTimestamp instance.
+
+    :param value: value to coerce
+    :return: an instance of a subclass of BaseTimestamp
+    :raise: ValueError if ``value`` is not an instance of BaseTimestamp, nor
+        can be parsed to a subclass of BaseTimestamp.
+    """
+    if isinstance(value, BaseTimestamp):
+        return value
+    # force parse by converting to string
+    if not isinstance(value, (str, bytes)):
+        value = str(value)
+    try:
+        return NormalTimestamp(value, check_bounds=False)
+    except ValueError:
+        return Timestamp(value, check_bounds=False)
+
+
 @functools.total_ordering
-class Timestamp(object):
+class BaseTimestamp:
     """
-    Internal Representation of Swift Time.
-
-    The normalized form of the X-Timestamp header looks like a float
-    with a fixed width to ensure stable string sorting - normalized
-    timestamps look like "1402464677.04188"
-
-    To support overwrites of existing data without modifying the original
-    timestamp but still maintain consistency a second internal offset vector
-    is append to the normalized timestamp form which compares and sorts
-    greater than the fixed width float format but less than a newer timestamp.
-    The internalized format of timestamps looks like
-    "1402464677.04188_0000000000000000" - the portion after the underscore is
-    the offset and is a formatted hexadecimal integer.
-
-    The internalized form is not exposed to clients in responses from
-    Swift.  Normal client operations will not create a timestamp with an
-    offset.
-
-    The Timestamp class in common.utils supports internalized and
-    normalized formatting of timestamps and also comparison of timestamp
-    values.  When the offset value of a Timestamp is 0 - it's considered
-    insignificant and need not be represented in the string format; to
-    support backwards compatibility during a Swift upgrade the
-    internalized and normalized form of a Timestamp with an
-    insignificant offset are identical.  When a timestamp includes an
-    offset it will always be represented in the internalized form, but
-    is still excluded from the normalized form.  Timestamps with an
-    equivalent timestamp portion (the float part) will compare and order
-    by their offset.  Timestamps with a greater timestamp portion will
-    always compare and order greater than a Timestamp with a lesser
-    timestamp regardless of it's offset.  String comparison and ordering
-    is guaranteed for the internalized string format, and is backwards
-    compatible for normalized timestamps which do not include an offset.
+    Abstract base class for timestamps. Subclasses must implement the _create
+    and _parse methods to return a float timestamp value.
     """
-
-    def __init__(self, timestamp, offset=0, delta=0, check_bounds=True):
+    def __init__(self, timestamp, delta=0, check_bounds=True, **kwargs):
         """
-        Create a new Timestamp.
+        :param timestamp: the value may be one of:
+            * a float or integer: time in seconds since the Epoch.
+            * another instance of a BaseTimestamp whose internal form can be
+              parsed by the subclass being constructed.
+            * a string or bytes value that can be parsed by the subclass being
+              constructed.
+            * any other type whose string representation can be parsed by the
+              subclass being constructed.
 
-        :param timestamp: time in seconds since the Epoch, may be any of:
-
-            * a float or integer
-            * normalized/internalized string
-            * another instance of this class (offset is preserved)
-
-        :param offset: the second internal offset vector, an int
-        :param delta: deca-microsecond difference from the base timestamp
-                      param, an int
+        :param delta: (int) deca-microsecond difference to be added to the
+            ``timestamp`` value.
+        :param check_bounds: if True (default) then a ValueError will be raised
+            if the given timestamp is less than 0 or greater than the maximum
+            time that can be represented by this class.
         """
-        if isinstance(timestamp, bytes):
-            timestamp = timestamp.decode('ascii')
-        if isinstance(timestamp, str):
-            base, base_offset = timestamp.partition('_')[::2]
-            float_timestamp = float(base)
-            if '_' in base_offset:
-                raise ValueError('invalid literal for int() with base 16: '
-                                 '%r' % base_offset)
-            if base_offset:
-                self.offset = int(base_offset, 16)
+        if isinstance(timestamp, (float, int)):
+            float_timestamp = self._create(timestamp, **kwargs)
+        else:
+            if isinstance(timestamp, str):
+                timestamp_str = timestamp
+            elif isinstance(timestamp, bytes):
+                timestamp_str = timestamp.decode('ascii')
+            elif isinstance(timestamp, BaseTimestamp):
+                timestamp_str = timestamp.internal
             else:
-                self.offset = 0
-        else:
-            float_timestamp = float(timestamp)
-            self.offset = getattr(timestamp, 'offset', 0)
-        # increment offset
-        if offset >= 0:
-            self.offset += offset
-        else:
-            raise ValueError('offset must be non-negative')
-        if self.offset > MAX_OFFSET:
-            raise ValueError('offset must be smaller than %d' % MAX_OFFSET)
+                timestamp_str = str(timestamp)
+            float_timestamp = self._parse(timestamp_str, **kwargs)
         self.raw = int(round(float_timestamp / PRECISION))
         # add delta
         if delta:
@@ -117,13 +99,21 @@ class Timestamp(object):
             if self.raw <= 0:
                 raise ValueError(
                     'delta must be greater than %d' % (-1 * self.raw))
-
         self.timestamp = round(float(self.raw * PRECISION), 5)
         if check_bounds:
-            if self.timestamp < 0:
-                raise ValueError('timestamp cannot be negative')
-            if self.timestamp >= 10000000000:
-                raise ValueError('timestamp too large')
+            self._check_bounds()
+
+    def _create(self, timestamp, **kwargs):
+        raise NotImplementedError
+
+    def _parse(self, timestamp_str, **kwargs):
+        raise NotImplementedError
+
+    def _check_bounds(self):
+        if self.timestamp < 0:
+            raise ValueError('timestamp cannot be negative')
+        if self.timestamp >= 10000000000:
+            raise ValueError('timestamp too large')
 
     @classmethod
     def max(cls):
@@ -134,22 +124,23 @@ class Timestamp(object):
         return cls(0.0)
 
     @classmethod
-    def now(cls, offset=0, delta=0):
+    def now(cls, delta=0):
         """
         Returns an instance of a Timestamp at the current time.
         """
-        return cls(time.time(), offset=offset, delta=delta)
+        return cls(time.time(), delta=delta)
 
     @classmethod
     def zero(cls):
         """
         Returns an instance of the smallest possible Timestamp.
         """
-        return cls(0)
+        return cls(0.0)
 
     def __repr__(self):
-        return INTERNAL_FORMAT % (self.timestamp, self.offset)
+        return self.internal
 
+    # TODO: do we need to be so brittle on the base class?
     def __str__(self):
         raise TypeError('You must specify which string format is required')
 
@@ -160,25 +151,29 @@ class Timestamp(object):
         return int(self.timestamp)
 
     def __bool__(self):
-        return bool(self.timestamp or self.offset)
+        return bool(self.timestamp)
 
     @property
     def normal(self):
+        """
+        The normalised string representation of the timestamp's float part.
+        """
         return NORMAL_FORMAT % self.timestamp
 
     @property
     def internal(self):
-        if self.offset or FORCE_INTERNAL:
-            return INTERNAL_FORMAT % (self.timestamp, self.offset)
-        else:
-            return self.normal
+        """
+        The full string representation of the timestamp. Subclasses may
+        override this property such that it differs from ``normal``.
 
-    @property
-    def short(self):
-        if self.offset or FORCE_INTERNAL:
-            return SHORT_FORMAT % (self.timestamp, self.offset)
-        else:
-            return self.normal
+        This is the canonical string representation of the timestamp, used to
+        evaluate equality and ordering of timestamps.
+        """
+        # note: BaseTimestamp has the 'internal' property even though it is
+        # identical to the 'normal' property so that all subclasses provide
+        # the same interface to their string representation(s). A caller can
+        # use ts.internal for any type of BaseTimestamp.
+        return self.normal
 
     @property
     def isoformat(self):
@@ -221,7 +216,7 @@ class Timestamp(object):
         """
         Parse an isoformat string representation of time to a Timestamp object.
 
-        :param date_string: a string formatted as per an Timestamp.isoformat
+        :param date_string: a string formatted as per a Timestamp.isoformat
             property.
         :return: an instance of  this class.
         """
@@ -261,12 +256,12 @@ class Timestamp(object):
     def __eq__(self, other):
         if other is None:
             return False
-        if not isinstance(other, Timestamp):
-            try:
-                other = Timestamp(other, check_bounds=False)
-            except ValueError:
-                return False
-        return self.internal == other.internal
+        try:
+            other_ts = _coerce(other)
+        except ValueError:
+            return NotImplemented
+
+        return self.internal == other_ts.internal
 
     def __ne__(self, other):
         return not (self == other)
@@ -274,16 +269,218 @@ class Timestamp(object):
     def __lt__(self, other):
         if other is None:
             return False
-        if not isinstance(other, Timestamp):
-            other = Timestamp(other, check_bounds=False)
-        if other.timestamp < 0:
+        try:
+            other_ts = _coerce(other)
+        except ValueError:
+            return NotImplemented
+        if other_ts.timestamp < 0:
             return False
-        if other.timestamp >= 10000000000:
+        if other_ts.timestamp >= 10000000000:
             return True
-        return self.internal < other.internal
+        return self.internal < other_ts.internal
 
     def __hash__(self):
         return hash(self.internal)
+
+    def __invert__(self):
+        return self.__class__((MAX_RAW_TIME - self.raw) * PRECISION)
+
+
+class NormalTimestamp(BaseTimestamp):
+    """
+    A NormalTimestamp encapsulates a timestamp rounded to the nearest
+    deca-microsecond.
+
+    The normalized form of time looks like a float with a fixed width to ensure
+    stable string sorting - normalized timestamps look like "1402464677.04188".
+    """
+    # This subclass extends BaseTimestamp to provide a constructor that parses
+    # and validates a string timestamp. The subclass also allows tests to mock
+    # NormalTimestamp without changing the BaseTimestamp superclass behavior
+    # that is also inherited by Timestamp.
+    def __init__(self, timestamp, delta=0, check_bounds=True):
+        """
+        Create a new NormalTimestamp.
+
+        :param timestamp: the value may be one of:
+            * a float or integer: time in seconds since the Epoch; the
+              Timestamp constructed will be in the deca-microsecond described
+              by the value.
+            * another instance of a NormalTimestamp.
+            * a string or bytes representation of a float, or any other type
+              whose string representation can be cast to a float. The string
+              must not container underscores.
+
+        :param delta: (int) deca-microsecond difference to be added to the
+            ``timestamp`` value.
+        :param check_bounds: if True (default) then a ValueError will be raised
+            if the given timestamp is less than 0 or greater than the maximum
+            time that can be represented by this class.
+        """
+        super().__init__(timestamp, delta, check_bounds=check_bounds)
+
+    def _create(self, timestamp, **kwargs):
+        return float(timestamp)
+
+    def _parse(self, timestamp_str, **kwargs):
+        if '_' in timestamp_str:
+            # note: python will cast 1.2_3 to a float, and we do not want to
+            # accidentally parse a Timestamp (with offset) as a NormalTimestamp
+            raise ValueError('timestamp must not contain "_"')
+        return float(timestamp_str)
+
+
+class Timestamp(BaseTimestamp):
+    """
+    A Timestamp encapsulates a representation of a timestamp that uniquely
+    identifies resources in Swift. It is typically used when Swift adds an
+    X-Timestamp header to client requests. The Timestamp class supports
+    internalized and normalized formatting of timestamps and also comparison of
+    timestamp values.
+
+    The internalized form of a Timestamp is a float part, which is the number
+    of seconds since the epoch rounded to deca-microsecond precision, followed
+    by a 16 digit hex part, e.g.:
+
+        1402464677.04188_0000000000000001
+        <  float secs  >_<   hex part   >
+
+    The fixed width of the parts ensures stable sort order.
+
+    To support overwrites of existing data without modifying the original
+    timestamp but still maintain consistency, an internal offset vector is
+    maintained in the hex part. A timestamp with an offset therefore compares
+    and sorts greater than the same timestamp with smaller offset, but less
+    than a timestamp with a greater float part and/or random part. The offset
+    is used by internal services (e.g. the reconciler). Normal client
+    operations will not create a timestamp with an offset.
+
+    The hex part is not exposed to clients in responses from Swift. Instead, a
+    normalized form of the timestamps is used which comprises only the
+    deca-microsecond precision float part, and is identical to the form of a
+    NormalTimestamp, e.g.:
+
+        1402464677.04188
+
+    Timestamps allocate the entire 16 digit hex part to the offset. For
+    example, a Timestamp with offset 1 has the following internalized form:
+
+        1402464677.04188_0000000000000001
+        <  float secs  >_<     offset   >
+
+    When the offset of a Timestamp is 0 it is considered insignificant and the
+    hex part is not included in the internalized form. When a Timestamp has a
+    non-zero offset the hex part will always be represented in the internalized
+    form, but is still excluded from the normalized form.
+
+    Timestamps with an equivalent float part will compare and order by their
+    hex part.  Timestamps with a greater float part will always compare and
+    order greater than a Timestamp with a lesser float part regardless of its
+    hex part.  String comparison and ordering is guaranteed for the
+    internalized string format, and is backwards compatible for normalized
+    timestamps which do not include a hex part.
+    """
+
+    def __init__(self, timestamp, offset=0, delta=0, check_bounds=True):
+        """
+        Create a new Timestamp.
+
+        :param timestamp: the value may be one of:
+            * a float or integer: time in seconds since the Epoch; the
+              Timestamp constructed will be in the deca-microsecond described
+              by the value.
+            * another instance of a BaseTimestamp (the hex part is preserved
+              when present).
+            * a string or bytes representation of a Timestamp.
+            * any other type that can be cast to a string and parsed as a
+              Timestamp.
+
+        :param offset: (int) the internal offset vector. When ``timestamp`` is
+            a float this value initialises the offset, otherwise this value
+            will be added to any existing offset of the parsed ``timestamp``.
+        :param delta: (int) deca-microsecond difference to be added to the
+            ``timestamp`` value.
+        :param check_bounds: if True (default) then a ValueError will be raised
+            if the given timestamp is less than 0 or greater than the maximum
+            time that can be represented by this class.
+        """
+        self._offset = 0
+        super().__init__(timestamp, delta=delta, check_bounds=check_bounds)
+        self.increment_offset(offset)
+
+    def _create(self, timestamp, **kwargs):
+        return float(timestamp)
+
+    def _parse(self, timestamp_str, **kwargs):
+        float_str, hex_str = timestamp_str.partition('_')[::2]
+        if '_' in hex_str:
+            raise ValueError('invalid literal for int() with base 16: '
+                             '%r' % hex_str)
+        if len(hex_str) > HEX_PART_DIGITS:
+            raise ValueError('hex part too long: %r' % hex_str)
+        self.offset = int(hex_str, 16) if hex_str else 0
+        return float(float_str)
+
+    @property
+    def offset(self):
+        return self._offset
+
+    @offset.setter
+    def offset(self, value):
+        if not value:
+            return
+        if value < 0:
+            raise ValueError('offset must be non-negative')
+
+        if value > MAX_OFFSET:
+            raise ValueError('offset must be less than or equal to %d'
+                             % MAX_OFFSET)
+        self._offset = value
+
+    def increment_offset(self, value):
+        """
+        Increment the offset of the timestamp by the given value.
+
+        :raises ValueError: if value is negative or if the resulting offset
+            would exceed the maximum supported offset.
+        """
+        if not value:
+            return
+        if value < 0:
+            raise ValueError('offset must be non-negative')
+        self.offset += value
+        return self.offset
+
+    @classmethod
+    def now(cls, offset=0, delta=0):
+        """
+        Returns an instance of a Timestamp at the current time.
+
+        :param offset: (int) the second internal offset vector
+        :param delta: (int) deca-microsecond difference to be added to the
+            current time.
+        """
+        return cls(time.time(), offset=offset, delta=delta)
+
+    def __repr__(self):
+        return INTERNAL_FORMAT % (self.timestamp, self.offset)
+
+    def __bool__(self):
+        return super().__bool__() or bool(self.offset)
+
+    @property
+    def internal(self):
+        if self.offset or FORCE_INTERNAL:
+            return INTERNAL_FORMAT % (self.timestamp, self.offset)
+        else:
+            return self.normal
+
+    @property
+    def short(self):
+        if self.offset or FORCE_INTERNAL:
+            return SHORT_FORMAT % (self.timestamp, self.offset)
+        else:
+            return self.normal
 
     def __invert__(self):
         if not self.offset:
@@ -293,6 +490,19 @@ class Timestamp(object):
             inv_float = (MAX_RAW_TIME - self.raw - 1) * PRECISION
             inv_hex_part = MAX_OFFSET + 1 - self.offset
         return Timestamp(inv_float, offset=inv_hex_part)
+
+    def normalized(self):
+        """
+        Get a NormalTimestamp clone of this Timestamp without any hex
+        extension.
+
+        Normalized timestamps have less differentiation from each other than
+        extended timestamps; only use this method if you understand the
+        implication of that loss of differentiation.
+
+        :returns: an instance of NormalTimestamp.
+        """
+        return NormalTimestamp(self.normal)
 
 
 def encode_timestamps(t1, t2=None, t3=None, explicit=False):
@@ -344,6 +554,8 @@ def decode_timestamps(encoded, explicit=False):
     delta from the previous component and therefore take the value of the
     previous component. If explicit is True, component timestamps that are
     not explicitly encoded will be returned with value None.
+
+    :return: a tuple(Timestamp, Timestamp, Timestamp)
     """
     # TODO: some tests, e.g. in test_replicator, put float timestamps values
     # into container db's, hence this defensive check, but in real world

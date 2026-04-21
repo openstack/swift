@@ -37,8 +37,9 @@ from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER
 from swift.common.ring.utils import is_local_device
 from swift.common.statsd_client import get_labeled_statsd_client
 from swift.common.swob import str_to_wsgi
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.common.utils import get_logger, config_true_value, \
-    dump_recon_cache, whataremyips, Timestamp, ShardRange, GreenAsyncPile, \
+    dump_recon_cache, whataremyips, ShardRange, GreenAsyncPile, \
     config_positive_int_value, quorum_size, parse_override_options, \
     Everything, config_auto_int_value, ShardRangeList, config_percent_value, \
     node_to_string, parse_options
@@ -71,7 +72,7 @@ def sharding_enabled(broker):
 
 
 def make_shard_ranges(broker, shard_data, shards_account_prefix):
-    timestamp = Timestamp.now()
+    timestamp = NormalTimestamp.now()
     shard_ranges = []
     for data in shard_data:
         # Make a copy so we don't mutate the original
@@ -127,7 +128,7 @@ def find_paths_with_gaps(shard_ranges, within_range=None):
         single ShardRange covering either the minimum or maximum of the
         namespace.
     """
-    timestamp = Timestamp.now()
+    timestamp = NormalTimestamp.now()
     within_range = within_range or ShardRange('entire/namespace', timestamp)
     shard_ranges = ShardRangeList(shard_ranges)
     # note: find_paths results do not include shrinking ranges
@@ -252,7 +253,7 @@ def find_sharding_candidates(broker, threshold, shard_ranges=None):
         if not is_sharding_candidate(shard_range, threshold):
             continue
         shard_range.update_state(ShardRange.SHARDING,
-                                 state_timestamp=Timestamp.now())
+                                 state_timestamp=NormalTimestamp.now())
         shard_range.epoch = shard_range.state_timestamp
         candidates.append(shard_range)
     return candidates
@@ -424,7 +425,7 @@ def process_compactible_shard_sequences(broker, sequences):
     :param broker: A :class:`~swift.container.backend.ContainerBroker`.
     :param sequences: A list of :class:`~swift.common.utils.ShardRangeList`
     """
-    timestamp = Timestamp.now()
+    timestamp = NormalTimestamp.now()
     acceptor_ranges = []
     shrinking_ranges = []
     for sequence in sequences:
@@ -1853,7 +1854,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         if src_bounds is None:
             src_bounds = self._make_misplaced_object_bounds(broker)
         # (ab)use ShardRange instances to encapsulate source namespaces
-        src_ranges = [ShardRange('dont/care', Timestamp.now(), lower, upper)
+        src_ranges = [ShardRange('dont/care', NormalTimestamp.now(),
+                                 lower, upper)
                       for lower, upper in src_bounds]
         self.db_logger.debug(
             broker, 'misplaced object source bounds %s',
@@ -2284,7 +2286,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
             if (not broker.is_root_container() and not
                     own_shard_range.deleted):
                 own_shard_range = own_shard_range.copy(
-                    timestamp=Timestamp.now(), deleted=1)
+                    timestamp=NormalTimestamp.now(), deleted=1)
             modified_shard_ranges.append(own_shard_range)
             broker.merge_shard_ranges(modified_shard_ranges)
             if broker.set_sharded_state():

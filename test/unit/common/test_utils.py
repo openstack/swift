@@ -23,8 +23,8 @@ import itertools
 from swift.common.statsd_client import StatsdClient
 from test.debug_logger import debug_logger, FakeStatsdClient, \
     debug_labeled_statsd_client
-from test.unit import temptree, make_timestamp_iter, with_tempdir, \
-    mock_timestamp_now, TestableMemcacheRing, FakeIterable, BaseUnitTestCase
+from test.unit import temptree, with_tempdir, TestableMemcacheRing, \
+    FakeIterable, BaseUnitTestCase, mock_normal_timestamp_now
 
 import contextlib
 import errno
@@ -67,6 +67,7 @@ from swift.common.exceptions import Timeout, LockTimeout, \
 from swift.common import utils
 from swift.common.utils import set_swift_dir, md5, ShardRangeList, \
     CooperativeCachePopulator
+from swift.common.utils.timestamp import NormalTimestamp, Timestamp
 from swift.common.container_sync_realms import ContainerSyncRealms
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import POLICIES, reload_storage_policies
@@ -2069,7 +2070,7 @@ cluster_dfw1 = http://dfw1.host/v1/
         self.assertRaises(OSError, utils.makedirs_count, temppath)
 
     def test_find_namespace(self):
-        ts = utils.Timestamp.now().internal
+        ts = NormalTimestamp.now().internal
         start = utils.ShardRange('a/-a', ts, '', 'a')
         atof = utils.ShardRange('a/a-f', ts, 'a', 'f')
         ftol = utils.ShardRange('a/f-l', ts, 'f', 'l')
@@ -5856,7 +5857,7 @@ class TestGetPpid(unittest.TestCase):
 
 class TestShardName(unittest.TestCase):
     def test(self):
-        ts = utils.Timestamp.now()
+        ts = NormalTimestamp.now()
         created = utils.ShardName.create('a', 'root', 'parent', ts, 1)
         parent_hash = md5(b'parent', usedforsecurity=False).hexdigest()
         expected = 'a/root-%s-%s-1' % (parent_hash, ts.internal)
@@ -5871,13 +5872,19 @@ class TestShardName(unittest.TestCase):
         self.assertEqual(1, parsed.index)
         self.assertEqual(actual, str(parsed))
 
+    def test_timestamp(self):
+        # a Timestamp with no jitter is OK
+        ts = Timestamp.now()
+        sr = utils.ShardName.create('a', 'root', 'parent', ts, 1)
+        self.assertEqual(ts, sr.timestamp)
+
     def test_root_has_hyphens(self):
         parsed = utils.ShardName.parse(
             'a/root-has-some-hyphens-hash-1234-99')
         self.assertEqual('a', parsed.account)
         self.assertEqual('root-has-some-hyphens', parsed.root_container)
         self.assertEqual('hash', parsed.parent_container_hash)
-        self.assertEqual(utils.Timestamp(1234), parsed.timestamp)
+        self.assertEqual(NormalTimestamp(1234), parsed.timestamp)
         self.assertEqual(99, parsed.index)
 
     def test_realistic_shard_range_names(self):
@@ -5889,10 +5896,10 @@ class TestShardName(unittest.TestCase):
         self.assertEqual('r1', parsed.root_container)
         self.assertEqual('7c92cf1eee8d99cc85f8355a3d6e4b86',
                          parsed.parent_container_hash)
-        self.assertEqual(utils.Timestamp('1662475499'), parsed.timestamp)
+        self.assertEqual(NormalTimestamp('1662475499'), parsed.timestamp)
         self.assertEqual(1, parsed.index)
 
-        ts = utils.Timestamp(1234)
+        ts = NormalTimestamp(1234)
         parsed = utils.ShardName('.shards_a', 'c', 'hash', ts, 42)
         self.assertEqual('.shards_a/c-hash-%s-42' % ts.internal, str(parsed))
 
@@ -5925,6 +5932,9 @@ class TestShardName(unittest.TestCase):
             utils.ShardName.create('a', 'root', 'hash', 'bad', '0')
         with self.assertRaises(ValueError):
             utils.ShardName.create('a', 'root', None, '1235678', 'bad')
+        with self.assertRaises(ValueError):
+            ts = Timestamp.now(offset=1)
+            utils.ShardName.create('a', 'root', 'parent', ts, 1)
 
 
 class BaseNamespaceShardRange(object):
@@ -6438,10 +6448,7 @@ class TestNamespaceBoundList(unittest.TestCase):
         self.assertEqual(namespace_list.bounds, self.lowerbounds)
 
 
-class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
-    def setUp(self):
-        self.ts_iter = make_timestamp_iter()
-
+class TestShardRange(BaseUnitTestCase, BaseNamespaceShardRange):
     def test_constants(self):
         self.assertEqual({utils.ShardRange.SHARDING,
                           utils.ShardRange.SHARDED,
@@ -6531,17 +6538,20 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
 
     def test_shard_range_initialisation(self):
         def assert_initialisation_ok(params, expected):
-            pr = utils.ShardRange(**params)
-            self.assertDictEqual(dict(pr), expected)
+            sr = utils.ShardRange(**params)
+            self.assertDictEqual(dict(sr), expected)
+            self.assertIsInstance(sr.timestamp, NormalTimestamp)
+            self.assertIsInstance(sr.meta_timestamp, NormalTimestamp)
+            self.assertIsInstance(sr.state_timestamp, NormalTimestamp)
 
         def assert_initialisation_fails(params, err_type=ValueError):
             with self.assertRaises(err_type):
                 utils.ShardRange(**params)
 
-        ts_1 = next(self.ts_iter)
-        ts_2 = next(self.ts_iter)
-        ts_3 = next(self.ts_iter)
-        ts_4 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
+        ts_2 = self.normal_ts()
+        ts_3 = self.normal_ts()
+        ts_4 = self.normal_ts()
         empty_run = dict(name=None, timestamp=None, lower=None,
                          upper=None, object_count=0, bytes_used=0,
                          meta_timestamp=None, deleted=0,
@@ -6629,10 +6639,10 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         assert_initialisation_fails(dict(good_run, name=''))
 
     def _check_to_from_dict(self, lower, upper):
-        ts_1 = next(self.ts_iter)
-        ts_2 = next(self.ts_iter)
-        ts_3 = next(self.ts_iter)
-        ts_4 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
+        ts_2 = self.normal_ts()
+        ts_3 = self.normal_ts()
+        ts_4 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, lower, upper, 10, 100, ts_2,
                               state=None, state_timestamp=ts_3, epoch=ts_4)
         sr_dict = dict(sr)
@@ -6708,7 +6718,7 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
                 "Name must be of the form '<account>/<container>'",
                 str(cm.exception))
 
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         check_invalid(utils.ShardRange, '', ts, 'l', 'u')
         check_invalid(utils.ShardRange, 'a', ts, 'l', 'u')
         check_invalid(utils.ShardRange, b'a', ts, 'l', 'u')
@@ -6728,32 +6738,32 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         check_invalid(setattr, ns, 'name', None)
 
     def test_timestamp_setter(self):
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(ts_1, sr.timestamp)
 
-        ts_2 = next(self.ts_iter)
+        ts_2 = self.normal_ts()
         sr.timestamp = ts_2
         self.assertEqual(ts_2, sr.timestamp)
 
         sr.timestamp = 0
-        self.assertEqual(utils.Timestamp(0), sr.timestamp)
+        self.assertEqual(NormalTimestamp(0), sr.timestamp)
 
         with self.assertRaises(TypeError):
             sr.timestamp = None
 
     def test_meta_timestamp_setter(self):
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(ts_1, sr.timestamp)
         self.assertEqual(ts_1, sr.meta_timestamp)
 
-        ts_2 = next(self.ts_iter)
+        ts_2 = self.normal_ts()
         sr.meta_timestamp = ts_2
         self.assertEqual(ts_1, sr.timestamp)
         self.assertEqual(ts_2, sr.meta_timestamp)
 
-        ts_3 = next(self.ts_iter)
+        ts_3 = self.normal_ts()
         sr.timestamp = ts_3
         self.assertEqual(ts_3, sr.timestamp)
         self.assertEqual(ts_2, sr.meta_timestamp)
@@ -6762,31 +6772,31 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         sr.meta_timestamp = None
         self.assertEqual(ts_3, sr.timestamp)
         self.assertEqual(ts_3, sr.meta_timestamp)
-        ts_4 = next(self.ts_iter)
+        ts_4 = self.normal_ts()
         sr.timestamp = ts_4
         self.assertEqual(ts_4, sr.timestamp)
         self.assertEqual(ts_4, sr.meta_timestamp)
 
         sr.meta_timestamp = 0
         self.assertEqual(ts_4, sr.timestamp)
-        self.assertEqual(utils.Timestamp(0), sr.meta_timestamp)
+        self.assertEqual(NormalTimestamp(0), sr.meta_timestamp)
 
     def test_update_meta(self):
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
-        with mock_timestamp_now(next(self.ts_iter)) as now:
+        with mock_normal_timestamp_now(self.normal_ts()) as now:
             sr.update_meta(9, 99)
         self.assertEqual(9, sr.object_count)
         self.assertEqual(99, sr.bytes_used)
         self.assertEqual(now, sr.meta_timestamp)
 
-        with mock_timestamp_now(next(self.ts_iter)) as now:
+        with mock_normal_timestamp_now(self.normal_ts()) as now:
             sr.update_meta(99, 999, None)
         self.assertEqual(99, sr.object_count)
         self.assertEqual(999, sr.bytes_used)
         self.assertEqual(now, sr.meta_timestamp)
 
-        ts_2 = next(self.ts_iter)
+        ts_2 = self.normal_ts()
         sr.update_meta(21, 2112, ts_2)
         self.assertEqual(21, sr.object_count)
         self.assertEqual(2112, sr.bytes_used)
@@ -6804,9 +6814,9 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         check_bad_args(10, 11, 'bad')
 
     def test_increment_meta(self):
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 1, 2, None)
-        with mock_timestamp_now(next(self.ts_iter)) as now:
+        with mock_normal_timestamp_now(self.normal_ts()) as now:
             sr.increment_meta(9, 99)
         self.assertEqual(10, sr.object_count)
         self.assertEqual(101, sr.bytes_used)
@@ -6823,26 +6833,26 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         check_bad_args(10, 'bad')
 
     def test_update_tombstones(self):
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(-1, sr.tombstones)
         self.assertFalse(sr.reported)
 
-        with mock_timestamp_now(next(self.ts_iter)) as now:
+        with mock_normal_timestamp_now(self.normal_ts()) as now:
             sr.update_tombstones(1)
         self.assertEqual(1, sr.tombstones)
         self.assertEqual(now, sr.meta_timestamp)
         self.assertFalse(sr.reported)
 
         sr.reported = True
-        with mock_timestamp_now(next(self.ts_iter)) as now:
+        with mock_normal_timestamp_now(self.normal_ts()) as now:
             sr.update_tombstones(3, None)
         self.assertEqual(3, sr.tombstones)
         self.assertEqual(now, sr.meta_timestamp)
         self.assertFalse(sr.reported)
 
         sr.reported = True
-        ts_2 = next(self.ts_iter)
+        ts_2 = self.normal_ts()
         sr.update_tombstones(5, ts_2)
         self.assertEqual(5, sr.tombstones)
         self.assertEqual(ts_2, sr.meta_timestamp)
@@ -6850,7 +6860,7 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
 
         # no change in value -> no change in reported
         sr.reported = True
-        ts_3 = next(self.ts_iter)
+        ts_3 = self.normal_ts()
         sr.update_tombstones(5, ts_3)
         self.assertEqual(5, sr.tombstones)
         self.assertEqual(ts_3, sr.meta_timestamp)
@@ -6867,7 +6877,7 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         check_bad_args(10, 'bad')
 
     def test_row_count(self):
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(0, sr.row_count)
 
@@ -6879,17 +6889,17 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         self.assertEqual(13, sr.row_count)
 
     def test_state_timestamp_setter(self):
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         sr = utils.ShardRange('a/test', ts_1, 'l', 'u', 0, 0, None)
         self.assertEqual(ts_1, sr.timestamp)
         self.assertEqual(ts_1, sr.state_timestamp)
 
-        ts_2 = next(self.ts_iter)
+        ts_2 = self.normal_ts()
         sr.state_timestamp = ts_2
         self.assertEqual(ts_1, sr.timestamp)
         self.assertEqual(ts_2, sr.state_timestamp)
 
-        ts_3 = next(self.ts_iter)
+        ts_3 = self.normal_ts()
         sr.timestamp = ts_3
         self.assertEqual(ts_3, sr.timestamp)
         self.assertEqual(ts_2, sr.state_timestamp)
@@ -6898,20 +6908,20 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         sr.state_timestamp = None
         self.assertEqual(ts_3, sr.timestamp)
         self.assertEqual(ts_3, sr.state_timestamp)
-        ts_4 = next(self.ts_iter)
+        ts_4 = self.normal_ts()
         sr.timestamp = ts_4
         self.assertEqual(ts_4, sr.timestamp)
         self.assertEqual(ts_4, sr.state_timestamp)
 
         sr.state_timestamp = 0
         self.assertEqual(ts_4, sr.timestamp)
-        self.assertEqual(utils.Timestamp(0), sr.state_timestamp)
+        self.assertEqual(NormalTimestamp.zero(), sr.state_timestamp)
 
     def test_state_setter(self):
         for state, state_name in utils.ShardRange.STATES.items():
             for test_value in (
                     state, str(state), state_name, state_name.upper()):
-                sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')
+                sr = utils.ShardRange('a/test', self.normal_ts(), 'l', 'u')
                 sr.state = test_value
                 actual = sr.state
                 self.assertEqual(
@@ -6922,13 +6932,13 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
 
         for bad_state in (max(utils.ShardRange.STATES) + 1,
                           -1, 99, None, 'stringy', 1.1):
-            sr = utils.ShardRange('a/test', next(self.ts_iter), 'l', 'u')
+            sr = utils.ShardRange('a/test', self.normal_ts(), 'l', 'u')
             with self.assertRaises(ValueError) as cm:
                 sr.state = bad_state
             self.assertIn('Invalid state', str(cm.exception))
 
     def test_update_state(self):
-        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        sr = utils.ShardRange('a/c', self.normal_ts())
         old_sr = sr.copy()
         self.assertEqual(utils.ShardRange.FOUND, sr.state)
         self.assertEqual(dict(sr), dict(old_sr))  # sanity check
@@ -6941,10 +6951,10 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
             self.assertFalse(sr.update_state(state))
             self.assertEqual(dict(old_sr, state=state), dict(sr))
 
-        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        sr = utils.ShardRange('a/c', self.normal_ts())
         old_sr = sr.copy()
         for state in utils.ShardRange.STATES:
-            ts = next(self.ts_iter)
+            ts = self.normal_ts()
             self.assertTrue(sr.update_state(state, state_timestamp=ts))
             self.assertEqual(dict(old_sr, state=state, state_timestamp=ts),
                              dict(sr))
@@ -6972,13 +6982,13 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         check_bad_value('badstate')
 
     def test_epoch_setter(self):
-        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        sr = utils.ShardRange('a/c', self.normal_ts())
         self.assertIsNone(sr.epoch)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         sr.epoch = ts
         self.assertEqual(ts, sr.epoch)
-        ts = next(self.ts_iter)
-        sr.epoch = ts.internal
+        ts = self.normal_ts()
+        sr.epoch = ts.normal
         self.assertEqual(ts, sr.epoch)
         sr.epoch = None
         self.assertIsNone(sr.epoch)
@@ -6986,7 +6996,7 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
             sr.epoch = 'bad'
 
     def test_deleted_setter(self):
-        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        sr = utils.ShardRange('a/c', self.normal_ts())
         for val in (True, 1):
             sr.deleted = val
             self.assertIs(True, sr.deleted)
@@ -6995,16 +7005,16 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
             self.assertIs(False, sr.deleted)
 
     def test_set_deleted(self):
-        sr = utils.ShardRange('a/c', next(self.ts_iter))
+        sr = utils.ShardRange('a/c', self.normal_ts())
         # initialise other timestamps
         sr.update_state(utils.ShardRange.ACTIVE,
-                        state_timestamp=utils.Timestamp.now())
+                        state_timestamp=NormalTimestamp.now())
         sr.update_meta(1, 2)
         old_sr = sr.copy()
         self.assertIs(False, sr.deleted)  # sanity check
         self.assertEqual(dict(sr), dict(old_sr))  # sanity check
 
-        with mock_timestamp_now(next(self.ts_iter)) as now:
+        with mock_normal_timestamp_now(self.normal_ts()) as now:
             self.assertTrue(sr.set_deleted())
         self.assertEqual(now, sr.timestamp)
         self.assertIs(True, sr.deleted)
@@ -7022,16 +7032,15 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         self.assertIs(True, sr.deleted)
 
         # force timestamp change
-        with mock_timestamp_now(next(self.ts_iter)) as now:
+        with mock_normal_timestamp_now(self.normal_ts()) as now:
             self.assertTrue(sr.set_deleted(timestamp=now))
         self.assertEqual(now, sr.timestamp)
         self.assertIs(True, sr.deleted)
 
     def test_repr(self):
-        ts = next(self.ts_iter)
-        ts.offset = 1234
-        meta_ts = next(self.ts_iter)
-        state_ts = next(self.ts_iter)
+        ts = self.normal_ts()
+        meta_ts = self.normal_ts()
+        state_ts = self.normal_ts()
         sr = utils.ShardRange('a/c', ts, 'l', 'u', 100, 1000,
                               meta_timestamp=meta_ts,
                               state=utils.ShardRange.ACTIVE,
@@ -7042,30 +7051,18 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
             % ('l', 'u',
                ts.internal, meta_ts.internal, state_ts.internal), str(sr))
 
-        ts.offset = 0
-        meta_ts.offset = 2
-        state_ts.offset = 3
-        sr = utils.ShardRange('a/c', ts, '', '', 100, 1000,
-                              meta_timestamp=meta_ts,
-                              state=utils.ShardRange.FOUND,
-                              state_timestamp=state_ts)
-        self.assertEqual(
-            "ShardRange<MinBound to MaxBound as of %s, (100, 1000) as of %s, "
-            "found as of %s>"
-            % (ts.internal, meta_ts.internal, state_ts.internal), str(sr))
-
     def test_copy(self):
-        sr = utils.ShardRange('a/c', next(self.ts_iter), 'x', 'y', 99, 99000,
-                              meta_timestamp=next(self.ts_iter),
+        sr = utils.ShardRange('a/c', self.normal_ts(), 'x', 'y', 99, 99000,
+                              meta_timestamp=self.normal_ts(),
                               state=utils.ShardRange.CREATED,
-                              state_timestamp=next(self.ts_iter))
+                              state_timestamp=self.normal_ts())
         new = sr.copy()
         self.assertEqual(dict(sr), dict(new))
 
         new = sr.copy(deleted=1)
         self.assertEqual(dict(sr, deleted=1), dict(new))
 
-        new_timestamp = next(self.ts_iter)
+        new_timestamp = self.normal_ts()
         new = sr.copy(timestamp=new_timestamp)
         self.assertEqual(dict(sr, timestamp=new_timestamp.internal,
                               meta_timestamp=new_timestamp.internal,
@@ -7080,7 +7077,7 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
                          dict(new))
 
     def test_make_path(self):
-        ts = utils.Timestamp.now()
+        ts = NormalTimestamp.now()
         actual = utils.ShardRange.make_path('a', 'root', 'parent', ts, 0)
         parent_hash = md5(b'parent', usedforsecurity=False).hexdigest()
         self.assertEqual('a/root-%s-%s-0' % (parent_hash, ts.internal), actual)
@@ -7103,19 +7100,19 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
 
     def test_sort_key(self):
         orig_shard_ranges = [
-            utils.ShardRange('a/c', next(self.ts_iter), '', '',
+            utils.ShardRange('a/c', self.normal_ts(), '', '',
                              state=utils.ShardRange.SHARDED),
-            utils.ShardRange('.a/c1', next(self.ts_iter), 'a', 'd',
+            utils.ShardRange('.a/c1', self.normal_ts(), 'a', 'd',
                              state=utils.ShardRange.CREATED),
-            utils.ShardRange('.a/c0', next(self.ts_iter), '', 'a',
+            utils.ShardRange('.a/c0', self.normal_ts(), '', 'a',
                              state=utils.ShardRange.CREATED),
-            utils.ShardRange('.a/c2b', next(self.ts_iter), 'd', 'f',
+            utils.ShardRange('.a/c2b', self.normal_ts(), 'd', 'f',
                              state=utils.ShardRange.SHARDING),
-            utils.ShardRange('.a/c2', next(self.ts_iter), 'c', 'f',
+            utils.ShardRange('.a/c2', self.normal_ts(), 'c', 'f',
                              state=utils.ShardRange.SHARDING),
-            utils.ShardRange('.a/c2a', next(self.ts_iter), 'd', 'f',
+            utils.ShardRange('.a/c2a', self.normal_ts(), 'd', 'f',
                              state=utils.ShardRange.SHARDING),
-            utils.ShardRange('.a/c4', next(self.ts_iter), 'f', '',
+            utils.ShardRange('.a/c4', self.normal_ts(), 'f', '',
                              state=utils.ShardRange.ACTIVE)
         ]
         shard_ranges = list(orig_shard_ranges)
@@ -7134,50 +7131,50 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
         # using abbreviated names a_r_gp_p_c
 
         # account 1
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1 = utils.ShardRange('a1/r1', ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', 'r1', ts, 1), ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1.container, ts, 1), ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p1_c1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 1), ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p1_c2 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 2), ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p2 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1.container, ts, 2), ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp2 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', 'r1', ts, 2), ts)  # different index
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp2_p1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp2.container, ts, 1), ts)
         # drop the index from grandparent name
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         rogue_a1_r1_gp = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', 'r1', ts, 1)[:-2], ts)
 
         # account 1, root 2
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r2 = utils.ShardRange('a1/r2', ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r2_gp1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r2', a1_r2.container, ts, 1), ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r2_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r2', a1_r2_gp1.container, ts, 3), ts)
 
         # account 2, root1
         a2_r1 = utils.ShardRange('a2/r1', ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a2_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a2', 'r1', a2_r1.container, ts, 1), ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a2_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a2', 'r1', a2_r1_gp1.container, ts, 3), ts)
 
@@ -7239,21 +7236,21 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
 
     def test_find_root(self):
         # account 1
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1 = utils.ShardRange('a1/r1', ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', 'r1', ts, 1), ts, '', 'l')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1.container, ts, 1), ts, 'a', 'k')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p1_c1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 1), ts, 'a', 'j')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p2 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1.container, ts, 2), ts, 'k', 'l')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp2 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', 'r1', ts, 2), ts, 'l', '')  # different index
 
@@ -7286,21 +7283,21 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
 
     def test_find_ancestors(self):
         # account 1
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1 = utils.ShardRange('a1/r1', ts)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', 'r1', ts, 1), ts, '', 'l')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1.container, ts, 1), ts, 'a', 'k')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p1_c1 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1_p1.container, ts, 1), ts, 'a', 'j')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp1_p2 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', a1_r1_gp1.container, ts, 2), ts, 'k', 'l')
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         a1_r1_gp2 = utils.ShardRange(utils.ShardRange.make_path(
             '.shards_a1', 'r1', 'r1', ts, 2), ts, 'l', '')  # different index
 
@@ -7352,12 +7349,11 @@ class TestShardRange(unittest.TestCase, BaseNamespaceShardRange):
                          a1_r1_gp1_p1_c1.find_ancestors(all_shard_ranges))
 
 
-class TestShardRangeList(unittest.TestCase):
+class TestShardRangeList(BaseUnitTestCase):
     def setUp(self):
-        self.ts_iter = make_timestamp_iter()
-        self.t1 = next(self.ts_iter)
-        self.t2 = next(self.ts_iter)
-        self.ts_iter = make_timestamp_iter()
+        super().setUp()
+        self.t1 = self.normal_ts()
+        self.t2 = self.normal_ts()
         self.shard_ranges = [
             utils.ShardRange('a/b', self.t1, 'a', 'b',
                              object_count=2, bytes_used=22, tombstones=222),
@@ -7432,28 +7428,28 @@ class TestShardRangeList(unittest.TestCase):
 
         self.assertTrue(srl.includes(srl))
 
-        sr = utils.ShardRange('a/a', utils.Timestamp.now(), '', 'a')
+        sr = utils.ShardRange('a/a', NormalTimestamp.now(), '', 'a')
         self.assertFalse(srl.includes(sr))
-        sr = utils.ShardRange('a/a', utils.Timestamp.now(), '', 'b')
+        sr = utils.ShardRange('a/a', NormalTimestamp.now(), '', 'b')
         self.assertFalse(srl.includes(sr))
-        sr = utils.ShardRange('a/z', utils.Timestamp.now(), 'x', 'z')
+        sr = utils.ShardRange('a/z', NormalTimestamp.now(), 'x', 'z')
         self.assertFalse(srl.includes(sr))
-        sr = utils.ShardRange('a/z', utils.Timestamp.now(), 'y', 'z')
+        sr = utils.ShardRange('a/z', NormalTimestamp.now(), 'y', 'z')
         self.assertFalse(srl.includes(sr))
-        sr = utils.ShardRange('a/entire', utils.Timestamp.now(), '', '')
+        sr = utils.ShardRange('a/entire', NormalTimestamp.now(), '', '')
         self.assertFalse(srl.includes(sr))
 
         # entire range
         srl_entire = ShardRangeList([sr])
         self.assertFalse(srl.includes(srl_entire))
         # make a fresh instance
-        sr = utils.ShardRange('a/entire', utils.Timestamp.now(), '', '')
+        sr = utils.ShardRange('a/entire', NormalTimestamp.now(), '', '')
         self.assertTrue(srl_entire.includes(sr))
 
     def test_timestamps(self):
         srl = ShardRangeList(self.shard_ranges)
         self.assertEqual({self.t1, self.t2}, srl.timestamps)
-        t3 = next(self.ts_iter)
+        t3 = self.normal_ts()
         self.shard_ranges[2].timestamp = t3
         self.assertEqual({self.t1, self.t2, t3}, srl.timestamps)
         srl.pop(0)
@@ -7465,11 +7461,11 @@ class TestShardRangeList(unittest.TestCase):
 
         srl = ShardRangeList(self.shard_ranges)
         self.shard_ranges[0].update_state(
-            utils.ShardRange.CREATED, next(self.ts_iter))
+            utils.ShardRange.CREATED, self.normal_ts())
         self.shard_ranges[1].update_state(
-            utils.ShardRange.CLEAVED, next(self.ts_iter))
+            utils.ShardRange.CLEAVED, self.normal_ts())
         self.shard_ranges[2].update_state(
-            utils.ShardRange.ACTIVE, next(self.ts_iter))
+            utils.ShardRange.ACTIVE, self.normal_ts())
 
         self.assertEqual({utils.ShardRange.CREATED,
                           utils.ShardRange.CLEAVED,
@@ -7508,11 +7504,11 @@ class TestShardRangeList(unittest.TestCase):
     def test_find_lower(self):
         srl = ShardRangeList(self.shard_ranges)
         self.shard_ranges[0].update_state(
-            utils.ShardRange.CREATED, next(self.ts_iter))
+            utils.ShardRange.CREATED, self.normal_ts())
         self.shard_ranges[1].update_state(
-            utils.ShardRange.CLEAVED, next(self.ts_iter))
+            utils.ShardRange.CLEAVED, self.normal_ts())
         self.shard_ranges[2].update_state(
-            utils.ShardRange.ACTIVE, next(self.ts_iter))
+            utils.ShardRange.ACTIVE, self.normal_ts())
 
         def do_test(states):
             return srl.find_lower(lambda sr: sr.state in states)

@@ -231,15 +231,8 @@ def build_versions_object_name(object_name, version):
     return get_reserved_name(object_name, version)
 
 
-def build_versions_object_max_name(object_name):
-    """
-    Get the name of a versions object for given ``object_name`` that will sort
-    after any regular version of ``object_name``.
-
-    :param object_name: name of object
-    :return: a version name in the reserved namespace
-    """
-    return get_reserved_name(object_name, '') + ':'  # just past all numbers
+def build_versions_object_prefix(object_name):
+    return get_reserved_name(object_name, '')
 
 
 def parse_versions_object_name(versioned_name):
@@ -1273,9 +1266,12 @@ class ContainerContext(ObjectVersioningContext):
 
         params = dict(req.params)
         if 'marker' in params:
-            if params.get('version_marker') in ('null', None):
-                params['marker'] = build_versions_object_max_name(
-                    params['marker'])
+            if 'version_marker' not in params:
+                params['marker'] = build_versions_object_prefix(
+                    params['marker']) + ':'  # just past all timestamps
+            elif params['version_marker'] == 'null':
+                params['marker'] = build_versions_object_prefix(
+                    params['marker'])  # just before all timestamps
             else:
                 try:
                     version = params.pop('version_marker')

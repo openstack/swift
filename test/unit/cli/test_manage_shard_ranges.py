@@ -12,8 +12,6 @@
 
 import json
 import os
-import sys
-import unittest
 from argparse import Namespace
 from textwrap import dedent
 
@@ -25,15 +23,16 @@ from io import StringIO
 
 from swift.cli.manage_shard_ranges import main
 from swift.common import utils
-from swift.common.utils import Timestamp, ShardRange
+from swift.common.utils.timestamp import NormalTimestamp, Timestamp
+from swift.common.utils import ShardRange
 from swift.container.backend import ContainerBroker
 from swift.container.sharder import make_shard_ranges
-from test.unit import mock_timestamp_now, make_timestamp_iter, with_tempdir
+from test.unit import mock_normal_timestamp_now, with_tempdir, BaseUnitTestCase
 
 
-class TestManageShardRanges(unittest.TestCase):
+class TestManageShardRanges(BaseUnitTestCase):
     def setUp(self):
-        self.ts_iter = make_timestamp_iter()
+        super().setUp()
         self.testdir = os.path.join(mkdtemp(), 'tmp_test_cli_find_shards')
         utils.mkdirs(self.testdir)
         rmtree(self.testdir)
@@ -121,7 +120,7 @@ class TestManageShardRanges(unittest.TestCase):
         return broker
 
     def _move_broker_to_sharded_state(self, broker):
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         broker.enable_sharding(epoch)
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
@@ -615,15 +614,16 @@ class TestManageShardRanges(unittest.TestCase):
                          err.getvalue().splitlines())
 
         retiring_db_id = broker.get_info()['id']
-        broker.merge_shard_ranges(ShardRange('.shards/cc', Timestamp.now()))
-        epoch = Timestamp.now()
-        with mock_timestamp_now(epoch) as now:
+        broker.merge_shard_ranges(
+            ShardRange('.shards/cc', NormalTimestamp.now()))
+        epoch = NormalTimestamp.now()
+        with mock_normal_timestamp_now(epoch) as now:
             broker.enable_sharding(epoch)
         self.assertTrue(broker.set_sharding_state())
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 ret = main([broker.db_file, 'info'])
         self.assertEqual(0, ret)
         expected = ['Sharding enabled = True',
@@ -669,7 +669,7 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 ret = main([broker.db_file, 'info'])
         self.assertEqual(0, ret)
         expected = ['Sharding enabled = True',
@@ -751,14 +751,14 @@ class TestManageShardRanges(unittest.TestCase):
         good_shard_ranges = []
         for shard in self.shard_data[:3]:
             good_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
-                                                timestamp=next(self.ts_iter),
+                                                timestamp=self.normal_ts(),
                                                 state=ShardRange.ACTIVE,
                                                 lower=shard['lower'],
                                                 upper=shard['upper']))
         # insert an overlap..
         bad_shard_range = ShardRange(
             name='a/c_bad_' + self.shard_data[1]['lower'],
-            timestamp=next(self.ts_iter),
+            timestamp=self.normal_ts(),
             state=ShardRange.ACTIVE,
             lower=self.shard_data[1]['lower'],
             upper=self.shard_data[2]['upper'])
@@ -772,9 +772,9 @@ class TestManageShardRanges(unittest.TestCase):
 
         # use command to merge in a deleted version of the bad shard range
         bad_shard_range.update_state(ShardRange.SHRUNK,
-                                     state_timestamp=next(self.ts_iter))
-        bad_shard_range.set_deleted(next(self.ts_iter))
-        bad_shard_range.update_meta(0, 0, next(self.ts_iter))
+                                     state_timestamp=self.normal_ts())
+        bad_shard_range.set_deleted(self.normal_ts())
+        bad_shard_range.update_meta(0, 0, self.normal_ts())
         input_file = os.path.join(self.testdir, 'shards')
         with open(input_file, 'w') as fd:
             json.dump([dict(bad_shard_range)], fd)
@@ -810,7 +810,7 @@ class TestManageShardRanges(unittest.TestCase):
         old_shard_ranges = []
         for shard in self.shard_data[:1]:
             old_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
-                                               timestamp=next(self.ts_iter),
+                                               timestamp=self.normal_ts(),
                                                state=ShardRange.ACTIVE,
                                                lower=shard['lower'],
                                                upper=shard['upper']))
@@ -819,16 +819,16 @@ class TestManageShardRanges(unittest.TestCase):
         # new ranges
         new_shard_ranges = [
             old_shard_ranges[0].copy(deleted=True,
-                                     timestamp=next(self.ts_iter)),
+                                     timestamp=self.normal_ts()),
             ShardRange(
                 name='a/c_1_' + self.shard_data[0]['lower'],
-                timestamp=next(self.ts_iter),
+                timestamp=self.normal_ts(),
                 state=ShardRange.ACTIVE,
                 lower=self.shard_data[0]['lower'],
                 upper=self.shard_data[0]['upper'] + 'a'),
             ShardRange(
                 name='a/c_1_' + self.shard_data[0]['upper'] + 'a',
-                timestamp=next(self.ts_iter),
+                timestamp=self.normal_ts(),
                 state=ShardRange.ACTIVE,
                 lower=self.shard_data[0]['upper'] + 'a',
                 upper=self.shard_data[1]['upper'] + 'a'),
@@ -869,7 +869,7 @@ class TestManageShardRanges(unittest.TestCase):
         old_shard_ranges = []
         for shard in self.shard_data[:3]:
             old_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
-                                               timestamp=next(self.ts_iter),
+                                               timestamp=self.normal_ts(),
                                                state=ShardRange.ACTIVE,
                                                lower=shard['lower'],
                                                upper=shard['upper']))
@@ -878,7 +878,7 @@ class TestManageShardRanges(unittest.TestCase):
         # use command to merge in a new range that overlaps...
         new_shard_range = ShardRange(
             name='a/c_bad_' + self.shard_data[1]['lower'],
-            timestamp=next(self.ts_iter),
+            timestamp=self.normal_ts(),
             state=ShardRange.ACTIVE,
             lower=self.shard_data[1]['lower'] + 'a',
             upper=self.shard_data[1]['upper'])
@@ -933,7 +933,7 @@ class TestManageShardRanges(unittest.TestCase):
         old_shard_ranges = []
         for shard in self.shard_data[:3]:
             old_shard_ranges.append(ShardRange(name='a/c_' + shard['lower'],
-                                               timestamp=next(self.ts_iter),
+                                               timestamp=self.normal_ts(),
                                                state=ShardRange.ACTIVE,
                                                lower=shard['lower'],
                                                upper=shard['upper']))
@@ -941,7 +941,7 @@ class TestManageShardRanges(unittest.TestCase):
 
         # use command to merge in a deleted range that creates a gap...
         new_shard_range = old_shard_ranges[1].copy(
-            timestamp=next(self.ts_iter), deleted=True)
+            timestamp=self.normal_ts(), deleted=True)
         input_file = os.path.join(self.testdir, 'shards')
         with open(input_file, 'w') as fd:
             json.dump([dict(new_shard_range)], fd)
@@ -1060,10 +1060,10 @@ class TestManageShardRanges(unittest.TestCase):
     def test_analyze_stdin_with_overlaps(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_1 = make_shard_ranges(
                 broker, self.overlap_shard_data_1, '.shards_')
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1)
@@ -1128,15 +1128,15 @@ class TestManageShardRanges(unittest.TestCase):
         shard_ranges = []
         for data in self.shard_data:
             path = ShardRange.make_path(
-                '.shards_a', 'c', 'c', Timestamp.now(), data['index'])
+                '.shards_a', 'c', 'c', NormalTimestamp.now(), data['index'])
             shard_ranges.append(
-                ShardRange(path, Timestamp.now(), data['lower'],
+                ShardRange(path, NormalTimestamp.now(), data['lower'],
                            data['upper'], data['object_count'], bytes_used=9))
         broker.merge_shard_ranges(shard_ranges)
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 ret = main([broker.db_file, 'enable'])
         self.assertEqual(0, ret)
         expected = [
@@ -1184,7 +1184,7 @@ class TestManageShardRanges(unittest.TestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 ret = main([broker.db_file, 'find_and_replace', '10',
                             '--enable'])
         self.assertEqual(0, ret)
@@ -1210,7 +1210,7 @@ class TestManageShardRanges(unittest.TestCase):
             out = StringIO()
             err = StringIO()
             to_patch = 'swift.cli.manage_shard_ranges.input'
-            with mock.patch('sys.stdout', out), mock_timestamp_now(), \
+            with mock.patch('sys.stdout', out), mock_normal_timestamp_now(), \
                     mock.patch('sys.stderr', err), \
                     mock.patch(to_patch, side_effect=[user_input]):
                 ret = main([broker.db_file, 'find_and_replace', '10'])
@@ -1573,7 +1573,7 @@ class TestManageShardRanges(unittest.TestCase):
             shard_ranges[i].update_state(state)
         broker.merge_shard_ranges(shard_ranges)
         epoch = self._move_broker_to_sharded_state(broker)
-        with mock_timestamp_now(epoch):
+        with mock_normal_timestamp_now(epoch):
             own_sr = broker.get_own_shard_range(no_default=True)
         self.assertEqual(epoch, own_sr.state_timestamp)  # sanity check
         self.assertEqual(ShardRange.SHARDED, own_sr.state)  # sanity check
@@ -1597,7 +1597,7 @@ class TestManageShardRanges(unittest.TestCase):
                          [ShardRange.SHRINKING] * 5 +  # moved to shrinking
                          [ShardRange.ACTIVE],  # unchanged
                          [sr.state for sr in updated_ranges])
-        with mock_timestamp_now(epoch):  # force equal meta-timestamp
+        with mock_normal_timestamp_now(epoch):  # force equal meta-timestamp
             updated_own_sr = broker.get_own_shard_range(no_default=True)
         self.assertEqual(dict(own_sr), dict(updated_own_sr))
 
@@ -1931,7 +1931,7 @@ class TestManageShardRanges(unittest.TestCase):
     def test_repair_one_incomplete_sequence(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data[:-1], '.shards_')
         broker.merge_shard_ranges(shard_ranges)
@@ -1953,10 +1953,10 @@ class TestManageShardRanges(unittest.TestCase):
     def test_repair_overlapping_incomplete_sequences(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data[:-1], '.shards_')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             # use new time to get distinct shard names
             overlap_shard_ranges = make_shard_ranges(
                 broker,
@@ -1985,7 +1985,7 @@ class TestManageShardRanges(unittest.TestCase):
             broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
             for shard in self.shard_data:
                 shard['state'] = ShardRange.ACTIVE
-            with mock_timestamp_now(next(self.ts_iter)):
+            with mock_normal_timestamp_now(self.normal_ts()):
                 all_shard_ranges = make_shard_ranges(
                     broker, self.shard_data, '.shards_')
             shard_ranges = list(all_shard_ranges)
@@ -2001,7 +2001,7 @@ class TestManageShardRanges(unittest.TestCase):
             self.assertTrue(broker.is_root_container())
             out = StringIO()
             err = StringIO()
-            with mock_timestamp_now(next(self.ts_iter)) as ts_now, \
+            with mock_normal_timestamp_now(self.normal_ts()) as ts_now, \
                     mock.patch('sys.stdout', out), \
                     mock.patch('sys.stderr', err):
                 ret = main([broker.db_file, 'repair', '--gaps', '--yes'])
@@ -2078,7 +2078,7 @@ class TestManageShardRanges(unittest.TestCase):
                 shard['state'] = states[i]
                 if states[i] in (ShardRange.SHRUNK, ShardRange.SHARDED):
                     shard['deleted'] = 1
-            with mock_timestamp_now(next(self.ts_iter)):
+            with mock_normal_timestamp_now(self.normal_ts()):
                 shard_ranges = make_shard_ranges(
                     broker, self.shard_data, '.shards_')
             broker.merge_shard_ranges(shard_ranges)
@@ -2089,7 +2089,7 @@ class TestManageShardRanges(unittest.TestCase):
             args = [broker.db_file, 'repair', '--gaps', '--yes']
             if max_expanding is not None:
                 args.extend(['--max-expanding', str(max_expanding)])
-            with mock_timestamp_now(next(self.ts_iter)) as ts_now, \
+            with mock_normal_timestamp_now(self.normal_ts()) as ts_now, \
                     mock.patch('sys.stdout', out), \
                     mock.patch('sys.stderr', err):
                 ret = main(args)
@@ -2249,14 +2249,14 @@ class TestManageShardRanges(unittest.TestCase):
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         for shard in self.shard_data:
             shard['state'] = ShardRange.ACTIVE
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
         broker.merge_shard_ranges(shard_ranges)
         self.assertTrue(broker.is_root_container())
         out = StringIO()
         err = StringIO()
-        with mock_timestamp_now(next(self.ts_iter)), \
+        with mock_normal_timestamp_now(self.normal_ts()), \
                 mock.patch('sys.stdout', out), \
                 mock.patch('sys.stderr', err):
             ret = main([broker.db_file, 'repair', '--gaps', '--yes'])
@@ -2277,7 +2277,7 @@ class TestManageShardRanges(unittest.TestCase):
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         for shard in self.shard_data:
             shard['state'] = ShardRange.ACTIVE
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
         # create a gap
@@ -2290,7 +2290,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertTrue(broker.is_root_container())
         out = StringIO()
         err = StringIO()
-        with mock_timestamp_now(next(self.ts_iter)) as ts_now, \
+        with mock_normal_timestamp_now(self.normal_ts()) as ts_now, \
                 mock.patch('sys.stdout', out), \
                 mock.patch('sys.stderr', err):
             ret = main([broker.db_file, 'repair', '--gaps', '--yes'])
@@ -2373,12 +2373,12 @@ class TestManageShardRanges(unittest.TestCase):
     def _do_test_repair_exits_if_undesirable_state(self, undesirable_state):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
         # make one shard be in an undesirable state
         shard_ranges[2].update_state(undesirable_state)
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_2 = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_2)
@@ -2411,10 +2411,10 @@ class TestManageShardRanges(unittest.TestCase):
     def test_repair_one_complete_sequences_one_incomplete(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_2 = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_2)
@@ -2426,7 +2426,7 @@ class TestManageShardRanges(unittest.TestCase):
             err = StringIO()
             with mock.patch('sys.stdout', out), \
                     mock.patch('sys.stderr', err), \
-                    mock_timestamp_now(ts_now), \
+                    mock_normal_timestamp_now(ts_now), \
                     mock.patch('swift.cli.manage_shard_ranges.input',
                                side_effect=[user_input]):
                 ret = main(
@@ -2441,7 +2441,7 @@ class TestManageShardRanges(unittest.TestCase):
                 out_lines[:1])
 
         # user input 'n'
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         do_repair('n', ts_now, [], 3)
         updated_ranges = broker.get_shard_ranges()
         expected = sorted(
@@ -2449,18 +2449,18 @@ class TestManageShardRanges(unittest.TestCase):
             key=ShardRange.sort_key)
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         do_repair(EOFError, ts_now, [], 3)
         updated_ranges = broker.get_shard_ranges()
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         do_repair(KeyboardInterrupt, ts_now, [], 3)
         updated_ranges = broker.get_shard_ranges()
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
         # --dry-run
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         do_repair('y', ts_now, ['--dry-run'], 3)
         updated_ranges = broker.get_shard_ranges()
         expected = sorted(
@@ -2469,7 +2469,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
         # --n
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         do_repair('y', ts_now, ['-n'], 3)
         updated_ranges = broker.get_shard_ranges()
         expected = sorted(
@@ -2478,7 +2478,7 @@ class TestManageShardRanges(unittest.TestCase):
         self.assert_shard_ranges_equal(expected, updated_ranges)
 
         # user input 'yes'
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         do_repair('yes', ts_now, [], 0)
         updated_ranges = broker.get_shard_ranges()
         for sr in overlap_shard_ranges_2:
@@ -2495,11 +2495,11 @@ class TestManageShardRanges(unittest.TestCase):
         # expect them not to be repaired.
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        ts_now = next(self.ts_iter)
-        with mock_timestamp_now(Timestamp(float(ts_now) - 61)):
+        ts_now = self.normal_ts()
+        with mock_normal_timestamp_now(NormalTimestamp(float(ts_now) - 61)):
             acceptor_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(ts_now):
+        with mock_normal_timestamp_now(ts_now):
             overlap_donor_ranges = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
@@ -2528,11 +2528,11 @@ class TestManageShardRanges(unittest.TestCase):
         # expect no overlapping ranges to be repaired.
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        ts_now = next(self.ts_iter)
-        with mock_timestamp_now(Timestamp(float(ts_now) + 3601)):
+        ts_now = self.normal_ts()
+        with mock_normal_timestamp_now(NormalTimestamp(float(ts_now) + 3601)):
             acceptor_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(ts_now):
+        with mock_normal_timestamp_now(ts_now):
             overlap_donor_ranges = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
@@ -2541,7 +2541,8 @@ class TestManageShardRanges(unittest.TestCase):
         err = StringIO()
         with mock.patch('sys.stdout', out), \
                 mock.patch('sys.stderr', err), \
-                mock_timestamp_now(Timestamp(float(ts_now) + 3601 + 59)):
+                mock_normal_timestamp_now(
+                    NormalTimestamp(float(ts_now) + 3601 + 59)):
             ret = main(
                 [broker.db_file, 'repair', '--min-shard-age', '60', '-y'])
         self.assertEqual(0, ret)
@@ -2563,21 +2564,21 @@ class TestManageShardRanges(unittest.TestCase):
         # repaired.
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        ts_now = next(self.ts_iter)
-        with mock_timestamp_now(ts_now):
+        ts_now = self.normal_ts()
+        with mock_normal_timestamp_now(ts_now):
             acceptor_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(Timestamp(float(ts_now) + 1800)):
+        with mock_normal_timestamp_now(NormalTimestamp(float(ts_now) + 1800)):
             overlap_donor_ranges = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
         self.assertTrue(broker.is_root_container())
         out = StringIO()
         err = StringIO()
-        ts_1hr_after = Timestamp(float(ts_now) + 3601)
+        ts_1hr_after = NormalTimestamp(float(ts_now) + 3601)
         with mock.patch('sys.stdout', out), \
                 mock.patch('sys.stderr', err), \
-                mock_timestamp_now(ts_1hr_after):
+                mock_normal_timestamp_now(ts_1hr_after):
             ret = main(
                 [broker.db_file, 'repair', '--min-shard-age', '60', '-y'])
         self.assertEqual(0, ret)
@@ -2601,21 +2602,21 @@ class TestManageShardRanges(unittest.TestCase):
         # ranges wth default '--min-shard-age' value.
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        ts_now = next(self.ts_iter)
-        with mock_timestamp_now(ts_now):
+        ts_now = self.normal_ts()
+        with mock_normal_timestamp_now(ts_now):
             acceptor_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(Timestamp(int(ts_now) + 1)):
+        with mock_normal_timestamp_now(NormalTimestamp(int(ts_now) + 1)):
             overlap_donor_ranges = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(acceptor_ranges + overlap_donor_ranges)
         self.assertTrue(broker.is_root_container())
         out = StringIO()
         err = StringIO()
-        ts_repair = Timestamp(int(ts_now) + 4 * 3600 - 1)
+        ts_repair = NormalTimestamp(int(ts_now) + 4 * 3600 - 1)
         with mock.patch('sys.stdout', out), \
                 mock.patch('sys.stderr', err), \
-                mock_timestamp_now(ts_repair):
+                mock_normal_timestamp_now(ts_repair):
             # default min-shard-age prevents repair...
             ret = main([broker.db_file, 'repair', '-y'])
         self.assertEqual(0, ret)
@@ -2633,10 +2634,10 @@ class TestManageShardRanges(unittest.TestCase):
 
         out = StringIO()
         err = StringIO()
-        ts_repair = Timestamp(int(ts_now) + 4 * 3600 + 2)
+        ts_repair = NormalTimestamp(int(ts_now) + 4 * 3600 + 2)
         with mock.patch('sys.stdout', out), \
                 mock.patch('sys.stderr', err), \
-                mock_timestamp_now(ts_repair):
+                mock_normal_timestamp_now(ts_repair):
             # default min-shard-age allows repair now...
             ret = main([broker.db_file, 'repair', '-y'])
         self.assertEqual(0, ret)
@@ -2658,13 +2659,13 @@ class TestManageShardRanges(unittest.TestCase):
     def test_repair_two_complete_sequences_one_incomplete(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_1 = make_shard_ranges(
                 broker, self.overlap_shard_data_1, '.shards_')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_2 = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
@@ -2672,9 +2673,9 @@ class TestManageShardRanges(unittest.TestCase):
         self.assertTrue(broker.is_root_container())
         out = StringIO()
         err = StringIO()
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
-                mock_timestamp_now(ts_now):
+                mock_normal_timestamp_now(ts_now):
             ret = main([broker.db_file, 'repair', '--yes',
                         '--min-shard-age', '0'])
         self.assertEqual(0, ret)
@@ -2703,7 +2704,7 @@ class TestManageShardRanges(unittest.TestCase):
         # The parent shard range would have been set to state SHARDING in the
         # shard container but is still showing as ACTIVE in the root container.
         # (note: it is valid for a single shard to span entire namespace)
-        ts_parent = next(self.ts_iter)
+        ts_parent = self.normal_ts()
         parent_shard = ShardRange(
             ShardRange.make_path('.shards_a', 'c', 'c', ts_parent, 0),
             ts_parent, lower='', upper='', object_count=10,
@@ -2711,7 +2712,7 @@ class TestManageShardRanges(unittest.TestCase):
 
         # Children shards have reported themselves to root as CLEAVING/
         # CREATED.
-        ts_child = next(self.ts_iter)
+        ts_child = self.normal_ts()
         child_shards = [
             ShardRange(
                 ShardRange.make_path(
@@ -2727,9 +2728,9 @@ class TestManageShardRanges(unittest.TestCase):
 
         out = StringIO()
         err = StringIO()
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
-                mock_timestamp_now(ts_now):
+                mock_normal_timestamp_now(ts_now):
             ret = main([root_broker.db_file, 'repair',
                        '--yes', '--min-shard-age', '0'])
         err_lines = err.getvalue().split('\n')
@@ -2758,7 +2759,7 @@ class TestManageShardRanges(unittest.TestCase):
         # The parent shard range would have been set to state SHARDING in the
         # shard container but is still showing as ACTIVE in the root container.
         # (note: it is valid for a single shard to span entire namespace)
-        ts_parent = next(self.ts_iter)
+        ts_parent = self.normal_ts()
         parent_shard = ShardRange(
             ShardRange.make_path('.shards_a', 'c', 'c', ts_parent, 0),
             ts_parent, lower='', upper='', object_count=5,
@@ -2767,7 +2768,7 @@ class TestManageShardRanges(unittest.TestCase):
         # Children shards have reported themselves to root as CLEAVING/CREATED,
         # but they will end up with becoming acceptor shards due to having more
         # objects than the above parent shard.
-        ts_child = next(self.ts_iter)
+        ts_child = self.normal_ts()
         child_shards = [
             ShardRange(
                 ShardRange.make_path(
@@ -2783,9 +2784,9 @@ class TestManageShardRanges(unittest.TestCase):
 
         out = StringIO()
         err = StringIO()
-        ts_now = next(self.ts_iter)
+        ts_now = self.normal_ts()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
-                mock_timestamp_now(ts_now):
+                mock_normal_timestamp_now(ts_now):
             ret = main([root_broker.db_file, 'repair',
                        '--yes', '--min-shard-age', '0'])
         err_lines = err.getvalue().split('\n')
@@ -2808,13 +2809,13 @@ class TestManageShardRanges(unittest.TestCase):
     def test_show_and_analyze(self, tempdir):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):  # t1
+        with mock_normal_timestamp_now(self.normal_ts()):  # t1
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_1 = make_shard_ranges(
                 broker, self.overlap_shard_data_1, '.shards_')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_2 = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
@@ -2861,7 +2862,7 @@ class TestManageShardRanges(unittest.TestCase):
         # tweak timestamps to make the preferred path include shards from two
         # sets, so that shards to remove have name-timestamps that are also in
         # shards to keep
-        t4 = next(self.ts_iter)
+        t4 = self.normal_ts()
         for sr in shard_ranges[:5] + overlap_shard_ranges_1[5:]:
             sr.timestamp = t4
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
@@ -2922,9 +2923,9 @@ class TestManageShardRanges(unittest.TestCase):
             main(['db file', 'repair', '--dry-run', '--yes'])
         self.assertEqual(2, cm.exception.code)
         err_lines = err.getvalue().split('\n')
-        runner = os.path.basename(sys.argv[0])
+        self.assertTrue(err_lines[0].startswith('usage: '), err_lines[0])
         self.assertIn(
-            'usage: %s path_to_file repair [-h] [--yes | --dry-run]' % runner,
+            ' path_to_file repair [-h] [--yes | --dry-run]',
             err_lines[0])
         self.assertIn(
             "argument --yes/-y: not allowed with argument --dry-run/-n",

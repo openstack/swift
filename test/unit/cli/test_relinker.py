@@ -130,11 +130,17 @@ class TestRelinker(unittest.TestCase):
                       % attempts)
         return _hash, part, next_part, obj_path
 
-    def _create_object(self, policy, part, _hash, ext='.data'):
+    def _recreate_objects_dir(self, policy):
+        # unconditionally remove and then re-create the objects dir for policy
         objects_dir = os.path.join(self.devices, self.existing_device,
                                    get_policy_string('objects', policy))
         shutil.rmtree(objects_dir, ignore_errors=True)
         os.mkdir(objects_dir)
+        return objects_dir
+
+    def _create_object(self, policy, part, _hash, ext='.data'):
+        objects_dir = os.path.join(self.devices, self.existing_device,
+                                   get_policy_string('objects', policy))
         objdir = os.path.join(objects_dir, str(part), _hash[-3:], _hash)
         os.makedirs(objdir)
         timestamp = utils.Timestamp.now()
@@ -153,9 +159,7 @@ class TestRelinker(unittest.TestCase):
         self.part = part
         self.next_part = next_part
         self.obj_path = obj_path
-        objects_dir = os.path.join(self.devices, self.existing_device,
-                                   get_policy_string('objects', policy))
-
+        objects_dir = self._recreate_objects_dir(policy)
         self.objdir, self.object_fname, self.obj_ts = self._create_object(
             policy, part, _hash, ext)
 
@@ -2580,6 +2584,90 @@ class TestRelinker(unittest.TestCase):
             os.path.join(self.objdir, self.object_fname)))
         self.assertEqual([], self.logger.get_lines_for_level('error'))
 
+    def test_relink_consecutive_in_suffix_dir(self):
+        # Both hashes are:
+        # In the same partition for part_power = PART_POWER
+        # In the lower half of the partition space: they're relink candidates
+        # In the same suffix directory
+        hash1 = "adeb631efaa646092f4ff33e6280d53b"
+        hash2 = "adcc000a239b210d21b1d919d999953b"
+        self.assertNotEqual(hash1, hash2)
+        self.assertEqual(hash1[-3:], hash2[-3:])
+
+        part1 = utils.get_partition_for_hash(hash1, self.rb.part_power)
+        part2 = utils.get_partition_for_hash(hash2, self.rb.part_power)
+        self.assertEqual(part1, part2)
+
+        policy = 0
+        self._recreate_objects_dir(policy)
+        objdir1, fname1, _ = self._create_object(policy, part1, hash1)
+        objdir2, fname2, _ = self._create_object(policy, part2, hash2)
+
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+
+        with self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--device', self.existing_device,
+            ]))
+
+        path1 = utils.replace_partition_in_path(self.devices,
+                                                os.path.join(objdir1, fname1),
+                                                self.rb.next_part_power)
+
+        path2 = utils.replace_partition_in_path(self.devices,
+                                                os.path.join(objdir2, fname2),
+                                                self.rb.next_part_power)
+
+        self.assertTrue(os.path.isfile(os.path.join(objdir1, fname1)))
+        self.assertTrue(os.path.isfile(os.path.join(objdir2, fname2)))
+        self.assertTrue(os.path.isfile(path1))
+        self.assertTrue(os.path.isfile(path2))
+
+    def test_cleanup_consecutive_in_suffix_dir(self):
+        # Both hashes are:
+        # - In the same partition for part_power = PART_POWER + 1
+        # - In the lower half of the partition space so that
+        #   the partition-level filter will not skip over the partition they
+        #   are in.
+        # - In the same suffix directory
+        hash1 = "027ecbf9027e96e1fe83e6154e1a8380"
+        hash2 = "024f19a8347495adc3cfa845f725e380"
+        self.assertNotEqual(hash1, hash2)
+        self.assertEqual(hash1[-3:], hash2[-3:])
+
+        self.rb.prepare_increase_partition_power()
+        self.rb.increase_partition_power()
+        self._save_ring()
+
+        part1 = utils.get_partition_for_hash(hash1, self.rb.part_power)
+        part2 = utils.get_partition_for_hash(hash2, self.rb.part_power)
+        self.assertEqual(part1, part2)
+        self.assertLess(part1, 2 ** (self.rb.part_power - 1))
+
+        # objects are created in the partition they are expected to be in so
+        # so they are not actually selected for cleanup
+        policy = 0
+        self._recreate_objects_dir(policy)
+        objdir1, fname1, _ = self._create_object(policy, part1, hash1)
+        objdir2, fname2, _ = self._create_object(policy, part2, hash2)
+
+        with self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--device', self.existing_device,
+            ]))
+
+        self.assertTrue(os.path.isfile(os.path.join(objdir1, fname1)))
+        self.assertTrue(os.path.isfile(os.path.join(objdir2, fname2)))
+
     def test_cleanup_device_filter_invalid(self):
         self._common_test_cleanup()
         with self._mock_relinker():
@@ -2617,6 +2705,7 @@ class TestRelinker(unittest.TestCase):
         # next part *will* be handled during cleanup
         _hash, pol_1_part, pol_1_next_part, objpath = self._get_object_name(
             lambda part: part < 2 ** (PART_POWER - 1))
+        self._recreate_objects_dir(POLICIES[1])
         self._create_object(POLICIES[1], pol_1_part, _hash)
 
         state_files = {

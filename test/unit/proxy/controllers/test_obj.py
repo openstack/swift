@@ -38,8 +38,9 @@ import swift
 from swift.common import utils, swob, exceptions
 from swift.common.exceptions import ChunkWriteTimeout, ShortReadError, \
     ChunkReadTimeout, RangeAlreadyComplete
-from swift.common.utils import Timestamp, list_from_csv, md5, FileLikeIter, \
-    ShardRange, Namespace, NamespaceBoundList, quorum_size
+from swift.common.utils import list_from_csv, md5, FileLikeIter, ShardRange, \
+    Namespace, NamespaceBoundList, quorum_size
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.proxy import server as proxy_server
 from swift.proxy.controllers import obj
 from swift.proxy.controllers.base import \
@@ -55,8 +56,8 @@ from test.unit import (
     FakeRing, fake_http_connect, patch_policies, SlowBody, FakeStatus,
     DEFAULT_TEST_EC_TYPE, encode_frag_archive_bodies, make_ec_object_stub,
     fake_ec_node_response, StubResponse, mocked_http_conn,
-    quiet_eventlet_exceptions, FakeSource, make_timestamp_iter, FakeMemcache,
-    node_error_count, node_error_counts)
+    quiet_eventlet_exceptions, FakeSource, FakeMemcache, node_error_count,
+    node_error_counts, BaseUnitTestCase)
 
 
 def unchunk_body(chunked_body):
@@ -200,7 +201,6 @@ class BaseObjectControllerMixin(object):
         # default policy and ring references
         self.policy = POLICIES.default
         self.obj_ring = self.policy.object_ring
-        self._ts_iter = make_timestamp_iter()
 
     def _make_app(self):
         self.app = PatchedObjControllerApp(
@@ -211,9 +211,6 @@ class BaseObjectControllerMixin(object):
         # you can over-ride the container_info just by setting it on the app
         # (see PatchedObjControllerApp for details)
         self.app.container_info = dict(self.fake_container_info())
-
-    def ts(self):
-        return next(self._ts_iter)
 
     def replicas(self, policy=None):
         policy = policy or POLICIES.default
@@ -1703,9 +1700,13 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
 @patch_policies()
 class TestReplicatedObjController(CommonObjectControllerMixin,
-                                  BaseTestCase):
+                                  BaseUnitTestCase):
 
     controller_cls = obj.ReplicatedObjectController
+
+    def setUp(self):
+        super().setUp()
+        BaseUnitTestCase.setUp(self)
 
     def test_PUT_simple(self):
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
@@ -3157,8 +3158,12 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
     fake_ring_args=[
         {'replicas': 1}, {'replicas': 4}, {'replicas': 8}, {'replicas': 15}])
 class TestReplicatedObjControllerVariousReplicas(CommonObjectControllerMixin,
-                                                 BaseTestCase):
+                                                 BaseUnitTestCase):
     controller_cls = obj.ReplicatedObjectController
+
+    def setUp(self):
+        super().setUp()
+        BaseUnitTestCase.setUp(self)
 
     def test_DELETE_with_write_affinity(self):
         policy_index = 1
@@ -3469,7 +3474,7 @@ class ECObjectControllerMixin(CommonObjectControllerMixin):
 
 
 @patch_policies(with_ec_default=True)
-class TestECObjController(ECObjectControllerMixin, BaseTestCase):
+class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
     container_info = {
         'status': 200,
         'read_acl': None,
@@ -3480,6 +3485,10 @@ class TestECObjController(ECObjectControllerMixin, BaseTestCase):
     }
 
     controller_cls = obj.ECObjectController
+
+    def setUp(self):
+        super().setUp()
+        BaseUnitTestCase.setUp(self)
 
     def _add_frag_index(self, index, headers):
         # helper method to add a frag index header to an existing header dict
@@ -6843,7 +6852,7 @@ class TestECFunctions(unittest.TestCase):
                  StoragePolicy(1, name='unu')],
                 fake_ring_args=[{'replicas': 28}, {}])
 class TestECDuplicationObjController(
-        ECObjectControllerMixin, BaseTestCase):
+        ECObjectControllerMixin, BaseUnitTestCase):
     container_info = {
         'status': 200,
         'read_acl': None,
@@ -6854,6 +6863,10 @@ class TestECDuplicationObjController(
     }
 
     controller_cls = obj.ECObjectController
+
+    def setUp(self):
+        super().setUp()
+        BaseUnitTestCase.setUp(self)
 
     def _test_GET_with_duplication_factor(self, node_frags, obj):
         # This is basic tests in the healthy backends status
@@ -8130,22 +8143,22 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
 
 
 @patch_policies()
-class TestGetUpdateShard(BaseObjectControllerMixin, unittest.TestCase):
+class TestGetUpdateShard(BaseObjectControllerMixin, BaseUnitTestCase):
     bound_prefix = 'x'
     item = 'x1_test'
 
     def setUp(self):
+        BaseUnitTestCase.setUp(self)
         super(TestGetUpdateShard, self).setUp()
         self.ctrl = obj.BaseObjectController(self.app, 'a', 'c', 'o')
         self.memcache = FakeMemcache()
-        ts_iter = make_timestamp_iter()
         # NB: these shard ranges have gaps
         self.shard_ranges = [ShardRange(
-            '.sharded_a/sr%d' % i, next(ts_iter),
+            '.sharded_a/sr%d' % i, self.normal_ts(),
             self.bound_prefix + u'%d_lower' % i,
             self.bound_prefix + u'%d_upper' % i,
             object_count=i, bytes_used=1024 * i,
-            meta_timestamp=next(ts_iter))
+            meta_timestamp=self.normal_ts())
             for i in range(3)]
 
     def _create_response_data(self, shards, includes=None):
@@ -8573,11 +8586,11 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
                             'X-Backend-Record-Type': 'shard'}
             shard_ranges = [
                 utils.ShardRange(
-                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                    '.shards_a/c_not_used', NormalTimestamp.now(), '', 'l'),
                 utils.ShardRange(
-                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                    '.shards_a/c_shard', NormalTimestamp.now(), 'l', 'u'),
                 utils.ShardRange(
-                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+                    '.shards_a/c_nope', NormalTimestamp.now(), 'u', ''),
             ]
             body = json.dumps([
                 dict(shard_range)
@@ -8718,11 +8731,11 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
                             'X-Backend-Record-Type': 'shard'}
             shard_ranges = [
                 utils.ShardRange(
-                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                    '.shards_a/c_not_used', NormalTimestamp.now(), '', 'l'),
                 utils.ShardRange(
-                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                    '.shards_a/c_shard', NormalTimestamp.now(), 'l', 'u'),
                 utils.ShardRange(
-                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+                    '.shards_a/c_nope', NormalTimestamp.now(), 'u', ''),
             ]
             cached_namespaces = NamespaceBoundList.parse(shard_ranges)
             body = json.dumps([
@@ -8856,11 +8869,11 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
                             'X-Backend-Record-Type': 'shard'}
             shard_ranges = [
                 utils.ShardRange(
-                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                    '.shards_a/c_not_used', NormalTimestamp.now(), '', 'l'),
                 utils.ShardRange(
-                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                    '.shards_a/c_shard', NormalTimestamp.now(), 'l', 'u'),
                 utils.ShardRange(
-                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+                    '.shards_a/c_nope', NormalTimestamp.now(), 'u', ''),
             ]
             cached_namespaces = NamespaceBoundList.parse(shard_ranges)
             body = json.dumps([
@@ -8996,11 +9009,11 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
                             'X-Backend-Record-Type': 'shard'}
             shard_ranges = [
                 utils.ShardRange(
-                    '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                    '.shards_a/c_not_used', NormalTimestamp.now(), '', 'l'),
                 utils.ShardRange(
-                    '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                    '.shards_a/c_shard', NormalTimestamp.now(), 'l', 'u'),
                 utils.ShardRange(
-                    '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+                    '.shards_a/c_nope', NormalTimestamp.now(), 'u', ''),
             ]
             body = json.dumps([
                 dict(shard_range)
@@ -9100,11 +9113,11 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
         }
         shard_ranges = [
             utils.ShardRange(
-                '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                '.shards_a/c_not_used', NormalTimestamp.now(), '', 'l'),
             utils.ShardRange(
-                '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                '.shards_a/c_shard', NormalTimestamp.now(), 'l', 'u'),
             utils.ShardRange(
-                '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+                '.shards_a/c_nope', NormalTimestamp.now(), 'u', ''),
         ]
         cache_key = 'shard-updating-v2/a/c'
 
@@ -9202,11 +9215,11 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
         conf = {'namespace_cache_use_token': 'True'}
         shard_ranges = [
             utils.ShardRange(
-                '.shards_a/c_not_used', utils.Timestamp.now(), '', 'l'),
+                '.shards_a/c_not_used', NormalTimestamp.now(), '', 'l'),
             utils.ShardRange(
-                '.shards_a/c_shard', utils.Timestamp.now(), 'l', 'u'),
+                '.shards_a/c_shard', NormalTimestamp.now(), 'l', 'u'),
             utils.ShardRange(
-                '.shards_a/c_nope', utils.Timestamp.now(), 'u', ''),
+                '.shards_a/c_nope', NormalTimestamp.now(), 'u', ''),
         ]
         cache_key = 'shard-updating-v2/a/c'
         failures = random.randint(1, 2)

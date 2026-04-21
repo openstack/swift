@@ -2946,7 +2946,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         status, headers, body = self.call_ov(req)
         self.assertEqual(status, '406 Not Acceptable')
 
-    def test_list_versions_marker_missing_marker(self):
+    def test_list_versions_with_version_marker_but_missing_marker(self):
         self.app.register(
             'GET', '/v1/a/c', swob.HTTPOk,
             {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
@@ -2960,7 +2960,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertEqual(status, '400 Bad Request')
         self.assertEqual(body, b'version_marker param requires marker')
 
-    def test_list_versions_marker_invalid(self):
+    def test_list_versions_with_marker_but_invalid_version_marker(self):
         self.app.register(
             'GET', '/v1/a/c', swob.HTTPOk,
             {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
@@ -2974,74 +2974,62 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertEqual(status, '400 Bad Request')
         self.assertEqual(body, b'invalid version_marker param')
 
-    def test_list_versions_marker(self):
+    def test_list_versions_with_marker(self):
+        ts1, ts2, ts3 = (self.ts() for _ in range(3))
         listing_body = [{
-            'bytes': 8,
-            'name': 'non-versioned-obj',
-            'hash': 'etag',
-            'last_modified': '1970-01-01T00:00:05.000000',
-            'content_type': 'application/bar',
-        }, {
             'bytes': 0,
             'name': 'obj',
             'hash': 'd41d8cd98f00b204e9800998ecf8427e; '
             'symlink_target=%s; '
             'symlink_target_etag=e55cedc11adb39c404b7365f7d6291fa; '
             'symlink_target_bytes=9' %
-            self.build_symlink_path('c', 'obj', '9999999969.99999'),
-            'last_modified': '1970-01-01T00:00:30.000000',
+            self.build_symlink_path('c', 'obj', (~ts3).internal),
+            'last_modified': ts3.isoformat,
             'content_type': 'text/plain',
         }]
 
         versions_listing_body = [{
             'bytes': 9,
-            'name': self.build_object_name('obj', '9999999969.99999'),
+            'name': self.build_object_name('obj', (~ts3).internal),
             'hash': 'etagv3',
-            'last_modified': '1970-01-01T00:00:30.000000',
+            'last_modified': ts3.isoformat,
             'content_type': 'text/plain',
         }, {
             'bytes': 10,
-            'name': self.build_object_name('obj', '9999999979.99999'),
+            'name': self.build_object_name('obj', (~ts2).internal),
             'hash': 'etagv2',
-            'last_modified': '1970-01-01T00:00:20.000000',
+            'last_modified': ts2.isoformat,
             'content_type': 'text/plain',
         }, {
             'bytes': 8,
-            'name': self.build_object_name('obj', '9999999989.99999'),
+            'name': self.build_object_name('obj', (~ts1).internal),
             'hash': 'etagv1',
-            'last_modified': '1970-01-01T00:00:10.000000',
+            'last_modified': ts1.isoformat,
             'content_type': 'text/plain',
         }]
 
         expected = [{
-            'bytes': 8,
-            'name': 'non-versioned-obj',
-            'hash': 'etag',
-            'version_id': 'null',
-            'last_modified': '1970-01-01T00:00:05.000000',
-            'content_type': 'application/bar',
-        }, {
             'bytes': 9,
             'name': 'obj',
-            'version_id': '0000000030.00000',
+            'version_id': ts3.internal,
             'hash': 'etagv3',
-            'last_modified': '1970-01-01T00:00:30.000000',
+            'last_modified': ts3.isoformat,
             'content_type': 'text/plain',
             'is_latest': True,
         }, {
             'bytes': 10,
             'name': 'obj',
-            'version_id': '0000000020.00000',
+            'version_id': ts2.internal,
             'hash': 'etagv2',
-            'last_modified': '1970-01-01T00:00:20.000000',
+            'last_modified': ts2.isoformat,
             'content_type': 'text/plain',
             'is_latest': False,
         }, {
             'bytes': 8,
             'name': 'obj',
-            'version_id': '0000000010.00000',
+            'version_id': ts1.internal,
             'hash': 'etagv1',
-            'last_modified': '1970-01-01T00:00:10.000000',
+            'last_modified': ts1.isoformat,
             'content_type': 'text/plain',
             'is_latest': False,
         }]
@@ -3053,11 +3041,11 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             'GET', '/v1/a/c', swob.HTTPOk,
             {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
              SYSMETA_VERSIONS_ENABLED: True},
-            json.dumps(listing_body[1:]).encode('utf8'))
+            json.dumps(listing_body).encode('utf8'))
 
-        # marker
+        # marker is just before 'obj'
         req = Request.blank(
-            '/v1/a/c?versions&marker=obj',
+            '/v1/a/c?versions&marker=not-obj',
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cache': self.cache_version_on})
         status, headers, body = self.call_ov(req)
@@ -3065,20 +3053,81 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertIn(('X-Versions-Enabled', 'True'), headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(expected[1:], json.loads(body))
+        self.assertEqual(expected, json.loads(body))
         self.assertEqual([
             ('/v1/a/c',
-             {'format': 'json', 'marker': 'obj', 'versions': ''}),
+             {'format': 'json', 'marker': 'not-obj', 'versions': ''}),
             ('/v1/a/%00versions%00c',
              {'delimiter': '',
               'limit': '',
-              'marker': '\x00obj\x00:',
+              'marker': '\x00not-obj\x00:',
               'prefix': '',
               'reverse': ''})],
             [(call.req.path, call.req.params) for call in self.app.call_list])
 
-        # marker and version_marker=null
-        self.app.clear_calls()
+    def test_list_versions_with_marker_and_version_marker_is_null(self):
+        ts1, ts2, ts3 = (self.ts() for _ in range(3))
+        listing_body = []
+        versions_listing_body = [{
+            'bytes': 9,
+            'name': self.build_object_name('obj', (~ts3).internal),
+            'hash': 'etagv3',
+            'last_modified': ts3.isoformat,
+            'content_type': 'text/plain',
+        }, {
+            'bytes': 10,
+            'name': self.build_object_name('obj', (~ts2).internal),
+            'hash': 'etagv2',
+            'last_modified': ts2.isoformat,
+            'content_type': 'text/plain',
+        }, {
+            'bytes': 8,
+            'name': self.build_object_name('obj', (~ts1).internal),
+            'hash': 'etagv1',
+            'last_modified': ts1.isoformat,
+            'content_type': 'text/plain',
+        }]
+
+        # listing has versions of obj older than 'null' (which is the latest
+        # version)
+        # note: the unit test obscures the fact that the null version would
+        # exist and be the latest version because the marker and version_marker
+        # exclude it from the fake listing responses
+        expected = [{
+            'bytes': 9,
+            'name': 'obj',
+            'version_id': ts3.internal,
+            'hash': 'etagv3',
+            'last_modified': ts3.isoformat,
+            'content_type': 'text/plain',
+            'is_latest': False,
+        }, {
+            'bytes': 10,
+            'name': 'obj',
+            'version_id': ts2.internal,
+            'hash': 'etagv2',
+            'last_modified': ts2.isoformat,
+            'content_type': 'text/plain',
+            'is_latest': False,
+        }, {
+            'bytes': 8,
+            'name': 'obj',
+            'version_id': ts1.internal,
+            'hash': 'etagv1',
+            'last_modified': ts1.isoformat,
+            'content_type': 'text/plain',
+            'is_latest': False,
+        }]
+
+        self.app.register(
+            'GET', self.build_versions_path(), swob.HTTPOk, {},
+            json.dumps(versions_listing_body).encode('utf8'))
+        self.app.register(
+            'GET', '/v1/a/c', swob.HTTPOk,
+            {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
+             SYSMETA_VERSIONS_ENABLED: True},
+            json.dumps(listing_body).encode('utf8'))
+
         req = Request.blank(
             '/v1/a/c?versions&marker=obj&version_marker=null',
             environ={'REQUEST_METHOD': 'GET',
@@ -3088,7 +3137,7 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertIn(('X-Versions-Enabled', 'True'), headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(expected[1:], json.loads(body))
+        self.assertEqual(expected, json.loads(body))
         self.assertEqual([
             ('/v1/a/c',
              {'format': 'json',
@@ -3098,27 +3147,42 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             ('/v1/a/%00versions%00c',
              {'delimiter': '',
               'limit': '',
-              'marker': '\x00obj\x00:',
+              'marker': '\x00obj\x00',
               'prefix': '',
               'reverse': ''})],
             [(call.req.path, call.req.params) for call in self.app.call_list])
 
-        # marker and version_marker=<version>
-        self.app.clear_calls()
+    def test_list_versions_with_marker_and_version_marker(self):
+        ts1, ts2 = self.ts(), self.ts()
+        listing_body = []
+        versions_listing_body = [{
+            'bytes': 8,
+            'name': self.build_object_name('obj', (~ts1).internal),
+            'hash': 'etagv1',
+            'last_modified': ts1.isoformat,
+            'content_type': 'text/plain',
+        }]
+
+        expected = [{
+            'bytes': 8,
+            'name': 'obj',
+            'version_id': ts1.internal,
+            'hash': 'etagv1',
+            'last_modified': ts1.isoformat,
+            'content_type': 'text/plain',
+            'is_latest': False,
+        }]
+
         self.app.register(
-            'GET',
-            '%s?marker=%s' % (
-                self.build_versions_path(),
-                self.build_object_name('obj', '9999999989.99999')),
-            swob.HTTPOk, {},
-            json.dumps(versions_listing_body[2:]).encode('utf8'))
+            'GET', self.build_versions_path(), swob.HTTPOk, {},
+            json.dumps(versions_listing_body).encode('utf8'))
         self.app.register(
             'GET', '/v1/a/c', swob.HTTPOk,
             {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
              SYSMETA_VERSIONS_ENABLED: True},
-            json.dumps(listing_body[1:]).encode('utf8'))
+            json.dumps(listing_body).encode('utf8'))
         req = Request.blank(
-            '/v1/a/c?versions&marker=obj&version_marker=0000000010.00000',
+            '/v1/a/c?versions&marker=obj&version_marker=%s' % ts2.internal,
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cache': self.cache_version_on})
         status, headers, body = self.call_ov(req)
@@ -3126,33 +3190,55 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertIn(('X-Versions-Enabled', 'True'), headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(expected[3:], json.loads(body))
+        self.assertEqual(expected, json.loads(body))
         self.assertEqual([
             ('/v1/a/c',
              {'format': 'json',
               'marker': 'obj',
-              'version_marker': '0000000010.00000',
+              'version_marker': ts2.internal,
               'versions': ''}),
             ('/v1/a/%00versions%00c',
              {'delimiter': '',
               'limit': '',
-              'marker': '\x00obj\x009999999989.99999',
+              'marker': '\x00obj\x00%s' % (~ts2).internal,
               'prefix': '',
               'reverse': ''})],
             [(call.req.path, call.req.params) for call in self.app.call_list])
 
-        # version_marker with hex_part
+    def test_list_versions_with_marker_and_version_marker_with_hex_part(self):
+        ts1, ts2 = self.ts(), self.ts()
+        # we do not expect this in reality but we want to test that a future
+        # version_id with hex part is OK
+        ts2 = Timestamp(ts2, offset=1)
+        listing_body = []
+        versions_listing_body = [{
+            'bytes': 8,
+            'name': self.build_object_name('obj', (~ts1).internal),
+            'hash': 'etagv1',
+            'last_modified': ts1.isoformat,
+            'content_type': 'text/plain',
+        }]
+
+        expected = [{
+            'bytes': 8,
+            'name': 'obj',
+            'version_id': ts1.internal,
+            'hash': 'etagv1',
+            'last_modified': ts1.isoformat,
+            'content_type': 'text/plain',
+            'is_latest': False,
+        }]
+
         self.app.register(
-            'GET',
-            '%s?marker=%s' % (
-                self.build_versions_path(),
-                self.build_object_name(
-                    'obj', '9999999989.99998_d123456789edcbaa')),
-            swob.HTTPOk, {},
-            json.dumps(versions_listing_body[2:]).encode('utf8'))
+            'GET', self.build_versions_path(), swob.HTTPOk, {},
+            json.dumps(versions_listing_body).encode('utf8'))
+        self.app.register(
+            'GET', '/v1/a/c', swob.HTTPOk,
+            {SYSMETA_VERSIONS_CONT: self.build_container_name('c'),
+             SYSMETA_VERSIONS_ENABLED: True},
+            json.dumps(listing_body).encode('utf8'))
         req = Request.blank(
-            '/v1/a/c?versions&marker=obj'
-            '&version_marker=0000000010.00000_2edcba9876123456',
+            '/v1/a/c?versions&marker=obj&version_marker=%s' % ts2.internal,
             environ={'REQUEST_METHOD': 'GET',
                      'swift.cache': self.cache_version_on})
         status, headers, body = self.call_ov(req)
@@ -3160,7 +3246,20 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         self.assertIn(('X-Versions-Enabled', 'True'), headers)
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
-        self.assertEqual(expected[3:], json.loads(body))
+        self.assertEqual(expected, json.loads(body))
+        self.assertEqual([
+            ('/v1/a/c',
+             {'format': 'json',
+              'marker': 'obj',
+              'version_marker': ts2.internal,
+              'versions': ''}),
+            ('/v1/a/%00versions%00c',
+             {'delimiter': '',
+              'limit': '',
+              'marker': '\x00obj\x00%s' % (~ts2).internal,
+              'prefix': '',
+              'reverse': ''})],
+            [(call.req.path, call.req.params) for call in self.app.call_list])
 
     def test_list_versions_invalid_delimiter(self):
 
@@ -3878,15 +3977,10 @@ class TestModuleFunctions(unittest.TestCase):
             expected,
             object_versioning.build_versions_object_name('foo', ts.internal))
 
-    def test_build_versions_object_marker(self):
-        expected = '\x00foo\x00:'
+    def test_build_versions_object_prefix(self):
         self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_max_name('foo'))
-        expected = '\x00bar\x00:'
-        self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_max_name('bar'))
+            '\x00foo\x00',
+            object_versioning.build_versions_object_prefix('foo'))
 
     def test_parse_versions_object_name(self):
         ts = utils.Timestamp.now()

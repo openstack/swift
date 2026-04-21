@@ -892,7 +892,7 @@ def main(args=None):
     parser.add_argument('--debug', default=False, action='store_true',
                         help='Enable debug mode')
     parser.add_argument('--clobber-hardlink-collisions', action='store_true',
-                        help='Tolerate hard link collisions when relinking'
+                        help='Tolerate hard link collisions when relinking '
                              'object files. If the action is relink then the '
                              'file in the new target part dir is quarantined '
                              'and the relink is retried. If the action is '

@@ -24,7 +24,6 @@ from tempfile import mkdtemp
 from uuid import uuid4
 
 from unittest import mock
-import unittest
 
 from collections import defaultdict
 
@@ -33,6 +32,7 @@ import time
 from copy import deepcopy
 
 from swift.common import internal_client
+from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.container import replicator
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
     SHARDED, DATADIR
@@ -43,20 +43,19 @@ from swift.container.sharder import ContainerSharder, sharding_enabled, \
     is_sharding_candidate, find_paths, rank_paths, ContainerSharderConf, \
     find_paths_with_gaps, combine_shard_ranges, find_overlapping_ranges, \
     update_own_shard_range_stats
-from swift.common.utils import ShardRange, Timestamp, hash_path, \
-    encode_timestamps, parse_db_filename, quorum_size, Everything, md5, \
-    ShardName, Namespace
+from swift.common.utils import ShardRange, hash_path, encode_timestamps, \
+    parse_db_filename, quorum_size, Everything, md5, ShardName, Namespace
 
 from test.debug_logger import debug_logger, debug_labeled_statsd_client
-from test.unit import FakeRing, make_timestamp_iter, unlink_files, \
-    mocked_http_conn, mock_timestamp_now, mock_timestamp_now_with_iter, \
-    attach_fake_replication_rpc
+from test.unit import FakeRing, unlink_files, mocked_http_conn, \
+    mock_timestamp_now, mock_normal_timestamp_now_with_iter, \
+    attach_fake_replication_rpc, mock_normal_timestamp_now, BaseUnitTestCase
 
 
-class BaseTestSharder(unittest.TestCase):
+class BaseTestSharder(BaseUnitTestCase):
     def setUp(self):
+        super().setUp()
         self.tempdir = mkdtemp()
-        self.ts_iter = make_timestamp_iter()
         self.logger = debug_logger('sharder-test')
         conf = {
             'log_statsd_host': 'host',
@@ -109,7 +108,7 @@ class BaseTestSharder(unittest.TestCase):
         broker = self._make_broker(account=account, container=container)
         broker.set_sharding_sysmeta('Root', 'a/c')
         old_db_id = broker.get_info()['id']
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.CLEAVED)
         broker.merge_shard_ranges(shard_ranges)
@@ -123,7 +122,7 @@ class BaseTestSharder(unittest.TestCase):
         broker = self._make_broker(account=account, container=container)
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         old_db_id = broker.get_info()['id']
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.CLEAVED)
         broker.merge_shard_ranges(shard_ranges)
@@ -139,8 +138,8 @@ class BaseTestSharder(unittest.TestCase):
         for obj in objects or []:
             broker.put_object(*obj)
         own_shard_range = ShardRange(
-            broker.path, next(self.ts_iter), lower, upper,
-            state=ShardRange.SHRINKING, epoch=next(self.ts_iter))
+            broker.path, self.normal_ts(), lower, upper,
+            state=ShardRange.SHRINKING, epoch=self.normal_ts())
         broker.merge_shard_ranges([own_shard_range])
         broker.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(broker.is_root_container())  # sanity check
@@ -148,7 +147,7 @@ class BaseTestSharder(unittest.TestCase):
         return broker
 
     def _make_shard_ranges(self, bounds, state=None, object_count=0,
-                           timestamp=Timestamp.now(), **kwargs):
+                           timestamp=NormalTimestamp.now(), **kwargs):
         if not isinstance(state, (tuple, list)):
             state = [state] * len(bounds)
         state_iter = iter(state)
@@ -794,7 +793,7 @@ class TestSharder(BaseTestSharder):
             self._assert_recon_stats(None, sharder, 'sharding_progress')
 
             # enable and progress container a/c1 by giving it shard ranges
-            now = next(self.ts_iter)
+            now = self.normal_ts()
             own_shard_range_0 = ShardRange(
                 'a/c0', now, '', '', state=ShardRange.SHARDING)
             own_shard_range_0.epoch = now
@@ -918,7 +917,7 @@ class TestSharder(BaseTestSharder):
             self._assert_recon_stats(None, sharder, 'sharding_progress')
 
             # let's progress broker 1 (broker[0])
-            brokers[0].enable_sharding(next(self.ts_iter))
+            brokers[0].enable_sharding(self.normal_ts())
             brokers[0].set_sharding_state()
             shard_ranges = brokers[0].get_shard_ranges()
             for sr in shard_ranges[:-1]:
@@ -1230,7 +1229,7 @@ class TestSharder(BaseTestSharder):
         do_test(json.dumps({}))
         do_test(json.dumps([{'account': 'a', 'container': 'c'}]))
         do_test(json.dumps([dict(Namespace('a/c', 'l', 'u'))]))
-        sr_dict = dict(ShardRange('a/c', next(self.ts_iter), 'l', 'u'))
+        sr_dict = dict(ShardRange('a/c', self.normal_ts(), 'l', 'u'))
         sr_dict.pop('object_count')
         do_test(json.dumps([sr_dict]))
 
@@ -1288,7 +1287,7 @@ class TestSharder(BaseTestSharder):
         for obj in objects:
             broker.put_object(*obj)
 
-        src_range = ShardRange('dont/care', Timestamp.now())
+        src_range = ShardRange('dont/care', NormalTimestamp.now())
         with self._mock_sharder(conf={}) as sharder:
             batches = [b for b, _ in
                        sharder.yield_objects(broker, src_range)]
@@ -1305,7 +1304,7 @@ class TestSharder(BaseTestSharder):
                          [[o['deleted'] for o in b] for b in batches])
 
         # restricted source range
-        src_range = ShardRange('dont/care', Timestamp.now(),
+        src_range = ShardRange('dont/care', NormalTimestamp.now(),
                                lower='o10', upper='o20')
         with self._mock_sharder(conf={}) as sharder:
             batches = [b for b, _ in
@@ -1315,13 +1314,13 @@ class TestSharder(BaseTestSharder):
                          [[o['deleted'] for o in b] for b in batches])
 
         # null source range
-        src_range = ShardRange('dont/care', Timestamp.now(),
+        src_range = ShardRange('dont/care', NormalTimestamp.now(),
                                lower=ShardRange.MAX)
         with self._mock_sharder(conf={}) as sharder:
             batches = [b for b, _ in
                        sharder.yield_objects(broker, src_range)]
         self.assertEqual([], batches)
-        src_range = ShardRange('dont/care', Timestamp.now(),
+        src_range = ShardRange('dont/care', NormalTimestamp.now(),
                                upper=ShardRange.MIN)
         with self._mock_sharder(conf={}) as sharder:
             batches = [b for b, _ in
@@ -1333,7 +1332,7 @@ class TestSharder(BaseTestSharder):
         # broker has no objects
         broker = self._make_broker()
         dest_shard_ranges = mock.MagicMock()
-        src_range = ShardRange('dont/care', Timestamp.now())
+        src_range = ShardRange('dont/care', NormalTimestamp.now())
         with self._mock_sharder(conf={}) as sharder:
             batches = [b for b, _ in
                        sharder.yield_objects_to_shard_range(
@@ -1352,14 +1351,15 @@ class TestSharder(BaseTestSharder):
         # yield_objects annotates the info dict...
         orig_info['max_row'] = 30
         dest_ranges = [
-            ShardRange('shard/0', Timestamp.now(), upper='o09'),
-            ShardRange('shard/1', Timestamp.now(), lower='o09', upper='o19'),
-            ShardRange('shard/2', Timestamp.now(), lower='o19'),
+            ShardRange('shard/0', NormalTimestamp.now(), upper='o09'),
+            ShardRange('shard/1', NormalTimestamp.now(), lower='o09',
+                       upper='o19'),
+            ShardRange('shard/2', NormalTimestamp.now(), lower='o19'),
         ]
 
         # complete overlap of src and dest, multiple batches per dest shard
         # range per deleted/not deleted
-        src_range = ShardRange('dont/care', Timestamp.now())
+        src_range = ShardRange('dont/care', NormalTimestamp.now())
         dest_shard_ranges = mock.MagicMock(return_value=dest_ranges)
         with self._mock_sharder(conf={'cleave_row_batch_size': 4}) as sharder:
             yielded = [y for y in
@@ -1388,7 +1388,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([orig_info] * 12, [info for _, _, info in yielded])
 
         # src narrower than dest
-        src_range = ShardRange('dont/care', Timestamp.now(),
+        src_range = ShardRange('dont/care', NormalTimestamp.now(),
                                lower='o15', upper='o25')
         dest_shard_ranges = mock.MagicMock(return_value=dest_ranges)
         with self._mock_sharder(conf={}) as sharder:
@@ -1406,7 +1406,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([orig_info] * 4, [info for _, _, info in yielded])
 
         # src much narrower than dest
-        src_range = ShardRange('dont/care', Timestamp.now(),
+        src_range = ShardRange('dont/care', NormalTimestamp.now(),
                                lower='o15', upper='o18')
         dest_shard_ranges = mock.MagicMock(return_value=dest_ranges)
         with self._mock_sharder(conf={}) as sharder:
@@ -1421,7 +1421,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([orig_info] * 2, [info for _, _, info in yielded])
 
         # dest narrower than src
-        src_range = ShardRange('dont/care', Timestamp.now(),
+        src_range = ShardRange('dont/care', NormalTimestamp.now(),
                                lower='o05', upper='o25')
         dest_shard_ranges = mock.MagicMock(return_value=dest_ranges[1:])
         with self._mock_sharder(conf={}) as sharder:
@@ -1442,7 +1442,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([orig_info] * 6, [info for _, _, info in yielded])
 
         # dest much narrower than src
-        src_range = ShardRange('dont/care', Timestamp.now(),
+        src_range = ShardRange('dont/care', NormalTimestamp.now(),
                                lower='o05', upper='o25')
         dest_shard_ranges = mock.MagicMock(return_value=dest_ranges[1:2])
         with self._mock_sharder(conf={}) as sharder:
@@ -1463,7 +1463,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([orig_info] * 6, [info for _, _, info in yielded])
 
         # no dest, source is entire namespace, multiple batches
-        src_range = ShardRange('dont/care', Timestamp.now())
+        src_range = ShardRange('dont/care', NormalTimestamp.now())
         dest_shard_ranges = mock.MagicMock(return_value=[])
         with self._mock_sharder(conf={'cleave_row_batch_size': 10}) as sharder:
             yielded = [y for y in
@@ -1485,11 +1485,12 @@ class TestSharder(BaseTestSharder):
              i % 2, 0) for i in range(30)]
         for obj in objects:
             broker.put_object(*obj)
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         dest_ranges = [
-            ShardRange('shard/0', Timestamp.now(), upper='o09'),
-            ShardRange('shard/1', Timestamp.now(), lower='o09', upper='o19'),
-            ShardRange('shard/2', Timestamp.now(), lower='o19'),
+            ShardRange('shard/0', NormalTimestamp.now(), upper='o09'),
+            ShardRange('shard/1', NormalTimestamp.now(), lower='o09',
+                       upper='o19'),
+            ShardRange('shard/2', NormalTimestamp.now(), lower='o19'),
         ]
         broker.merge_shard_ranges(dest_ranges)
         self.assertTrue(broker.set_sharding_state())
@@ -1525,7 +1526,7 @@ class TestSharder(BaseTestSharder):
         for obj in objects:
             broker.put_object(*obj)
         initial_root_info = broker.get_info()
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
 
         shard_bounds = (('', 'here'), ('here', 'there'),
                         ('there', 'where'), ('where', 'yonder'),
@@ -1937,7 +1938,7 @@ class TestSharder(BaseTestSharder):
         ]
         for obj in objects:
             broker.put_object(*obj)
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
 
         shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
         # shard ranges start life with object count that is typically much
@@ -2007,7 +2008,7 @@ class TestSharder(BaseTestSharder):
         # now change the shard ranges so that third consumes second
         shard_ranges[1].set_deleted()
         shard_ranges[2].lower = 'd'
-        shard_ranges[2].timestamp = Timestamp.now()
+        shard_ranges[2].timestamp = NormalTimestamp.now()
 
         broker.merge_shard_ranges(shard_ranges[1:3])
 
@@ -2039,7 +2040,7 @@ class TestSharder(BaseTestSharder):
 
     def test_cleave_root_empty_db_with_ranges(self):
         broker = self._make_broker()
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
 
         shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
         shard_ranges = self._make_shard_ranges(
@@ -2069,7 +2070,7 @@ class TestSharder(BaseTestSharder):
 
     def test_cleave_root_empty_db_with_pre_existing_shard_db_handoff(self):
         broker = self._make_broker()
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
 
         shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
         shard_ranges = self._make_shard_ranges(
@@ -2139,8 +2140,8 @@ class TestSharder(BaseTestSharder):
     def test_cleave_shard(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
         own_shard_range = ShardRange(
-            broker.path, Timestamp.now(), 'here', 'where',
-            state=ShardRange.SHARDING, epoch=Timestamp.now())
+            broker.path, NormalTimestamp.now(), 'here', 'where',
+            state=ShardRange.SHARDING, epoch=NormalTimestamp.now())
         broker.merge_shard_ranges([own_shard_range])
         broker.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(broker.is_root_container())  # sanity check
@@ -2291,10 +2292,10 @@ class TestSharder(BaseTestSharder):
             broker = self._make_shrinking_broker(
                 container='donor_%s' % unique[0], lower='h', upper='w',
                 objects=objects)
-            acceptor_epoch = next(self.ts_iter)
+            acceptor_epoch = self.normal_ts()
             acceptors = [
                 ShardRange('.shards_a/acceptor_%s_%s' % (unique[0], bounds[1]),
-                           Timestamp.now(), bounds[0], bounds[1],
+                           NormalTimestamp.now(), bounds[0], bounds[1],
                            '1000', '11111',
                            state=acceptor_state, epoch=acceptor_epoch)
                 for bounds in acceptor_bounds]
@@ -2305,7 +2306,8 @@ class TestSharder(BaseTestSharder):
                 exp_progress_acceptors = [
                     ShardRange(
                         '.shards_a/acceptor_%s_%s' % (unique[0], bounds[1]),
-                        Timestamp.now(), bounds[0], bounds[1], '1000', '11111',
+                        NormalTimestamp.now(),
+                        bounds[0], bounds[1], '1000', '11111',
                         state=acceptor_state, epoch=acceptor_epoch)
                     for bounds in exp_progress_bounds]
             expected_acceptor_dbs = []
@@ -2321,7 +2323,7 @@ class TestSharder(BaseTestSharder):
             broker.merge_shard_ranges(acceptors)
 
             # run cleave
-            with mock_timestamp_now_with_iter(self.ts_iter):
+            with mock_normal_timestamp_now_with_iter(self.normal_ts_iter):
                 with self._mock_sharder() as sharder:
                     sharder.cleave_batch_size = 3
                     self.assertEqual(expect_delete, sharder._cleave(broker))
@@ -2386,7 +2388,7 @@ class TestSharder(BaseTestSharder):
 
             # check that *shrinking* shard's copies of acceptor ranges are not
             # updated when completing sharding as they would be if *sharding*
-            with mock_timestamp_now_with_iter(self.ts_iter):
+            with mock_normal_timestamp_now_with_iter(self.normal_ts_iter):
                 sharder._complete_sharding(broker)
 
             updated_shard_ranges = broker.get_shard_ranges()
@@ -2447,7 +2449,7 @@ class TestSharder(BaseTestSharder):
         for obj in objects:
             broker.put_object(*obj)
         broker._commit_puts()
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         shard_bounds = (('', 'obj004'), ('obj004', ''))
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.CREATED)
@@ -2606,7 +2608,7 @@ class TestSharder(BaseTestSharder):
                     'systags': 'a=b',
                     } for i in range(1, 8)]
         broker.merge_items([dict(obj) for obj in objects])
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         shard_ranges = self._make_shard_ranges(
             (('', 'obj_004'), ('obj_004', '')), state=ShardRange.CREATED)
         expected_shard_dbs = []
@@ -2686,7 +2688,7 @@ class TestSharder(BaseTestSharder):
                     } for i in range(1, 8)]
         # merge_items mutates items
         broker.merge_items([dict(obj) for obj in objects])
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         shard_ranges = self._make_shard_ranges(
             (('', 'obj_004'), ('obj_004', '')), state=ShardRange.CREATED)
         expected_shard_dbs = []
@@ -2728,7 +2730,7 @@ class TestSharder(BaseTestSharder):
         ]
         broker.merge_items([dict(obj) for obj in objects])
         broker._commit_puts()
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         shard_bounds = (('', 'obj004'), ('obj004', ''))
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.CREATED)
@@ -2890,7 +2892,7 @@ class TestSharder(BaseTestSharder):
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         broker.merge_shard_ranges(shard_ranges)
         self.assertTrue(broker.set_sharding_state())
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
@@ -3099,7 +3101,7 @@ class TestSharder(BaseTestSharder):
 
         # local db gets shard ranges
         own_shard_range = local_broker.get_own_shard_range()
-        now = Timestamp.now()
+        now = NormalTimestamp.now()
         own_shard_range.update_state(ShardRange.SHARDING, state_timestamp=now)
         own_shard_range.epoch = now
         shard_ranges = self._make_shard_ranges(
@@ -3183,7 +3185,7 @@ class TestSharder(BaseTestSharder):
 
     def test_cleave_skips_shrinking_and_stops_at_found(self):
         broker = self._make_broker()
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         shard_bounds = (('', 'b'),
                         ('b', 'c'),
                         ('b', 'd'),
@@ -3235,7 +3237,7 @@ class TestSharder(BaseTestSharder):
 
         # run cleave - final shard range in CREATED state, cleaving proceeds
         shard_ranges[4].update_state(ShardRange.CREATED,
-                                     state_timestamp=Timestamp.now())
+                                     state_timestamp=NormalTimestamp.now())
         broker.merge_shard_ranges(shard_ranges[4:])
         with self._mock_sharder() as sharder:
             self.assertTrue(sharder._cleave(broker))
@@ -3250,12 +3252,12 @@ class TestSharder(BaseTestSharder):
         broker = self._make_shrinking_broker(account='.shards_a',
                                              container='shard_c')
         deleted_range = ShardRange(
-            '.shards/other', next(self.ts_iter), 'here', 'there', deleted=True,
-            state=ShardRange.SHRUNK, epoch=next(self.ts_iter))
+            '.shards/other', self.normal_ts(), 'here', 'there',
+            deleted=True, state=ShardRange.SHRUNK, epoch=self.normal_ts())
         # root is the acceptor...
         root = ShardRange(
-            'a/c', next(self.ts_iter), '', '',
-            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+            'a/c', self.normal_ts(), '', '',
+            state=ShardRange.ACTIVE, epoch=self.normal_ts())
         broker.merge_shard_ranges([deleted_range, root])
         broker.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(broker.is_root_container())  # sanity check
@@ -3275,16 +3277,16 @@ class TestSharder(BaseTestSharder):
         broker.put_object(
             'here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0)
         own_shard_range = ShardRange(
-            broker.path, next(self.ts_iter), 'here', 'there',
-            state=ShardRange.SHARDING, epoch=next(self.ts_iter))
+            broker.path, self.normal_ts(), 'here', 'there',
+            state=ShardRange.SHARDING, epoch=self.normal_ts())
         # the intended acceptor...
         acceptor = ShardRange(
-            '.shards_a/shard_d', next(self.ts_iter), 'here', '',
-            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+            '.shards_a/shard_d', self.normal_ts(), 'here', '',
+            state=ShardRange.ACTIVE, epoch=self.normal_ts())
         # root range also gets pulled from root during audit...
         root = ShardRange(
-            'a/c', next(self.ts_iter), '', '',
-            state=ShardRange.SHARDED, epoch=next(self.ts_iter))
+            'a/c', self.normal_ts(), '', '',
+            state=ShardRange.SHARDED, epoch=self.normal_ts())
         broker.merge_shard_ranges([own_shard_range, acceptor, root])
         broker.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(broker.is_root_container())  # sanity check
@@ -3310,19 +3312,19 @@ class TestSharder(BaseTestSharder):
         broker = self._make_shrinking_broker(objects=objects)
         # active acceptor with upper bound == MAX
         acceptor = ShardRange(
-            '.shards/other', next(self.ts_iter), 'here', '', deleted=False,
-            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+            '.shards/other', self.normal_ts(), 'here', '', deleted=False,
+            state=ShardRange.ACTIVE, epoch=self.normal_ts())
         # root is also active
         root = ShardRange(
-            'a/c', next(self.ts_iter), '', '',
-            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+            'a/c', self.normal_ts(), '', '',
+            state=ShardRange.ACTIVE, epoch=self.normal_ts())
         broker.merge_shard_ranges([acceptor, root])
         broker.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(broker.is_root_container())  # sanity check
 
         # expect cleave to the root
         acceptor.upper = ''
-        acceptor.timestamp = next(self.ts_iter)
+        acceptor.timestamp = self.normal_ts()
         broker.merge_shard_ranges([acceptor])
         with self._mock_sharder() as sharder:
             self.assertTrue(sharder._cleave(broker))
@@ -3347,12 +3349,12 @@ class TestSharder(BaseTestSharder):
         broker = self._make_shrinking_broker(objects=objects)
         # active acceptor with upper bound < MAX
         acceptor = ShardRange(
-            '.shards/other', next(self.ts_iter), 'here', 'where',
-            deleted=False, state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+            '.shards/other', self.normal_ts(), 'here', 'where',
+            deleted=False, state=ShardRange.ACTIVE, epoch=self.normal_ts())
         # root is also active
         root = ShardRange(
-            'a/c', next(self.ts_iter), '', '',
-            state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+            'a/c', self.normal_ts(), '', '',
+            state=ShardRange.ACTIVE, epoch=self.normal_ts())
         broker.merge_shard_ranges([acceptor, root])
 
         # expect cleave to the acceptor
@@ -3570,8 +3572,8 @@ class TestSharder(BaseTestSharder):
         broker.get_brokers()[0].merge_items([obj])
         # active acceptor with upper bound < MAX
         acceptor = ShardRange(
-            '.shards/other', next(self.ts_iter), 'here', 'where',
-            deleted=False, state=ShardRange.ACTIVE, epoch=next(self.ts_iter))
+            '.shards/other', self.normal_ts(), 'here', 'where',
+            deleted=False, state=ShardRange.ACTIVE, epoch=self.normal_ts())
         broker.merge_shard_ranges([acceptor])
         context = CleavingContext.load(broker)
         self.assertFalse(context.cleaving_done)
@@ -3639,7 +3641,7 @@ class TestSharder(BaseTestSharder):
         conf = {'shard_container_threshold': 100,
                 'recon_cache_path': self.tempdir}
         with self._mock_sharder(conf=conf) as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 for broker in brokers:
                     sharder._identify_sharding_candidate(broker, node)
         stats_0 = {'path': brokers[0].db_file,
@@ -3694,7 +3696,7 @@ class TestSharder(BaseTestSharder):
         conf = {'shard_container_threshold': 100,
                 'recon_cache_path': self.tempdir}
         with self._mock_sharder(conf=conf) as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 for broker in brokers:
                     sharder._identify_sharding_candidate(broker, node)
         stats_0 = {'path': brokers[0].db_file,
@@ -3716,7 +3718,7 @@ class TestSharder(BaseTestSharder):
 
         # repeat with handoff node and db_file error
         with self._mock_sharder(conf=conf) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 with mock.patch('os.stat', side_effect=OSError('test error')):
                     for broker in brokers:
                         sharder._identify_sharding_candidate(broker, {})
@@ -3744,10 +3746,10 @@ class TestSharder(BaseTestSharder):
             brokers[2].put_object(*obj)
         own_sr = brokers[2].get_own_shard_range()
         for state in ShardRange.STATES:
-            own_sr.update_state(state, state_timestamp=Timestamp.now())
+            own_sr.update_state(state, state_timestamp=NormalTimestamp.now())
             brokers[2].merge_shard_ranges([own_sr])
             with self._mock_sharder(conf=conf) as sharder:
-                with mock_timestamp_now(now):
+                with mock_normal_timestamp_now(now):
                     for broker in brokers:
                         sharder._identify_sharding_candidate(broker, node)
             with self.subTest(state=state):
@@ -3756,10 +3758,11 @@ class TestSharder(BaseTestSharder):
         # reduce the threshold and the second container is included
         conf = {'shard_container_threshold': 50,
                 'recon_cache_path': self.tempdir}
-        own_sr.update_state(ShardRange.ACTIVE, state_timestamp=Timestamp.now())
+        own_sr.update_state(ShardRange.ACTIVE,
+                            state_timestamp=NormalTimestamp.now())
         brokers[2].merge_shard_ranges([own_sr])
         with self._mock_sharder(conf=conf) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 for broker in brokers:
                     sharder._identify_sharding_candidate(broker, node)
         stats_2 = {'path': brokers[2].db_file,
@@ -3784,23 +3787,24 @@ class TestSharder(BaseTestSharder):
         for state in ShardRange.STATES:
             if state == ShardRange.ACTIVE:
                 continue
-            own_sr.update_state(state, state_timestamp=Timestamp.now())
+            own_sr.update_state(state, state_timestamp=NormalTimestamp.now())
             brokers[0].merge_shard_ranges([own_sr])
             with self._mock_sharder(conf=conf) as sharder:
-                with mock_timestamp_now(now):
+                with mock_normal_timestamp_now(now):
                     for broker in brokers:
                         sharder._identify_sharding_candidate(broker, node)
             with self.subTest(state=state):
                 self.assertEqual([stats_2], sharder.sharding_candidates)
 
-        own_sr.update_state(ShardRange.ACTIVE, state_timestamp=Timestamp.now())
+        own_sr.update_state(ShardRange.ACTIVE,
+                            state_timestamp=NormalTimestamp.now())
         brokers[0].merge_shard_ranges([own_sr])
 
         # load up a third container with 150 objects
         for obj in objects[:150]:
             brokers[5].put_object(*obj)
         with self._mock_sharder(conf=conf) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 for broker in brokers:
                     sharder._identify_sharding_candidate(broker, node)
         stats_5 = {'path': brokers[5].db_file,
@@ -3827,7 +3831,7 @@ class TestSharder(BaseTestSharder):
                 'recon_cache_path': self.tempdir,
                 'recon_candidates_limit': 2}
         with self._mock_sharder(conf=conf) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 for broker in brokers:
                     sharder._identify_sharding_candidate(broker, node)
         self.assertEqual([stats_0, stats_2, stats_5],
@@ -3847,7 +3851,7 @@ class TestSharder(BaseTestSharder):
             for obj in objects[:(151 + i)]:
                 broker.put_object(*obj)
         with self._mock_sharder(conf=conf) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 for broker in brokers:
                     sharder._identify_sharding_candidate(broker, node)
 
@@ -3892,7 +3896,7 @@ class TestSharder(BaseTestSharder):
 
     def test_misplaced_objects_root_container(self):
         broker = self._make_broker()
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
 
         objects = [
             # misplaced objects in second and third shard ranges
@@ -4180,7 +4184,8 @@ class TestSharder(BaseTestSharder):
                         ('yonder', ''))
         initial_shard_ranges = [
             ShardRange('.shards_a/%s-%s' % (lower, upper),
-                       Timestamp.now(), lower, upper, state=ShardRange.ACTIVE)
+                       NormalTimestamp.now(), lower, upper,
+                       state=ShardRange.ACTIVE)
             for lower, upper in shard_bounds
         ]
         expected_dbs = []
@@ -4199,7 +4204,7 @@ class TestSharder(BaseTestSharder):
             # deleted
             ['x', self.ts_encoded(), 0, '', '', 1, 0],
         ]
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
         for obj in objects:
@@ -4484,7 +4489,7 @@ class TestSharder(BaseTestSharder):
 
     def _check_misplaced_objects_shard_container_unsharded(self, conf=None):
         broker = self._make_broker(account='.shards_a', container='.shard_c')
-        ts_shard = next(self.ts_iter)
+        ts_shard = self.normal_ts()
         own_sr = ShardRange(broker.path, ts_shard, 'here', 'where')
         broker.merge_shard_ranges([own_sr])
         broker.set_sharding_sysmeta('Root', 'a/c')
@@ -4740,11 +4745,11 @@ class TestSharder(BaseTestSharder):
 
     def test_misplaced_objects_shard_container_sharding(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
-        ts_shard = next(self.ts_iter)
+        ts_shard = self.normal_ts()
         # note that own_sr spans two root shard ranges
         own_sr = ShardRange(broker.path, ts_shard, 'here', 'where')
         own_sr.update_state(ShardRange.SHARDING)
-        own_sr.epoch = next(self.ts_iter)
+        own_sr.epoch = self.normal_ts()
         broker.merge_shard_ranges([own_sr])
         broker.set_sharding_sysmeta('Root', 'a/c')
         self.assertEqual(own_sr, broker.get_own_shard_range())  # sanity check
@@ -4906,7 +4911,7 @@ class TestSharder(BaseTestSharder):
     def test_misplaced_objects_deleted_and_updated(self):
         # setup
         broker = self._make_broker()
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
 
         shard_bounds = (('', 'here'), ('here', ''))
         root_shard_ranges = self._make_shard_ranges(
@@ -5073,7 +5078,7 @@ class TestSharder(BaseTestSharder):
 
     def _setup_old_style_find_ranges(self, account, cont, lower, upper):
         broker = self._make_broker(account=account, container=cont)
-        own_sr = ShardRange('%s/%s' % (account, cont), Timestamp.now(),
+        own_sr = ShardRange('%s/%s' % (account, cont), NormalTimestamp.now(),
                             lower, upper)
         broker.merge_shard_ranges([own_sr])
         broker.set_sharding_sysmeta('Root', 'a/c')
@@ -5140,7 +5145,7 @@ class TestSharder(BaseTestSharder):
                                       'minimum_shard_size': 1,
                                       'shrink_threshold': 0}
                                 ) as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(99, sharder.rows_per_shard)
         self.assertEqual(2, num_found)
@@ -5175,7 +5180,7 @@ class TestSharder(BaseTestSharder):
 
     def _setup_find_ranges(self, account, cont, lower, upper):
         broker = self._make_broker(account=account, container=cont)
-        own_sr = ShardRange('%s/%s' % (account, cont), Timestamp.now(),
+        own_sr = ShardRange('%s/%s' % (account, cont), NormalTimestamp.now(),
                             lower, upper)
         broker.merge_shard_ranges([own_sr])
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
@@ -5241,7 +5246,7 @@ class TestSharder(BaseTestSharder):
                                       'minimum_shard_size': 1,
                                       'shrink_threshold': 0},
                                 ) as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(99, sharder.rows_per_shard)
         self.assertEqual(2, num_found)
@@ -5275,7 +5280,7 @@ class TestSharder(BaseTestSharder):
                                              upper):
         broker, objects = self._setup_find_ranges(
             account, cont, lower, upper)
-        now = Timestamp.now()
+        now = NormalTimestamp.now()
         expected_ranges = [
             ShardRange(
                 ShardRange.make_path('.shards_a', 'c', cont, now, 0),
@@ -5293,7 +5298,7 @@ class TestSharder(BaseTestSharder):
                 conf={'shard_container_threshold': 90,
                       'shard_scanner_batch_size': 2,
                       'minimum_shard_size': 10}) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(45, sharder.rows_per_shard)
         self.assertEqual(2, num_found)
@@ -5311,7 +5316,7 @@ class TestSharder(BaseTestSharder):
                                       'shard_scanner_batch_size': 2,
                                       'minimum_shard_size': 10}
                                 ) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(1, num_found)
         self.assertEqual(3, len(broker.get_shard_ranges()))
@@ -5353,7 +5358,7 @@ class TestSharder(BaseTestSharder):
         upper = 'u'
         broker, objects = self._setup_find_ranges(
             '.shards_a', 'c_', lower, upper)
-        now = Timestamp.now()
+        now = NormalTimestamp.now()
         expected_ranges = [
             ShardRange(
                 ShardRange.make_path('.shards_a', 'c', cont, now, 0),
@@ -5368,7 +5373,7 @@ class TestSharder(BaseTestSharder):
                 conf={'shard_container_threshold': 90,
                       'shard_scanner_batch_size': 2,
                       'minimum_shard_size': 11}) as sharder:
-            with mock_timestamp_now(now):
+            with mock_normal_timestamp_now(now):
                 num_found = sharder._find_shard_ranges(broker)
         self.assertEqual(45, sharder.rows_per_shard)
         self.assertEqual(11, sharder.minimum_shard_size)
@@ -5417,7 +5422,7 @@ class TestSharder(BaseTestSharder):
 
         # but if broker has a shard range then sharding is enabled
         broker.merge_shard_ranges(
-            ShardRange('acc/a_shard', Timestamp.now(), 'l', 'u'))
+            ShardRange('acc/a_shard', NormalTimestamp.now(), 'l', 'u'))
         self.assertTrue(sharding_enabled(broker))
 
     def test_send_shard_ranges(self):
@@ -5668,7 +5673,7 @@ class TestSharder(BaseTestSharder):
             with mock.patch.object(
                     broker, 'set_sharding_state') as mock_set_sharding_state:
                 with self._mock_sharder() as sharder:
-                    with mock_timestamp_now():
+                    with mock_normal_timestamp_now():
                         with mock.patch.object(sharder, '_audit_container'):
                             sharder._process_broker(broker, node, 99)
                             own_shard_range = broker.get_own_shard_range(
@@ -5688,7 +5693,7 @@ class TestSharder(BaseTestSharder):
                 'index': 0}
         own_sr = broker.get_own_shard_range()
         self.assertTrue(own_sr.update_state(start_state))
-        epoch = next(self.ts_iter)
+        epoch = self.normal_ts()
         own_sr.epoch = epoch
         shard_ranges = self._make_shard_ranges((('', 'm'), ('m', '')))
         broker.merge_shard_ranges([own_sr] + shard_ranges)
@@ -5699,7 +5704,7 @@ class TestSharder(BaseTestSharder):
             # pretend shard containers are created ok so sharding proceeds
             with mock.patch.object(
                     sharder, '_send_shard_ranges', return_value=True):
-                with mock_timestamp_now_with_iter(self.ts_iter):
+                with mock_normal_timestamp_now_with_iter(self.normal_ts_iter):
                     sharder._audit_container = mock.MagicMock()
                     sharder._process_broker(broker, node, 99)
 
@@ -5771,14 +5776,14 @@ class TestSharder(BaseTestSharder):
                          ShardRange.SHRUNK):
                 epoch = None
             else:
-                epoch = Timestamp.now()
+                epoch = NormalTimestamp.now()
 
             own_sr = broker.get_own_shard_range()  # returns the default
             own_sr.update_state(state)
             own_sr.epoch = epoch
             broker.merge_shard_ranges([own_sr])
             with self._mock_sharder() as sharder:
-                with mock_timestamp_now():
+                with mock_normal_timestamp_now():
                     sharder._process_broker(broker, node, 99)
                     own_shard_range = broker.get_own_shard_range(
                         no_default=True)
@@ -5809,11 +5814,11 @@ class TestSharder(BaseTestSharder):
         # now set own shard range to given state and persist it
         own_sr = broker.get_own_shard_range()  # returns the default
         self.assertTrue(own_sr.update_state(state))
-        epoch = Timestamp.now()
+        epoch = NormalTimestamp.now()
         own_sr.epoch = epoch
         broker.merge_shard_ranges([own_sr])
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now():
+            with mock_normal_timestamp_now():
                 # we're not testing rest of the process here so prevent any
                 # attempt to progress shard range states
                 sharder._create_shard_containers = lambda *args: 0
@@ -5845,7 +5850,7 @@ class TestSharder(BaseTestSharder):
 
         def do_process(conf):
             with self._mock_sharder(conf) as sharder:
-                with mock_timestamp_now():
+                with mock_normal_timestamp_now():
                     # we're not testing rest of the process here so prevent any
                     # attempt to progress shard range states
                     sharder._create_shard_containers = lambda *args: 0
@@ -5893,7 +5898,7 @@ class TestSharder(BaseTestSharder):
                 'index': 0}
 
         with self._mock_sharder(conf) as sharder:
-            with mock_timestamp_now():
+            with mock_normal_timestamp_now():
                 with mock.patch.object(
                         sharder, '_find_and_enable_sharding_candidates'
                 ) as mock_find_and_enable:
@@ -5953,14 +5958,14 @@ class TestSharder(BaseTestSharder):
         def check_only_own_shard_range_sent(state):
             own_shard_range = broker.get_own_shard_range()
             self.assertTrue(own_shard_range.update_state(
-                state, state_timestamp=next(self.ts_iter)))
+                state, state_timestamp=self.normal_ts()))
             broker.merge_shard_ranges([own_shard_range])
             # add an object, expect to see it reflected in the own shard range
             # that is sent
             obj_names.append(uuid4())
             broker.put_object(str(obj_names[-1]),
                               next(self.ts_iter).internal, 1, '', '')
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 # check if the state if in SHARD_UPDATE_STAT_STATES
                 if state in [ShardRange.CLEAVED, ShardRange.ACTIVE,
                              ShardRange.SHARDING, ShardRange.SHARDED,
@@ -5980,7 +5985,7 @@ class TestSharder(BaseTestSharder):
                     exp_obj_count, broker.get_own_shard_range().object_count)
 
         # initialise tombstones
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             own_shard_range = broker.get_own_shard_range()
             own_shard_range.update_tombstones(0)
             broker.merge_shard_ranges([own_shard_range])
@@ -5994,13 +5999,13 @@ class TestSharder(BaseTestSharder):
         def check_tombstones_sent(state):
             own_shard_range = broker.get_own_shard_range()
             self.assertTrue(own_shard_range.update_state(
-                state, state_timestamp=next(self.ts_iter)))
+                state, state_timestamp=self.normal_ts()))
             broker.merge_shard_ranges([own_shard_range])
             # delete an object, expect to see it reflected in the own shard
             # range that is sent
             broker.delete_object(str(obj_names.pop(-1)),
                                  next(self.ts_iter).internal)
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 # check if the state if in SHARD_UPDATE_STAT_STATES
                 if state in [ShardRange.CLEAVED, ShardRange.ACTIVE,
                              ShardRange.SHARDING, ShardRange.SHARDED,
@@ -6028,7 +6033,7 @@ class TestSharder(BaseTestSharder):
 
             own_shard_range.reported = True
             self.assertTrue(own_shard_range.update_state(
-                state, state_timestamp=next(self.ts_iter)))
+                state, state_timestamp=self.normal_ts()))
             # Check that updating state clears the flag
             self.assertFalse(own_shard_range.reported)
 
@@ -6043,7 +6048,7 @@ class TestSharder(BaseTestSharder):
             self.assertFalse(mock_conn.requests)
 
         # initialise tombstones
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             own_shard_range = broker.get_own_shard_range()
             own_shard_range.update_tombstones(0)
             broker.merge_shard_ranges([own_shard_range])
@@ -6068,14 +6073,14 @@ class TestSharder(BaseTestSharder):
         def check_all_shard_ranges_sent(state):
             own_shard_range = broker.get_own_shard_range()
             self.assertTrue(own_shard_range.update_state(
-                state, state_timestamp=next(self.ts_iter)))
+                state, state_timestamp=self.normal_ts()))
             broker.merge_shard_ranges([own_shard_range])
             # add an object, expect to see it reflected in the own shard range
             # that is sent
             obj_names.append(uuid4())
             broker.put_object(str(obj_names[-1]),
                               next(self.ts_iter).internal, 1, '', '')
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 shard_ranges = broker.get_shard_ranges(include_deleted=True)
                 exp_own_shard_range = own_shard_range.copy()
                 # check if the state if in SHARD_UPDATE_STAT_STATES
@@ -6097,16 +6102,16 @@ class TestSharder(BaseTestSharder):
                 check_all_shard_ranges_sent(state)
 
     def test_audit_root_container_reset_epoch(self):
-        epoch = next(self.ts_iter)
+        epoch = self.normal_ts()
         broker = self._make_broker(epoch=epoch)
         shard_bounds = (('', 'j'), ('j', 'k'), ('k', 's'),
                         ('s', 'y'), ('y', ''))
         shard_ranges = self._make_shard_ranges(shard_bounds,
                                                ShardRange.ACTIVE,
-                                               timestamp=next(self.ts_iter))
+                                               timestamp=self.normal_ts())
         broker.merge_shard_ranges(shard_ranges)
         own_shard_range = broker.get_own_shard_range()
-        own_shard_range.update_state(ShardRange.SHARDED, next(self.ts_iter))
+        own_shard_range.update_state(ShardRange.SHARDED, self.normal_ts())
         own_shard_range.epoch = epoch
         broker.merge_shard_ranges(own_shard_range)
         with self._mock_sharder() as sharder:
@@ -6122,7 +6127,7 @@ class TestSharder(BaseTestSharder):
         # test for a reset epoch
         own_shard_range = broker.get_own_shard_range()
         own_shard_range.epoch = None
-        own_shard_range.state_timestamp = next(self.ts_iter)
+        own_shard_range.state_timestamp = self.normal_ts()
         broker.merge_shard_ranges(own_shard_range)
         with self._mock_sharder() as sharder:
             with mock.patch.object(
@@ -6167,7 +6172,7 @@ class TestSharder(BaseTestSharder):
                          ShardRange.SHRUNK):
                 continue  # tested separately below
             shard_ranges = self._make_shard_ranges(
-                shard_bounds, state, timestamp=next(self.ts_iter))
+                shard_bounds, state, timestamp=self.normal_ts())
             broker.merge_shard_ranges(shard_ranges)
             with self._mock_sharder() as sharder:
                 with mock.patch.object(
@@ -6182,7 +6187,7 @@ class TestSharder(BaseTestSharder):
 
         shard_ranges = self._make_shard_ranges(shard_bounds,
                                                ShardRange.SHRINKING,
-                                               timestamp=next(self.ts_iter))
+                                               timestamp=self.normal_ts())
         broker.merge_shard_ranges(shard_ranges)
         with self._mock_sharder() as sharder:
             with mock.patch.object(
@@ -6197,9 +6202,9 @@ class TestSharder(BaseTestSharder):
 
         for state in (ShardRange.SHRUNK, ShardRange.SHARDED):
             shard_ranges = self._make_shard_ranges(
-                shard_bounds, state, timestamp=next(self.ts_iter))
+                shard_bounds, state, timestamp=self.normal_ts())
             for sr in shard_ranges:
-                sr.set_deleted(Timestamp.now())
+                sr.set_deleted(NormalTimestamp.now())
             broker.merge_shard_ranges(shard_ranges)
             with self._mock_sharder() as sharder:
                 with mock.patch.object(
@@ -6215,7 +6220,7 @@ class TestSharder(BaseTestSharder):
         # Put the shards back to a "useful" state
         shard_ranges = self._make_shard_ranges(shard_bounds,
                                                ShardRange.ACTIVE,
-                                               timestamp=next(self.ts_iter))
+                                               timestamp=self.normal_ts())
         broker.merge_shard_ranges(shard_ranges)
 
         def assert_missing_warning(line):
@@ -6231,7 +6236,7 @@ class TestSharder(BaseTestSharder):
             states = (ShardRange.SHARDING, ShardRange.SHARDED)
             for state in states:
                 own_shard_range.update_state(
-                    state, state_timestamp=next(self.ts_iter))
+                    state, state_timestamp=self.normal_ts())
                 broker.merge_shard_ranges([own_shard_range])
                 with self._mock_sharder() as sharder:
                     with mock.patch.object(
@@ -6252,7 +6257,7 @@ class TestSharder(BaseTestSharder):
         missing_shard_bounds = (('', 'a'), ('j', 'k'), ('z', ''))
         shrinking_shard_ranges = self._make_shard_ranges(
             missing_shard_bounds, ShardRange.SHRINKING,
-            timestamp=next(self.ts_iter))
+            timestamp=self.normal_ts())
         broker.merge_shard_ranges(shrinking_shard_ranges)
         check_missing()
 
@@ -6260,8 +6265,8 @@ class TestSharder(BaseTestSharder):
         # Test '_audit_root_container' when overlapping shard ranges are
         # parent and children, expect no warnings. The case of non parent-child
         # overlapping is tested in 'test_audit_root_container'.
-        now_ts = next(self.ts_iter)
-        past_ts = Timestamp(float(now_ts) - 604801)
+        now_ts = self.normal_ts()
+        past_ts = NormalTimestamp(float(now_ts) - 604801)
         root_sr = ShardRange('a/c', past_ts, state=ShardRange.SHARDED)
         parent_range = ShardRange(ShardRange.make_path(
             '.shards_a', 'c', root_sr.container,
@@ -6344,9 +6349,9 @@ class TestSharder(BaseTestSharder):
 
         # delete all shard ranges
         for sr in shard_ranges:
-            sr.update_state(ShardRange.SHRUNK, Timestamp.now())
+            sr.update_state(ShardRange.SHRUNK, NormalTimestamp.now())
             sr.deleted = True
-            sr.timestamp = Timestamp.now()
+            sr.timestamp = NormalTimestamp.now()
         broker.merge_shard_ranges(shard_ranges)
 
         # no more warning
@@ -6405,7 +6410,7 @@ class TestSharder(BaseTestSharder):
             ShardRange.FOUND, ShardRange.CREATED
         )
         shard_ranges = self._make_shard_ranges(shard_bounds, shard_states,
-                                               timestamp=next(self.ts_iter))
+                                               timestamp=self.normal_ts())
         shard_ranges[1].name = broker.path
         expected_stats = {'attempted': 1, 'success': 0, 'failure': 1}
 
@@ -6444,18 +6449,18 @@ class TestSharder(BaseTestSharder):
         # own shard range bounds don't match what's in root (e.g. this shard is
         # expanding to be an acceptor)
         expected_stats = {'attempted': 1, 'success': 1, 'failure': 0}
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             own_shard_range = broker.get_own_shard_range()  # get the default
         own_shard_range.lower = 'j'
         own_shard_range.upper = 'k'
         own_shard_range.name = broker.path
         broker.merge_shard_ranges([own_shard_range])
         # bump timestamp of root shard range to be newer than own
-        root_ts = next(self.ts_iter)
+        root_ts = self.normal_ts()
         self.assertTrue(shard_ranges[1].update_state(ShardRange.ACTIVE,
                                                      state_timestamp=root_ts))
         shard_ranges[1].timestamp = root_ts
-        with mock_timestamp_now():
+        with mock_normal_timestamp_now():
             sharder, mock_swift = self.call_audit_container(
                 broker, shard_ranges)
         self._assert_stats(expected_stats, sharder, 'audit_shard')
@@ -6491,11 +6496,11 @@ class TestSharder(BaseTestSharder):
                          broker.get_shard_ranges(include_own=True))
 
         # move root version of own shard range to shrinking state
-        root_ts = next(self.ts_iter)
+        root_ts = self.normal_ts()
         self.assertTrue(shard_ranges[1].update_state(ShardRange.SHRINKING,
                                                      state_timestamp=root_ts))
         # bump own shard range state timestamp so it is newer than root
-        own_ts = next(self.ts_iter)
+        own_ts = self.normal_ts()
         own_shard_range = broker.get_own_shard_range()
         own_shard_range.update_state(ShardRange.ACTIVE, state_timestamp=own_ts)
         broker.merge_shard_ranges([own_shard_range])
@@ -6531,7 +6536,7 @@ class TestSharder(BaseTestSharder):
         own_shard_range = broker.get_own_shard_range()  # get the default
         own_shard_range.lower = 'j'
         own_shard_range.upper = 'k'
-        own_shard_range.timestamp = next(self.ts_iter)
+        own_shard_range.timestamp = self.normal_ts()
         broker.merge_shard_ranges([own_shard_range])
         sharder, mock_swift = self.call_audit_container(
             broker, shard_ranges,
@@ -6556,14 +6561,14 @@ class TestSharder(BaseTestSharder):
             params=params)
 
         # make own shard range match one in root, but different state
-        own_ts = next(self.ts_iter)
+        own_ts = self.normal_ts()
         shard_ranges[1].timestamp = own_ts
         own_shard_range = shard_ranges[1].copy()
         broker.merge_shard_ranges([own_shard_range])
-        root_ts = next(self.ts_iter)
+        root_ts = self.normal_ts()
         shard_ranges[1].update_state(ShardRange.SHARDING,
                                      state_timestamp=root_ts)
-        with mock_timestamp_now():
+        with mock_normal_timestamp_now():
             sharder, mock_swift = self.call_audit_container(
                 broker, shard_ranges)
         self.assert_no_audit_messages(sharder, mock_swift)
@@ -6582,18 +6587,18 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(root_ts, own_shard_range.state_timestamp)
 
         own_shard_range.update_state(ShardRange.SHARDED,
-                                     state_timestamp=next(self.ts_iter))
+                                     state_timestamp=self.normal_ts())
         broker.merge_shard_ranges([own_shard_range])
         sharder, mock_swift = self.call_audit_container(broker, shard_ranges)
         self.assert_no_audit_messages(sharder, mock_swift)
 
         own_shard_range.deleted = 1
-        own_shard_range.timestamp = next(self.ts_iter)
+        own_shard_range.timestamp = self.normal_ts()
         broker.merge_shard_ranges([own_shard_range])
         # mocks for delete/reclaim time comparisons
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             with mock.patch('swift.container.sharder.time.time',
-                            lambda: float(next(self.ts_iter))):
+                            lambda: float(self.normal_ts())):
                 sharder, mock_swift = self.call_audit_container(broker,
                                                                 shard_ranges)
         self.assert_no_audit_messages(sharder, mock_swift)
@@ -6664,8 +6669,8 @@ class TestSharder(BaseTestSharder):
         for own_state in ShardRange.STATES:
             for root_state in ShardRange.STATES:
                 with self.subTest(own_state=own_state, root_state=root_state):
-                    own_ts = next(self.ts_iter)
-                    root_ts = next(self.ts_iter)
+                    own_ts = self.normal_ts()
+                    root_ts = self.normal_ts()
                     broker, shard_ranges = check_audit(own_state, root_state)
                     # own shard range is updated from newer root version
                     own_shard_range = broker.get_own_shard_range()
@@ -6685,8 +6690,8 @@ class TestSharder(BaseTestSharder):
         for own_state in ShardRange.STATES:
             for root_state in ShardRange.STATES:
                 with self.subTest(own_state=own_state, root_state=root_state):
-                    root_ts = next(self.ts_iter)
-                    own_ts = next(self.ts_iter)
+                    root_ts = self.normal_ts()
+                    own_ts = self.normal_ts()
                     broker, shard_ranges = check_audit(own_state, root_state)
                     # own shard range is not updated from older root version
                     own_shard_range = broker.get_own_shard_range()
@@ -6747,25 +6752,25 @@ class TestSharder(BaseTestSharder):
 
     def _do_test_audit_shard_root_ranges_not_merged(self, *args):
         # Make root and other ranges that fully contain the shard namespace...
-        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        root_own_sr = ShardRange('a/c', self.normal_ts())
         acceptor = ShardRange(
             str(ShardName.create('.shards_a', 'c', 'c',
-                                 next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c')
+                                 self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c')
 
         def do_test(own_state, acceptor_state, root_state):
             acceptor_from_root = acceptor.copy(
-                timestamp=next(self.ts_iter), state=acceptor_state)
+                timestamp=self.normal_ts(), state=acceptor_state)
             root_from_root = root_own_sr.copy(
-                timestamp=next(self.ts_iter), state=root_state)
+                timestamp=self.normal_ts(), state=root_state)
             with self.subTest(own_state=own_state,
                               acceptor_state=acceptor_state,
                               root_state=root_state):
                 own_sr_name = ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)
                 own_sr = ShardRange(
-                    str(own_sr_name), next(self.ts_iter), state=own_state,
-                    state_timestamp=next(self.ts_iter), lower='a', upper='b')
+                    str(own_sr_name), self.normal_ts(), state=own_state,
+                    state_timestamp=self.normal_ts(), lower='a', upper='b')
                 expected = existing = []
                 sharder = self._assert_merge_into_shard(
                     own_sr, existing,
@@ -6796,18 +6801,18 @@ class TestSharder(BaseTestSharder):
         # Verify that shrinking shard will merge other ranges, but not
         # in-ACTIVE root range.
         # Make root and other ranges that fully contain the shard namespace...
-        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        root_own_sr = ShardRange('a/c', self.normal_ts())
         acceptor = ShardRange(
             str(ShardName.create('.shards_a', 'c', 'c',
-                                 next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c')
+                                 self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c')
 
         def do_test(own_state, acceptor_state, root_state):
             acceptor_from_root = acceptor.copy(
-                timestamp=next(self.ts_iter), state=acceptor_state)
+                timestamp=self.normal_ts(), state=acceptor_state)
             root_from_root = root_own_sr.copy(
-                timestamp=next(self.ts_iter), state=root_state)
-            ts = next(self.ts_iter)
+                timestamp=self.normal_ts(), state=root_state)
+            ts = self.normal_ts()
             own_sr = ShardRange(
                 str(ShardName.create('.shards_a', 'c', 'c', ts, 0)),
                 ts, lower='a', upper='b', state=own_state, state_timestamp=ts)
@@ -6841,18 +6846,18 @@ class TestSharder(BaseTestSharder):
         # Verify that shrinking shard will merge other ranges, but not
         # in-ACTIVE root range, even when root does not have shard's own range.
         # Make root and other ranges that fully contain the shard namespace...
-        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        root_own_sr = ShardRange('a/c', self.normal_ts())
         acceptor = ShardRange(
             str(ShardName.create('.shards_a', 'c', 'c',
-                                 next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c')
+                                 self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c')
 
         def do_test(own_state, acceptor_state, root_state):
             acceptor_from_root = acceptor.copy(
-                timestamp=next(self.ts_iter), state=acceptor_state)
+                timestamp=self.normal_ts(), state=acceptor_state)
             root_from_root = root_own_sr.copy(
-                timestamp=next(self.ts_iter), state=root_state)
-            ts = next(self.ts_iter)
+                timestamp=self.normal_ts(), state=root_state)
+            ts = self.normal_ts()
             own_sr = ShardRange(
                 str(ShardName.create('.shards_a', 'c', 'c', ts, 0)),
                 ts, lower='a', upper='b', state=own_state, state_timestamp=ts)
@@ -6888,12 +6893,12 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_range_not_merged_while_shrinking(self):
         # Verify that shrinking shard will not merge an in-active root range
         def do_test(own_state, root_state):
-            root_own_sr = ShardRange('a/c', next(self.ts_iter),
+            root_own_sr = ShardRange('a/c', self.normal_ts(),
                                      state=ShardRange.SHARDED)
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
             expected = []
             sharder = self._assert_merge_into_shard(
                 own_sr, [], [own_sr, root_own_sr],
@@ -6912,13 +6917,13 @@ class TestSharder(BaseTestSharder):
         # Verify that shrinking shard will not merge an active root range that
         # overlaps with an exosting sub-shard
         def do_test(own_state):
-            root_own_sr = ShardRange('a/c', next(self.ts_iter),
+            root_own_sr = ShardRange('a/c', self.normal_ts(),
                                      state=ShardRange.ACTIVE)
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
-            ts = next(self.ts_iter)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
+            ts = self.normal_ts()
             sub_shard = ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', own_sr.container, ts, 0)),
@@ -6937,12 +6942,12 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_active_root_range_merged_while_shrinking(self):
         # Verify that shrinking shard will merge an active root range
         def do_test(own_state):
-            root_own_sr = ShardRange('a/c', next(self.ts_iter),
+            root_own_sr = ShardRange('a/c', self.normal_ts(),
                                      state=ShardRange.ACTIVE)
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
             expected = [root_own_sr]
             sharder = self._assert_merge_into_shard(
                 own_sr, [], [own_sr, root_own_sr],
@@ -6975,21 +6980,21 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_ranges_merge_while_unsharded(self):
         # Verify that unsharded shard with no existing shard ranges will merge
         # other ranges, but not root range.
-        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        root_own_sr = ShardRange('a/c', self.normal_ts())
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
 
         def do_test(own_state, acceptor_state, root_state):
             acceptor_from_root = acceptor.copy(
-                timestamp=next(self.ts_iter), state=acceptor_state)
+                timestamp=self.normal_ts(), state=acceptor_state)
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
             root_from_root = root_own_sr.copy(
-                timestamp=next(self.ts_iter), state=root_state)
+                timestamp=self.normal_ts(), state=root_state)
             expected = [acceptor_from_root]
             sharder = self._assert_merge_into_shard(
                 own_sr, [],
@@ -7013,22 +7018,22 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_ranges_merge_while_sharding(self):
         # Verify that sharding shard with no existing shard ranges will merge
         # other ranges, but not root range.
-        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        root_own_sr = ShardRange('a/c', self.normal_ts())
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
 
         def do_test(own_state, acceptor_state, root_state):
             acceptor_from_root = acceptor.copy(
-                timestamp=next(self.ts_iter), state=acceptor_state)
-            ts = next(self.ts_iter)
+                timestamp=self.normal_ts(), state=acceptor_state)
+            ts = self.normal_ts()
             own_sr = ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', 'c', ts, 0)),
                 ts, 'a', 'b', epoch=ts, state=own_state)
             root_from_root = root_own_sr.copy(
-                timestamp=next(self.ts_iter), state=root_state)
+                timestamp=self.normal_ts(), state=root_state)
             expected = [acceptor_from_root]
             sharder = self._assert_merge_into_shard(
                 own_sr, [],
@@ -7051,28 +7056,28 @@ class TestSharder(BaseTestSharder):
 
     def test_audit_shard_root_ranges_not_merged_once_sharded(self):
         # Verify that sharded shard will not merge other ranges from root
-        root_own_sr = ShardRange('a/c', next(self.ts_iter))
+        root_own_sr = ShardRange('a/c', self.normal_ts())
         # the acceptor complements the single existing sub-shard...
         other_sub_shard = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'ab', 'c', state=ShardRange.ACTIVE)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'ab', 'c', state=ShardRange.ACTIVE)
 
         def do_test(own_state, other_sub_shard_state, root_state):
             sub_shard_from_root = other_sub_shard.copy(
-                timestamp=next(self.ts_iter), state=other_sub_shard_state)
-            ts = next(self.ts_iter)
+                timestamp=self.normal_ts(), state=other_sub_shard_state)
+            ts = self.normal_ts()
             own_sr = ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', 'c', ts, 0)),
                 ts, 'a', 'b', epoch=ts, state=own_state)
-            ts = next(self.ts_iter)
+            ts = self.normal_ts()
             sub_shard = ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', own_sr.container, ts, 0)),
                 ts, lower='a', upper='ab', state=ShardRange.ACTIVE)
             root_from_root = root_own_sr.copy(
-                timestamp=next(self.ts_iter), state=root_state)
+                timestamp=self.normal_ts(), state=root_state)
             expected = [sub_shard]
             sharder = self._assert_merge_into_shard(
                 own_sr, [sub_shard],
@@ -7093,13 +7098,13 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_ranges_replace_existing_while_cleaving(self):
         # Verify that sharding shard with stale existing sub-shard ranges will
         # merge other ranges, but not root range.
-        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+        root_own_sr = ShardRange('a/c', self.normal_ts(),
                                  state=ShardRange.SHARDED)
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
-        ts = next(self.ts_iter)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = self.normal_ts()
         acceptor_sub_shards = [ShardRange(
             str(ShardRange.make_path(
                 '.shards_a', 'c', acceptor.container, ts, i)),
@@ -7111,15 +7116,15 @@ class TestSharder(BaseTestSharder):
         def do_test(own_state):
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
-            ts = next(self.ts_iter)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
+            ts = self.normal_ts()
             sub_shard = ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', own_sr.container, ts, 0)),
                 ts, lower='a', upper='ab', state=ShardRange.ACTIVE)
             deleted_sub_shard = sub_shard.copy(
-                timestamp=next(self.ts_iter), state=ShardRange.SHARDED,
+                timestamp=self.normal_ts(), state=ShardRange.SHARDED,
                 deleted=1)
             expected = acceptor_sub_shards
             sharder = self._assert_merge_into_shard(
@@ -7136,13 +7141,13 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_ranges_supplement_deleted_while_cleaving(self):
         # Verify that sharding shard with deleted existing sub-shard ranges
         # will merge other ranges while sharding, but not root range.
-        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+        root_own_sr = ShardRange('a/c', self.normal_ts(),
                                  state=ShardRange.SHARDED)
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
-        ts = next(self.ts_iter)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = self.normal_ts()
         acceptor_sub_shards = [ShardRange(
             str(ShardRange.make_path(
                 '.shards_a', 'c', acceptor.container, ts, i)),
@@ -7155,9 +7160,9 @@ class TestSharder(BaseTestSharder):
         def do_test(own_state):
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
-            ts = next(self.ts_iter)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
+            ts = self.normal_ts()
             deleted_sub_shards = [ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', own_sr.container, ts, i)),
@@ -7177,13 +7182,13 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_ranges_supplement_existing_while_cleaving(self):
         # Verify that sharding shard with incomplete existing sub-shard ranges
         # will merge other ranges that fill the gap, but not root range.
-        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+        root_own_sr = ShardRange('a/c', self.normal_ts(),
                                  state=ShardRange.SHARDED)
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
-        ts = next(self.ts_iter)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = self.normal_ts()
         acceptor_sub_shards = [ShardRange(
             str(ShardRange.make_path(
                 '.shards_a', 'c', acceptor.container, ts, i)),
@@ -7195,9 +7200,9 @@ class TestSharder(BaseTestSharder):
         def do_test(own_state):
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
-            ts = next(self.ts_iter)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
+            ts = self.normal_ts()
             sub_shard = ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', own_sr.container, ts, 0)),
@@ -7217,22 +7222,22 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_ranges_cleaving_not_merged_while_cleaving(self):
         # Verify that sharding shard will not merge other ranges that are in a
         # cleaving state.
-        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+        root_own_sr = ShardRange('a/c', self.normal_ts(),
                                  state=ShardRange.SHARDED)
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
 
         def do_test(own_state, acceptor_state, root_state):
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
             root_from_root = root_own_sr.copy(
-                timestamp=next(self.ts_iter), state=root_state)
+                timestamp=self.normal_ts(), state=root_state)
             acceptor_from_root = acceptor.copy(
-                timestamp=next(self.ts_iter), state=acceptor_state)
+                timestamp=self.normal_ts(), state=acceptor_state)
 
             if (own_state in ShardRange.SHRINKING_STATES and
                     root_state == ShardRange.ACTIVE):
@@ -7262,25 +7267,25 @@ class TestSharder(BaseTestSharder):
         # Verify that sharding/shrinking shard will not merge other ranges that
         # would create an overlap; shard has complete existing shard ranges,
         # newer range from root ignored
-        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+        root_own_sr = ShardRange('a/c', self.normal_ts(),
                                  state=ShardRange.SHARDED)
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
 
         def do_test(own_state):
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
-            ts = next(self.ts_iter)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
+            ts = self.normal_ts()
             sub_shards = [ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', own_sr.container, ts, i)),
                 ts, lower, upper, state=ShardRange.ACTIVE)
                 for i, lower, upper in ((0, 'a', 'ab'), (1, 'ab', 'b'))]
-            acceptor_from_root = acceptor.copy(timestamp=next(self.ts_iter))
+            acceptor_from_root = acceptor.copy(timestamp=self.normal_ts())
             expected = sub_shards
             sharder = self._assert_merge_into_shard(
                 own_sr, sub_shards,
@@ -7297,13 +7302,13 @@ class TestSharder(BaseTestSharder):
         # Verify that sharding/shrinking shard will not merge other ranges that
         # would create an overlap; shard has incomplete existing shard ranges
         # but ranges from root overlaps
-        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+        root_own_sr = ShardRange('a/c', self.normal_ts(),
                                  state=ShardRange.SHARDED)
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
-        ts = next(self.ts_iter)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = self.normal_ts()
         acceptor_sub_shards = [ShardRange(
             str(ShardRange.make_path(
                 '.shards_a', 'c', acceptor.container, ts, i)),
@@ -7313,9 +7318,9 @@ class TestSharder(BaseTestSharder):
         def do_test(own_state):
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
-            ts = next(self.ts_iter)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
+            ts = self.normal_ts()
             sub_shard = ShardRange(
                 str(ShardName.create(
                     '.shards_a', 'c', own_sr.container, ts, 0)),
@@ -7335,13 +7340,13 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_root_ranges_with_gap_not_merged_while_cleaving(self):
         # Verify that sharding/shrinking shard will not merge other ranges that
         # would leave a gap.
-        root_own_sr = ShardRange('a/c', next(self.ts_iter),
+        root_own_sr = ShardRange('a/c', self.normal_ts(),
                                  state=ShardRange.SHARDED)
         acceptor = ShardRange(
             str(ShardRange.make_path(
-                '.shards_a', 'c', 'c', next(self.ts_iter), 1)),
-            next(self.ts_iter), 'a', 'c', state=ShardRange.ACTIVE)
-        ts = next(self.ts_iter)
+                '.shards_a', 'c', 'c', self.normal_ts(), 1)),
+            self.normal_ts(), 'a', 'c', state=ShardRange.ACTIVE)
+        ts = self.normal_ts()
         acceptor_sub_shards = [ShardRange(
             str(ShardRange.make_path(
                 '.shards_a', 'c', acceptor.container, ts, i)),
@@ -7351,8 +7356,8 @@ class TestSharder(BaseTestSharder):
         def do_test(own_state):
             own_sr = ShardRange(
                 str(ShardName.create(
-                    '.shards_a', 'c', 'c', next(self.ts_iter), 0)),
-                next(self.ts_iter), 'a', 'b', state=own_state)
+                    '.shards_a', 'c', 'c', self.normal_ts(), 0)),
+                self.normal_ts(), 'a', 'b', state=own_state)
             # root ranges have gaps w.r.t. the shard namespace
             existing = expected = []
             sharder = self._assert_merge_into_shard(
@@ -7369,22 +7374,22 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_container_ancestors_not_merged_while_sharding(self):
         # Verify that sharding shard will not merge parent and root shard
         # ranges even when the sharding shard has no other ranges
-        root_sr = ShardRange('a/root', next(self.ts_iter),
+        root_sr = ShardRange('a/root', self.normal_ts(),
                              state=ShardRange.SHARDED)
         grandparent_path = ShardRange.make_path(
-            '.shards_a', 'root', root_sr.container, next(self.ts_iter), 2)
-        grandparent_sr = ShardRange(grandparent_path, next(self.ts_iter),
+            '.shards_a', 'root', root_sr.container, self.normal_ts(), 2)
+        grandparent_sr = ShardRange(grandparent_path, self.normal_ts(),
                                     '', 'd', state=ShardRange.ACTIVE)
         self.assertTrue(grandparent_sr.is_child_of(root_sr))
         parent_path = ShardRange.make_path(
-            '.shards_a', 'root', grandparent_sr.container, next(self.ts_iter),
+            '.shards_a', 'root', grandparent_sr.container, self.normal_ts(),
             2)
-        parent_sr = ShardRange(parent_path, next(self.ts_iter), '', 'd',
+        parent_sr = ShardRange(parent_path, self.normal_ts(), '', 'd',
                                state=ShardRange.ACTIVE)
         self.assertTrue(parent_sr.is_child_of(grandparent_sr))
         child_path = ShardRange.make_path(
-            '.shards_a', 'root', parent_sr.container, next(self.ts_iter), 2)
-        child_own_sr = ShardRange(child_path, next(self.ts_iter), 'a', 'b',
+            '.shards_a', 'root', parent_sr.container, self.normal_ts(), 2)
+        child_own_sr = ShardRange(child_path, self.normal_ts(), 'a', 'b',
                                   state=ShardRange.SHARDING)
         self.assertTrue(child_own_sr.is_child_of(parent_sr))
 
@@ -7398,29 +7403,29 @@ class TestSharder(BaseTestSharder):
     def test_audit_shard_container_children_merged_while_sharding(self):
         # Verify that sharding shard will always merge children shard ranges
         def do_test(child_deleted, child_state):
-            root_sr = ShardRange('a/root', next(self.ts_iter),
+            root_sr = ShardRange('a/root', self.normal_ts(),
                                  state=ShardRange.SHARDED)
             parent_path = ShardRange.make_path(
                 '.shards_a', 'root', root_sr.container,
-                next(self.ts_iter), 2)
+                self.normal_ts(), 2)
             parent_sr = ShardRange(
-                parent_path, next(self.ts_iter), 'a', 'd',
+                parent_path, self.normal_ts(), 'a', 'd',
                 state=ShardRange.SHARDING)
             child_srs = []
             for i, lower, upper in ((0, 'a', 'b'), (0, 'b', 'd')):
                 child_path = ShardRange.make_path(
                     '.shards_a', 'root', parent_sr.container,
-                    next(self.ts_iter), i)
+                    self.normal_ts(), i)
                 child_sr = ShardRange(
-                    child_path, next(self.ts_iter), lower, upper,
+                    child_path, self.normal_ts(), lower, upper,
                     state=child_state, deleted=child_deleted)
                 self.assertTrue(child_sr.is_child_of(parent_sr))
                 child_srs.append(child_sr)
             other_path = ShardRange.make_path(
                 '.shards_a', 'root', root_sr.container,
-                next(self.ts_iter), 3)  # different index w.r.t. parent
+                self.normal_ts(), 3)  # different index w.r.t. parent
             other_sr = ShardRange(
-                other_path, next(self.ts_iter), 'a', 'd',
+                other_path, self.normal_ts(), 'a', 'd',
                 state=ShardRange.ACTIVE)
             self.assertFalse(other_sr.is_child_of(parent_sr))
 
@@ -7470,9 +7475,9 @@ class TestSharder(BaseTestSharder):
         # Verify that sharding shard will not merge children shard ranges
         # once the DB is sharded (but continues to merge own shard range
         # received from root)
-        root_sr = ShardRange('a/root', next(self.ts_iter),
+        root_sr = ShardRange('a/root', self.normal_ts(),
                              state=ShardRange.SHARDED)
-        ts = next(self.ts_iter)
+        ts = self.normal_ts()
         parent_path = ShardRange.make_path(
             '.shards_a', 'root', root_sr.container, ts, 2)
         parent_sr = ShardRange(
@@ -7481,9 +7486,9 @@ class TestSharder(BaseTestSharder):
         for i, lower, upper in ((0, 'a', 'ab'), (0, 'ab', 'b')):
             child_path = ShardRange.make_path(
                 '.shards_a', 'root', parent_sr.container,
-                next(self.ts_iter), i)
+                self.normal_ts(), i)
             child_sr = ShardRange(
-                child_path, next(self.ts_iter), lower, upper,
+                child_path, self.normal_ts(), lower, upper,
                 state=ShardRange.CLEAVED)
             self.assertTrue(child_sr.is_child_of(parent_sr))
             child_srs.append(child_sr)
@@ -7496,7 +7501,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(UNSHARDED, broker.get_db_state())
 
         self.assertTrue(parent_sr.update_state(
-            ShardRange.SHARDING, state_timestamp=next(self.ts_iter)))
+            ShardRange.SHARDING, state_timestamp=self.normal_ts()))
         ranges_from_root = child_srs + [parent_sr, root_sr]
         sharder, _ = self.call_audit_container(broker, ranges_from_root)
 
@@ -7510,10 +7515,10 @@ class TestSharder(BaseTestSharder):
         # DB is sharding...
         self.assertTrue(broker.set_sharding_state())
         self.assertEqual(SHARDING, broker.get_db_state())
-        parent_sr.state_timestamp = next(self.ts_iter)
+        parent_sr.state_timestamp = self.normal_ts()
         for child_sr in child_srs:
             child_sr.update_state(ShardRange.ACTIVE,
-                                  state_timestamp=next(self.ts_iter))
+                                  state_timestamp=self.normal_ts())
 
         sharder, _ = self.call_audit_container(broker, ranges_from_root)
 
@@ -7528,10 +7533,10 @@ class TestSharder(BaseTestSharder):
         self.assertTrue(broker.set_sharded_state())
         self.assertEqual(SHARDED, broker.get_db_state())
         self.assertTrue(parent_sr.update_state(
-            ShardRange.SHARDED, state_timestamp=next(self.ts_iter)))
+            ShardRange.SHARDED, state_timestamp=self.normal_ts()))
         updated_child_srs = [
             child_sr.copy(state=ShardRange.SHARDING,
-                          state_timestamp=next(self.ts_iter))
+                          state_timestamp=self.normal_ts())
             for child_sr in child_srs]
 
         ranges_from_root = updated_child_srs + [parent_sr, root_sr]
@@ -7549,7 +7554,7 @@ class TestSharder(BaseTestSharder):
         # updated with deleted version from root
         broker = self._make_broker(account='.shards_a', container='shard_c')
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             own_shard_range = broker.get_own_shard_range()
         own_shard_range.lower = 'k'
         own_shard_range.upper = 't'
@@ -7561,16 +7566,16 @@ class TestSharder(BaseTestSharder):
         shard_bounds = (
             ('a', 'j'), ('k', 't'), ('k', 's'), ('l', 's'), ('s', 'z'))
         shard_ranges = self._make_shard_ranges(shard_bounds, ShardRange.ACTIVE,
-                                               timestamp=next(self.ts_iter))
+                                               timestamp=self.normal_ts())
         shard_ranges[1].name = broker.path
         shard_ranges[1].update_state(ShardRange.SHARDED,
-                                     state_timestamp=next(self.ts_iter))
+                                     state_timestamp=self.normal_ts())
         shard_ranges[1].deleted = 1
 
         # mocks for delete/reclaim time comparisons
-        with mock_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             with mock.patch('swift.container.sharder.time.time',
-                            lambda: float(next(self.ts_iter))):
+                            lambda: float(self.normal_ts())):
 
                 sharder, mock_swift = self.call_audit_container(broker,
                                                                 shard_ranges)
@@ -7586,7 +7591,7 @@ class TestSharder(BaseTestSharder):
         own_shard_range.lower = 'k'
         own_shard_range.upper = 't'
         own_shard_range.update_state(ShardRange.SHARDED,
-                                     state_timestamp=Timestamp.now())
+                                     state_timestamp=NormalTimestamp.now())
         own_shard_range.deleted = 1
         broker.merge_shard_ranges([own_shard_range])
 
@@ -7599,7 +7604,7 @@ class TestSharder(BaseTestSharder):
 
     def test_find_and_enable_sharding_candidates(self):
         broker = self._make_broker()
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
         shard_bounds = (('', 'here'), ('here', 'there'), ('there', ''))
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.CLEAVED)
@@ -7623,7 +7628,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges[2].update_meta(sharder.shard_container_threshold + 1, 0)
         broker.merge_shard_ranges([shard_ranges[0], shard_ranges[2]])
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 sharder._find_and_enable_sharding_candidates(broker)
         expected = shard_ranges[0].copy(state=ShardRange.SHARDING,
                                         state_timestamp=now, epoch=now)
@@ -7632,7 +7637,7 @@ class TestSharder(BaseTestSharder):
 
         # check idempotency
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 sharder._find_and_enable_sharding_candidates(broker)
         self._assert_shard_ranges_equal([expected] + shard_ranges[1:],
                                         broker.get_shard_ranges())
@@ -7641,7 +7646,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges[2].update_state(ShardRange.ACTIVE)
         broker.merge_shard_ranges(shard_ranges[2])
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 sharder._find_and_enable_sharding_candidates(broker)
         expected_2 = shard_ranges[2].copy(state=ShardRange.SHARDING,
                                           state_timestamp=now, epoch=now)
@@ -7650,7 +7655,7 @@ class TestSharder(BaseTestSharder):
 
         # check idempotency
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 sharder._find_and_enable_sharding_candidates(broker)
         self._assert_shard_ranges_equal(
             [expected, shard_ranges[1], expected_2], broker.get_shard_ranges())
@@ -7666,7 +7671,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(2, broker.get_info()['object_count'])
         with self._mock_sharder(
                 conf={'shard_container_threshold': 2}) as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 own_sr = update_own_shard_range_stats(
                     broker, broker.get_own_shard_range())
                 sharder._find_and_enable_sharding_candidates(
@@ -7679,7 +7684,7 @@ class TestSharder(BaseTestSharder):
         # check idempotency
         with self._mock_sharder(
                 conf={'shard_container_threshold': 2}) as sharder:
-            with mock_timestamp_now():
+            with mock_normal_timestamp_now():
                 own_sr = update_own_shard_range_stats(
                     broker, broker.get_own_shard_range())
                 sharder._find_and_enable_sharding_candidates(
@@ -7691,7 +7696,7 @@ class TestSharder(BaseTestSharder):
 
     def test_find_and_enable_shrinking_candidates(self):
         broker = self._make_broker()
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
         shard_bounds = (('', 'here'), ('here', 'there'), ('there', ''))
         size = (DEFAULT_SHARDER_CONF['shrink_threshold'])
 
@@ -7700,7 +7705,7 @@ class TestSharder(BaseTestSharder):
             shard_bounds, state=ShardRange.ACTIVE, object_count=size - 1,
             tombstones=1)
         own_sr = broker.get_own_shard_range()
-        own_sr.update_state(ShardRange.SHARDED, Timestamp.now())
+        own_sr.update_state(ShardRange.SHARDED, NormalTimestamp.now())
         broker.merge_shard_ranges(shard_ranges + [own_sr])
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
@@ -7713,7 +7718,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges[0].update_meta(size - 2, 0)
         broker.merge_shard_ranges(shard_ranges[0])
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 sharder._send_shard_ranges = mock.MagicMock()
                 sharder._find_and_enable_shrinking_candidates(broker)
         acceptor = shard_ranges[1].copy(lower=shard_ranges[0].lower)
@@ -7731,7 +7736,7 @@ class TestSharder(BaseTestSharder):
 
         # check idempotency
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 sharder._send_shard_ranges = mock.MagicMock()
                 sharder._find_and_enable_shrinking_candidates(broker)
         self._assert_shard_ranges_equal([donor, acceptor, shard_ranges[2]],
@@ -7745,7 +7750,7 @@ class TestSharder(BaseTestSharder):
 
         # acceptor falls below threshold - not a candidate
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 acceptor.update_meta(0, 0, meta_timestamp=now)
                 broker.merge_shard_ranges(acceptor)
                 sharder._send_shard_ranges = mock.MagicMock()
@@ -7761,7 +7766,7 @@ class TestSharder(BaseTestSharder):
 
         # ...until donor has shrunk
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 donor.update_state(ShardRange.SHARDED, state_timestamp=now)
                 donor.set_deleted(timestamp=now)
                 broker.merge_shard_ranges(donor)
@@ -7783,7 +7788,7 @@ class TestSharder(BaseTestSharder):
 
         # ..finally last shard shrinks to root
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 new_donor.update_state(ShardRange.SHARDED, state_timestamp=now)
                 new_donor.set_deleted(timestamp=now)
                 new_acceptor.update_meta(0, 0, meta_timestamp=now)
@@ -7802,14 +7807,14 @@ class TestSharder(BaseTestSharder):
 
     def test_find_and_enable_multiple_shrinking_candidates(self):
         broker = self._make_broker()
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
         shard_bounds = (('', 'a'), ('a', 'b'), ('b', 'c'),
                         ('c', 'd'), ('d', 'e'), ('e', ''))
         size = (DEFAULT_SHARDER_CONF['shrink_threshold'])
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.ACTIVE, object_count=size)
         own_sr = broker.get_own_shard_range()
-        own_sr.update_state(ShardRange.SHARDED, Timestamp.now())
+        own_sr.update_state(ShardRange.SHARDED, NormalTimestamp.now())
         broker.merge_shard_ranges(shard_ranges + [own_sr])
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
@@ -7825,7 +7830,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges[3].update_meta(size - 1, 0)
         broker.merge_shard_ranges(shard_ranges)
         with self._mock_sharder() as sharder:
-            with mock_timestamp_now() as now:
+            with mock_normal_timestamp_now() as now:
                 sharder._send_shard_ranges = mock.MagicMock()
                 sharder._find_and_enable_shrinking_candidates(broker)
         # 0 shrinks into 1 (only one donor per acceptor is allowed)
@@ -8020,14 +8025,14 @@ class TestSharder(BaseTestSharder):
                 broker.update_metadata({'X-Container-Sysmeta-Sharding':
                                         ('true', next(self.ts_iter).internal)})
                 my_sr = broker.get_own_shard_range()
-                my_sr.epoch = Timestamp.now()
+                my_sr.epoch = NormalTimestamp.now()
                 broker.merge_shard_ranges([my_sr])
                 brokers.append(broker)
                 shard_ranges.append(self._make_shard_ranges(
                     shard_bounds, state=ShardRange.ACTIVE,
                     object_count=(
                         DEFAULT_SHARDER_CONF['shard_container_threshold'] / 2),
-                    timestamp=next(self.ts_iter)))
+                    timestamp=self.normal_ts()))
 
             # we want c2 to have 2 shrink pairs
             shard_ranges[C2][1].object_count = 0
@@ -8123,7 +8128,7 @@ class TestSharder(BaseTestSharder):
                     broker, sharder.shrink_threshold, sharder.expansion_limit,
                     1, -1)
                 self.assertNotEqual([], compactible)
-                with mock_timestamp_now(next(self.ts_iter)):
+                with mock_normal_timestamp_now(self.normal_ts()):
                     process_compactible_shard_sequences(broker, compactible)
 
             shrink_actionable_ranges(brokers[C2])
@@ -8190,7 +8195,7 @@ class TestSharder(BaseTestSharder):
 
             # set some ranges to shrunk in C3 so that other sequences become
             # compactible
-            now = next(self.ts_iter)
+            now = self.normal_ts()
             shard_ranges = brokers[C3].get_shard_ranges()
             for (donor, acceptor) in zip(shard_ranges, shard_ranges[1:]):
                 if donor.state == ShardRange.SHRINKING:
@@ -8238,7 +8243,7 @@ class TestSharder(BaseTestSharder):
     def test_get_shard_broker_no_local_handoff_for_part(
             self, mock_part_nodes, mock_more_nodes):
         broker = self._make_broker()
-        broker.enable_sharding(Timestamp.now())
+        broker.enable_sharding(NormalTimestamp.now())
 
         shard_bounds = (('', 'd'), ('d', 'x'), ('x', ''))
         shard_ranges = self._make_shard_ranges(
@@ -8763,14 +8768,14 @@ class TestSharderFunctions(BaseTestSharder):
         threshold = (DEFAULT_SHARDER_CONF['shrink_threshold'])
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.ACTIVE, object_count=threshold,
-            timestamp=next(self.ts_iter))
+            timestamp=self.normal_ts())
         broker.merge_shard_ranges(shard_ranges)
         pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
         self.assertEqual({}, pairs)
 
         # one range just below threshold
         shard_ranges[0].update_meta(threshold - 1, 0,
-                                    meta_timestamp=next(self.ts_iter))
+                                    meta_timestamp=self.normal_ts())
         broker.merge_shard_ranges(shard_ranges[0])
         pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
         self.assertEqual(1, len(pairs), pairs)
@@ -8780,7 +8785,7 @@ class TestSharderFunctions(BaseTestSharder):
 
         # two ranges just below threshold
         shard_ranges[2].update_meta(threshold - 1, 0,
-                                    meta_timestamp=next(self.ts_iter))
+                                    meta_timestamp=self.normal_ts())
         broker.merge_shard_ranges(shard_ranges[2])
         pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
 
@@ -8799,26 +8804,26 @@ class TestSharderFunctions(BaseTestSharder):
         check_pairs(pairs)
 
         # repeat call after broker is updated and expect same pairs
-        shard_ranges[0].update_state(ShardRange.SHRINKING, next(self.ts_iter))
-        shard_ranges[2].update_state(ShardRange.SHRINKING, next(self.ts_iter))
+        shard_ranges[0].update_state(ShardRange.SHRINKING, self.normal_ts())
+        shard_ranges[2].update_state(ShardRange.SHRINKING, self.normal_ts())
         shard_ranges[1].lower = shard_ranges[0].lower
-        shard_ranges[1].timestamp = next(self.ts_iter)
+        shard_ranges[1].timestamp = self.normal_ts()
         shard_ranges[3].lower = shard_ranges[2].lower
-        shard_ranges[3].timestamp = next(self.ts_iter)
+        shard_ranges[3].timestamp = self.normal_ts()
         broker.merge_shard_ranges(shard_ranges)
         pairs = find_shrinking_candidates(broker, threshold, threshold * 4)
         check_pairs(pairs)
 
     def test_finalize_shrinking(self):
         broker = self._make_broker()
-        broker.enable_sharding(next(self.ts_iter))
+        broker.enable_sharding(self.normal_ts())
         shard_bounds = (('', 'here'), ('here', 'there'), ('there', ''))
-        ts_0 = next(self.ts_iter)
+        ts_0 = self.normal_ts()
         shard_ranges = self._make_shard_ranges(
             shard_bounds, state=ShardRange.ACTIVE, timestamp=ts_0)
         self.assertTrue(broker.set_sharding_state())
         self.assertTrue(broker.set_sharded_state())
-        ts_1 = next(self.ts_iter)
+        ts_1 = self.normal_ts()
         finalize_shrinking(broker, shard_ranges[2:], shard_ranges[:2], ts_1)
         updated_ranges = broker.get_shard_ranges()
         self.assertEqual(
@@ -8833,7 +8838,7 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertEqual([ts_1] * 2,
                          [sr.epoch for sr in updated_ranges[:2]])
         # check idempotency
-        ts_2 = next(self.ts_iter)
+        ts_2 = self.normal_ts()
         finalize_shrinking(broker, shard_ranges[2:], shard_ranges[:2], ts_2)
         updated_ranges = broker.get_shard_ranges()
         self.assertEqual(
@@ -8852,12 +8857,12 @@ class TestSharderFunctions(BaseTestSharder):
         # no sequences...
         broker = self._make_broker()
         with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
-            with mock_timestamp_now(next(self.ts_iter)) as now:
+            with mock_normal_timestamp_now(self.normal_ts()) as now:
                 process_compactible_shard_sequences(broker, [])
         fs.assert_called_once_with(broker, [], [], now)
 
         # two sequences with acceptor bounds needing to be updated
-        ts_0 = next(self.ts_iter)
+        ts_0 = self.normal_ts()
         sequence_1 = self._make_shard_ranges(
             (('a', 'b'), ('b', 'c'), ('c', 'd')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
@@ -8865,7 +8870,7 @@ class TestSharderFunctions(BaseTestSharder):
             (('x', 'y'), ('y', 'z')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
         with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
-            with mock_timestamp_now(next(self.ts_iter)) as now:
+            with mock_normal_timestamp_now(self.normal_ts()) as now:
                 process_compactible_shard_sequences(
                     broker, [sequence_1, sequence_2])
         expected_donors = sequence_1[:-1] + sequence_2[:-1]
@@ -8886,7 +8891,7 @@ class TestSharderFunctions(BaseTestSharder):
             (('x', 'y'), ('x', 'z')),
             state=ShardRange.ACTIVE, timestamp=ts_0)
         with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
-            with mock_timestamp_now(next(self.ts_iter)) as now:
+            with mock_normal_timestamp_now(self.normal_ts()) as now:
                 process_compactible_shard_sequences(
                     broker, [sequence_1, sequence_2])
         expected_donors = sequence_1[:-1] + sequence_2[:-1]
@@ -8905,7 +8910,7 @@ class TestSharderFunctions(BaseTestSharder):
             state=[ShardRange.ACTIVE] * 4 + [ShardRange.SHARDED],
             timestamp=ts_0)
         with mock.patch('swift.container.sharder.finalize_shrinking') as fs:
-            with mock_timestamp_now(next(self.ts_iter)) as now:
+            with mock_normal_timestamp_now(self.normal_ts()) as now:
                 process_compactible_shard_sequences(broker, [sequence_1])
         expected_donors = sequence_1[:-1]
         expected_acceptors = [sequence_1[-1].copy(state=ShardRange.ACTIVE,
@@ -9004,17 +9009,18 @@ class TestSharderFunctions(BaseTestSharder):
         # acceptor
         broker = self._make_broker()
         shard_ranges = self._make_shard_ranges(
-            (('', ''),), state=ShardRange.ACTIVE, timestamp=next(self.ts_iter))
+            (('', ''),), state=ShardRange.ACTIVE,
+            timestamp=self.normal_ts())
         broker.merge_shard_ranges(shard_ranges)
         own_sr = broker.get_own_shard_range()
-        own_sr.update_state(ShardRange.SHARDED, next(self.ts_iter))
+        own_sr.update_state(ShardRange.SHARDED, self.normal_ts())
         broker.merge_shard_ranges(own_sr)
         sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
         self.assertEqual([shard_ranges + [own_sr]], sequences)
 
         # update broker with donor/acceptor
-        shard_ranges[0].update_state(ShardRange.SHRINKING, next(self.ts_iter))
-        own_sr.update_state(ShardRange.ACTIVE, next(self.ts_iter))
+        shard_ranges[0].update_state(ShardRange.SHRINKING, self.normal_ts())
+        own_sr.update_state(ShardRange.ACTIVE, self.normal_ts())
         broker.merge_shard_ranges([shard_ranges[0], own_sr])
         # we don't find the same sequence again...
         sequences = find_compactible_shard_sequences(broker, 10, 999, -1, -1)
@@ -9133,11 +9139,11 @@ class TestSharderFunctions(BaseTestSharder):
         # commit the first two sequences to the broker
         for sr in shard_ranges[:3] + shard_ranges[4:7]:
             sr.update_state(ShardRange.SHRINKING,
-                            state_timestamp=next(self.ts_iter))
+                            state_timestamp=self.normal_ts())
         shard_ranges[3].lower = shard_ranges[0].lower
-        shard_ranges[3].timestamp = next(self.ts_iter)
+        shard_ranges[3].timestamp = self.normal_ts()
         shard_ranges[7].lower = shard_ranges[4].lower
-        shard_ranges[7].timestamp = next(self.ts_iter)
+        shard_ranges[7].timestamp = self.normal_ts()
         broker.merge_shard_ranges(shard_ranges)
         # we don't find them again...
         sequences = find_compactible_shard_sequences(broker, 10, 999, 3, 2)
@@ -9211,7 +9217,7 @@ class TestSharderFunctions(BaseTestSharder):
     def test_is_sharding_candidate(self):
         for state in ShardRange.STATES:
             for object_count in (9, 10, 11):
-                sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+                sr = ShardRange('.shards_a/c', self.normal_ts(), '', '',
                                 state=state, object_count=object_count,
                                 tombstones=100)  # tombstones not considered
                 with self.subTest(state=state, object_count=object_count):
@@ -9223,11 +9229,11 @@ class TestSharderFunctions(BaseTestSharder):
     def test_is_shrinking_candidate(self):
         def do_check_true(state, ok_states):
             # shard range has 9 objects
-            sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+            sr = ShardRange('.shards_a/c', self.normal_ts(), '', '',
                             state=state, object_count=9)
             self.assertTrue(is_shrinking_candidate(sr, 10, 9, ok_states))
             # shard range has 9 rows
-            sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+            sr = ShardRange('.shards_a/c', self.normal_ts(), '', '',
                             state=state, object_count=4, tombstones=5)
             self.assertTrue(is_shrinking_candidate(sr, 10, 9, ok_states))
 
@@ -9240,7 +9246,7 @@ class TestSharderFunctions(BaseTestSharder):
         def do_check_false(state, object_count, tombstones):
             states = (ShardRange.ACTIVE, ShardRange.SHRINKING)
             # shard range has 10 objects
-            sr = ShardRange('.shards_a/c', next(self.ts_iter), '', '',
+            sr = ShardRange('.shards_a/c', self.normal_ts(), '', '',
                             state=state, object_count=object_count,
                             tombstones=tombstones)
             self.assertFalse(is_shrinking_candidate(sr, 10, 20))
@@ -9262,8 +9268,8 @@ class TestSharderFunctions(BaseTestSharder):
                     do_check_false(state, 5, tombstones)
 
     def test_find_and_rank_whole_path_split(self):
-        ts_0 = next(self.ts_iter)
-        ts_1 = next(self.ts_iter)
+        ts_0 = self.normal_ts()
+        ts_1 = self.normal_ts()
         bounds_0 = (
             ('', 'f'),
             ('f', 'k'),
@@ -9288,7 +9294,7 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertEqual(2, len(paths))
         self.assertIn(ranges_0, paths)
         self.assertIn(ranges_1, paths)
-        own_sr = ShardRange('a/c', Timestamp.now())
+        own_sr = ShardRange('a/c', NormalTimestamp.now())
         self.assertEqual(
             [
                 ranges_1,  # complete and newer timestamp
@@ -9311,9 +9317,9 @@ class TestSharderFunctions(BaseTestSharder):
             rank_paths(paths, own_sr))
 
     def test_find_and_rank_two_sub_path_splits(self):
-        ts_0 = next(self.ts_iter)
-        ts_1 = next(self.ts_iter)
-        ts_2 = next(self.ts_iter)
+        ts_0 = self.normal_ts()
+        ts_1 = self.normal_ts()
+        ts_2 = self.normal_ts()
         bounds_0 = (
             ('', 'a'),
             ('a', 'm'),
@@ -9348,7 +9354,7 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertIn(mix_path_0, paths)
         self.assertIn(mix_path_1, paths)
         self.assertIn(mix_path_2, paths)
-        own_sr = ShardRange('a/c', Timestamp.now())
+        own_sr = ShardRange('a/c', NormalTimestamp.now())
         self.assertEqual(
             [
                 mix_path_2,  # has 4 objects, 3 different timestamps
@@ -9360,9 +9366,9 @@ class TestSharderFunctions(BaseTestSharder):
         )
 
     def test_find_and_rank_most_cleave_progress(self):
-        ts_0 = next(self.ts_iter)
-        ts_1 = next(self.ts_iter)
-        ts_2 = next(self.ts_iter)
+        ts_0 = self.normal_ts()
+        ts_1 = self.normal_ts()
+        ts_2 = self.normal_ts()
         bounds_0 = (
             ('', 'f'),
             ('f', 'k'),
@@ -9390,7 +9396,7 @@ class TestSharderFunctions(BaseTestSharder):
             timestamp=ts_2, object_count=1)
         paths = find_paths(ranges_0 + ranges_1 + ranges_2)
         self.assertEqual(3, len(paths))
-        own_sr = ShardRange('a/c', Timestamp.now())
+        own_sr = ShardRange('a/c', NormalTimestamp.now())
         self.assertEqual(
             [
                 ranges_1,  # cleaved to end
@@ -9413,9 +9419,9 @@ class TestSharderFunctions(BaseTestSharder):
         )
 
     def test_find_and_rank_no_complete_path(self):
-        ts_0 = next(self.ts_iter)
-        ts_1 = next(self.ts_iter)
-        ts_2 = next(self.ts_iter)
+        ts_0 = self.normal_ts()
+        ts_1 = self.normal_ts()
+        ts_2 = self.normal_ts()
         bounds_0 = (
             ('', 'f'),
             ('f', 'k'),
@@ -9441,7 +9447,7 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertIn(ranges_0, paths)
         self.assertIn(ranges_1, paths)
         self.assertIn(mix_path_0, paths)
-        own_sr = ShardRange('a/c', Timestamp.now())
+        own_sr = ShardRange('a/c', NormalTimestamp.now())
         self.assertEqual(
             [
                 ranges_1,  # cleaved to n, one timestamp
@@ -9463,7 +9469,7 @@ class TestSharderFunctions(BaseTestSharder):
         )
         ranges = self._make_shard_ranges(
             bounds, ShardRange.ACTIVE,
-            timestamp=next(self.ts_iter), object_count=1)
+            timestamp=self.normal_ts(), object_count=1)
         paths_with_gaps = find_paths_with_gaps(ranges)
         self.assertEqual(3, len(paths_with_gaps), paths_with_gaps)
         self.assertEqual(
@@ -9485,7 +9491,7 @@ class TestSharderFunctions(BaseTestSharder):
             [(r.lower, r.upper) for r in paths_with_gaps[2]]
         )
 
-        range_of_interest = ShardRange('test/range', next(self.ts_iter))
+        range_of_interest = ShardRange('test/range', self.normal_ts())
         range_of_interest.lower = 'a'
         paths_with_gaps = find_paths_with_gaps(ranges, range_of_interest)
         self.assertEqual(2, len(paths_with_gaps), paths_with_gaps)
@@ -9518,8 +9524,8 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertFalse(paths_with_gaps)
 
     def test_find_overlapping_ranges(self):
-        now_ts = next(self.ts_iter)
-        past_ts = Timestamp(float(now_ts) - 61)
+        now_ts = self.normal_ts()
+        past_ts = NormalTimestamp(float(now_ts) - 61)
         root_sr = ShardRange('a/c', past_ts, state=ShardRange.SHARDED)
         bounds = (
             ('', 'a'),
@@ -9628,7 +9634,7 @@ class TestSharderFunctions(BaseTestSharder):
         self.assertEqual(0, own_sr.bytes_used)
 
 
-class TestContainerSharderConf(unittest.TestCase):
+class TestContainerSharderConf(BaseUnitTestCase):
     def test_default(self):
         expected = {'shard_container_threshold': 1000000,
                     'max_shrinking': 1,
@@ -9805,26 +9811,25 @@ class TestContainerSharderConf(unittest.TestCase):
         assert_ok({'expansion_limit': 100000001})
 
     def test_combine_shard_ranges(self):
-        ts_iter = make_timestamp_iter()
-        this = ShardRange('a/o', next(ts_iter).internal)
-        that = ShardRange('a/o', next(ts_iter).internal)
+        this = ShardRange('a/o', self.normal_ts())
+        that = ShardRange('a/o', self.normal_ts())
         actual = combine_shard_ranges([dict(this)], [dict(that)])
         self.assertEqual([dict(that)], [dict(sr) for sr in actual])
         actual = combine_shard_ranges([dict(that)], [dict(this)])
         self.assertEqual([dict(that)], [dict(sr) for sr in actual])
 
-        ts = next(ts_iter).internal
+        ts = self.normal_ts().normal
         this = ShardRange('a/o', ts, state=ShardRange.ACTIVE,
-                          state_timestamp=next(ts_iter))
+                          state_timestamp=self.normal_ts())
         that = ShardRange('a/o', ts, state=ShardRange.CREATED,
-                          state_timestamp=next(ts_iter))
+                          state_timestamp=self.normal_ts())
         actual = combine_shard_ranges([dict(this)], [dict(that)])
         self.assertEqual([dict(that)], [dict(sr) for sr in actual])
         actual = combine_shard_ranges([dict(that)], [dict(this)])
         self.assertEqual([dict(that)], [dict(sr) for sr in actual])
 
-        that.update_meta(1, 2, meta_timestamp=next(ts_iter))
-        this.update_meta(3, 4, meta_timestamp=next(ts_iter))
+        that.update_meta(1, 2, meta_timestamp=self.normal_ts())
+        this.update_meta(3, 4, meta_timestamp=self.normal_ts())
         expected = that.copy(object_count=this.object_count,
                              bytes_used=this.bytes_used,
                              meta_timestamp=this.meta_timestamp)
@@ -9833,15 +9838,15 @@ class TestContainerSharderConf(unittest.TestCase):
         actual = combine_shard_ranges([dict(that)], [dict(this)])
         self.assertEqual([dict(expected)], [dict(sr) for sr in actual])
 
-        this = ShardRange('a/o', next(ts_iter).internal)
-        that = ShardRange('a/o', next(ts_iter).internal, deleted=True)
+        this = ShardRange('a/o', self.normal_ts())
+        that = ShardRange('a/o', self.normal_ts(), deleted=True)
         actual = combine_shard_ranges([dict(this)], [dict(that)])
         self.assertFalse(actual, [dict(sr) for sr in actual])
         actual = combine_shard_ranges([dict(that)], [dict(this)])
         self.assertFalse(actual, [dict(sr) for sr in actual])
 
-        this = ShardRange('a/o', next(ts_iter).internal, deleted=True)
-        that = ShardRange('a/o', next(ts_iter).internal)
+        this = ShardRange('a/o', self.normal_ts(), deleted=True)
+        that = ShardRange('a/o', self.normal_ts())
         actual = combine_shard_ranges([dict(this)], [dict(that)])
         self.assertEqual([dict(that)], [dict(sr) for sr in actual])
         actual = combine_shard_ranges([dict(that)], [dict(this)])

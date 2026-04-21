@@ -49,6 +49,7 @@ from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
 from swift.common.utils import Timestamp, md5, close_if_possible, checksum
+from swift.common.utils.timestamp import NormalTimestamp
 from test import get_config, BaseTestCase
 from test.debug_logger import FakeLogger
 from test.unit.common.test_memcached import MockedMemcachePool, \
@@ -67,6 +68,16 @@ class BaseUnitTestCase(BaseTestCase):
     def setUp(self):
         super().setUp()
         self.ts_iter = make_timestamp_iter()
+        self.normal_ts_iter = make_normal_timestamp_iter()
+
+    def normal_ts(self):
+        """
+        Returns the next timestamp yielded by self.normal_ts_iter. Each
+        timestamp yielded will be in the second after the previous.
+
+        :return: an instance of NormalTimestamp
+        """
+        return next(self.normal_ts_iter)
 
     def ts(self):
         """
@@ -1123,22 +1134,44 @@ def mocked_http_conn(*args, **kwargs):
 
 
 def make_timestamp_iter(offset=0):
+    """
+    Returns an iterator that yields monotonically increasing Timestamps.
+
+    Note: the float part of each yielded Timestamp will increase by 1.
+    """
     return iter(Timestamp(t)
                 for t in itertools.count(int(time.time()) + offset))
 
 
+def make_normal_timestamp_iter():
+    """
+    Returns an iterator that yields monotonically increasing NormalTimestamps.
+    """
+    return iter(NormalTimestamp(t)
+                for t in itertools.count(int(time.time())))
+
+
 @contextmanager
-def mock_timestamp_now(now=None, klass=Timestamp):
+def mock_timestamp_now(now=None):
     if now is None:
-        now = klass.now()
-    with mocklib.patch('swift.common.utils.Timestamp.now',
-                       classmethod(lambda c: now)):
+        now = Timestamp.now()
+    with mocklib.patch.object(
+            Timestamp, 'now', classmethod(lambda *args, **kwargs: now)):
         yield now
 
 
 @contextmanager
-def mock_timestamp_now_with_iter(ts_iter):
-    with mocklib.patch('swift.common.utils.Timestamp.now',
+def mock_normal_timestamp_now(now=None):
+    if now is None:
+        now = NormalTimestamp.now()
+    with mocklib.patch.object(
+            NormalTimestamp, 'now', classmethod(lambda *args, **kwargs: now)):
+        yield now
+
+
+@contextmanager
+def mock_normal_timestamp_now_with_iter(ts_iter):
+    with mocklib.patch('swift.common.utils.timestamp.NormalTimestamp.now',
                        side_effect=ts_iter):
         yield
 

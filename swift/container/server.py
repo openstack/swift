@@ -459,6 +459,10 @@ class ContainerController(BaseStorageServer):
                 raise HTTPBadRequest(
                     'X-Backend-Storage-Policy-Index header is required')
             try:
+                # the original request may have been an object update with
+                # a hex part in the timestamp which we want to remove for the
+                # container timestamp
+                req_timestamp = req_timestamp.normalized()
                 broker.initialize(req_timestamp.internal, policy_index)
             except DatabaseAlreadyExists:
                 pass

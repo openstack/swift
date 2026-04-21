@@ -91,7 +91,7 @@ class TestHistoryId(unittest.TestCase):
         self.assertEqual('-null-', obj_id.serialize(prefix_only=True))
 
     def test_init_bad(self):
-        with self.assertRaises(TypeError):
+        with self.assertRaises(ValueError):
             HistoryId(None)
         with self.assertRaises(ValueError):
             HistoryId('the timestamp')
