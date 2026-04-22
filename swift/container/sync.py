@@ -21,7 +21,7 @@ from time import ctime, time
 from random import choice, random
 from struct import unpack_from
 
-from eventlet import sleep, Timeout
+from swift.common.concurrency import sleep, Timeout
 from urllib.parse import urlparse
 
 import swift.common.db

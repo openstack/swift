@@ -50,8 +50,8 @@ from contextlib import contextmanager
 from collections import defaultdict
 from datetime import timedelta
 
-from eventlet import Timeout, tpool
-from eventlet.hubs import trampoline
+from swift.common.concurrency import Timeout, tpool
+from swift.common.concurrency import trampoline
 from pyeclib.ec_iface import ECDriverError, ECInvalidFragmentMetadata, \
     ECBadFragmentChecksum, ECInvalidParameter
 

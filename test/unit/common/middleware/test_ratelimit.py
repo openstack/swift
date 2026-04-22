@@ -15,7 +15,7 @@
 
 import unittest
 import time
-import eventlet
+from swift.common.concurrency import eventlet
 from unittest import mock
 
 from test.debug_logger import debug_logger

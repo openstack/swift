@@ -25,8 +25,8 @@ import time
 import traceback
 import socket
 
-from eventlet import sleep, wsgi, Timeout, tpool
-from eventlet.greenthread import spawn
+from swift.common.concurrency import sleep, wsgi, Timeout, tpool
+from swift.common.concurrency import spawn
 
 from swift.common.utils import public, get_logger, \
     config_true_value, config_percent_value, \

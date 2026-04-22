@@ -28,10 +28,7 @@ from test.unit import temptree, with_tempdir, TestableMemcacheRing, \
 
 import contextlib
 import errno
-import eventlet
-import eventlet.debug
-import eventlet.event
-import eventlet.patcher
+from swift.common.concurrency import eventlet
 import grp
 import logging
 import os

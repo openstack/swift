@@ -21,7 +21,7 @@ import tempfile
 import unittest
 
 from unittest.mock import patch, call, DEFAULT
-import eventlet
+from swift.common.concurrency import eventlet
 
 from swift.account import reaper
 from swift.account.backend import DATADIR

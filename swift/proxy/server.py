@@ -24,7 +24,7 @@ from time import time
 import functools
 import sys
 
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints

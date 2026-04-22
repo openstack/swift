@@ -22,7 +22,7 @@ from optparse import OptionParser
 from os.path import basename, dirname, join
 from random import shuffle
 from contextlib import closing
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 
 from swift.obj import diskfile, replicator
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \

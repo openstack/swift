@@ -25,7 +25,7 @@ import string
 import sys
 import time
 import fcntl
-import eventlet
+from swift.common.concurrency import eventlet
 import datetime
 
 from swift.common.utils.base import md5, quote, split_path
@@ -38,9 +38,9 @@ from swift.common.utils.config import config_true_value
 # we do the same here
 import swift.common.exceptions
 
-from eventlet.green.http import client as green_http_client
+from swift.common.concurrency import green_http_client
 import http.client
-from eventlet.green import threading
+from swift.common.concurrency import green_threading as threading
 
 
 NOTICE = 25

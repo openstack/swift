@@ -17,8 +17,8 @@ import time
 from unittest import main
 from uuid import uuid4
 
-from eventlet import GreenPool, Timeout
-import eventlet
+from swift.common.concurrency import GreenPool, Timeout
+from swift.common.concurrency import eventlet
 from sqlite3 import connect
 
 from swift.common.manager import Manager

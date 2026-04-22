@@ -25,8 +25,8 @@ import errno
 import re
 from contextlib import contextmanager
 
-from eventlet import GreenPool, sleep, Timeout
-from eventlet.green import subprocess
+from swift.common.concurrency import GreenPool, sleep, Timeout
+from swift.common.concurrency import subprocess
 
 import swift.common.db
 from swift.common.constraints import check_drive

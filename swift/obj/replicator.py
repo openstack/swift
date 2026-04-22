@@ -24,9 +24,9 @@ import time
 import itertools
 import pickle  # nosec: B403
 
-import eventlet
-from eventlet import GreenPool, queue, tpool, Timeout, sleep
-from eventlet.green import subprocess
+from swift.common.concurrency import eventlet
+from swift.common.concurrency import GreenPool, queue, tpool, Timeout, sleep
+from swift.common.concurrency import subprocess
 
 from swift.common.constraints import check_drive
 from swift.common.ring.utils import is_local_device

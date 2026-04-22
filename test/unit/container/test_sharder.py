@@ -16,7 +16,7 @@ import json
 import random
 import argparse
 
-import eventlet
+from swift.common.concurrency import eventlet
 import os
 import shutil
 from contextlib import contextmanager

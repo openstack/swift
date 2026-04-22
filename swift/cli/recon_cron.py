@@ -15,7 +15,7 @@ import os
 import sys
 import time
 
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 
 from swift.common.utils import get_logger, dump_recon_cache, readconf, \
     lock_path, listdir

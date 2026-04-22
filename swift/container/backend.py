@@ -22,7 +22,7 @@ from uuid import uuid4
 
 from urllib.parse import unquote
 import sqlite3
-from eventlet import tpool
+from swift.common.concurrency import tpool
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.exceptions import LockTimeout
