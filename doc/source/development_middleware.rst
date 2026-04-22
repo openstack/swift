@@ -79,8 +79,8 @@ presented below::
     from swift.common.utils import split_path, get_logger
     from swift.common.request_helpers import get_sys_meta_prefix
     from swift.proxy.controllers.base import get_container_info
-    from eventlet import Timeout
-    from eventlet.green.urllib import urllib_request
+    from swift.common.concurrency import Timeout
+    from swift.common.concurrency import urllib_request
 
     # x-container-sysmeta-webhook
     SYSMETA_WEBHOOK = get_sys_meta_prefix('container') + 'webhook'
