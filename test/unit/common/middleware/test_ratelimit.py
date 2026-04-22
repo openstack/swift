@@ -77,14 +77,14 @@ class TestRateLimit(unittest.TestCase):
         time_ticker = 0
 
     def setUp(self):
-        self.was_sleep = eventlet.sleep
-        eventlet.sleep = mock_sleep
+        self.was_sleep = ratelimit.sleep
+        ratelimit.sleep = mock_sleep
         self.was_time = time.time
         time.time = mock_time
         self._reset_time()
 
     def tearDown(self):
-        eventlet.sleep = self.was_sleep
+        ratelimit.sleep = self.was_sleep
         time.time = self.was_time
 
     def _run(self, callable_func, num, rate, check_time=True):

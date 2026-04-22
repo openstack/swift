@@ -23,7 +23,7 @@ from swift.common.utils import (
     SWIFT_CONF_FILE, md5_hash_for_file, set_swift_dir)
 from swift.common.ring import Ring
 from swift.common.storage_policy import POLICIES, reload_storage_policies
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import GreenPool
 import json
 import optparse
 import time
@@ -152,7 +152,7 @@ class SwiftRecon(object):
         self.suppress_errors = False
         self.timeout = 5
         self.pool_size = 30
-        self.pool = eventlet.GreenPool(self.pool_size)
+        self.pool = GreenPool(self.pool_size)
         self.check_types = ['account', 'container', 'object']
         self.server_type = 'object'
 
