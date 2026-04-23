@@ -360,41 +360,44 @@ class ContainerController(BaseStorageServer):
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
-        # policy index is only relevant for delete_obj (and transitively for
-        # auto create accounts)
-        obj_policy_index = self.get_and_validate_policy_index(req) or 0
         broker = self._get_container_broker(drive, part, account, container)
         if obj:
-            self._maybe_autocreate(broker, req_timestamp, account,
-                                   obj_policy_index, req)
-        elif not os.path.exists(broker.db_file):
-            return HTTPNotFound()
-
-        if obj:     # delete object
-            # redirect if a shard range exists for the object name
-            redirect = self._redirect_to_shard(req, broker, obj)
-            if redirect:
-                return redirect
-
-            broker.delete_object(obj, req.headers.get('x-timestamp'),
-                                 obj_policy_index)
-            return HTTPNoContent(request=req)
+            return self.DELETE_object(
+                req, account, obj, req_timestamp, broker)
         else:
-            # delete container
-            if not broker.empty():
-                return HTTPConflict(request=req)
-            existed = Timestamp(broker.get_info()['put_timestamp']) and \
-                not broker.is_deleted()
-            broker.delete_db(req_timestamp.internal)
-            if not broker.is_deleted():
-                return HTTPConflict(request=req)
-            self._update_sync_store(broker, 'DELETE')
-            resp = self.account_update(req, account, container, broker)
-            if resp:
-                return resp
-            if existed:
-                return HTTPNoContent(request=req)
+            return self.DELETE_container(
+                req, account, container, req_timestamp, broker)
+
+    def DELETE_container(self, req, account, container, req_timestamp, broker):
+        if not os.path.exists(broker.db_file):
             return HTTPNotFound()
+        if not broker.empty():
+            return HTTPConflict(request=req)
+        existed = Timestamp(broker.get_info()['put_timestamp']) and \
+            not broker.is_deleted()
+        broker.delete_db(req_timestamp.internal)
+        if not broker.is_deleted():
+            return HTTPConflict(request=req)
+        self._update_sync_store(broker, 'DELETE')
+        resp = self.account_update(req, account, container, broker)
+        if resp:
+            return resp
+        if existed:
+            return HTTPNoContent(request=req)
+        return HTTPNotFound()
+
+    def DELETE_object(self, req, account, obj, req_timestamp, broker):
+        obj_policy_index = self.get_and_validate_policy_index(req) or 0
+        self._maybe_autocreate(broker, req_timestamp, account,
+                               obj_policy_index, req)
+        # redirect if a shard range exists for the object name
+        redirect = self._redirect_to_shard(req, broker, obj)
+        if redirect:
+            return redirect
+
+        broker.delete_object(obj, req.headers.get('x-timestamp'),
+                             obj_policy_index)
+        return HTTPNoContent(request=req)
 
     def _update_or_create(self, req, broker, timestamp, new_container_policy,
                           requested_policy_index):

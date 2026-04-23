@@ -1811,6 +1811,18 @@ class TestContainerController(BaseUnitTestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
 
+    def test_DELETE_container_x_backend_storage_policy_index_ignored(self):
+        # X-Backend-Storage-Policy-Index isn't relevant when deleting the
+        # container itself
+        self._populate_container('/sda1/p/a/c')
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': self.ts().internal,
+                     'X-Backend-Storage-Policy-Index': 'bad'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+
     def test_GET_with_override_deleted_ignored_for_objects(self):
         self._populate_and_delete_container('/sda1/p/a/c')
         # the override-deleted header is ignored for object records
