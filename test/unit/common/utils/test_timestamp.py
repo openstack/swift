@@ -493,6 +493,10 @@ class TestTimestamp(unittest.TestCase):
         self.assertEqual(expected, ts.raw)
         self.assertEqual('1755077566.52338', ts.normal)
 
+        # raw cannot be set
+        with self.assertRaises(AttributeError):
+            ts.raw = 123
+
     def test_delta(self):
         def _assertWithinBounds(expected, timestamp):
             tolerance = 0.00001
@@ -502,15 +506,15 @@ class TestTimestamp(unittest.TestCase):
             self.assertTrue(float(timestamp) < maximum)
 
         ts = timestamp.Timestamp(1402436408.91203, delta=100)
-        _assertWithinBounds(1402436408.91303, ts)
+        self.assertAlmostEqual(1402436408.91303, float(ts), 5)
         self.assertEqual(140243640891303, ts.raw)
 
         ts = timestamp.Timestamp(1402436408.91203, delta=-100)
-        _assertWithinBounds(1402436408.91103, ts)
+        self.assertAlmostEqual(1402436408.91103, float(ts), 5)
         self.assertEqual(140243640891103, ts.raw)
 
         ts = timestamp.Timestamp(1402436408.91203, delta=0)
-        _assertWithinBounds(1402436408.91203, ts)
+        self.assertAlmostEqual(1402436408.91203, float(ts), 5)
         self.assertEqual(140243640891203, ts.raw)
 
         # delta is independent of offset
@@ -521,6 +525,17 @@ class TestTimestamp(unittest.TestCase):
         # cannot go negative
         self.assertRaises(ValueError, timestamp.Timestamp, 1402436408.91203,
                           delta=-140243640891203)
+
+        # a float delta value is tolerated...
+        ts = timestamp.Timestamp(1402436408.91203, delta=1.0)
+        self.assertAlmostEqual(1402436408.91204, float(ts), 5)
+        self.assertEqual(140243640891204, ts.raw)
+        self.assertEqual('1402436408.91204', ts.internal)
+        # ...but the timestamp remains an integer number of deca-microseconds
+        ts = timestamp.Timestamp(1402436408.91203, delta=1.4)
+        self.assertAlmostEqual(1402436408.91204, float(ts), 5)
+        self.assertEqual(140243640891204, ts.raw)
+        self.assertEqual('1402436408.91204', ts.internal)
 
     def test_int(self):
         expected = 1402437965

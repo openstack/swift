@@ -73,8 +73,8 @@ class BaseTimestamp:
             * any other type whose string representation can be parsed by the
               subclass being constructed.
 
-        :param delta: (int) deca-microsecond difference to be added to the
-            ``timestamp`` value.
+        :param delta: deca-microsecond difference to be added to the
+            ``timestamp`` value; should be an integer value.
         :param check_bounds: if True (default) then a ValueError will be raised
             if the given timestamp is less than 0 or greater than the maximum
             time that can be represented by this class.
@@ -91,14 +91,15 @@ class BaseTimestamp:
             else:
                 timestamp_str = str(timestamp)
             float_timestamp = self._parse(timestamp_str, **kwargs)
-        self.raw = int(round(float_timestamp / PRECISION))
+        raw = int(round(float_timestamp / PRECISION))
         # add delta
         if delta:
-            self.raw = self.raw + delta
-            if self.raw <= 0:
+            raw += delta
+            if raw <= 0:
                 raise ValueError(
-                    'delta must be greater than %d' % (-1 * self.raw))
-        self.timestamp = round(float(self.raw * PRECISION), 5)
+                    'delta must be greater than %d' % (-1 * raw))
+
+        self.timestamp = round(float(raw * PRECISION), 5)
         if check_bounds:
             self._check_bounds()
 
@@ -113,6 +114,10 @@ class BaseTimestamp:
             raise ValueError('timestamp cannot be negative')
         if self.timestamp >= 10000000000:
             raise ValueError('timestamp too large')
+
+    @property
+    def raw(self):
+        return int(round(self.timestamp / PRECISION))
 
     @classmethod
     def now(cls, delta=0):
@@ -287,8 +292,8 @@ class NormalTimestamp(BaseTimestamp):
               whose string representation can be cast to a float. The string
               must not container underscores.
 
-        :param delta: (int) deca-microsecond difference to be added to the
-            ``timestamp`` value.
+        :param delta: deca-microsecond difference to be added to the
+            ``timestamp`` value; should be an integer value.
         :param check_bounds: if True (default) then a ValueError will be raised
             if the given timestamp is less than 0 or greater than the maximum
             time that can be represented by this class.
@@ -374,8 +379,8 @@ class Timestamp(BaseTimestamp):
         :param offset: (int) the internal offset vector. When ``timestamp`` is
             a float this value initialises the offset, otherwise this value
             will be added to any existing offset of the parsed ``timestamp``.
-        :param delta: (int) deca-microsecond difference to be added to the
-            ``timestamp`` value.
+        :param delta: deca-microsecond difference to be added to the
+            ``timestamp`` value; should be an integer value.
         :param check_bounds: if True (default) then a ValueError will be raised
             if the given timestamp is less than 0 or greater than the maximum
             time that can be represented by this class.
