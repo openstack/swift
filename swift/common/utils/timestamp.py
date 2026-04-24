@@ -94,10 +94,10 @@ class BaseTimestamp:
         raw = int(round(float_timestamp / PRECISION))
         # add delta
         if delta:
-            raw += delta
-            if raw <= 0:
+            if raw + delta < 0:
                 raise ValueError(
-                    'delta must be greater than %d' % (-1 * raw))
+                    'delta must be greater than %d' % (-1 * raw - 1))
+            raw += delta
 
         self.timestamp = round(float(raw * PRECISION), 5)
         if check_bounds:
@@ -563,14 +563,14 @@ def decode_timestamps(encoded, explicit=False):
         # preserve any offset in t1 - only construct a distinct
         # timestamp if there is a non-zero delta.
         if delta:
-            t2 = Timestamp((t1.raw + delta) * PRECISION)
+            t2 = Timestamp(t1.normal, delta=delta)
     elif not explicit:
         t2 = t1
     if len(parts) > 2:
         t3 = t2
         delta = signs[2] * int(parts[2], 16)
         if delta:
-            t3 = Timestamp((t2.raw + delta) * PRECISION)
+            t3 = Timestamp(t2.normal, delta=delta)
     elif not explicit:
         t3 = t2
     return t1, t2, t3
