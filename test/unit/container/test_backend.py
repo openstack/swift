@@ -930,13 +930,14 @@ class TestContainerBroker(test_db.TestDbBase):
                                  account='test_account',
                                  container='test_container')
         # create it
-        broker.initialize(start.internal, POLICIES.default.idx)
+        with mock_normal_timestamp_now(self.normal_ts()) as created_at:
+            broker.initialize(start.internal, POLICIES.default.idx)
         info, is_deleted = broker.get_info_is_deleted()
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(is_deleted, False)  # sanity
         self.assertEqual(info, broker.get_info())
         self.assertEqual(info['put_timestamp'], start.internal)
-        self.assertTrue(Timestamp(info['created_at']) >= start)
+        self.assertEqual(info['created_at'], created_at.internal)
         self.assertEqual(info['delete_timestamp'], '0')
         if self.__class__ in (
                 TestContainerBrokerBeforeMetadata,
@@ -958,7 +959,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
         self.assertEqual(info['put_timestamp'], start.internal)
-        self.assertTrue(Timestamp(info['created_at']) >= start)
+        self.assertEqual(info['created_at'], created_at.internal)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
@@ -970,7 +971,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(is_deleted, broker.is_deleted())
         self.assertEqual(info, broker.get_info())
         self.assertEqual(info['put_timestamp'], start.internal)
-        self.assertTrue(Timestamp(info['created_at']) >= start)
+        self.assertEqual(info['created_at'], created_at.internal)
         self.assertEqual(info['delete_timestamp'], delete_timestamp)
         self.assertEqual(info['status_changed_at'], delete_timestamp)
 
@@ -5944,7 +5945,7 @@ def premetadata_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, Timestamp.now().internal,
+    ''', (self.account, self.container, NormalTimestamp.now().internal,
           str(uuid4()), put_timestamp))
 
 
@@ -6021,7 +6022,7 @@ def prexsync_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, Timestamp.now().internal,
+    ''', (self.account, self.container, NormalTimestamp.now().internal,
           str(uuid4()), put_timestamp))
 
 
@@ -6140,7 +6141,7 @@ def prespi_create_container_info_table(self, conn, put_timestamp,
         UPDATE container_stat
         SET account = ?, container = ?, created_at = ?, id = ?,
             put_timestamp = ?
-    ''', (self.account, self.container, Timestamp.now().internal,
+    ''', (self.account, self.container, NormalTimestamp.now().internal,
           str(uuid4()), put_timestamp))
 
 
