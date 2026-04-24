@@ -205,11 +205,22 @@ class ContainerSync(Daemon):
 
         internal_client_conf_path = conf.get('internal_client_conf_path')
         if not internal_client_conf_path:
-            self.logger.warning(
-                'Configuration option internal_client_conf_path not '
-                'defined. Using default configuration, See '
-                'internal-client.conf-sample for options')
-            internal_client_conf = ConfigString(ic_conf_body)
+            internal_client_conf_path = os.path.join(
+                self.swift_dir,
+                'internal-client.conf')
+            if os.path.exists(internal_client_conf_path):
+                self.logger.warning(
+                    'Configuration option internal_client_conf_path not '
+                    'set, but %s exists and will be used.',
+                    internal_client_conf_path)
+                internal_client_conf = internal_client_conf_path
+            else:
+                self.logger.warning(
+                    'Configuration option internal_client_conf_path not '
+                    'defined. In a future release, this will be an error. '
+                    'Using default configuration, See '
+                    'internal-client.conf-sample for options')
+                internal_client_conf = ConfigString(ic_conf_body)
         else:
             internal_client_conf = internal_client_conf_path
         try:
