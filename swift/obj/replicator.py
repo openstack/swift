@@ -24,7 +24,7 @@ import time
 import itertools
 import pickle  # nosec: B403
 
-from swift.common.concurrency import eventlet
+from swift.common.concurrency import spawn, spawn_n
 from swift.common.concurrency import GreenPool, queue, tpool, Timeout, sleep
 from swift.common.concurrency import subprocess
 
@@ -813,7 +813,7 @@ class ObjectReplicator(Daemon):
         logs progress.
         """
         while True:
-            eventlet.sleep(self.stats_interval)
+            sleep(self.stats_interval)
             self.stats_line()
 
     def build_replication_jobs(self, policy, ips, override_devices=None,
@@ -962,8 +962,8 @@ class ObjectReplicator(Daemon):
         self.all_devs_info = set()
         self.handoffs_remaining = 0
 
-        stats = eventlet.spawn(self.heartbeat)
-        eventlet.sleep()  # Give spawns a cycle
+        stats = spawn(self.heartbeat)
+        sleep()  # Give spawns a cycle
 
         current_nodes = None
         dev_stats = None
@@ -1092,7 +1092,7 @@ class ObjectReplicator(Daemon):
             self.is_multiprocess_worker = True
             self._emplace_log_prefix(multiprocess_worker_index)
 
-        rsync_reaper = eventlet.spawn(self._child_process_reaper)
+        rsync_reaper = spawn(self._child_process_reaper)
         self._zero_stats()
         self.logger.info("Running object replicator in script mode.")
 
@@ -1138,7 +1138,7 @@ class ObjectReplicator(Daemon):
             self.is_multiprocess_worker = True
             self._emplace_log_prefix(multiprocess_worker_index)
         self.logger.info("Starting object replicator in daemon mode.")
-        eventlet.spawn_n(self._child_process_reaper)
+        spawn_n(self._child_process_reaper)
         # Run the replicator continually
         while True:
             self._zero_stats()
