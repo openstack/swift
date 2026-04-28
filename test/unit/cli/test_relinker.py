@@ -2628,6 +2628,89 @@ class TestRelinker(unittest.TestCase):
         self.assertTrue(os.path.isfile(path1))
         self.assertTrue(os.path.isfile(path2))
 
+    def test_cleanup_noops_rate_limiter(self):
+        hash1 = "027ecbf9027e96e1fe83e6154e1a8380"
+        hash2 = "024f19a8347495adc3cfa845f725e380"
+        self.assertNotEqual(hash1, hash2)
+        self.assertEqual(hash1[-3:], hash2[-3:])
+
+        self.rb.prepare_increase_partition_power()
+        self.rb.increase_partition_power()
+        self._save_ring()
+
+        part1 = utils.get_partition_for_hash(hash1, self.rb.part_power)
+        part2 = utils.get_partition_for_hash(hash2, self.rb.part_power)
+        self.assertEqual(part1, part2)
+        self.assertLess(part1, 2 ** (self.rb.part_power - 1))
+
+        # objects are created in the partition they are expected to be in so
+        # so they are not actually selected for cleanup
+        policy = 0
+        self._recreate_objects_dir(policy)
+        objdir1, fname1, _ = self._create_object(policy, part1, hash1)
+        objdir2, fname2, _ = self._create_object(policy, part2, hash2)
+
+        captured = list()
+
+        def rate_limiter_tracker(locations, elements_per_second):
+            for loc in locations:
+                captured.append(loc)
+                yield loc
+
+        with mock.patch('swift.cli.relinker.RateLimitedIterator',
+                        side_effect=rate_limiter_tracker), \
+                self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--device', self.existing_device,
+                '--files-per-second', '1',  # Enable rate limiting
+            ]))
+
+        self.assertEqual(list(), captured)
+
+    def test_relink_noops_rate_limiter(self):
+        hash1 = "027ecbf9027e96e1fe83e6154e1a8380"
+        hash2 = "024f19a8347495adc3cfa845f725e380"
+        self.assertNotEqual(hash1, hash2)
+        self.assertEqual(hash1[-3:], hash2[-3:])
+
+        part1 = utils.get_partition_for_hash(hash1, self.rb.part_power + 1)
+        part2 = utils.get_partition_for_hash(hash2, self.rb.part_power + 1)
+        self.assertEqual(part1, part2)
+        self.assertLess(part1, 2 ** self.rb.part_power)
+
+        policy = 0
+        self._recreate_objects_dir(policy)
+        self._create_object(policy, part1, hash1)
+        self._create_object(policy, part2, hash2)
+
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+
+        captured = list()
+
+        def rate_limiter_tracker(locations, elements_per_second):
+            for loc in locations:
+                captured.append(loc)
+                yield loc
+
+        with mock.patch('swift.cli.relinker.RateLimitedIterator',
+                        side_effect=rate_limiter_tracker), \
+                self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--device', self.existing_device,
+                '--files-per-second', '1',  # Enable rate limiting
+            ]))
+
+        self.assertEqual(list(), captured)
+
     def test_cleanup_consecutive_in_suffix_dir(self):
         # Both hashes are:
         # - In the same partition for part_power = PART_POWER + 1

@@ -387,13 +387,13 @@ class Relinker(object):
         self._update_recon(device)
 
     def hashes_filter(self, suff_path, hashes):
-        hashes = list(hashes)
+        mismatched_hashes = list()
         for hsh in hashes:
             fname = os.path.join(suff_path, hsh)
-            if fname == replace_partition_in_path(
+            if fname != replace_partition_in_path(
                     self.conf['devices'], fname, self.next_part_power):
-                hashes.remove(hsh)
-        return hashes
+                mismatched_hashes.append(hsh)
+        return mismatched_hashes
 
     def do_relink(self, device, hash_path, new_hash_path, filename,
                   already_quarantined=False):
