@@ -21,8 +21,7 @@ from optparse import OptionParser
 from os.path import join
 from collections import defaultdict, deque
 
-from swift.common.concurrency import sleep, Timeout
-from swift.common.concurrency import GreenPool
+from swift.common.concurrency import sleep, Timeout, GreenPool
 
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.daemon import Daemon, run_daemon

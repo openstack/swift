@@ -24,9 +24,9 @@ import time
 import itertools
 import pickle  # nosec: B403
 
-from swift.common.concurrency import spawn, spawn_n
-from swift.common.concurrency import GreenPool, queue, tpool, Timeout, sleep
-from swift.common.concurrency import subprocess
+from swift.common.concurrency import (
+    spawn, spawn_n, GreenPool, queue, tpool, Timeout, sleep, subprocess
+)
 
 from swift.common.constraints import check_drive
 from swift.common.ring.utils import is_local_device

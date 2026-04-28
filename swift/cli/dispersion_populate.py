@@ -20,8 +20,7 @@ from optparse import OptionParser
 from sys import exit, stdout
 from time import time
 
-from swift.common.concurrency import GreenPool, patcher, sleep
-from swift.common.concurrency import Pool
+from swift.common.concurrency import GreenPool, patcher, sleep, Pool
 from configparser import ConfigParser
 
 from swift.common.internal_client import SimpleClient

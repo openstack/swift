@@ -14,8 +14,7 @@
 # limitations under the License.
 
 
-from swift.common.concurrency import eventlet
-from swift.common.concurrency import sleep, Timeout
+from swift.common.concurrency import eventlet, sleep, Timeout
 import urllib
 
 from swift.common import exceptions

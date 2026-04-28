@@ -24,9 +24,9 @@ from collections import defaultdict
 import pickle  # nosec: B403
 import shutil
 
-from swift.common.concurrency import GreenPile, GreenPool, Timeout, \
-    sleep, tpool, spawn
-from swift.common.concurrency import GreenletExit
+from swift.common.concurrency import (
+    GreenPile, GreenPool, Timeout, sleep, tpool, spawn, GreenletExit
+)
 
 from swift.common.utils import (
     whataremyips, unlink_older_than, compute_eta, get_logger,
