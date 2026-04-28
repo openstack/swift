@@ -26,7 +26,7 @@ import errno
 import pickle  # nosec: B403
 from tempfile import mkstemp
 
-from eventlet import sleep, Timeout
+from swift.common.concurrency import sleep, Timeout
 import sqlite3
 
 from swift.common.constraints import MAX_META_COUNT, MAX_META_OVERALL_SIZE, \

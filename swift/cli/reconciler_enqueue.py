@@ -14,7 +14,7 @@
 import sys
 from optparse import OptionParser
 
-import eventlet.debug
+from swift.common.concurrency import eventlet
 
 from swift.common.ring import Ring
 from swift.common.utils import split_path

@@ -37,7 +37,7 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 import pyeclib.ec_iface
 
-from eventlet import hubs, timeout, tpool, spawn, sleep
+from swift.common.concurrency import hubs, timeout, tpool, spawn, sleep
 from swift.obj.diskfile import update_auditor_status, EUCLEAN
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,

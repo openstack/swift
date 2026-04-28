@@ -14,7 +14,7 @@
 # limitations under the License.
 import time
 
-import eventlet
+from swift.common.concurrency import eventlet
 
 from swift.common.utils import cache_from_env, get_logger
 from swift.common.registry import register_swift_info

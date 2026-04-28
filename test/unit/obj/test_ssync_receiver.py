@@ -19,8 +19,7 @@ import shutil
 import tempfile
 import unittest
 
-import eventlet
-import eventlet.wsgi
+from swift.common.concurrency import eventlet
 from unittest import mock
 import itertools
 

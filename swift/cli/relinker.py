@@ -24,7 +24,7 @@ import os
 import time
 from collections import defaultdict
 
-from eventlet import hubs
+from swift.common.concurrency import hubs
 
 from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES

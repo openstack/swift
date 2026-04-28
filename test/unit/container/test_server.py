@@ -28,7 +28,7 @@ from shutil import rmtree
 from tempfile import mkdtemp
 from xml.dom import minidom
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 import json
 from urllib.parse import quote
 

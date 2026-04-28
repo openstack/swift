@@ -16,7 +16,7 @@
 import os
 import json
 from collections import defaultdict
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 import optparse
 from random import choice
 

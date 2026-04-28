@@ -22,7 +22,7 @@ import json
 import os
 import socket
 
-from eventlet import sleep, Timeout
+from swift.common.concurrency import sleep, Timeout
 import pickle  # nosec: B403
 from http.client import HTTPException
 

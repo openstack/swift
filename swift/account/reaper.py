@@ -21,7 +21,7 @@ from math import sqrt
 from time import time
 import itertools
 
-from eventlet import GreenPool, sleep, Timeout
+from swift.common.concurrency import GreenPool, sleep, Timeout
 
 import swift.common.db
 from swift.account.backend import AccountBroker, DATADIR

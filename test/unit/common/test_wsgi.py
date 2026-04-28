@@ -24,7 +24,7 @@ import socket
 import struct
 import unittest
 import os
-import eventlet
+from swift.common.concurrency import eventlet
 
 from collections import defaultdict
 from io import BytesIO

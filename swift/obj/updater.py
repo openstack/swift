@@ -25,7 +25,7 @@ from random import random, shuffle
 from bisect import insort
 from collections import deque
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_drive

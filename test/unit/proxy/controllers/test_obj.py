@@ -25,9 +25,9 @@ from contextlib import contextmanager
 import json
 
 from unittest import mock
-import eventlet
-from eventlet import Timeout, sleep
-from eventlet.queue import Empty
+from swift.common.concurrency import eventlet
+from swift.common.concurrency import Timeout, sleep
+from swift.common.concurrency import Empty
 
 from io import StringIO
 from urllib.parse import quote, parse_qsl

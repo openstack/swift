@@ -28,9 +28,9 @@ import os
 from unittest import mock
 from configparser import NoSectionError, NoOptionError
 
-from eventlet import GreenPool, sleep, Queue
-from eventlet.pools import Pool
-from eventlet.green import ssl
+from swift.common.concurrency import GreenPool, sleep, Queue
+from swift.common.concurrency import Pool
+from swift.common.concurrency import ssl
 
 from swift.common import memcached
 from swift.common.memcached import MemcacheConnectionError, md5hash, \

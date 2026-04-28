@@ -25,7 +25,7 @@ import os
 import errno
 import itertools
 import random
-import eventlet
+from swift.common.concurrency import eventlet
 
 from collections import defaultdict
 import urllib.parse

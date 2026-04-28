@@ -12,7 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import eventlet
+from swift.common.concurrency import eventlet
 import pickle
 from queue import PriorityQueue
 from unittest import mock
@@ -31,7 +31,7 @@ from test.debug_logger import debug_logger
 from test.unit import patch_policies, mocked_http_conn, BaseUnitTestCase
 from time import time
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 
 from swift.obj import updater as object_updater
 from swift.obj.diskfile import (

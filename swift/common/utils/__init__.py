@@ -47,22 +47,16 @@ import glob
 import itertools
 import stat
 
-import eventlet
-import eventlet.debug
-import eventlet.greenthread
-import eventlet.patcher
-import eventlet.semaphore
+from swift.common.concurrency import eventlet
 try:
     import importlib.metadata
     pkg_resources = None
 except ImportError:
     # python < 3.8
     import pkg_resources
-from eventlet import GreenPool, sleep, Timeout
-from eventlet.event import Event
-from eventlet.green import socket
-import eventlet.hubs
-import eventlet.queue
+from swift.common.concurrency import GreenPool, sleep, Timeout
+from swift.common.concurrency import Event
+from swift.common.concurrency import socket
 
 import pickle  # nosec: B403
 from configparser import (ConfigParser, NoSectionError,

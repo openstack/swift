@@ -30,7 +30,7 @@ import time
 import random
 from unittest.mock import patch, MagicMock
 
-from eventlet.timeout import Timeout
+from swift.common.concurrency import Timeout
 
 import swift.common.db
 from swift.common.constraints import \

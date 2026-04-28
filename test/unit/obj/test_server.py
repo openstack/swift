@@ -33,8 +33,9 @@ from collections import defaultdict
 from contextlib import contextmanager
 from textwrap import dedent
 
-from eventlet import sleep, spawn, wsgi, Timeout, tpool, greenthread
-from eventlet.green.http import client as http_client
+from swift.common.concurrency import sleep, spawn, wsgi, \
+    Timeout, tpool, greenthread
+from swift.common.concurrency import green_http_client as http_client
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success

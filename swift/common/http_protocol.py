@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from eventlet import wsgi, websocket
+from swift.common.concurrency import wsgi, websocket
 
 from swift.common.utils import generate_trans_id
 from swift.common.http import HTTP_NO_CONTENT, HTTP_RESET_CONTENT, \
     HTTP_NOT_MODIFIED
 
-from eventlet.green.http import client as http_client
+from swift.common.concurrency import green_http_client as http_client
 from html import escape
 
 import email._policybase
