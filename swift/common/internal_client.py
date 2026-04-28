@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.concurrency import sleep, Timeout, spawn
-from swift.common.concurrency import socket
-from swift.common.concurrency import green_http_client as http_client
-from swift.common.concurrency import urllib_request
+from swift.common.concurrency import (
+    sleep, Timeout, spawn, socket, green_http_client as http_client,
+    urllib_request
+)
 import json
 import urllib
 import struct

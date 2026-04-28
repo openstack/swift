@@ -20,8 +20,7 @@ import getopt
 from itertools import chain
 
 import json
-from swift.common.concurrency import GreenPool
-from swift.common.concurrency import Event
+from swift.common.concurrency import GreenPool, Event
 from urllib.parse import quote
 
 from swift.common.ring import Ring

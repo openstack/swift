@@ -52,9 +52,7 @@ import logging
 import time as tm
 from bisect import bisect
 
-from swift.common.concurrency import socket, ssl
-from swift.common.concurrency import Pool
-from swift.common.concurrency import Timeout
+from swift.common.concurrency import socket, ssl, Pool, Timeout
 from configparser import ConfigParser, NoSectionError, NoOptionError
 from swift.common import utils
 from swift.common.exceptions import MemcacheConnectionError, \

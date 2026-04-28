@@ -32,11 +32,11 @@ import logging
 import time
 import socket
 
-from swift.common.concurrency import CONTINUE, HTTPConnection, HTTPResponse, \
-    HTTPSConnection, _UNKNOWN, ImproperConnectionState
+from swift.common.concurrency import (
+    CONTINUE, HTTPConnection, HTTPResponse, HTTPSConnection, _UNKNOWN,
+    ImproperConnectionState, green_http_client
+)
 from urllib.parse import quote, parse_qsl, urlencode
-
-from swift.common.concurrency import green_http_client
 
 # Apparently http.server uses this to decide when/whether to send a 431.
 # Give it some slack, so the app is more likely to get the chance to reject

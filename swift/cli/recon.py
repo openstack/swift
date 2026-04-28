@@ -16,21 +16,18 @@
 """
 
 
-from swift.common.concurrency import socket
+from swift.common.concurrency import socket, GreenPool, urllib_request
 from urllib.parse import urlparse
 
 from swift.common.utils import (
     SWIFT_CONF_FILE, md5_hash_for_file, set_swift_dir)
 from swift.common.ring import Ring
 from swift.common.storage_policy import POLICIES, reload_storage_policies
-from swift.common.concurrency import GreenPool
 import json
 import optparse
 import time
 import sys
 import os
-
-from swift.common.concurrency import urllib_request
 
 
 def seconds2timeunit(seconds):

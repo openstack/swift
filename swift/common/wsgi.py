@@ -26,11 +26,11 @@ from textwrap import dedent
 import time
 import warnings
 
-from swift.common.concurrency import eventlet
-from swift.common.concurrency import greenio, GreenPool, sleep, \
-    wsgi, listen, Timeout
+from swift.common.concurrency import (
+    eventlet, greenio, GreenPool, sleep, wsgi, listen, Timeout, socket, ssl,
+    green_os
+)
 from paste.deploy import loadwsgi
-from swift.common.concurrency import socket, ssl, green_os
 from io import BytesIO, StringIO
 
 from swift.common import utils, constraints
