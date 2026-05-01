@@ -34,8 +34,9 @@ from test.debug_logger import debug_logger
 from test.unit import with_tempdir, write_fake_ring, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift, LeakTrackingIter
 
-from eventlet.green.urllib import request as urllib_request
-from eventlet.green.http import client as http_client
+from swift.common.concurrency import (
+    urllib_request, green_http_client as http_client
+)
 
 
 class FakeConn(object):

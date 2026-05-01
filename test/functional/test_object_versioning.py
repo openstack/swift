@@ -1073,6 +1073,28 @@ class TestObjectVersioning(TestObjectVersioningBase):
         self.assertEqual('text/jibberish32', obj_info['content_type'])
         self.assertEqual(v1_etag, normalize_etag(obj_info['etag']))
 
+    def test_put_with_nonexistent_version_id(self):
+        versioned_obj_name = Utils.create_name()
+        obj = self.env.container.file(versioned_obj_name)
+        self.assertTrue(obj.write(b'version1'))
+
+        with self.assertRaises(ResponseError) as cm:
+            obj.write(b'', parms={'version-id': '1234567890.12345'})
+        self.assertEqual(404, cm.exception.status)
+
+    def test_put_with_invalid_version_id(self):
+        versioned_obj_name = Utils.create_name()
+        obj = self.env.container.file(versioned_obj_name)
+        self.assertTrue(obj.write(b'version1'))
+
+        with self.assertRaises(ResponseError) as cm:
+            obj.write(b'', parms={'version-id': 'null'})
+        self.assertEqual(400, cm.exception.status)
+
+        with self.assertRaises(ResponseError) as cm:
+            obj.write(b'', parms={'version-id': 'bad'})
+        self.assertEqual(400, cm.exception.status)
+
     def test_delete_with_version_api_old_object(self):
         versioned_obj_name = Utils.create_name()
         obj = self.env.container.file(versioned_obj_name)

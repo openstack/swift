@@ -27,9 +27,9 @@ import itertools
 from numbers import Number
 from tempfile import NamedTemporaryFile
 import time
-import eventlet
-from eventlet import greenpool, debug as eventlet_debug
-from eventlet.green import socket
+from swift.common.concurrency import (
+    eventlet, greenpool, debug as eventlet_debug, socket
+)
 from tempfile import mkdtemp, mkstemp, gettempdir
 from shutil import rmtree
 import signal

@@ -21,7 +21,7 @@ import time
 from random import random, shuffle
 from tempfile import mkstemp
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 
 import swift.common.db
 from swift.common.constraints import check_drive

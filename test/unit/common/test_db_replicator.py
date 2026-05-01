@@ -16,7 +16,7 @@ import shutil
 import unittest
 from contextlib import contextmanager
 
-import eventlet
+from swift.common.concurrency import eventlet
 import os
 import logging
 import errno

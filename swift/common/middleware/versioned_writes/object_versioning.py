@@ -180,6 +180,14 @@ SYSMETA_PARENT_CONT = get_sys_meta_prefix('container') + 'parent-container'
 SYSMETA_VERSIONS_SYMLINK = get_sys_meta_prefix('object') + 'versions-symlink'
 
 
+def validate_version(req, version, allow_null=True):
+    if version != 'null' or not allow_null:
+        try:
+            Timestamp(version)
+        except ValueError:
+            raise HTTPBadRequest('Invalid version parameter', request=req)
+
+
 def build_listing(*to_splice, **kwargs):
     reverse = kwargs.pop('reverse')
     limit = kwargs.pop('limit')
@@ -673,6 +681,14 @@ class ObjectContext(ObjectVersioningContext):
         Handle a PUT?version-id request and create/update the is_latest link to
         point to the specific version. Expects a valid 'version' id.
         """
+        # The intended use case for a PUT?version_id= is to create a symlink to
+        # a version in the versions container. In that context, the version_id
+        # is never expected to be 'null'. If version_id is 'null' then we
+        # cannot create a null version; the best we could do is HEAD the user
+        # object to see if it is already a null version (i.e. not a symlink to
+        # a version) and if it is not then perhaps return a 404 or 412. As it
+        # is, we just treat a 'null' version_id here as a 400 Bad Request.
+        validate_version(req, version, allow_null=False)
         if req.is_chunked:
             has_body = (req.body_file.read(1) != b'')
         elif req.content_length is None:
@@ -740,7 +756,7 @@ class ObjectContext(ObjectVersioningContext):
         :param is_enabled: is versioning currently enabled
         :param version: version of the object to act on
         """
-        # ?version-id requests are allowed for GET, HEAD, DELETE reqs
+        # ?version-id requests are allowed for GET, HEAD, PUT, DELETE reqs
         if req.method == 'POST':
             raise HTTPBadRequest(
                 '%s to a specific version is not allowed' % req.method,
@@ -749,11 +765,7 @@ class ObjectContext(ObjectVersioningContext):
             raise HTTPBadRequest(
                 'version-aware operations require that the container is '
                 'versioned', request=req)
-        if version != 'null':
-            try:
-                Timestamp(version)
-            except ValueError:
-                raise HTTPBadRequest('Invalid version parameter', request=req)
+        validate_version(req, version, allow_null=True)
 
         if req.method == 'DELETE':
             return self.handle_delete_version(

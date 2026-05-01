@@ -17,7 +17,7 @@ import os
 from textwrap import dedent
 import unittest
 
-from eventlet.green import ssl
+from swift.common.concurrency import ssl
 from unittest import mock
 
 from swift.common.middleware import memcache

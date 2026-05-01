@@ -286,7 +286,7 @@ folks a start on their own code if they want to use repoze.what::
 
     from time import time
 
-    from eventlet.timeout import Timeout
+    from swift.common.concurrency import Timeout
     from repoze.what.adapters import BaseSourceAdapter
     from repoze.what.middleware import setup_auth
     from repoze.what.predicates import in_any_group, NotAuthorizedError

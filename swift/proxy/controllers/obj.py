@@ -35,9 +35,7 @@ import math
 import random
 
 from greenlet import GreenletExit
-from eventlet import GreenPile
-from eventlet.queue import Queue, Empty
-from eventlet.timeout import Timeout
+from swift.common.concurrency import GreenPile, Queue, Empty, Timeout
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,

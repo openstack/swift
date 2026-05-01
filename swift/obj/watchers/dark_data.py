@@ -56,7 +56,7 @@ import random
 import shutil
 import time
 
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 
 from swift.common.direct_client import direct_get_container
 from swift.common.exceptions import ClientException, QuarantineRequest

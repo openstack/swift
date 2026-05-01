@@ -16,7 +16,7 @@ import io
 import os
 import unittest
 
-import eventlet
+from swift.common.concurrency import eventlet
 from unittest import mock
 import urllib.parse
 

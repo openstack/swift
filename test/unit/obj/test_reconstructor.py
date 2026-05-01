@@ -25,8 +25,9 @@ import re
 import random
 import struct
 import collections
-from eventlet import Timeout, sleep, spawn
-from eventlet.green import threading
+from swift.common.concurrency import (
+    Timeout, sleep, spawn, green_threading as threading
+)
 
 from contextlib import contextmanager
 from shutil import rmtree

@@ -14,9 +14,7 @@
 # limitations under the License.
 
 
-import eventlet.greenio
-import eventlet.wsgi
-from eventlet import sleep, Timeout
+from swift.common.concurrency import eventlet, sleep, Timeout
 import urllib
 
 from swift.common import exceptions

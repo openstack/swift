@@ -24,7 +24,7 @@ from random import random
 
 import os
 from urllib.parse import quote
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 from contextlib import contextmanager
 
 from swift.common import internal_client

@@ -19,7 +19,7 @@ import sys
 import time
 import traceback
 
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 
 from urllib.parse import quote
 
