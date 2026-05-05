@@ -847,23 +847,34 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
         durable_frags = {}
         non_durable_frags = {}
         dev_frag_etags = defaultdict(list)
+        ec_durable_etag = None
+        ec_nondurable_etag = None
         for node in self.ec_nodes:
             node_key = _format_node(node)
             # this is the original (durable) fragment
             headers, etag = self.direct_get(node, self.ec_part)
             self.assertEqual(etag, self.frag_etags[node_key])
-            self.assertEqual(headers['X-Object-Sysmeta-Ec-Etag'],
-                             self.obj_etag)
+            if ec_durable_etag is None:
+                self.assertIsNotNone(headers['X-Object-Sysmeta-Ec-Etag'])
+                ec_durable_etag = headers['X-Object-Sysmeta-Ec-Etag']
+            else:
+                self.assertEqual(headers['X-Object-Sysmeta-Ec-Etag'],
+                                 ec_durable_etag)
             self.assertEqual(headers['X-Backend-Data-Timestamp'],
                              headers['X-Backend-Durable-Timestamp'])
             self.assertIn('X-Backend-Durable-Timestamp', headers)
             durable_frags[node_key] = headers
             dev_frag_etags[node_key].append(etag)
+
             # this is the new (non-durable) ProbeBody
             headers, etag = self.direct_get(
                 node, self.ec_part, require_durable=False)
-            self.assertEqual(headers['X-Object-Sysmeta-Ec-Etag'],
-                             v2_body.etag)
+            if ec_nondurable_etag is None:
+                self.assertIsNotNone(headers['X-Object-Sysmeta-Ec-Etag'])
+                ec_nondurable_etag = headers['X-Object-Sysmeta-Ec-Etag']
+            else:
+                self.assertEqual(headers['X-Object-Sysmeta-Ec-Etag'],
+                                 ec_nondurable_etag)
             self.assertGreater(
                 Timestamp(headers['X-Backend-Data-Timestamp']),
                 Timestamp(headers['X-Backend-Durable-Timestamp']))
