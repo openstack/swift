@@ -154,7 +154,7 @@ class TestDarkDataDeletion(ReplProbeTest):
         for file_path in files:
             # File's not there
             self.assertFalse(os.path.exists(file_path))
-            # And it's not quaratined, either!
+            # And it's not quarantined, either!
             self.assertPathDoesNotExist(os.path.join(
                 file_path[:file_path.index('objects')], 'quarantined'))
 
