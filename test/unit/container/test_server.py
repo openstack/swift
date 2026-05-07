@@ -2158,6 +2158,19 @@ class TestContainerController(BaseUnitTestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
 
+    def test_DELETE_object_invalid_x_backend_storage_policy_index(self):
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers={
+                'X-Timestamp': self.ts().internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        req = Request.blank(
+            '/sda1/p/a/c/o', method='DELETE', headers={
+                'X-Backend-Storage-Policy-Index': 'bad',
+                'X-Timestamp': self.ts().internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
+
     def test_object_update_with_offset(self):
         # create container
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={
