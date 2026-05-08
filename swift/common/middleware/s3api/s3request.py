@@ -434,6 +434,8 @@ class StreamingInput:
             self._to_read -= len(buf)
             if readline and buf[-1:] == b'\n':
                 break
+            if not buf and not self._completed_payload:
+                raise S3InputIncomplete
         return b''.join(bufs)
 
     def _read_trailers(self):
