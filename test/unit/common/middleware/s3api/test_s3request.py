@@ -1803,6 +1803,13 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(b'abcdefghijklmnopqrstuvwxyz\n',
                          s3req.environ['wsgi.input'].read())
 
+    def test_sig_v4_strm_unsgnd_pyld_trl_incomplete_chunk(self):
+        body = 'a\r\nabcdefghij\r\n' \
+               'a\r\nklm'
+        s3req = self._test_sig_v4_streaming_unsigned_payload_trailer(body)
+        with self.assertRaises(s3request.S3InputIncomplete):
+            s3req.environ['wsgi.input'].read()
+
     def test_sig_v4_strm_unsgnd_pyld_trl_none_ok(self):
         # verify it's ok to not send any trailer
         body = 'a\r\nabcdefghij\r\n' \
