@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import binascii
+import io
 import unittest
 from datetime import datetime
 import functools
@@ -795,6 +796,57 @@ class BaseS3ApiObj(object):
         self.assertNotIn('etag', headers)
         self.assertEqual('/v1/AUTH_test/bucket/object',
                          req.environ.get('swift.backend_path'))
+
+    def test_object_PUT_v4_aws_chunked_client_disconnect_mid_chunk(self):
+        class EndOfLine(BaseException):
+            pass
+
+        class DisconnectingBody(io.BytesIO):
+            def __init__(self, body):
+                super(DisconnectingBody, self).__init__(body)
+                self.seen_eof = False
+
+            def read(self, size=-1):
+                if self.seen_eof:
+                    raise EndOfLine
+                chunk = super(DisconnectingBody, self).read(size)
+                if not chunk:
+                    self.seen_eof = True
+                return chunk
+
+        # One aws-chunked chunk declaring a 9-byte payload, followed by only
+        # 3 bytes of payload data before client EOF.
+        body = b'9\r\nabc'
+        wsgi_input = DisconnectingBody(body)
+        amz_date = self.get_v4_amz_date_header()
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'wsgi.input': wsgi_input},
+            headers={
+                'Authorization':
+                    'AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
+                    'SignedHeaders=content-encoding;content-length;host;'
+                    'x-amz-content-sha256;x-amz-date;'
+                    'x-amz-decoded-content-length, '
+                    'Signature=hmac' % amz_date.split('T', 1)[0],
+                'Content-Encoding': 'aws-chunked',
+                'Content-Length': str(len(body)),
+                'Date': self.get_date_header(),
+                'X-Amz-Content-SHA256':
+                    'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+                'X-Amz-Date': amz_date,
+                'X-Amz-Decoded-Content-Length': '9',
+            })
+
+        try:
+            resp = req.get_response(self.s3api)
+        except EndOfLine:
+            self.fail('read after eof')
+
+        self.assertEqual(400, resp.status_int)
+        self.assertEqual('IncompleteBody', self._get_error_code(resp.body))
 
     def test_object_PUT_v4_bad_hash(self):
         orig_app = self.s3api.app
