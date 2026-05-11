@@ -2141,6 +2141,25 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
         self.assertOK(resp, TEST_BODY)
         self.assertNotIn('Content-Encoding', resp.headers)
 
+    def test_strm_unsgnd_pyld_trl_truncated_mid_chunk(self):
+        chunk_size = 8192
+        body = b'%x\r\n' % chunk_size + b'A' * (chunk_size - 1)
+        resp = self.conn.make_request(
+            self.bucket_name,
+            'test-obj',
+            method='PUT',
+            body=body,
+            headers={
+                'x-amz-content-sha256': 'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+                'x-amz-decoded-content-length': str(chunk_size),
+                'content-encoding': 'aws-chunked',
+            },
+        )
+        self.assertEqual(resp.status_code, 400, resp.content)
+        self.assertIn(b'<Code>IncompleteBody</Code>', resp.content)
+        self.assertIn(b'<Message>The request body terminated '
+                      b'unexpectedly</Message>', resp.content)
+
     def test_strm_unsgnd_pyld_trl_te_chunked_ok(self):
         chunked_body = b''.join(
             b'%x\r\n%s\r\n' % (len(chunk), chunk)
