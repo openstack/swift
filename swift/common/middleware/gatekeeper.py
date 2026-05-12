@@ -48,11 +48,17 @@ import re
 # If adding to this list, note that these are regex patterns,
 # so use a trailing $ to constrain to an exact header match
 # rather than prefix match.
-inbound_exclusions = [get_sys_meta_prefix('account'),
-                      get_sys_meta_prefix('container'),
-                      get_sys_meta_prefix('object'),
-                      OBJECT_TRANSIENT_SYSMETA_PREFIX,
-                      'x-backend']
+inbound_exclusions = [
+    get_sys_meta_prefix('account'),
+    get_sys_meta_prefix('container'),
+    get_sys_meta_prefix('object'),
+    OBJECT_TRANSIENT_SYSMETA_PREFIX,
+    'x-backend',
+    # Block any update headers that predate x-backend headers
+    'x-account-(host|device|partition)$',
+    'x-container-(host|device|partition|root-db-state)$',
+    'x-delete-at-(host|device|partition|container)$',
+]
 
 
 #: A list of python regular expressions that will be used to
