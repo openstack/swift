@@ -1640,7 +1640,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.auth_token = AuthProtocol(
-            self.keystone_auth, {'delay_auth_decision': 'True'})
+            self.keystone_auth, {
+                'delay_auth_decision': 'True',
+                'www_authenticate_uri': 'https://fakehost/identity',
+            })
         self.s3_token = S3Token(
             self.auth_token, {'auth_uri': 'https://fakehost/identity'})
         self.s3api = S3ApiMiddleware(self.s3_token, self.conf)
