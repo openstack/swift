@@ -23,7 +23,6 @@ import os
 import socket
 
 from eventlet import sleep, Timeout
-import pickle  # nosec: B403
 from http.client import HTTPException
 
 from swift.common.bufferedhttp import http_connect, http_connect_raw
@@ -31,6 +30,7 @@ from swift.common.exceptions import ClientException
 from swift.common.request_helpers import USE_REPLICATION_NETWORK_HEADER, \
     get_ip_port
 from swift.common.swob import normalize_etag
+from swift.common.utils.pickle import unpickle
 from swift.common.utils import Timestamp, FileLikeIter, quote
 from swift.common.http import HTTP_NO_CONTENT, HTTP_INSUFFICIENT_STORAGE, \
     is_success, is_server_error
@@ -656,7 +656,7 @@ def direct_get_suffix_hashes(node, part, suffixes, conn_timeout=5,
                                     host={'ip': node['replication_ip'],
                                           'port': node['replication_port']}
                                     )
-    return pickle.loads(resp.read())  # nosec: B301
+    return unpickle(resp.read())
 
 
 def retry(func, *args, **kwargs):

@@ -22,7 +22,6 @@ import random
 import shutil
 import time
 import itertools
-import pickle  # nosec: B403
 
 import eventlet
 from eventlet import GreenPool, queue, tpool, Timeout, sleep
@@ -36,6 +35,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
     config_auto_int_value, storage_directory, load_recon_cache, EUCLEAN, \
     parse_override_options, distribute_evenly, listdir, node_to_string, \
     get_prefixed_logger
+from swift.common.utils.pickle import unpickle
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -709,8 +709,7 @@ class ObjectReplicator(Daemon):
                                 failure_devs_info.add((node['replication_ip'],
                                                        node['device']))
                                 continue
-                            remote_hash = pickle.loads(
-                                resp.read())  # nosec: B301
+                            remote_hash = unpickle(resp.read())
                         finally:
                             conn.close()
                         del resp

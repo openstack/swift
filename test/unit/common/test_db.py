@@ -40,6 +40,7 @@ from swift.common.db import chexor, dict_factory, get_db_connection, \
     DatabaseBroker, DatabaseConnectionError, DatabaseAlreadyExists, \
     GreenDBConnection, PICKLE_PROTOCOL, zero_like, TombstoneReclaimer
 from swift.common.utils import normalize_timestamp, mkdirs, Timestamp
+from swift.common.utils.pickle import unpickle
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
@@ -1600,7 +1601,7 @@ class TestDatabaseBroker(TestDbBase):
             pending = fd.read()
         items = pending.split(b':')
         self.assertEqual(['PINKY'],
-                         [pickle.loads(base64.b64decode(i))
+                         [unpickle(base64.b64decode(i), encoding='utf8')
                              for i in items[1:]])
 
         # record appended
@@ -1611,7 +1612,7 @@ class TestDatabaseBroker(TestDbBase):
             pending = fd.read()
         items = pending.split(b':')
         self.assertEqual(['PINKY', 'PERKY'],
-                         [pickle.loads(base64.b64decode(i))
+                         [unpickle(base64.b64decode(i), encoding='utf8')
                              for i in items[1:]])
 
         # pending file above cap

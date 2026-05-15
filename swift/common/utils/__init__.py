@@ -42,7 +42,7 @@ from optparse import OptionParser
 import traceback
 import warnings
 
-from tempfile import gettempdir, mkstemp, NamedTemporaryFile
+from tempfile import gettempdir, NamedTemporaryFile
 import glob
 import itertools
 import stat
@@ -64,7 +64,6 @@ from eventlet.green import socket
 import eventlet.hubs
 import eventlet.queue
 
-import pickle  # nosec: B403
 from configparser import (ConfigParser, NoSectionError,
                           NoOptionError)
 from urllib.parse import unquote, urlparse
@@ -1491,28 +1490,6 @@ def load_multikey_opts(conf, prefix, allow_none_key=False):
             continue
         raise ValueError('Malformed multi-key option name %s' % k)
     return sorted(result)
-
-
-def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
-    """
-    Ensure that a pickle file gets written to disk.  The file
-    is first written to a tmp location, ensure it is synced to disk, then
-    perform a move to its final location
-
-    :param obj: python object to be pickled
-    :param dest: path of final destination file
-    :param tmp: path to tmp to use, defaults to None
-    :param pickle_protocol: protocol to pickle the obj with, defaults to 0
-    """
-    if tmp is None:
-        tmp = os.path.dirname(dest)
-    mkdirs(tmp)
-    fd, tmppath = mkstemp(dir=tmp, suffix='.tmp')
-    with os.fdopen(fd, 'wb') as fo:
-        pickle.dump(obj, fo, pickle_protocol)
-        fo.flush()
-        os.fsync(fd)
-        renamer(tmppath, dest)
 
 
 def search_tree(root, glob_match, ext='', exts=None, dir_ext=None):
