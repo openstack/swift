@@ -16,7 +16,6 @@
 
 """Tests for swift.obj.server"""
 
-import pickle
 import datetime
 import json
 import errno
@@ -53,6 +52,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, normalize_timestamp, \
     NullLogger, storage_directory, public, replication, encode_timestamps, \
     Timestamp, md5
+from swift.common.utils.pickle import unpickle
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, WsgiBytesIO, \
@@ -1015,7 +1015,7 @@ class TestObjectController(BaseTestCase):
         if policy.policy_type == EC_POLICY:
             expected_put_headers['X-Etag'] = update_etag
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_put, 'rb')),
+            unpickle(open(async_pending_file_put, 'rb')),
             {'headers': expected_put_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1046,7 +1046,7 @@ class TestObjectController(BaseTestCase):
         self.maxDiff = None
         # check async pending file for PUT is still intact
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_put, 'rb')),
+            unpickle(open(async_pending_file_put, 'rb')),
             {'headers': expected_put_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1073,7 +1073,7 @@ class TestObjectController(BaseTestCase):
         if policy.policy_type == EC_POLICY:
             expected_post_headers['X-Etag'] = update_etag
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_post, 'rb')),
+            unpickle(open(async_pending_file_post, 'rb')),
             {'headers': expected_post_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1189,7 +1189,7 @@ class TestObjectController(BaseTestCase):
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'container_path': '.sharded_a/c_shard_1',
              'db_state': 'sharded' if container_path else 'unsharded'},
-            pickle.load(open(async_pending_file_put, 'rb')))
+            unpickle(open(async_pending_file_put, 'rb')))
 
         # when updater is run its first request will be to the redirect
         # location that is persisted in the async pending file
@@ -6052,7 +6052,7 @@ class TestObjectController(BaseTestCase):
             for f in files:
                 async_file = os.path.join(root, f)
                 found_files.append(async_file)
-                data = pickle.load(open(async_file, 'rb'))
+                data = unpickle(open(async_file, 'rb'))
                 if data['account'] == 'a':
                     self.assertEqual(
                         int(data['headers']
@@ -6087,7 +6087,7 @@ class TestObjectController(BaseTestCase):
             utils.HASH_PATH_PREFIX = _prefix
         async_dir = diskfile.get_async_dir(policy)
         self.assertEqual(
-            pickle.load(open(os.path.join(
+            unpickle(open(os.path.join(
                 self.testdir, 'sda1', async_dir, 'a83',
                 '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                 utils.Timestamp(1).internal), 'rb')),
@@ -6129,7 +6129,7 @@ class TestObjectController(BaseTestCase):
                     policy, db_state='unsharded')
                 async_dir = diskfile.get_async_dir(policy)
                 self.assertEqual(
-                    pickle.load(open(os.path.join(
+                    unpickle(open(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
                         '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                         utils.Timestamp(1).internal), 'rb')),
@@ -8154,7 +8154,7 @@ class TestObjectController(BaseTestCase):
         async_updates = []
         for pending_file in async_pendings:
             with open(pending_file, 'rb') as fh:
-                async_pending = pickle.load(fh)
+                async_pending = unpickle(fh)
                 async_updates.append(async_pending)
         self.assertEqual([{
             'op': 'DELETE',
@@ -8304,7 +8304,7 @@ class TestObjectController(BaseTestCase):
         async_pending_ops = []
         for pending_file in async_pendings:
             with open(pending_file, 'rb') as fh:
-                async_pending = pickle.load(fh)
+                async_pending = unpickle(fh)
                 async_pending_ops.append(async_pending['op'])
         self.assertEqual(async_pending_ops, ['PUT'])
 
@@ -8428,7 +8428,7 @@ class TestObjectController(BaseTestCase):
                                 headers={})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            p_data = pickle.loads(resp.body)
+            p_data = unpickle(resp.body)
             self.assertEqual(p_data, {1: 2})
 
     def test_REPLICATE_pickle_protocol(self):
@@ -8506,7 +8506,7 @@ class TestObjectController(BaseTestCase):
                 })
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            suffixes = list(pickle.loads(resp.body).keys())
+            suffixes = list(unpickle(resp.body).keys())
             self.assertEqual(1, len(suffixes),
                              'Expected just one suffix; got %r' % (suffixes,))
             suffix = suffixes[0]
@@ -8525,7 +8525,7 @@ class TestObjectController(BaseTestCase):
                             return_value=time() + 200):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual(None, pickle.loads(resp.body))
+            self.assertEqual(None, unpickle(resp.body))
             # no rehash means tombstone still exists...
             self.assertTrue(os.path.exists(tombstone_file))
 
@@ -8539,7 +8539,7 @@ class TestObjectController(BaseTestCase):
                             return_value=time() + 200):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual({}, pickle.loads(resp.body))
+            self.assertEqual({}, unpickle(resp.body))
             # and tombstone is reaped!
             self.assertFalse(os.path.exists(tombstone_file))
 

@@ -50,6 +50,7 @@ from swift.obj import diskfile
 from swift.common import utils
 from swift.common.utils import hash_path, mkdirs, Timestamp, \
     encode_timestamps, O_TMPFILE, md5 as _md5, MD5_OF_EMPTY_STRING
+from swift.common.utils.pickle import unpickle
 from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
@@ -7626,7 +7627,7 @@ class TestSuffixHashes(unittest.TestCase):
             self.assertTrue(os.path.exists(hashes_file))
             self.assertIn(os.path.basename(suffix_dir), hashes)
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(hashes, found_hashes)
@@ -7864,7 +7865,7 @@ class TestSuffixHashes(unittest.TestCase):
                     Exception, df_mgr.get_hashes, 'sda1', '0', [], policy)
             # sanity on-disk state is invalid
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertEqual(False, found_hashes.pop('valid'))
             # verify subsequent call to get_hashes reaches correct outcome
@@ -7888,7 +7889,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertIn(suffix, hashes)
                 self.assertIsNone(hashes[suffix])
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 self.assertTrue(hashes['valid'])
                 self.assertEqual(hashes, found_hashes)
             with open(invalidations_file, 'r') as f:
@@ -7914,7 +7915,7 @@ class TestSuffixHashes(unittest.TestCase):
             invalidations_file = os.path.join(
                 part_path, diskfile.HASH_INVALIDATIONS_FILE)
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(original_hashes, found_hashes)
@@ -7928,7 +7929,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertEqual(suffix + "\n", f.read())
             # hashes file is unchanged
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(original_hashes, found_hashes)
@@ -7947,7 +7948,7 @@ class TestSuffixHashes(unittest.TestCase):
                 self.assertEqual(suffix2 + "\n", f.read())
             # hashes file is not yet changed
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 self.assertTrue(hashes['valid'])
                 self.assertEqual(hashes, found_hashes)
 
@@ -7964,7 +7965,7 @@ class TestSuffixHashes(unittest.TestCase):
                                  sorted(invalids))  # sanity
             # hashes file is not yet changed
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 self.assertTrue(hashes['valid'])
                 self.assertEqual(hashes, found_hashes)
             # consolidate hashes
@@ -8065,7 +8066,7 @@ class TestSuffixHashes(unittest.TestCase):
 
             # sanity check hashes file
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(hashes, found_hashes)
@@ -8085,7 +8086,7 @@ class TestSuffixHashes(unittest.TestCase):
 
             # sanity check hashes file
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(hashes, found_hashes)
@@ -9549,7 +9550,7 @@ class TestHashesHelpers(unittest.TestCase):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
         with open(hashes_file, 'rb') as f:
-            data = pickle.load(f)
+            data = unpickle(f)
         expected = {
             '888': 'fake',
             'updated': now,
@@ -9564,7 +9565,7 @@ class TestHashesHelpers(unittest.TestCase):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
         with open(hashes_file, 'rb') as f:
-            data = pickle.load(f)
+            data = unpickle(f)
         expected = {
             'updated': now,
             'valid': False,
@@ -9578,7 +9579,7 @@ class TestHashesHelpers(unittest.TestCase):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
         with open(hashes_file, 'rb') as f:
-            data = pickle.load(f)
+            data = unpickle(f)
         expected = {
             'updated': now,
             'valid': False,
