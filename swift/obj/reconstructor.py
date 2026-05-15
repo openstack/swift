@@ -21,7 +21,6 @@ from os.path import join
 import random
 import time
 from collections import defaultdict
-import pickle  # nosec: B403
 import shutil
 
 from swift.common.concurrency import (
@@ -35,6 +34,7 @@ from swift.common.utils import (
     load_recon_cache, parse_override_options, distribute_evenly,
     remove_directory, config_request_node_count_value,
     non_negative_int, get_prefixed_logger)
+from swift.common.utils.pickle import unpickle
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon, run_daemon
@@ -936,7 +936,7 @@ class ObjectReconstructor(Daemon):
                         "Invalid response %(resp)s from %(full_path)s",
                         {'resp': resp.status, 'full_path': full_path})
                 else:
-                    remote_suffixes = pickle.loads(resp.read())  # nosec: B301
+                    remote_suffixes = unpickle(resp.read())
             except (Exception, Timeout):
                 # all exceptions are logged here so that our caller can
                 # safely catch our exception and continue to the next node

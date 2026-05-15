@@ -56,9 +56,10 @@ from pyeclib.ec_iface import ECDriverError, ECInvalidFragmentMetadata, \
 
 from swift.common.constraints import check_drive
 from swift.common.request_helpers import is_sys_meta
+from swift.common.utils.pickle import unpickle, write_pickle
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
-    fsync_dir, drop_buffer_cache, lock_path, write_pickle, \
+    fsync_dir, drop_buffer_cache, lock_path, \
     config_true_value, listdir, split_path, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
@@ -243,7 +244,7 @@ def _read_file_metadata(fd, add_missing_checksum=False):
     # strings are utf-8 encoded when written, but have not always been
     # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
     # when read
-    metadata = pickle.loads(metadata, encoding='bytes')  # nosec: B301
+    metadata = unpickle(metadata, encoding='bytes')
     return _decode_metadata(metadata, metadata_written_by_py3)
 
 
@@ -387,7 +388,7 @@ def read_hashes(partition_dir):
         pass
     else:
         try:
-            hashes = pickle.loads(pickled_hashes)  # nosec: B301
+            hashes = unpickle(pickled_hashes)
         except Exception:
             # pickle.loads() can raise a wide variety of exceptions when
             # given invalid input depending on the way in which the
