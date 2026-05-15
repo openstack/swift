@@ -20,7 +20,6 @@ from textwrap import dedent
 
 from unittest import mock
 import os
-import pickle
 import shutil
 import tempfile
 import time
@@ -37,6 +36,7 @@ from swift.common.storage_policy import (
     StoragePolicy, StoragePolicyCollection, POLICIES, ECStoragePolicy,
     get_policy_string)
 from swift.common.utils.logs import get_prefixed_swift_logger
+from swift.common.utils.pickle import unpickle
 
 from swift.obj.diskfile import write_metadata, DiskFileRouter, \
     DiskFileManager, relink_paths, BaseDiskFileManager
@@ -881,7 +881,7 @@ class TestRelinker(unittest.TestCase):
         with open(os.path.join(self.next_part_dir, 'hashes.invalid')) as fp:
             self.assertEqual(fp.read(), '')
         with open(os.path.join(self.next_part_dir, 'hashes.pkl'), 'rb') as fp:
-            hashes = pickle.load(fp)
+            hashes = unpickle(fp)
         self.assertIn(self._hash[-3:], hashes)
         self.assertEqual('foo', hashes[self._hash[-3:]])
         self.assertFalse(os.path.exists(
@@ -2452,7 +2452,7 @@ class TestRelinker(unittest.TestCase):
         with open(os.path.join(self.next_part_dir, 'hashes.invalid')) as fp:
             self.assertEqual(fp.read(), '')
         with open(os.path.join(self.next_part_dir, 'hashes.pkl'), 'rb') as fp:
-            hashes = pickle.load(fp)
+            hashes = unpickle(fp)
         self.assertIn(self._hash[-3:], hashes)
 
         # create an object in a first quartile partition and pretend it should
@@ -2511,7 +2511,7 @@ class TestRelinker(unittest.TestCase):
             self.assertEqual(fp.read(), '')
         with open(os.path.join(self.objects, str(self.next_part),
                                'hashes.pkl'), 'rb') as fp:
-            hashes = pickle.load(fp)
+            hashes = unpickle(fp)
         self.assertIn(self._hash[-3:], hashes)
 
     def test_cleanup_no_applicable_policy(self):
