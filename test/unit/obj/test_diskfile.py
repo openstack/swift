@@ -6301,7 +6301,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     pass
                 else:
                     self.fail("Expected OSError exception")
-        self.assertFalse(writer._put_succeeded)
+        self.assertIsNone(writer._tmppath)
         self.assertTrue(_m_renamer.called)
         self.assertTrue(_m_unlink.called)
         self.assertNotIn('error', self.logger.all_log_lines())
@@ -6415,8 +6415,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             with df.create(size=100) as writer:
                 writer.write(data)
                 writer.put(metadata)
-                self.assertTrue(writer._put_succeeded)
-
+        self.assertIsNone(writer._tmppath)
         self.assertFalse(_m_renamer.called)
 
     def test_diskfile_writer_timing_breakdown(self):
