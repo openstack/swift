@@ -159,7 +159,7 @@ class BaseTestSharder(BaseUnitTestCase):
     def ts_encoded(self):
         # make a unique timestamp string with multiple timestamps encoded;
         # use different deltas between component timestamps
-        timestamps = [next(self.ts_iter) for i in range(4)]
+        timestamps = [self.ts() for i in range(4)]
         return encode_timestamps(
             timestamps[0], timestamps[1], timestamps[3])
 
@@ -553,7 +553,7 @@ class TestSharder(BaseTestSharder):
                     container=container, hash_=container + 'hash',
                     device=sharder.ring.devs[0]['device'], part=0)
                 broker.update_metadata({'X-Container-Sysmeta-Sharding':
-                                        ('true', next(self.ts_iter).internal)})
+                                        ('true', self.ts().internal)})
                 brokers.append(broker)
 
             fake_stats = {
@@ -755,10 +755,10 @@ class TestSharder(BaseTestSharder):
             # enable a/c2 and a/c3 for sharding
             for broker in brokers[1:]:
                 broker.update_metadata({'X-Container-Sysmeta-Sharding':
-                                        ('true', next(self.ts_iter).internal)})
+                                        ('true', self.ts().internal)})
             # make a/c2 a candidate for sharding
             for i in range(10):
-                brokers[1].put_object('o%s' % i, next(self.ts_iter).internal,
+                brokers[1].put_object('o%s' % i, self.ts().internal,
                                       0, 'text/plain', 'etag', 0)
 
             # check only sharding enabled containers are processed
@@ -800,11 +800,11 @@ class TestSharder(BaseTestSharder):
             # Add 5 tombstones to c0
             for i in range(5):
                 brokers[0].put_object('tombstone_%d' % i,
-                                      next(self.ts_iter).internal,
+                                      self.ts().internal,
                                       1, 'text/plain', 'etag', 0)
             for i in range(5):
                 brokers[0].delete_object('tombstone_%d' % i,
-                                         next(self.ts_iter).internal)
+                                         self.ts().internal)
             own_shard_range_0.update_tombstones(5)
             own_shard_range_1 = ShardRange(
                 'a/c1', now, '', '', state=ShardRange.SHARDING)
@@ -824,7 +824,7 @@ class TestSharder(BaseTestSharder):
                  ShardRange('.s_a/9', now, 'd', 'e', state=ShardRange.CREATED),
                  ShardRange('.s_a/0', now, 'e', '', state=ShardRange.CREATED)])
             for i in range(11):
-                brokers[2].put_object('o%s' % i, next(self.ts_iter).internal,
+                brokers[2].put_object('o%s' % i, self.ts().internal,
                                       0, 'text/plain', 'etag', 0)
 
             def mock_processing(broker, node, part):
@@ -896,7 +896,7 @@ class TestSharder(BaseTestSharder):
             brokers[0].merge_shard_ranges([own_shard_range])
             for i in range(10):
                 brokers[1].delete_object(
-                    'o%s' % i, next(self.ts_iter).internal)
+                    'o%s' % i, self.ts().internal)
             with mock.patch('eventlet.sleep'), mock.patch.object(
                     sharder, '_process_broker'
             ) as mock_process_broker:
@@ -961,7 +961,7 @@ class TestSharder(BaseTestSharder):
             # recon_sharded_timeout timer.
             cxt = CleavingContext.load(brokers[0])
             cxt.misplaced_done = cxt.cleaving_done = True
-            ts_now = next(self.ts_iter)
+            ts_now = self.ts()
             with mock_timestamp_now(ts_now):
                 cxt.store(brokers[0])
             self.assertTrue(brokers[0].set_sharded_state())
@@ -2104,7 +2104,7 @@ class TestSharder(BaseTestSharder):
             (('', 'middle'), ('middle', '')),
             state=ShardRange.CLEAVED)
         broker.merge_shard_ranges(shard_ranges)
-        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+        obj = {'name': 'obj', 'created_at': self.ts().internal,
                'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
                'deleted': 0}
         broker.get_brokers()[0].merge_items([obj])
@@ -2712,7 +2712,7 @@ class TestSharder(BaseTestSharder):
         broker = self._make_broker()
         retiring_db_id = broker.get_info()['id']
         objects = [
-            {'name': 'obj%03d' % i, 'created_at': next(self.ts_iter),
+            {'name': 'obj%03d' % i, 'created_at': self.ts().internal,
              'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
              'deleted': 0, 'storage_policy_index': 0}
             for i in range(10)
@@ -2731,7 +2731,7 @@ class TestSharder(BaseTestSharder):
                              db_hash[-3:], db_hash, db_hash + '.db'))
         broker.merge_shard_ranges(shard_ranges)
         self.assertTrue(broker.set_sharding_state())
-        new_object = {'name': 'alpha', 'created_at': next(self.ts_iter),
+        new_object = {'name': 'alpha', 'created_at': self.ts().internal,
                       'size': 0, 'content_type': 'text/plain', 'etag': 'etag',
                       'deleted': 0, 'storage_policy_index': 0}
         broker.merge_items([dict(new_object)])
@@ -2863,7 +2863,7 @@ class TestSharder(BaseTestSharder):
     def test_shard_replication_quorum_failures(self):
         broker = self._make_broker()
         objects = [
-            {'name': 'obj%03d' % i, 'created_at': next(self.ts_iter),
+            {'name': 'obj%03d' % i, 'created_at': self.ts().internal,
              'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
              'deleted': 0, 'storage_policy_index': 0}
             for i in range(10)
@@ -3052,7 +3052,7 @@ class TestSharder(BaseTestSharder):
             orig_merge_items(broker, items)
 
         objects = [
-            {'name': 'obj%03d' % i, 'created_at': next(self.ts_iter),
+            {'name': 'obj%03d' % i, 'created_at': self.ts().internal,
              'size': 1, 'content_type': 'text/plain', 'etag': 'etag',
              'deleted': 0, 'storage_policy_index': 0}
             for i in range(10)
@@ -3263,7 +3263,7 @@ class TestSharder(BaseTestSharder):
     def test_cleave_shrinking_to_active_acceptor_with_sharded_root_range(self):
         broker = self._make_broker(account='.shards_a', container='shard_c')
         broker.put_object(
-            'here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0)
+            'here_a', self.ts().internal, 10, 'text/plain', 'etag_a', 0, 0)
         own_shard_range = ShardRange(
             broker.path, self.normal_ts(), 'here', 'there',
             state=ShardRange.SHARDING, epoch=self.normal_ts())
@@ -3380,7 +3380,7 @@ class TestSharder(BaseTestSharder):
     def _check_complete_sharding(self, account, container, shard_bounds):
         broker = self._make_sharding_broker(
             account=account, container=container, shard_bounds=shard_bounds)
-        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+        obj = {'name': 'obj', 'created_at': self.ts().internal,
                'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
                'deleted': 0}
         broker.get_brokers()[0].merge_items([obj])
@@ -3452,7 +3452,7 @@ class TestSharder(BaseTestSharder):
 
     def test_complete_sharding_missing_own_shard_range(self):
         broker = self._make_sharding_broker()
-        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+        obj = {'name': 'obj', 'created_at': self.ts().internal,
                'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
                'deleted': 0}
         broker.get_brokers()[0].merge_items([obj])
@@ -3514,7 +3514,7 @@ class TestSharder(BaseTestSharder):
         # taking too long.
         broker = self._make_sharding_broker(
             'a', 'c', (('', 'mid'), ('mid', '')))
-        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+        obj = {'name': 'obj', 'created_at': self.ts().internal,
                'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
                'deleted': 0}
         broker.get_brokers()[0].merge_items([obj])
@@ -3554,7 +3554,7 @@ class TestSharder(BaseTestSharder):
         # test to verify sharder will print warning logs if shrinking has been
         # taking too long.
         broker = self._make_shrinking_broker()
-        obj = {'name': 'obj', 'created_at': next(self.ts_iter).internal,
+        obj = {'name': 'obj', 'created_at': self.ts().internal,
                'size': 14, 'content_type': 'text/plain', 'etag': 'an etag',
                'deleted': 0}
         broker.get_brokers()[0].merge_items([obj])
@@ -3607,7 +3607,7 @@ class TestSharder(BaseTestSharder):
         self._assert_stats(expected_stats, sharder, 'sharding_candidates')
 
         objects = [
-            ['obj%3d' % i, next(self.ts_iter).internal, i, 'text/plain',
+            ['obj%3d' % i, self.ts().internal, i, 'text/plain',
              'etag%s' % i, 0] for i in range(160)]
 
         # one container has 100 objects, which is below the sharding threshold
@@ -3662,7 +3662,7 @@ class TestSharder(BaseTestSharder):
         self._assert_stats(expected_stats, sharder, 'sharding_candidates')
 
         objects = [
-            ['obj%3d' % i, next(self.ts_iter).internal, i, 'text/plain',
+            ['obj%3d' % i, self.ts().internal, i, 'text/plain',
              'etag%s' % i, 0] for i in range(160)]
 
         # one container has 100 objects, which is below the sharding threshold
@@ -4990,7 +4990,7 @@ class TestSharder(BaseTestSharder):
             expected_shard_dbs[0], account=root_shard_ranges[0].account,
             container=root_shard_ranges[0].container)
         # update one shard container with even newer version of object
-        timestamps = [next(self.ts_iter) for i in range(7)]
+        timestamps = [self.ts() for i in range(7)]
         ts_newer = encode_timestamps(
             timestamps[1], timestamps[3], timestamps[5])
         newer_object = ('b', ts_newer, 10, 'text/plain', 'etag_b', 0, 0)
@@ -5686,7 +5686,7 @@ class TestSharder(BaseTestSharder):
         shard_ranges = self._make_shard_ranges((('', 'm'), ('m', '')))
         broker.merge_shard_ranges([own_sr] + shard_ranges)
         if deleted:
-            broker.delete_db(next(self.ts_iter).internal)
+            broker.delete_db(self.ts().internal)
 
         with self._mock_sharder() as sharder:
             # pretend shard containers are created ok so sharding proceeds
@@ -5826,7 +5826,7 @@ class TestSharder(BaseTestSharder):
 
     def test_process_broker_leader_auto_shard(self):
         # verify conditions for acting as auto-shard leader
-        broker = self._make_broker(put_timestamp=next(self.ts_iter))
+        broker = self._make_broker(put_timestamp=self.ts())
         objects = [
             ['obj%3d' % i, self.ts_encoded(), i, 'text/plain',
              'etag%s' % i, 0] for i in range(10)]
@@ -5879,8 +5879,8 @@ class TestSharder(BaseTestSharder):
                 'rows_per_shard': 5,
                 'shrink_threshold': 1,
                 'auto_shard': True}
-        broker = self._make_broker(put_timestamp=next(self.ts_iter))
-        broker.delete_db(next(self.ts_iter).internal)
+        broker = self._make_broker(put_timestamp=self.ts())
+        broker.delete_db(self.ts().internal)
         self.assertTrue(broker.is_deleted())  # sanity check
         node = {'ip': '1.2.3.4', 'port': 6040, 'device': 'sda5', 'id': '2',
                 'index': 0}
@@ -5952,7 +5952,7 @@ class TestSharder(BaseTestSharder):
             # that is sent
             obj_names.append(uuid4())
             broker.put_object(str(obj_names[-1]),
-                              next(self.ts_iter).internal, 1, '', '')
+                              self.ts().internal, 1, '', '')
             with mock_normal_timestamp_now() as now:
                 # check if the state if in SHARD_UPDATE_STAT_STATES
                 if state in [ShardRange.CLEAVED, ShardRange.ACTIVE,
@@ -5992,7 +5992,7 @@ class TestSharder(BaseTestSharder):
             # delete an object, expect to see it reflected in the own shard
             # range that is sent
             broker.delete_object(str(obj_names.pop(-1)),
-                                 next(self.ts_iter).internal)
+                                 self.ts().internal)
             with mock_normal_timestamp_now() as now:
                 # check if the state if in SHARD_UPDATE_STAT_STATES
                 if state in [ShardRange.CLEAVED, ShardRange.ACTIVE,
@@ -6067,7 +6067,7 @@ class TestSharder(BaseTestSharder):
             # that is sent
             obj_names.append(uuid4())
             broker.put_object(str(obj_names[-1]),
-                              next(self.ts_iter).internal, 1, '', '')
+                              self.ts().internal, 1, '', '')
             with mock_normal_timestamp_now() as now:
                 shard_ranges = broker.get_shard_ranges(include_deleted=True)
                 exp_own_shard_range = own_shard_range.copy()
@@ -6318,7 +6318,7 @@ class TestSharder(BaseTestSharder):
         self.assertEqual([], self.logger.get_lines_for_level('warning'))
 
         # delete it
-        delete_ts = next(self.ts_iter)
+        delete_ts = self.ts()
         broker.delete_db(delete_ts.internal)
         with self._mock_sharder() as sharder:
             sharder._audit_container(broker)
@@ -7654,8 +7654,8 @@ class TestSharder(BaseTestSharder):
                 conf={'shard_container_threshold': 2}) as sharder:
             sharder._find_and_enable_sharding_candidates(broker)
         self.assertEqual(ShardRange.ACTIVE, broker.get_own_shard_range().state)
-        broker.put_object('obj1', next(self.ts_iter).internal, 1, '', '')
-        broker.put_object('obj2', next(self.ts_iter).internal, 1, '', '')
+        broker.put_object('obj1', self.ts().internal, 1, '', '')
+        broker.put_object('obj2', self.ts().internal, 1, '', '')
         self.assertEqual(2, broker.get_info()['object_count'])
         with self._mock_sharder(
                 conf={'shard_container_threshold': 2}) as sharder:
@@ -7854,7 +7854,7 @@ class TestSharder(BaseTestSharder):
                 container='c%s' % dev['id'], hash_='c%shash' % dev['id'],
                 device=dev['device'], part=part)
             broker.update_metadata({'X-Container-Sysmeta-Sharding':
-                                    ('true', next(self.ts_iter).internal)})
+                                    ('true', self.ts().internal)})
             container_data.append((broker.path, dev['id'], part))
 
         with self._mock_sharder() as sharder:
@@ -8011,7 +8011,7 @@ class TestSharder(BaseTestSharder):
                     container=container, hash_=container + 'hash',
                     device=sharder.ring.devs[0]['device'], part=0)
                 broker.update_metadata({'X-Container-Sysmeta-Sharding':
-                                        ('true', next(self.ts_iter).internal)})
+                                        ('true', self.ts().internal)})
                 my_sr = broker.get_own_shard_range()
                 my_sr.epoch = NormalTimestamp.now()
                 broker.merge_shard_ranges([my_sr])
@@ -8335,7 +8335,7 @@ class TestCleavingContext(BaseTestSharder):
     def test_load(self):
         broker = self._make_broker()
         for i in range(6):
-            broker.put_object('o%s' % i, next(self.ts_iter).internal, 10,
+            broker.put_object('o%s' % i, self.ts().internal, 10,
                               'text/plain', 'etag_a', 0)
 
         db_id = broker.get_info()['id']
@@ -8473,7 +8473,7 @@ class TestCleavingContext(BaseTestSharder):
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
         old_broker.merge_items([old_broker._record_to_dict(
-            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+            ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check
         ctx = CleavingContext(old_db_id, 'curs', 1, 1, 0, True, True)
@@ -8481,7 +8481,7 @@ class TestCleavingContext(BaseTestSharder):
 
         # adding a row changes max row
         old_broker.merge_items([old_broker._record_to_dict(
-            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+            ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
 
         new_ctx = CleavingContext.load(broker)
         self.assertEqual(old_db_id, new_ctx.ref)
@@ -8498,7 +8498,7 @@ class TestCleavingContext(BaseTestSharder):
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
         old_broker.merge_items([old_broker._record_to_dict(
-            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+            ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check
         ctx = CleavingContext(old_db_id, 'curs', 1, 1, 0, True, True)
@@ -8506,7 +8506,7 @@ class TestCleavingContext(BaseTestSharder):
 
         self.assertEqual(
             1, len(old_broker.get_objects()))
-        now = next(self.ts_iter).internal
+        now = self.ts().internal
         broker.get_brokers()[0].reclaim(now, now)
         self.assertFalse(old_broker.get_objects())
 
@@ -8585,7 +8585,7 @@ class TestCleavingContext(BaseTestSharder):
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
         old_broker.merge_items([old_broker._record_to_dict(
-            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+            ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check
         ctx = CleavingContext(old_db_id, 'curs', 1, 1, 0, True, True)
@@ -8593,7 +8593,7 @@ class TestCleavingContext(BaseTestSharder):
 
         # adding a row changes max row
         old_broker.merge_items([old_broker._record_to_dict(
-            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+            ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
 
         new_ctx = CleavingContext.load(broker)
         self.assertEqual(old_db_id, new_ctx.ref)
@@ -8610,7 +8610,7 @@ class TestCleavingContext(BaseTestSharder):
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
         old_broker.merge_items([old_broker._record_to_dict(
-            ('obj', next(self.ts_iter).internal, 0, 'text/plain', 'etag', 1))])
+            ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check
         ctx = CleavingContext(old_db_id, 'curs', 1, 1, 0, True, True)
@@ -8618,7 +8618,7 @@ class TestCleavingContext(BaseTestSharder):
 
         self.assertEqual(
             1, len(old_broker.get_objects()))
-        now = next(self.ts_iter).internal
+        now = self.ts().internal
         broker.get_brokers()[0].reclaim(now, now)
         self.assertFalse(old_broker.get_objects())
 
@@ -9598,7 +9598,7 @@ class TestSharderFunctions(BaseTestSharder):
 
     def test_update_own_shard_range_stats(self):
         broker = self._make_broker()
-        ts = next(self.ts_iter)
+        ts = self.ts()
         broker.merge_items([
             {'name': 'obj%02d' % i, 'created_at': ts.internal, 'size': 9,
              'content_type': 'application/octet-stream', 'etag': 'not-really',
