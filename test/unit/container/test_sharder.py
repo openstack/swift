@@ -2428,11 +2428,12 @@ class TestSharder(BaseTestSharder):
         # in the repeated cleaving pass
         broker = self._make_broker()
         objects = [
-            ('obj%03d' % i, next(self.ts_iter), 1, 'text/plain', 'etag', 0, 0)
+            ('obj%03d' % i, next(self.ts_iter).internal, 1, 'text/plain',
+             'etag', 0, 0)
             for i in range(10)
         ]
         new_objects = [
-            (name, next(self.ts_iter), 1, 'text/plain', 'etag', 0, 0)
+            (name, next(self.ts_iter).internal, 1, 'text/plain', 'etag', 0, 0)
             for name in ('alpha', 'zeta')
         ]
         for obj in objects:
@@ -3294,7 +3295,8 @@ class TestSharder(BaseTestSharder):
         # verify that shard only cleaves to one of them;
         # root will sort before acceptor if acceptor.upper==MAX
         objects = (
-            ('here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0),)
+            ('here_a', next(self.ts_iter).internal, 10, 'text/plain',
+             'etag_a', 0, 0),)
         broker = self._make_shrinking_broker(objects=objects)
         # active acceptor with upper bound == MAX
         acceptor = ShardRange(
@@ -3331,7 +3333,8 @@ class TestSharder(BaseTestSharder):
         # verify that shard only cleaves to one of them;
         # root will sort after acceptor if acceptor.upper<MAX
         objects = (
-            ('here_a', next(self.ts_iter), 10, 'text/plain', 'etag_a', 0, 0),)
+            ('here_a', next(self.ts_iter).internal, 10, 'text/plain',
+             'etag_a', 0, 0),)
         broker = self._make_shrinking_broker(objects=objects)
         # active acceptor with upper bound < MAX
         acceptor = ShardRange(

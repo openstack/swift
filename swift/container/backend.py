@@ -746,7 +746,8 @@ class ContainerBroker(DatabaseBroker):
         Mark an object deleted.
 
         :param name: object name to be deleted
-        :param timestamp: timestamp when the object was marked as deleted
+        :param timestamp: string representation of the timestamp when the
+            object was marked as deleted
         :param storage_policy_index: the storage policy index for the object
         """
         self.put_object(name, timestamp, 0, 'application/deleted', 'noetag',
@@ -766,16 +767,18 @@ class ContainerBroker(DatabaseBroker):
         Creates an object in the DB with its metadata.
 
         :param name: object name to be created
-        :param timestamp: timestamp of when the object was created
+        :param timestamp: string representation of the timestamp when the
+            object was created
         :param size: object size
         :param content_type: object content-type
         :param etag: object etag
         :param deleted: if True, marks the object as deleted and sets the
                         deleted_at timestamp to timestamp
         :param storage_policy_index: the storage policy index for the object
-        :param ctype_timestamp: timestamp of when content_type was last
-                                updated
-        :param meta_timestamp: timestamp of when metadata was last updated
+        :param ctype_timestamp: string representation of the timestamp when
+            content_type was last updated, or None
+        :param meta_timestamp: string representation of the timestamp when
+            metadata was last updated, or None
         """
         record = {'name': name, 'created_at': timestamp, 'size': size,
                   'content_type': content_type, 'etag': etag,
