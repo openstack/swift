@@ -131,6 +131,13 @@
     option: SERVICE_KEY_service_roles
     value: swift_service
   become: true
+- name: Allow swift_service on X-Service-Token (keystonemiddleware >=13.0.0)
+  ini_file:
+    path: /etc/swift/proxy-server.conf
+    section: filter:authtoken
+    option: service_token_roles
+    value: swift_service, service
+  become: true
 - name: Update reseller prefixes in proxy-server.conf
   ini_file:
     path: /etc/swift/proxy-server.conf
