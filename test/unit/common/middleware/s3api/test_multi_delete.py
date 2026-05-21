@@ -376,6 +376,31 @@ class BaseS3ApiMultiDelete:
             elem = fromstring(body)
             self.assertEqual(len(elem.findall('Deleted')), 0)
 
+    def test_object_multi_DELETE_empty_quiet(self):
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
+                            swob.HTTPNoContent, {}, None)
+
+        elem = Element('Delete')
+        SubElement(elem, 'Quiet')
+        obj = SubElement(elem, 'Object')
+        SubElement(obj, 'Key').text = 'Key1'
+        body = tostring(elem, use_s3ns=False)
+        content_md5 = base64.b64encode(
+            md5(body, usedforsecurity=False).digest()).strip()
+
+        req = Request.blank('/bucket?delete',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={
+                                'Authorization': 'AWS test:tester:hmac',
+                                'Date': self.get_date_header(),
+                                'Content-MD5': content_md5},
+                            body=body)
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        elem = fromstring(body)
+        self.assertEqual(['Key1'], [el.find('Key').text
+                                    for el in elem.findall('Deleted')])
+
     def test_object_multi_DELETE_no_key(self):
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/Key1',
                             swob.HTTPNoContent, {}, None)
