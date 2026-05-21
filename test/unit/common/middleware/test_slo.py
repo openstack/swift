@@ -427,6 +427,19 @@ class TestSloPutManifest(SloTestCase):
         status, headers, body = self.call_slo(req)
         self.assertEqual(status, '413 Request Entity Too Large')
 
+        over_limit_body = (
+            test_json_data +
+            b' ' * (self.slo.max_manifest_size - len(test_json_data)) +
+            b' ')
+        req = Request.blank(
+            '/v1/AUTH_test/c/man?multipart-manifest=put',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'wsgi.input': BytesIO(over_limit_body)},
+            headers={'Transfer-Encoding': 'chunked'})
+        req.environ.pop('CONTENT_LENGTH', None)
+        status, headers, body = self.call_slo(req)
+        self.assertEqual(status, '413 Request Entity Too Large')
+
         with patch.object(self.slo, 'max_manifest_segments', 0):
             req = Request.blank('/v1/a/c/o?multipart-manifest=put',
                                 method='PUT', body=test_json_data)

@@ -1360,9 +1360,12 @@ class StaticLargeObject(object):
             if req.content_length > self.max_manifest_size:
                 raise HTTPRequestEntityTooLarge(
                     "Manifest File > %d bytes" % self.max_manifest_size)
+        manifest_body = req.body_file.read(self.max_manifest_size + 1)
+        if len(manifest_body) > self.max_manifest_size:
+            raise HTTPRequestEntityTooLarge(
+                "Manifest File > %d bytes" % self.max_manifest_size)
         parsed_data = parse_and_validate_input(
-            req.body_file.read(self.max_manifest_size),
-            wsgi_to_str(req.path))
+            manifest_body, wsgi_to_str(req.path))
         problem_segments = []
 
         object_segments = [seg for seg in parsed_data if 'path' in seg]
