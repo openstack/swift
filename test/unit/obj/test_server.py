@@ -1078,6 +1078,70 @@ class TestObjectController(BaseUnitTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
 
+    def test_POST_bad_delete_at(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': self.ts().internal,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'}
+        )
+        req.body = b'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'POST'},
+            headers={'X-Timestamp': self.ts().internal,
+                     'X-Delete-At': 'not-an-int'}
+        )
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertIn(b'Non-integer X-Delete-At', resp.body)
+
+    def test_POST_bad_content_type_timestamp(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': self.ts().internal,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'}
+        )
+        req.body = b'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': self.ts().internal,
+                                     'Content-Type': 'text/plain',
+                                     'Content-Type-Timestamp': 'bad'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
+    def test_POST_user_metadata_count_limit(self):
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'X-Timestamp': self.ts().internal,
+                     'Content-Length': '4',
+                     'Content-Type': 'application/octet-stream'}
+        )
+        req.body = b'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        headers = {'X-Timestamp': self.ts().internal}
+        for i in range(constraints.MAX_META_COUNT + 1):
+            headers['X-Object-Meta-%d' % i] = 'v'
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers=headers)
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertIn(b'Too many metadata items', resp.body)
+
     def test_POST_container_connection(self):
         # Test that POST does call container_update and returns success
         # whether update to container server succeeds or fails
