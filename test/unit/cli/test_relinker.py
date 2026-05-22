@@ -36,6 +36,7 @@ from swift.common.exceptions import PathNotDir
 from swift.common.storage_policy import (
     StoragePolicy, StoragePolicyCollection, POLICIES, ECStoragePolicy,
     get_policy_string)
+from swift.common.concurrency import Timeout
 from swift.common.utils.logs import get_prefixed_swift_logger
 
 from swift.obj.diskfile import write_metadata, DiskFileRouter, \
@@ -368,6 +369,57 @@ class TestRelinker(unittest.TestCase):
             ('run', ['sda5']),
             ('exit', 0),
         ], calls)
+
+    @mock.patch('os.getpid', return_value=100)
+    def test_relink_catches_unhandled_exception(self, mock_getpid):
+        logger = get_prefixed_swift_logger(
+            self.logger, '[step=relink] ')
+        r = relinker.Relinker(
+            {'devices': self.devices,
+             'recon_cache_path': self.recon_cache_path},
+            logger, [self.existing_device], do_cleanup=False)
+
+        with mock.patch.object(
+                r, '_run', side_effect=OSError(errno.EIO, 'bad disk')):
+            self.assertEqual(relinker.EXIT_ERROR, r.run())
+
+        recon_progress = utils.load_recon_cache(self.recon_cache)
+        self.assertEqual({
+            'workers': {'100': {'devices': ['sda1'],
+                                'return_code': relinker.EXIT_ERROR,
+                                'timestamp': mock.ANY}}},
+            recon_progress)
+        self.assertEqual(
+            ['[step=relink] Unhandled exception in relinker worker'],
+            self.logger.get_lines_for_level('error'))
+        formatted_errors = '\n'.join(self.logger.records['ERROR'])
+        self.assertIn('Traceback (most recent call last):', formatted_errors)
+        self.assertIn('OSError: [Errno 5] bad disk', formatted_errors)
+
+    @mock.patch('os.getpid', return_value=100)
+    def test_cleanup_catches_unhandled_timeout(self, mock_getpid):
+        logger = get_prefixed_swift_logger(
+            self.logger, '[step=cleanup] ')
+        r = relinker.Relinker(
+            {'devices': self.devices,
+             'recon_cache_path': self.recon_cache_path},
+            logger, [self.existing_device], do_cleanup=True)
+
+        with mock.patch.object(r, '_run', side_effect=Timeout()):
+            self.assertEqual(relinker.EXIT_ERROR, r.run())
+
+        recon_progress = utils.load_recon_cache(self.recon_cache)
+        self.assertEqual({
+            'workers': {'100': {'devices': ['sda1'],
+                                'return_code': relinker.EXIT_ERROR,
+                                'timestamp': mock.ANY}}},
+            recon_progress)
+        self.assertEqual(
+            ['[step=cleanup] Unhandled exception in relinker worker'],
+            self.logger.get_lines_for_level('error'))
+        formatted_errors = '\n'.join(self.logger.records['ERROR'])
+        self.assertIn('Traceback (most recent call last):', formatted_errors)
+        self.assertIn('eventlet.timeout.Timeout', formatted_errors)
 
     def _do_test_relinker_drop_privileges(self, command):
         @contextmanager
