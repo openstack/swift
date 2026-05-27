@@ -2142,6 +2142,8 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
         self.assertNotIn('Content-Encoding', resp.headers)
 
     def test_strm_unsgnd_pyld_trl_truncated_mid_chunk(self):
+        # truncated aws-chunked payload within valid http body;
+        # requests.Session will add content-length equal to body length
         chunk_size = 8192
         body = b'%x\r\n' % chunk_size + b'A' * (chunk_size - 1)
         resp = self.conn.make_request(
@@ -2159,6 +2161,55 @@ class TestV4AuthHeaders(InputErrorsMixin, BaseS3TestCaseWithBucket):
         self.assertIn(b'<Code>IncompleteBody</Code>', resp.content)
         self.assertIn(b'<Message>The request body terminated '
                       b'unexpectedly</Message>', resp.content)
+
+    def test_strm_unsgnd_pyld_trl_te_chunked_truncated_mid_chunk(self):
+        # truncated aws-chunked payload within valid http chunked transfer body
+        decoded_content_length = 8192
+        decoded_content = b'A' * decoded_content_length
+        # sanity check: complete aws-chunked payload sent...
+        aws_chunked_payload = b''.join(b'%x\r\n%s\r\n' % (len(chunk), chunk)
+                                       for chunk in [decoded_content, b''])
+        headers = {
+            'transfer-encoding': 'chunked',
+            'x-amz-content-sha256': 'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+            'content-encoding': 'aws-chunked',
+            'x-amz-decoded-content-length': str(decoded_content_length),
+        }
+        req = self.conn.build_request(
+            self.bucket_name,
+            'test-obj',
+            method='PUT',
+            headers=headers
+        )
+        self.conn.sign_request(req)
+        # use raw_conn to send exactly what we want
+        raw_conn = get_raw_conn(req)
+        chunked_body = b''.join(b'%x\r\n%s\r\n' % (len(chunk), chunk)
+                                for chunk in [aws_chunked_payload, b''])
+        raw_conn.send(chunked_body)
+        resp = raw_conn.getresponse()
+        respbody = resp.read()
+        self.assertEqual(resp.status, 200, respbody)
+
+        # the aws-chunked payload is incomplete but the http chunked transfer
+        # framing is valid
+        req = self.conn.build_request(
+            self.bucket_name,
+            'test-obj',
+            method='PUT',
+            headers=headers
+        )
+        self.conn.sign_request(req)
+        raw_conn = get_raw_conn(req)
+        chunked_body = b''.join(b'%x\r\n%s\r\n' % (len(chunk), chunk)
+                                for chunk in [aws_chunked_payload[:-100], b''])
+        raw_conn.send(chunked_body)
+        resp = raw_conn.getresponse()
+        respbody = resp.read()
+        self.assertEqual(resp.status, 400, respbody)
+        self.assertIn(b'<Code>IncompleteBody</Code>', respbody)
+        self.assertIn(b'<Message>The request body terminated '
+                      b'unexpectedly</Message>', respbody)
 
     def test_strm_unsgnd_pyld_trl_te_chunked_ok(self):
         chunked_body = b''.join(
