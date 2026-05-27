@@ -1676,7 +1676,7 @@ class CooperativeCachePopulator(object):
             total_requests = self._memcache.incr(
                 self._token_key, time=self._token_ttl)
         except swift.common.exceptions.MemcacheConnectionError:
-            self._labels['token'] = 'error'  # nosec bandit B105
+            self._labels['token'] = 'error'  # nosec B105
 
         if not total_requests:
             # Couldn't connect to the memcache to increment the token key
@@ -1721,7 +1721,7 @@ class CooperativeCachePopulator(object):
         if not self._num_tokens:
             # Cooperative token disabled, fetch from backend.
             data = self._query_backend_and_set_cache()
-            self._labels['token'] = 'disabled'  # nosec bandit B105
+            self._labels['token'] = 'disabled'  # nosec B105
         else:
             data = self._fetch_data()
             if 'token' not in self._labels:
