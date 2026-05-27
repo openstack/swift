@@ -158,61 +158,67 @@ class AccountController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if not self.check_free_space(drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        if container:   # put account container
-            if 'x-timestamp' not in req.headers:
-                timestamp = Timestamp.now()
-            else:
-                timestamp = valid_timestamp(req)
-            pending_timeout = None
-            container_policy_index = \
-                req.headers.get('X-Backend-Storage-Policy-Index', 0)
-            if 'x-trans-id' in req.headers:
-                pending_timeout = 3
-            with self._get_account_broker(
-                    drive, part, account,
-                    pending_timeout=pending_timeout) as broker:
-                if account.startswith(self.auto_create_account_prefix) and \
-                        not os.path.exists(broker.db_file):
-                    try:
-                        broker.initialize(timestamp.internal)
-                    except DatabaseAlreadyExists:
-                        pass
-                override = req.headers.get('x-account-override-deleted', 'no')
-                if (override.lower() != 'yes' and broker.is_deleted()) or \
-                        not os.path.exists(broker.db_file):
-                    return HTTPNotFound(request=req)
-                broker.put_container(container, req.headers['x-put-timestamp'],
-                                     req.headers['x-delete-timestamp'],
-                                     req.headers['x-object-count'],
-                                     req.headers['x-bytes-used'],
-                                     container_policy_index)
-                if req.headers['x-delete-timestamp'] > \
-                        req.headers['x-put-timestamp']:
-                    return HTTPNoContent(request=req)
-                else:
-                    return HTTPCreated(request=req)
-        else:   # put account
+        if container:
+            return self.PUT_container(req, drive, part, account, container)
+        else:
+            return self.PUT_account(req, drive, part, account)
+
+    def PUT_container(self, req, drive, part, account, container):
+        if 'x-timestamp' not in req.headers:
+            timestamp = Timestamp.now()
+        else:
             timestamp = valid_timestamp(req)
-            with self._get_account_broker(drive, part, account) as broker:
-                if not os.path.exists(broker.db_file):
-                    try:
-                        broker.initialize(timestamp.internal)
-                        created = True
-                    except DatabaseAlreadyExists:
-                        created = False
-                elif broker.is_status_deleted():
-                    return self._deleted_response(broker, req, HTTPForbidden,
-                                                  body='Recently deleted')
-                else:
-                    created = broker.is_deleted()
-                    broker.update_put_timestamp(timestamp.internal)
-                    if broker.is_deleted():
-                        return HTTPConflict(request=req)
-                self._update_metadata(req, broker, timestamp)
-                if created:
-                    return HTTPCreated(request=req)
-                else:
-                    return HTTPAccepted(request=req)
+        pending_timeout = None
+        container_policy_index = \
+            req.headers.get('X-Backend-Storage-Policy-Index', 0)
+        if 'x-trans-id' in req.headers:
+            pending_timeout = 3
+        with self._get_account_broker(
+                drive, part, account,
+                pending_timeout=pending_timeout) as broker:
+            if account.startswith(self.auto_create_account_prefix) and \
+                    not os.path.exists(broker.db_file):
+                try:
+                    broker.initialize(timestamp.internal)
+                except DatabaseAlreadyExists:
+                    pass
+            override = req.headers.get('x-account-override-deleted', 'no')
+            if (override.lower() != 'yes' and broker.is_deleted()) or \
+                    not os.path.exists(broker.db_file):
+                return HTTPNotFound(request=req)
+            broker.put_container(container, req.headers['x-put-timestamp'],
+                                 req.headers['x-delete-timestamp'],
+                                 req.headers['x-object-count'],
+                                 req.headers['x-bytes-used'],
+                                 container_policy_index)
+            if req.headers['x-delete-timestamp'] > \
+                    req.headers['x-put-timestamp']:
+                return HTTPNoContent(request=req)
+            else:
+                return HTTPCreated(request=req)
+
+    def PUT_account(self, req, drive, part, account):
+        timestamp = valid_timestamp(req)
+        with self._get_account_broker(drive, part, account) as broker:
+            if not os.path.exists(broker.db_file):
+                try:
+                    broker.initialize(timestamp.internal)
+                    created = True
+                except DatabaseAlreadyExists:
+                    created = False
+            elif broker.is_status_deleted():
+                return self._deleted_response(broker, req, HTTPForbidden,
+                                              body='Recently deleted')
+            else:
+                created = broker.is_deleted()
+                broker.update_put_timestamp(timestamp.internal)
+                if broker.is_deleted():
+                    return HTTPConflict(request=req)
+            self._update_metadata(req, broker, timestamp)
+            if created:
+                return HTTPCreated(request=req)
+            else:
+                return HTTPAccepted(request=req)
 
     @public
     @timing_stats()
