@@ -479,7 +479,7 @@
     name: swift-multinode-rolling-upgrade-dalmatian
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2024.2
+      previous_swift_version: 2024.2-eol
       tox_envlist: func-py3
 
 - job:
