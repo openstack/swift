@@ -306,6 +306,14 @@ class TestS3ApiUtils(unittest.TestCase):
             os.environ['TZ'] = orig_tz
             time.tzset()
 
+    def test_convert_swift_to_s3_cipher(self):
+        self.assertEqual(
+            'AES256',
+            utils.convert_swift_to_s3_cipher('AES_CTR_256'))
+        self.assertIsNone(
+            utils.convert_swift_to_s3_cipher(
+                'I want to be a cipher algorithm someday'))
+
 
 class TestS3Timestamp(unittest.TestCase):
     def test_init(self):

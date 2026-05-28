@@ -1924,6 +1924,120 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             'rule-id="swift-object-expiration"',
             headers['x-amz-expiration'])
 
+    def test_object_GET_x_server_side_encryption(self):
+        # Test that x-amz-server-side-encryption is included in the
+        # response headers in GET method.
+
+        class TestCryptoMiddleware(object):
+            def __init__(self, app, cipher='AES_CTR_256'):
+                self.app = app
+                self.cipher = cipher
+
+            def __call__(self, env, start_response):
+                def crypto_start_response(status, headers, exc_info=None):
+                    headers = list(headers)
+                    headers.append(('X-Backend-Crypto-Cipher', self.cipher))
+                    return start_response(status, headers, exc_info)
+
+                return self.app(env, crypto_start_response)
+
+        orig_app = self.s3api.app
+        self.s3api.app = TestCryptoMiddleware(orig_app, 'AES_CTR_256')
+        self.addCleanup(setattr, self.s3api, 'app', orig_app)
+
+        self.swift.register(
+            'GET', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn('x-amz-server-side-encryption', headers)
+        self.assertEqual(
+            'AES256',
+            headers['x-amz-server-side-encryption'])
+
+    def test_object_HEAD_x_server_side_encryption(self):
+        # Test that x-amz-server-side-encryption is included in the
+        # response headers in HEAD method.
+
+        class TestCryptoMiddleware(object):
+            def __init__(self, app, cipher='AES_CTR_256'):
+                self.app = app
+                self.cipher = cipher
+
+            def __call__(self, env, start_response):
+                def crypto_start_response(status, headers, exc_info=None):
+                    headers = list(headers)
+                    headers.append(('X-Backend-Crypto-Cipher', self.cipher))
+                    return start_response(status, headers, exc_info)
+
+                return self.app(env, crypto_start_response)
+
+        orig_app = self.s3api.app
+        self.s3api.app = TestCryptoMiddleware(orig_app, 'AES_CTR_256')
+        self.addCleanup(setattr, self.s3api, 'app', orig_app)
+
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn('x-amz-server-side-encryption', headers)
+        self.assertEqual(
+            'AES256',
+            headers['x-amz-server-side-encryption'])
+
+    def test_object_GET_x_server_side_encryption_no_encryption(self):
+        # Test that x-amz-server-side-encryption is not included in the
+        # response headers if the object is not encrypted in GET method.
+
+        self.swift.register(
+            'GET', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Body-Meta', headers)
+        self.assertNotIn('x-amz-server-side-encryption', headers)
+
+    def test_object_HEAD_x_server_side_encryption_no_encryption(self):
+        # Test that x-amz-server-side-encryption is not included in the
+        # response headers if the object is not encrypted in HEAD method.
+
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Body-Meta', headers)
+        self.assertNotIn('x-amz-server-side-encryption', headers)
+
 
 class TestS3ApiObjNonUTC(TestS3ApiObj):
     def setUp(self):
