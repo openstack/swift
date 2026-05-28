@@ -495,6 +495,12 @@
       previous_swift_version: origin/stable/2025.2
 
 - job:
+    name: swift-multinode-rolling-upgrade-gazpacho
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/2026.1
+
+- job:
     name: swift-multinode-rolling-upgrade-master
     parent: swift-multinode-rolling-upgrade
     vars:
@@ -771,6 +777,7 @@
         - swift-multinode-rolling-upgrade-dalmatian
         - swift-multinode-rolling-upgrade-epoxy
         - swift-multinode-rolling-upgrade-flamingo
+        - swift-multinode-rolling-upgrade-gazpacho
         - swift-multinode-rolling-upgrade-master:
             branches: master
 
