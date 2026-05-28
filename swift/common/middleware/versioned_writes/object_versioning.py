@@ -180,6 +180,20 @@ SYSMETA_PARENT_CONT = get_sys_meta_prefix('container') + 'parent-container'
 SYSMETA_VERSIONS_SYMLINK = get_sys_meta_prefix('object') + 'versions-symlink'
 
 
+def timestamp_to_version(timestamp):
+    """
+    Convert a timestamp value to a version string. The offset of the timestamp
+    is ignored.
+
+    :param timestamp: timestamp value to convert. Can be a string or instance
+        of BaseTimestamp.
+    :returns: version string.
+    """
+    result = Timestamp(timestamp)
+    result.offset = 0
+    return result.internal
+
+
 def build_listing(*to_splice, **kwargs):
     reverse = kwargs.pop('reverse')
     limit = kwargs.pop('limit')
@@ -300,7 +314,7 @@ class ObjectContext(ObjectVersioningContext):
     def _put_versioned_obj_from_client(self, req, versions_cont, api_version,
                                        account_name, object_name):
         vers_obj_name = self._build_versions_object_name(
-            object_name, req.timestamp.internal)
+            object_name, timestamp_to_version(req.timestamp))
         put_path_info = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, vers_obj_name)
         # Consciously *do not* set swift_source here -- this req is in charge
@@ -452,7 +466,7 @@ class ObjectContext(ObjectVersioningContext):
                                  str(parse_date_header(
                                      get_resp.headers['last-modified']))))
         vers_obj_name = self._build_versions_object_name(
-            object_name, ts_source)
+            object_name, timestamp_to_version(ts_source))
 
         put_path_info = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, vers_obj_name)
@@ -532,7 +546,7 @@ class ObjectContext(ObjectVersioningContext):
 
         req.ensure_x_timestamp()
         marker_name = self._build_versions_object_name(
-            object_name, req.timestamp.internal)
+            object_name, timestamp_to_version(req.timestamp))
         marker_path = "/%s/%s/%s/%s" % (
             api_version, account_name, versions_cont, marker_name)
         marker_headers = {
@@ -1123,12 +1137,16 @@ class ContainerContext(ObjectVersioningContext):
 
             if params['version_marker'] != 'null':
                 try:
-                    ts = Timestamp(params.pop('version_marker'))
+                    # note: use Timestamp.internal here so that the exact value
+                    # of any non-zero hex part in the request parameter value
+                    # is retained, including any unexpected non-zero offset
+                    v_marker_str = Timestamp(
+                        params.pop('version_marker')).internal
                 except ValueError:
                     raise HTTPBadRequest('invalid version_marker param')
 
                 params['marker'] = self._build_versions_object_name(
-                    params['marker'], ts.internal)
+                    params['marker'], v_marker_str)
         elif 'marker' in params:
             params['marker'] = self._build_versions_object_prefix(
                 params['marker']) + ':'  # just past all numbers
