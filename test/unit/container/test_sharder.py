@@ -8252,19 +8252,21 @@ class TestSharder(BaseTestSharder):
                 shard_ranges[0], broker.root_path, 0)
             self.assertIn(node_id, local_dev_ids)
 
-        # if there are more then 1 local_dev_id it'll randomly pick one
+        # if there are more then 1 local_dev_id it'll pick whichever device
+        # random.choice returns; drive both outcomes deterministically
         selected_node_ids = set()
-        for _ in range(10):
-            with self._mock_sharder() as sharder:
-                local_dev_ids = {dev['id']: dev
-                                 for dev in sharder.ring.devs[-2:]}
-                sharder._local_device_ids = local_dev_ids
-                part, shard_broker, node_id, _ = sharder._get_shard_broker(
-                    shard_ranges[0], broker.root_path, 0)
-                self.assertIn(node_id, local_dev_ids)
-                selected_node_ids.add(node_id)
-            if len(selected_node_ids) == 2:
-                break
+        with mock.patch('swift.container.replicator.choice') as mock_choice:
+            for idx in range(2):
+                with self._mock_sharder() as sharder:
+                    local_dev_ids = {dev['id']: dev
+                                     for dev in sharder.ring.devs[-2:]}
+                    sharder._local_device_ids = local_dev_ids
+                    devs = list(local_dev_ids.values())
+                    mock_choice.return_value = devs[idx]
+                    part, shard_broker, node_id, _ = sharder._get_shard_broker(
+                        shard_ranges[0], broker.root_path, 0)
+                    self.assertEqual(node_id, devs[idx]['id'])
+                    selected_node_ids.add(node_id)
         self.assertEqual(len(selected_node_ids), 2)
 
         # If there are also no local_dev_ids, then we'll get the RuntimeError
