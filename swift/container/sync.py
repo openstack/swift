@@ -40,7 +40,7 @@ from swift.common.swob import normalize_etag
 from swift.common.utils import (
     clean_content_type, config_true_value,
     FileLikeIter, get_logger, hash_path, quote, validate_sync_to,
-    whataremyips, Timestamp, decode_timestamps, parse_options)
+    whataremyips, Timestamp, decode_timestamps, parse_options, ContextPool)
 from swift.common.daemon import Daemon
 from swift.common.http import HTTP_UNAUTHORIZED, HTTP_NOT_FOUND, HTTP_CONFLICT
 from swift.common.wsgi import ConfigString
@@ -202,6 +202,8 @@ class ContainerSync(Daemon):
         swift.common.db.DB_PREALLOCATION = \
             config_true_value(conf.get('db_preallocation', 'f'))
         self.conn_timeout = float(conf.get('conn_timeout', 5))
+        self.sync_row_concurrency = int(
+            conf.get('sync_row_concurrency') or 8)
         request_tries = int(conf.get('request_tries') or 3)
 
         internal_client_conf_path = conf.get('internal_client_conf_path')
@@ -411,27 +413,39 @@ class ContainerSync(Daemon):
                     else:
                         next_sync_point = sync_point2
                     sync_stage_time = time()
-                    while sync_stage_time < stop_at:
-                        rows = broker.get_items_since(sync_point1, 1)
-                        if not rows:
-                            break
-                        row = rows[0]
-                        key = hash_path(info['account'], info['container'],
-                                        row['name'], raw_digest=True)
-                        # This node will only initially sync out one third of
-                        # the objects (if 3 replicas, 1/4 if 4, etc.).
-                        # It'll come back around to the section above
-                        # and attempt to sync previously skipped rows in case
-                        # the other nodes didn't succeed or in case it failed
-                        # to do so the first time.
-                        if unpack_from('>I', key)[0] % \
-                                len(nodes) == ordinal:
-                            self.container_sync_row(
-                                row, sync_to, user_key, broker, info, realm,
-                                realm_key)
-                        sync_point1 = row['ROWID']
-                        broker.set_x_container_sync_points(sync_point1, None)
-                        sync_stage_time = time()
+                    # Originally each container_sync_row ran serially, so the
+                    # loop stalled on every remote HTTP call. We parallelize it
+                    # through a bounded greenthread pool to overlap that I/O.
+                    #
+                    # container_sync_row across up to sync_row_concurrency
+                    # greenthreads. pool.spawn blocks when the pool is full,
+                    # so it acts as backpressure without a separate queue.
+                    # waitall() must be called before __exit__ —
+                    # ContextPool.close() kills any running coroutines.
+                    with ContextPool(self.sync_row_concurrency) as pool:
+                        while sync_stage_time < stop_at:
+                            rows = broker.get_items_since(sync_point1, 1)
+                            if not rows:
+                                break
+                            row = rows[0]
+                            # This node will only initially sync out one third
+                            # of the objects (if 3 replicas, 1/4 if 4, etc.).
+                            # It'll come back around to the section above
+                            # and attempt to sync previously skipped rows in
+                            # case the other nodes didn't succeed or in case
+                            # it failed to do so the first time.
+                            if unpack_from('>I', hash_path(
+                                    info['account'], info['container'],
+                                    row['name'], raw_digest=True))[0] \
+                                    % len(nodes) == ordinal:
+                                pool.spawn(
+                                    self.container_sync_row, row, sync_to,
+                                    user_key, broker, info, realm, realm_key)
+                            sync_point1 = row['ROWID']
+                            broker.set_x_container_sync_points(
+                                sync_point1, None)
+                            sync_stage_time = time()
+                        pool.waitall()
                     self.container_syncs += 1
                     self.logger.increment('syncs')
                 finally:
