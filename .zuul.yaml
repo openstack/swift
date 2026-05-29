@@ -575,6 +575,10 @@
     description: This is integrated object-storage job testing on Ubuntu jammy(22.04)
     parent: tempest-integrated-object-storage
     nodeset: openstack-single-node-jammy
+    vars:
+      devstack_localrc:
+        TEMPEST_VENV_UPPER_CONSTRAINTS: '/opt/stack/requirements/upper-constraints.txt'
+        TEMPEST_BRANCH: '46.3.0'
 
 - project-template:
     name: swift-jobs-arm64
@@ -688,10 +692,9 @@
             irrelevant-files: *tempest-irrelevant-files
         - openstacksdk-functional-devstack:
             irrelevant-files: *tempest-irrelevant-files
-        - grenade:
+        - grenade-skip-level-always:
             irrelevant-files: *tempest-irrelevant-files
-        - grenade-skip-level:
-            irrelevant-files: *tempest-irrelevant-files
+            voting: false
     gate:
       jobs:
         # For gate jobs, err towards running more jobs (so, generally avoid
@@ -730,10 +733,9 @@
             irrelevant-files: *tempest-irrelevant-files
         - openstacksdk-functional-devstack:
             irrelevant-files: *tempest-irrelevant-files
-        - grenade:
+        - grenade-skip-level-always:
             irrelevant-files: *tempest-irrelevant-files
-        - grenade-skip-level:
-            irrelevant-files: *tempest-irrelevant-files
+            voting: false
     experimental:
       jobs:
         - swift-tox-py37
