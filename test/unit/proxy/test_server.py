@@ -12330,7 +12330,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(len(si), 19)
 
         si = registry.get_swift_info()['swift']
-        # Tehse settings is by default excluded by disallowed_sections
+        # These settings is by default excluded by disallowed_sections
         self.assertEqual(si['valid_api_versions'],
                          constraints.VALID_API_VERSIONS)
         self.assertEqual(si['auto_create_account_prefix'],

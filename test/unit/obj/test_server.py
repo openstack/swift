@@ -16,7 +16,6 @@
 
 """Tests for swift.obj.server"""
 
-import pickle
 import datetime
 import json
 import errno
@@ -47,13 +46,15 @@ from test.debug_logger import debug_logger, FakeStatsdClient, \
 from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
     connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
-    mock_check_drive, FakeRing, BaseUnitTestCase
+    mock_check_drive, FakeRing, BaseUnitTestCase, mock_timestamp_now
 from swift.obj import server as object_server
 from swift.obj import updater, diskfile
 from swift.common import utils, bufferedhttp, http_protocol
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, NullLogger, \
-    storage_directory, public, replication, encode_timestamps, Timestamp, md5
+    storage_directory, public, replication, encode_timestamps, md5
+from swift.common.utils.pickle import unpickle
+from swift.common.utils.timestamp import Timestamp
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
 from swift.common.statsd_client import LabeledStatsdClient
@@ -1516,7 +1517,7 @@ class TestObjectController(BaseUnitTestCase):
         if policy.policy_type == EC_POLICY:
             expected_put_headers['X-Etag'] = update_etag
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_put, 'rb')),
+            unpickle(open(async_pending_file_put, 'rb')),
             {'headers': expected_put_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1547,7 +1548,7 @@ class TestObjectController(BaseUnitTestCase):
         self.maxDiff = None
         # check async pending file for PUT is still intact
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_put, 'rb')),
+            unpickle(open(async_pending_file_put, 'rb')),
             {'headers': expected_put_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1574,7 +1575,7 @@ class TestObjectController(BaseUnitTestCase):
         if policy.policy_type == EC_POLICY:
             expected_post_headers['X-Etag'] = update_etag
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_post, 'rb')),
+            unpickle(open(async_pending_file_post, 'rb')),
             {'headers': expected_post_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1690,7 +1691,7 @@ class TestObjectController(BaseUnitTestCase):
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'container_path': '.sharded_a/c_shard_1',
              'db_state': 'sharded' if container_path else 'unsharded'},
-            pickle.load(open(async_pending_file_put, 'rb')))
+            unpickle(open(async_pending_file_put, 'rb')))
 
         # when updater is run its first request will be to the redirect
         # location that is persisted in the async pending file
@@ -3876,6 +3877,27 @@ class TestObjectController(BaseUnitTestCase):
         self.assertEqual(resp.status_int, 404)
         self.assertEqual(resp.headers['X-Backend-Timestamp'],
                          utils.Timestamp(timestamp).internal)
+
+    def test_GET_invalid_timestamp(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'X-Timestamp': 'bad'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(
+            b"X-Timestamp should be a UNIX timestamp float value; was 'bad'",
+            resp.body)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': '1234567890.12345_0000000000000001_1'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(
+            b"X-Timestamp should be a UNIX timestamp float value; "
+            b"was '1234567890.12345_0000000000000001_1'",
+            resp.body)
 
     def test_GET_range_zero_byte_object(self):
         timestamp = self.ts().internal
@@ -6522,7 +6544,7 @@ class TestObjectController(BaseUnitTestCase):
             for f in files:
                 async_file = os.path.join(root, f)
                 found_files.append(async_file)
-                data = pickle.load(open(async_file, 'rb'))
+                data = unpickle(open(async_file, 'rb'))
                 if data['account'] == 'a':
                     self.assertEqual(
                         int(data['headers']
@@ -6558,7 +6580,7 @@ class TestObjectController(BaseUnitTestCase):
             utils.HASH_PATH_PREFIX = _prefix
         async_dir = diskfile.get_async_dir(policy)
         self.assertEqual(
-            pickle.load(open(os.path.join(
+            unpickle(open(os.path.join(
                 self.testdir, 'sda1', async_dir, 'a83',
                 '06fbf0b514e5199dfc4e00f42eb5ea83-%s' % timestamp.internal),
                 'rb')),
@@ -6601,7 +6623,7 @@ class TestObjectController(BaseUnitTestCase):
                     'sda1', policy, db_state='unsharded')
                 async_dir = diskfile.get_async_dir(policy)
                 self.assertEqual(
-                    pickle.load(open(os.path.join(
+                    unpickle(open(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
                         '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                         timestamp.internal), 'rb')),
@@ -7769,6 +7791,42 @@ class TestObjectController(BaseUnitTestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(b'TEST', resp.body)
 
+    def test_GET_but_expired_server_provides_x_timestamp(self):
+        # Verify that object server provides x-timestamp if it is missing from
+        # the GET request
+        ts_now = self.ts()
+        delete_at_seconds = int(ts_now) + 100
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers=self._update_delete_at_headers({
+                'X-Timestamp': ts_now.internal,
+                'X-Delete-At': delete_at_seconds,
+                'Content-Length': '4',
+                'Content-Type': 'application/octet-stream'}))
+        req.body = 'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # not yet expired...
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={})
+        ts_req = Timestamp(float(ts_now), delta=99 * 1e5)
+        with mock_timestamp_now(ts_req):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(ts_req, req.timestamp)
+
+        # expired...
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={})
+        ts_req = Timestamp(float(ts_now), delta=101 * 1e5)
+        with mock_timestamp_now(ts_req):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(ts_req, req.timestamp)
+
     def test_HEAD_but_expired(self):
         # We have an object that expires in the future
         ts_now = Timestamp.now()
@@ -8634,7 +8692,7 @@ class TestObjectController(BaseUnitTestCase):
         async_updates = []
         for pending_file in async_pendings:
             with open(pending_file, 'rb') as fh:
-                async_pending = pickle.load(fh)
+                async_pending = unpickle(fh)
                 async_updates.append(async_pending)
         self.assertEqual([{
             'op': 'DELETE',
@@ -8782,7 +8840,7 @@ class TestObjectController(BaseUnitTestCase):
         async_pending_ops = []
         for pending_file in async_pendings:
             with open(pending_file, 'rb') as fh:
-                async_pending = pickle.load(fh)
+                async_pending = unpickle(fh)
                 async_pending_ops.append(async_pending['op'])
         self.assertEqual(async_pending_ops, ['PUT'])
 
@@ -8906,7 +8964,7 @@ class TestObjectController(BaseUnitTestCase):
                                 headers={})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            p_data = pickle.loads(resp.body)
+            p_data = unpickle(resp.body)
             self.assertEqual(p_data, {1: 2})
 
     def test_REPLICATE_pickle_protocol(self):
@@ -8984,7 +9042,7 @@ class TestObjectController(BaseUnitTestCase):
                 })
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            suffixes = list(pickle.loads(resp.body).keys())
+            suffixes = list(unpickle(resp.body).keys())
             self.assertEqual(1, len(suffixes),
                              'Expected just one suffix; got %r' % (suffixes,))
             suffix = suffixes[0]
@@ -9003,7 +9061,7 @@ class TestObjectController(BaseUnitTestCase):
                             return_value=time() + 200):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual(None, pickle.loads(resp.body))
+            self.assertEqual(None, unpickle(resp.body))
             # no rehash means tombstone still exists...
             self.assertTrue(os.path.exists(tombstone_file))
 
@@ -9017,7 +9075,7 @@ class TestObjectController(BaseUnitTestCase):
                             return_value=time() + 200):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual({}, pickle.loads(resp.body))
+            self.assertEqual({}, unpickle(resp.body))
             # and tombstone is reaped!
             self.assertFalse(os.path.exists(tombstone_file))
 

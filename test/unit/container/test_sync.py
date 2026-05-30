@@ -113,23 +113,24 @@ class TestContainerSync(unittest.TestCase):
             msg = 'expected %r not in %r' % (expected, line)
             self.assertTrue(expected in line, msg)
 
-    @with_tempdir
-    def test_init(self, tempdir):
-        ic_conf_path = os.path.join(tempdir, 'internal-client.conf')
+    def test_init(self):
         cring = FakeRing()
 
         with mock.patch('swift.container.sync.InternalClient'):
             cs = sync.ContainerSync({}, container_ring=cring)
         self.assertTrue(cs.container_ring is cring)
 
-        # specified but not exists will not start
-        conf = {'internal_client_conf_path': ic_conf_path}
-        self.assertRaises(SystemExit, sync.ContainerSync, conf,
-                          container_ring=cring, logger=self.logger)
-
-        # not specified will use default conf
+    @with_tempdir
+    def test_init_default_hard_coded_ic_conf(self, tempdir):
+        # custom ic_conf_path not specified, no default conf file, will use
+        # default hard-coded conf
+        cring = FakeRing()
+        with mock.patch('swift.container.sync.InternalClient'):
+            cs = sync.ContainerSync({}, container_ring=cring)
+        self.assertTrue(cs.container_ring is cring)
+        conf = {'swift_dir': tempdir}
         with mock.patch('swift.container.sync.InternalClient') as mock_ic:
-            cs = sync.ContainerSync({}, container_ring=cring,
+            cs = sync.ContainerSync(conf, container_ring=cring,
                                     logger=self.logger)
         self.assertTrue(cs.container_ring is cring)
         self.assertTrue(mock_ic.called)
@@ -140,10 +141,44 @@ class TestContainerSync(unittest.TestCase):
         self.assertLogMessage('warning', 'internal_client_conf_path')
         self.assertLogMessage('warning', 'internal-client.conf-sample')
 
-        # correct
+    @with_tempdir
+    def test_init_default_ic_conf_file(self, tempdir):
+        # custom ic_conf_path not specified, default conf file exists, will use
+        # default conf file
+        cring = FakeRing()
+        ic_conf_path = os.path.join(tempdir, 'internal-client.conf')
         contents = dedent(sync.ic_conf_body)
         with open(ic_conf_path, 'w') as f:
             f.write(contents)
+        conf = {'swift_dir': tempdir}
+        with mock.patch('swift.container.sync.InternalClient') as mock_ic:
+            cs = sync.ContainerSync(conf, container_ring=cring,
+                                    logger=self.logger)
+        self.assertTrue(cs.container_ring is cring)
+        self.assertTrue(mock_ic.called)
+        conf_path, name, retry = mock_ic.call_args[0]
+        self.assertEqual(conf_path, ic_conf_path)
+
+    @with_tempdir
+    def test_init_custom_ic_conf_file_does_not_exist(self, tempdir):
+        # custom ic_conf_path specified but not exists, will not start
+        cring = FakeRing()
+        ic_conf_path = os.path.join(tempdir, 'custom-internal-client.conf')
+        conf = {'swift_dir': tempdir,
+                'internal_client_conf_path': ic_conf_path}
+        self.assertRaises(SystemExit, sync.ContainerSync, conf,
+                          container_ring=cring, logger=self.logger)
+
+    @with_tempdir
+    def test_init_custom_ic_conf_file_does_exist(self, tempdir):
+        # custom ic_conf_path specified, will be loaded
+        cring = FakeRing()
+        contents = dedent(sync.ic_conf_body)
+        ic_conf_path = os.path.join(tempdir, 'custom-internal-client.conf')
+        with open(ic_conf_path, 'w') as f:
+            f.write(contents)
+        conf = {'swift_dir': tempdir,
+                'internal_client_conf_path': ic_conf_path}
         with mock.patch('swift.container.sync.InternalClient') as mock_ic:
             cs = sync.ContainerSync(conf, container_ring=cring)
         self.assertTrue(cs.container_ring is cring)
@@ -151,6 +186,8 @@ class TestContainerSync(unittest.TestCase):
         conf_path, name, retry = mock_ic.call_args[0]
         self.assertEqual(conf_path, ic_conf_path)
 
+    def test_init_hard_coded_conf_matches_sample_conf(self):
+        contents = dedent(sync.ic_conf_body)
         sample_conf_filename = os.path.join(
             os.path.dirname(test.__file__),
             '../etc/internal-client.conf-sample')

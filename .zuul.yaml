@@ -86,9 +86,15 @@
       Uses tox with the ``py310`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
+
+      Pins openstack/requirements to stable/2026.1 so the constraints
+      file still installs on py3.10 (master constraints have moved on).
     vars:
       tox_envlist: py310
       python_version: '3.10'
+    required-projects:
+      - name: openstack/requirements
+        override-checkout: stable/2026.1
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:
@@ -473,7 +479,7 @@
     name: swift-multinode-rolling-upgrade-dalmatian
     parent: swift-multinode-rolling-upgrade
     vars:
-      previous_swift_version: origin/stable/2024.2
+      previous_swift_version: 2024.2-eol
       tox_envlist: func-py3
 
 - job:
@@ -487,6 +493,12 @@
     parent: swift-multinode-rolling-upgrade
     vars:
       previous_swift_version: origin/stable/2025.2
+
+- job:
+    name: swift-multinode-rolling-upgrade-gazpacho
+    parent: swift-multinode-rolling-upgrade
+    vars:
+      previous_swift_version: origin/stable/2026.1
 
 - job:
     name: swift-multinode-rolling-upgrade-master
@@ -765,6 +777,7 @@
         - swift-multinode-rolling-upgrade-dalmatian
         - swift-multinode-rolling-upgrade-epoxy
         - swift-multinode-rolling-upgrade-flamingo
+        - swift-multinode-rolling-upgrade-gazpacho
         - swift-multinode-rolling-upgrade-master:
             branches: master
 

@@ -21,8 +21,6 @@ from unittest import mock
 import os
 import subprocess
 import sys
-from tempfile import mkdtemp
-from textwrap import dedent
 from time import sleep, time
 from collections import defaultdict
 import unittest
@@ -514,34 +512,11 @@ class ProbeTest(unittest.TestCase):
             subprocess.run(["sudo", "mount", device], check=True)
 
     def make_internal_client(self):
-        tempdir = mkdtemp()
-        try:
-            conf_path = os.path.join(tempdir, 'internal_client.conf')
-            conf_body = """
-            [DEFAULT]
-            swift_dir = /etc/swift
-
-            [pipeline:main]
-            pipeline = catch_errors cache copy proxy-server
-
-            [app:proxy-server]
-            use = egg:swift#proxy
-            allow_account_management = True
-
-            [filter:copy]
-            use = egg:swift#copy
-
-            [filter:cache]
-            use = egg:swift#memcache
-
-            [filter:catch_errors]
-            use = egg:swift#catch_errors
-            """
-            with open(conf_path, 'w') as f:
-                f.write(dedent(conf_body))
-            return internal_client.InternalClient(conf_path, 'test', 1)
-        finally:
-            shutil.rmtree(tempdir)
+        return internal_client.InternalClient(
+            '/etc/swift/internal-client.conf',
+            'test',
+            request_tries=1,
+        )
 
     def get_all_object_nodes(self):
         """

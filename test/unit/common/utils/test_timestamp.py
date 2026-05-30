@@ -190,7 +190,45 @@ class TestTimestamp(unittest.TestCase):
         t = timestamp.Timestamp.now()
         self.assertRaises(TypeError, str, t)
 
-    def test_offset_limit(self):
+    def test_init_with_offset(self):
+        ts = timestamp.Timestamp(1417462430.78693, offset=1)
+        self.assertEqual(1, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+
+        ts = timestamp.Timestamp(1417462430.78693, offset=True)
+        self.assertEqual(1, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+
+    def test_init_with_offset_is_relative(self):
+        # offset given to constructor is relative to offset of cloned timestamp
+        ts1 = timestamp.Timestamp(1417462430.78693, offset=1)
+        ts2 = timestamp.Timestamp(ts1, offset=2)
+        self.assertEqual(3, ts2.offset)
+        self.assertEqual('1417462430.78693_0000000000000003', ts2.internal)
+
+        ts2 = timestamp.Timestamp(ts1.internal, offset=2)
+        self.assertEqual(3, ts2.offset)
+        self.assertEqual('1417462430.78693_0000000000000003', ts2.internal)
+
+    def test_init_with_offset_invalid(self):
+        ts = timestamp.Timestamp(1417462430.78693, offset=1)
+        # a cloned positive offset cannot be decreased...
+        with self.assertRaises(ValueError):
+            timestamp.Timestamp(ts, offset=-1)
+
+        with self.assertRaises(ValueError):
+            timestamp.Timestamp(1417462430.78693, offset=-1)
+
+        with self.assertRaises(TypeError):
+            timestamp.Timestamp(1417462430.78693, offset=1.0)
+
+        with self.assertRaises(TypeError):
+            timestamp.Timestamp(1417462430.78693, offset='1')
+
+        with self.assertRaises(TypeError):
+            timestamp.Timestamp(1417462430.78693, timestamp.Timestamp(1))
+
+    def test_init_with_offset_limit(self):
         t = 1417462430.78693
         # can't have a offset above MAX_OFFSET
         with self.assertRaises(ValueError):
@@ -205,6 +243,98 @@ class TestTimestamp(unittest.TestCase):
         ts = timestamp.Timestamp(t, offset=timestamp.MAX_OFFSET - 1)
         self.assertEqual(timestamp.Timestamp(ts.internal, offset=1),
                          '1417462430.78693_ffffffffffffffff')
+
+    def test_offset_setter(self):
+        ts = timestamp.Timestamp(1417462430.78693)
+        self.assertEqual('1417462430.78693', ts.internal)
+        self.assertEqual(0, ts.offset)
+
+        ts.offset = 2
+        self.assertEqual(2, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000002', ts.internal)
+
+        ts.offset = True
+        self.assertEqual(1, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+
+    def test_offset_setter_invalid(self):
+        ts = timestamp.Timestamp(1417462430.78693)
+        with self.assertRaises(TypeError):
+            ts.offset = 1.0
+        self.assertEqual(0, ts.offset)
+
+        with self.assertRaises(TypeError):
+            ts.offset = '1'
+        self.assertEqual(0, ts.offset)
+
+        with self.assertRaises(TypeError):
+            ts.offset = timestamp.Timestamp(1)
+        self.assertEqual(0, ts.offset)
+
+        with self.assertRaises(ValueError):
+            ts.offset = -1
+        self.assertEqual(0, ts.offset)
+
+    def test_offset_setter_limit(self):
+        ts = timestamp.Timestamp(1417462430.78693)
+        ts.offset = timestamp.MAX_OFFSET
+        self.assertEqual(timestamp.MAX_OFFSET, ts.offset)
+        self.assertEqual('1417462430.78693_ffffffffffffffff', ts.internal)
+
+        with self.assertRaises(ValueError):
+            ts.offset = timestamp.MAX_OFFSET + 1
+        self.assertEqual(timestamp.MAX_OFFSET, ts.offset)
+
+    def test_increment_offset(self):
+        ts = timestamp.Timestamp(1417462430.78693, offset=1)
+        self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+        self.assertEqual(1, ts.offset)
+
+        self.assertEqual(1, ts.increment_offset(0))
+        self.assertEqual(1, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+
+        self.assertEqual(1, ts.increment_offset(None))
+        self.assertEqual(1, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+
+        self.assertEqual(3, ts.increment_offset(2))
+        self.assertEqual(3, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000003', ts.internal)
+
+        self.assertEqual(4, ts.increment_offset(True))
+        self.assertEqual(4, ts.offset)
+        self.assertEqual('1417462430.78693_0000000000000004', ts.internal)
+
+    def test_increment_offset_invalid(self):
+        ts = timestamp.Timestamp(1417462430.78693, offset=0)
+        self.assertEqual(0, ts.offset)
+
+        with self.assertRaises(ValueError):
+            ts.increment_offset(-1)
+        self.assertEqual(0, ts.offset)
+
+        with self.assertRaises(TypeError):
+            ts.increment_offset('1')
+        self.assertEqual(0, ts.offset)
+
+        with self.assertRaises(TypeError):
+            ts.increment_offset(1.0)
+        self.assertEqual(0, ts.offset)
+
+        with self.assertRaises(TypeError):
+            ts.increment_offset(timestamp.Timestamp(1))
+        self.assertEqual(0, ts.offset)
+
+    def test_increment_offset_limit(self):
+        ts = timestamp.Timestamp(1417462430.78693, offset=0)
+        self.assertEqual(timestamp.MAX_OFFSET,
+                         ts.increment_offset(timestamp.MAX_OFFSET))
+        self.assertEqual(timestamp.MAX_OFFSET, ts.offset)
+
+        with self.assertRaises(ValueError):
+            ts.increment_offset(1)
+        self.assertEqual(timestamp.MAX_OFFSET, ts.offset)
 
     def test_normal_format_no_offset(self):
         expected = '1402436408.91203'

@@ -42,7 +42,7 @@ from optparse import OptionParser
 import traceback
 import warnings
 
-from tempfile import gettempdir, mkstemp, NamedTemporaryFile
+from tempfile import gettempdir, NamedTemporaryFile
 import glob
 import itertools
 import stat
@@ -57,7 +57,6 @@ except ImportError:
     # python < 3.8
     import pkg_resources
 
-import pickle  # nosec: B403
 from configparser import (ConfigParser, NoSectionError,
                           NoOptionError)
 from urllib.parse import unquote, urlparse
@@ -1676,7 +1675,7 @@ class CooperativeCachePopulator(object):
             total_requests = self._memcache.incr(
                 self._token_key, time=self._token_ttl)
         except swift.common.exceptions.MemcacheConnectionError:
-            self._labels['token'] = 'error'  # nosec bandit B105
+            self._labels['token'] = 'error'  # nosec B105
 
         if not total_requests:
             # Couldn't connect to the memcache to increment the token key
@@ -1721,7 +1720,7 @@ class CooperativeCachePopulator(object):
         if not self._num_tokens:
             # Cooperative token disabled, fetch from backend.
             data = self._query_backend_and_set_cache()
-            self._labels['token'] = 'disabled'  # nosec bandit B105
+            self._labels['token'] = 'disabled'  # nosec B105
         else:
             data = self._fetch_data()
             if 'token' not in self._labels:
@@ -1737,28 +1736,6 @@ class CooperativeCachePopulator(object):
             self._labels['set_cache_state'] = self.set_cache_state
         self._statsd.increment('swift_coop_cache', labels=self._labels)
         return data
-
-
-def write_pickle(obj, dest, tmp=None, pickle_protocol=0):
-    """
-    Ensure that a pickle file gets written to disk.  The file
-    is first written to a tmp location, ensure it is synced to disk, then
-    perform a move to its final location
-
-    :param obj: python object to be pickled
-    :param dest: path of final destination file
-    :param tmp: path to tmp to use, defaults to None
-    :param pickle_protocol: protocol to pickle the obj with, defaults to 0
-    """
-    if tmp is None:
-        tmp = os.path.dirname(dest)
-    mkdirs(tmp)
-    fd, tmppath = mkstemp(dir=tmp, suffix='.tmp')
-    with os.fdopen(fd, 'wb') as fo:
-        pickle.dump(obj, fo, pickle_protocol)
-        fo.flush()
-        os.fsync(fd)
-        renamer(tmppath, dest)
 
 
 def search_tree(root, glob_match, ext='', exts=None, dir_ext=None):
