@@ -1696,9 +1696,10 @@ class S3Request(swob.Request):
             raise MalformedXML()
 
         if te or ml:
-            # Limit the read similar to how SLO handles manifests
             with self.translate_read_errors():
-                body = self.body_file.read(max_length)
+                body = self.body_file.read(max_length + 1)
+            if len(body) > max_length:
+                raise MalformedXML()
         else:
             # No (or zero) Content-Length provided, and not chunked transfer;
             # no body. Assume zero-length, and enforce a required body below.
