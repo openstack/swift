@@ -81,7 +81,8 @@ class MultiObjectDeleteController(Controller):
             elem = fromstring(xml, 'Delete', self.logger)
 
             quiet = elem.find('./Quiet')
-            self.quiet = quiet is not None and quiet.text.lower() == 'true'
+            self.quiet = (quiet is not None and
+                          (quiet.text or '').lower() == 'true')
 
             delete_list = list(object_key_iter(elem))
             if len(delete_list) > self.conf.max_multi_delete_objects:
