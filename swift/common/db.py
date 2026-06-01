@@ -31,6 +31,7 @@ import sqlite3
 
 from swift.common.constraints import MAX_META_COUNT, MAX_META_OVERALL_SIZE, \
     check_utf8
+from swift.common.utils.pickle import unpickle
 from swift.common.utils import Timestamp, renamer, \
     mkdirs, lock_parent_directory, fallocate, md5
 from swift.common.exceptions import LockTimeout
@@ -832,8 +833,8 @@ class DatabaseBroker(object):
             for entry in fp.read().split(b':'):
                 if entry:
                     try:
-                        data = pickle.loads(base64.b64decode(entry),
-                                            encoding='utf8')  # nosec: B301
+                        data = unpickle(base64.b64decode(entry),
+                                        encoding='utf8')
                         self._commit_puts_load(item_list, data)
                     except Exception:
                         self.logger.exception(
