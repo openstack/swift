@@ -13,12 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from base64 import b64decode
 from base64 import standard_b64encode as b64encode
-from base64 import standard_b64decode as b64decode
+from binascii import Error as BinasciiError
 
 from urllib.parse import quote
 
 from swift.common import swob
+from swift.common.constraints import check_utf8
 from swift.common.http import HTTP_OK
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
@@ -43,6 +45,15 @@ class BucketController(Controller):
     """
     Handles bucket request.
     """
+    @staticmethod
+    def _validated_utf8_param(req, name):
+        value = swob.wsgi_to_str(req.params.get(name))
+        if value is None:
+            return None
+        if value and not check_utf8(value):
+            raise InvalidArgument(name, swob.wsgi_quote(req.params[name]))
+        return value
+
     def _delete_segments_bucket(self, req):
         """
         Before delete bucket, delete segments bucket if existing.
@@ -113,17 +124,18 @@ class BucketController(Controller):
             'limit': max_keys + 1,
         }
         if 'prefix' in req.params:
-            query['prefix'] = swob.wsgi_to_str(req.params['prefix'])
+            query['prefix'] = self._validated_utf8_param(req, 'prefix')
         if 'delimiter' in req.params:
-            query['delimiter'] = swob.wsgi_to_str(req.params['delimiter'])
+            query['delimiter'] = self._validated_utf8_param(req, 'delimiter')
         fetch_owner = False
         if 'versions' in req.params:
-            query['versions'] = swob.wsgi_to_str(req.params['versions'])
+            query['versions'] = self._validated_utf8_param(req, 'versions')
             listing_type = 'object-versions'
-            version_marker = swob.wsgi_to_str(req.params.get(
-                'version-id-marker'))
+            version_marker = self._validated_utf8_param(
+                req, 'version-id-marker')
             if 'key-marker' in req.params:
-                query['marker'] = swob.wsgi_to_str(req.params['key-marker'])
+                query['marker'] = self._validated_utf8_param(
+                    req, 'key-marker')
                 if version_marker is not None:
                     if version_marker != 'null':
                         try:
@@ -138,21 +150,39 @@ class BucketController(Controller):
                            'a key marker.')
                 raise InvalidArgument('version-id-marker',
                                       version_marker, err_msg)
-        elif int(req.params.get('list-type', '1')) == 2:
-            listing_type = 'version-2'
-            if 'start-after' in req.params:
-                query['marker'] = swob.wsgi_to_str(req.params['start-after'])
-            # continuation-token overrides start-after
-            if 'continuation-token' in req.params:
-                decoded = b64decode(
-                    req.params['continuation-token']).decode('utf8')
-                query['marker'] = decoded
-            if 'fetch-owner' in req.params:
-                fetch_owner = config_true_value(req.params['fetch-owner'])
         else:
-            listing_type = 'version-1'
-            if 'marker' in req.params:
-                query['marker'] = swob.wsgi_to_str(req.params['marker'])
+            try:
+                list_type = int(req.params.get('list-type', '1'))
+            except ValueError:
+                raise InvalidArgument(
+                    'list-type', req.params.get('list-type'),
+                    'Argument list-type must be an integer')
+
+            if list_type == 2:
+                listing_type = 'version-2'
+                if 'start-after' in req.params:
+                    query['marker'] = self._validated_utf8_param(
+                        req, 'start-after')
+                # continuation-token overrides start-after
+                if 'continuation-token' in req.params:
+                    token = req.params['continuation-token']
+                    try:
+                        # Verify the continuation token is valid base64
+                        if token is not None:
+                            decoded = b64decode(token, validate=True).decode(
+                                'utf8')
+                    except (BinasciiError, UnicodeDecodeError, ValueError):
+                        raise InvalidArgument(
+                            'continuation-token', swob.wsgi_quote(token),
+                            'The continuation token provided is incorrect')
+                    query['marker'] = decoded
+                if 'fetch-owner' in req.params:
+                    fetch_owner = config_true_value(req.params['fetch-owner'])
+            else:
+                listing_type = 'version-1'
+                if 'marker' in req.params:
+                    query['marker'] = self._validated_utf8_param(
+                        req, 'marker')
 
         return encoding_type, query, listing_type, fetch_owner
 
