@@ -266,6 +266,32 @@ def extract_bucket_and_key(req, storage_domains,
     return bucket, key
 
 
+def get_swift_to_s3_cipher_mappings():
+    """
+    Get the known Swift to S3 cipher mappings.
+    :returns: a list of known mappings
+    """
+
+    # Obtained from Amazon S3's ServerSideEncryptionByDefault docs.
+    # AES_CTR_256 is the only one Swift supports as of now
+    return {
+        'AES_CTR_256': 'AES256',
+    }
+
+
+def convert_swift_to_s3_cipher(cipher):
+    """
+    Convert a cipher used in Swift to the cipher used in S3.
+    :param: cipher: the cipher used in Swift
+    :returns: the cipher used in S3
+    """
+
+    mappings = get_swift_to_s3_cipher_mappings()
+    if cipher in mappings:
+        return mappings[cipher]
+    return None
+
+
 class S3Timestamp(utils.Timestamp):
     S3_XML_FORMAT = "%Y-%m-%dT%H:%M:%S.000Z"
 
