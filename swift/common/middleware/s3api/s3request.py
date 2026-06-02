@@ -80,8 +80,8 @@ from swift.common.middleware.s3api.acl_utils import handle_acl_header
 # signature string.
 ALLOWED_SUB_RESOURCES = sorted([
     'acl', 'delete', 'lifecycle', 'location', 'logging', 'notification',
-    'partNumber', 'policy', 'requestPayment', 'torrent', 'uploads', 'uploadId',
-    'versionId', 'versioning', 'versions', 'website',
+    'partNumber', 'policy', 'publicAccessBlock', 'requestPayment', 'torrent',
+    'uploads', 'uploadId', 'versionId', 'versioning', 'versions', 'website',
     'response-cache-control', 'response-content-disposition',
     'response-content-encoding', 'response-content-language',
     'response-content-type', 'response-expires', 'cors', 'tagging', 'restore',
@@ -1854,8 +1854,9 @@ class S3Request(swob.Request):
         if 'object-lock' in self.params:
             return ObjectLockController
 
-        unsupported = ('notification', 'policy', 'requestPayment', 'torrent',
-                       'website', 'cors', 'restore')
+        unsupported = ('notification', 'policy', 'publicAccessBlock',
+                       'requestPayment', 'torrent', 'website', 'cors',
+                       'restore')
         if set(unsupported) & set(self.params):
             return UnsupportedController
 
