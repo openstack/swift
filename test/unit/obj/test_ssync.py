@@ -1010,13 +1010,13 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
         self.assertEqual(1, len(rx_warning_log_lines),
                          self.rx_logger.all_log_lines())
-        self.assertIn('ssync subrequest failed with 499',
-                      rx_warning_log_lines[0])
+        self.assertIn('subrequest failed with 499', rx_warning_log_lines[0])
         self.assertFalse(rx_warning_log_lines[1:])
         rx_error_lines = self.rx_logger.get_lines_for_level('error')
         self.assertEqual(1, len(rx_error_lines), rx_error_lines)
-        self.assertIn('127.0.0.1/dev/9 read failed in ssync.Receiver: Early '
-                      'termination for PUT', rx_error_lines[0])
+        self.assertIn('ssync receiver (remote_addr: 127.0.0.1, path: dev/9) '
+                      'read failed: Early termination for PUT',
+                      rx_error_lines[0])
 
     def test_sync_reconstructor_no_rebuilt_content(self):
         # First fragment to sync gets no content in any response to
@@ -1046,13 +1046,13 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         self.assertFalse(tx_error_log_lines[1:])
         self._wait_for_rx_server()
         rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
-        self.assertIn('ssync subrequest failed with 499',
-                      rx_warning_log_lines[0])
+        self.assertIn('subrequest failed with 499', rx_warning_log_lines[0])
         self.assertFalse(rx_warning_log_lines[1:])
         rx_error_lines = self.rx_logger.get_lines_for_level('error')
         self.assertEqual(1, len(rx_error_lines), rx_error_lines)
-        self.assertIn('127.0.0.1/dev/9 read failed in ssync.Receiver: Early '
-                      'termination for PUT', rx_error_lines[0])
+        self.assertIn('ssync receiver (remote_addr: 127.0.0.1, path: dev/9) '
+                      'read failed: Early termination for PUT',
+                      rx_error_lines[0])
 
     def test_sync_reconstructor_exception_during_rebuild(self):
         # First fragment to sync has some reconstructor get responses raise
@@ -1094,13 +1094,13 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         self.assertFalse(tx_error_log_lines[2:])
         self._wait_for_rx_server()
         rx_warning_log_lines = self.rx_logger.get_lines_for_level('warning')
-        self.assertIn('ssync subrequest failed with 499',
-                      rx_warning_log_lines[0])
+        self.assertIn('subrequest failed with 499', rx_warning_log_lines[0])
         self.assertFalse(rx_warning_log_lines[1:])
         rx_error_lines = self.rx_logger.get_lines_for_level('error')
         self.assertEqual(1, len(rx_error_lines), rx_error_lines)
-        self.assertIn('127.0.0.1/dev/9 read failed in ssync.Receiver: Early '
-                      'termination for PUT', rx_error_lines[0])
+        self.assertIn('ssync receiver (remote_addr: 127.0.0.1, path: dev/9) '
+                      'read failed: Early termination for PUT',
+                      rx_error_lines[0])
 
     def test_sync_reconstructor_no_responses(self):
         # First fragment to sync gets no responses for reconstructor to rebuild
