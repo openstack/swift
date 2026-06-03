@@ -1015,12 +1015,16 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
                             headers={'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '501')
         self.assertEqual(self._get_error_code(body), 'NotImplemented')
         self.assertEqual(
             {'501.NotImplemented': 1},
             self.s3api.logger.logger.statsd_client.get_stats_counts())
         self.assertEqual('s3:err:NotImplemented',
                          get_log_info(req.environ))
+
+    def test_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock')
 
     def test_notification(self):
         self._test_unsupported_resource('notification')
