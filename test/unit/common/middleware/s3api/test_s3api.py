@@ -1009,9 +1009,9 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_object_tagging(self):
         self._test_unsupported_header('x-amz-tagging')
 
-    def _test_unsupported_resource(self, resource):
+    def _test_unsupported_resource(self, resource, method='GET'):
         req = Request.blank('/error?' + resource,
-                            environ={'REQUEST_METHOD': 'GET',
+                            environ={'REQUEST_METHOD': method,
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
                             headers={'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
@@ -1023,8 +1023,14 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual('s3:err:NotImplemented',
                          get_log_info(req.environ))
 
-    def test_public_access_block(self):
+    def test_GET_public_access_block(self):
         self._test_unsupported_resource('publicAccessBlock')
+
+    def test_DELETE_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'DELETE')
+
+    def test_PUT_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'PUT')
 
     def test_notification(self):
         self._test_unsupported_resource('notification')
