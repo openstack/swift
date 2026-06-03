@@ -112,6 +112,52 @@ class SlowBytesIO(io.BytesIO):
         return self._read(size, True)
 
 
+class TestSsyncAnnotatedLogger(unittest.TestCase):
+
+    def setUp(self):
+        self.mock_receiver = mock.MagicMock()
+        self.mock_receiver.request.remote_addr = '1.2.3.4'
+        self.mock_receiver.device = 'sda1'
+        self.mock_receiver.partition = '1'
+        self.mock_underlying = mock.MagicMock()
+        self.logger = ssync_receiver.SsyncAnnotatedLogger(
+            self.mock_underlying, self.mock_receiver)
+
+    def test_debug(self):
+        self.logger.debug('a message %s', 'arg', extra='kwarg')
+        self.mock_underlying.debug.assert_called_once_with(
+            '1.2.3.4/sda1/1 a message %s', 'arg', extra='kwarg')
+
+    def test_warning(self):
+        self.logger.warning('a message %s', 'arg', extra='kwarg')
+        self.mock_underlying.warning.assert_called_once_with(
+            '1.2.3.4/sda1/1 a message %s', 'arg', extra='kwarg')
+
+    def test_error(self):
+        self.logger.error('a message %s', 'arg', extra='kwarg')
+        self.mock_underlying.error.assert_called_once_with(
+            '1.2.3.4/sda1/1 a message %s', 'arg', extra='kwarg')
+
+    def test_exception(self):
+        self.logger.exception('a message %s', 'arg', exc_info=False)
+        self.mock_underlying.exception.assert_called_once_with(
+            '1.2.3.4/sda1/1 a message %s', 'arg', exc_info=False)
+
+    def test_safe_exception(self):
+        self.logger.safe_exception('a message %s', 'arg', exc_info=False)
+        self.mock_underlying.exception.assert_called_once_with(
+            '1.2.3.4/sda1/1 a message %s', 'arg', exc_info=False)
+
+    def test_safe_exception_fallback_forwards_args(self):
+        # When _format_log_msg raises (e.g. remote_addr is not stringifiable),
+        # the fallback must still forward *args to the underlying logger.
+        self.mock_receiver.request.remote_addr = mock.MagicMock(
+            __str__=mock.Mock(side_effect=Exception('boom')))
+        self.logger.safe_exception('msg %s', 'val', exc_info=False)
+        self.mock_underlying.exception.assert_called_once_with(
+            'msg %s', 'val', exc_info=False)
+
+
 @unit.patch_policies()
 class TestReceiver(unittest.TestCase):
 
@@ -386,7 +432,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/sda1/1',
-                environ={'REQUEST_METHOD': 'SSYNC'},
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
                 body=':MISSING_CHECK: START\r\n'
                      ':MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n:UPDATES: END\r\n')
@@ -395,7 +441,7 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [b":ERROR: 0 '0.01 seconds: /somewhere/sda1'"])
             self.controller.logger.debug.assert_called_once_with(
-                'None/sda1/1 SSYNC LOCK TIMEOUT: 0.01 seconds: '
+                '1.2.3.4/sda1/1 SSYNC LOCK TIMEOUT: 0.01 seconds: '
                 '/somewhere/sda1')
 
     def test_SSYNC_replication_lock_per_partition(self):
@@ -477,14 +523,17 @@ class TestReceiver(unittest.TestCase):
                 self.controller, 'replication_semaphore') as \
                 mocked_replication_semaphore:
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
+                '/device/partition',
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'})
             resp = req.get_response(self.controller)
             self.assertEqual(resp.body, b'\r\n')
             self.assertEqual(resp.status_int, 200)
             mocked_replication_semaphore.acquire.assert_called_once_with(0)
             mocked_replication_semaphore.release.assert_called_once_with()
             error_lines = self.logger.get_lines_for_level('error')
-            self.assertEqual(['ssync client disconnected'], error_lines)
+            self.assertEqual(
+                ['1.2.3.4/device/partition ssync client disconnected'],
+                error_lines)
 
         with mock.patch.object(
                 self.controller, 'replication_semaphore') as \
@@ -507,13 +556,16 @@ class TestReceiver(unittest.TestCase):
                     'mount_check', False), \
                 mock_check_drive(isdir=True) as mocks:
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
+                '/device/partition',
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'})
             resp = req.get_response(self.controller)
             self.assertEqual(resp.body, b'\r\n')
             self.assertEqual(resp.status_int, 200)
             self.assertEqual([], mocks['ismount'].call_args_list)
             error_lines = self.logger.get_lines_for_level('error')
-            self.assertEqual(['ssync client disconnected'], error_lines)
+            self.assertEqual(
+                ['1.2.3.4/device/partition ssync client disconnected'],
+                error_lines)
 
     def test_SSYNC_mount_check(self):
         with mock.patch.object(self.controller, 'replication_semaphore'), \
@@ -537,7 +589,8 @@ class TestReceiver(unittest.TestCase):
             mocks['ismount'].reset_mock()
             mocks['ismount'].return_value = True
             req = swob.Request.blank(
-                '/device/partition', environ={'REQUEST_METHOD': 'SSYNC'})
+                '/device/partition',
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'})
             resp = req.get_response(self.controller)
             self.assertEqual(resp.body, b'\r\n')
             self.assertEqual(resp.status_int, 200)
@@ -545,7 +598,9 @@ class TestReceiver(unittest.TestCase):
                 self.controller._diskfile_router[POLICIES.legacy].devices,
                 'device'))] * 2, mocks['ismount'].call_args_list)
             error_lines = self.logger.get_lines_for_level('error')
-            self.assertEqual(['ssync client disconnected'], error_lines)
+            self.assertEqual(
+                ['1.2.3.4/device/partition ssync client disconnected'],
+                error_lines)
 
     def test_SSYNC_Exception(self):
 
@@ -602,6 +657,7 @@ class TestReceiver(unittest.TestCase):
                 environ={'REQUEST_METHOD': 'SSYNC'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\nBad content is here\n')
+            # provoke an exception in the log message formatting...
             req.remote_addr = mock.MagicMock()
             req.remote_addr.__str__ = mock.Mock(
                 side_effect=Exception("can't stringify this"))
@@ -704,7 +760,7 @@ class TestReceiver(unittest.TestCase):
     def test_MISSING_CHECK_partial_line(self):
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             # not sure this would ever be yielded by the wsgi input since the
             # bytes read wouldn't match the chunk size that was sent
             body=':MISSING_CHECK: START\r\nhash no_newline'
@@ -714,8 +770,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
-            ['None/sda1/1 read failed in ssync.Receiver: missing_check line: '
-             'missing newline'], lines)
+            ['1.2.3.4/sda1/1 read failed in ssync.Receiver: '
+             'missing_check line: missing newline'], lines)
 
     def test_MISSING_CHECK_empty_list(self):
 
@@ -1343,7 +1399,7 @@ class TestReceiver(unittest.TestCase):
             [b':MISSING_CHECK: START', b':MISSING_CHECK: END'])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.error.assert_called_once_with(
-            'ssync client disconnected')
+            '2.3.4.5/device/partition ssync client disconnected')
 
     def test_UPDATES_timeout(self):
 
@@ -1605,7 +1661,7 @@ class TestReceiver(unittest.TestCase):
     def test_UPDATES_bad_subrequest_line_1(self):
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'bad_subrequest_line\r\n')
@@ -1617,7 +1673,7 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
-            ['None/device/partition EXCEPTION in ssync.Receiver: '], lines)
+            ['1.2.3.4/device/partition EXCEPTION in ssync.Receiver: '], lines)
 
     def test_UPDATES_bad_subrequest_line_2(self):
         # If there's no line feed, we probably read a partial buffer
@@ -1627,7 +1683,7 @@ class TestReceiver(unittest.TestCase):
                 return_value=swob.HTTPNoContent()):
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n'
@@ -1643,14 +1699,14 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
         lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
-            ['None/device/partition read failed in ssync.Receiver: '
+            ['1.2.3.4/device/partition read failed in ssync.Receiver: '
              'updates line: missing newline'], lines)
 
     def test_UPDATES_no_headers(self):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'DELETE /a/c/o\r\n')
@@ -1661,13 +1717,13 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'Got no headers for DELETE /a/c/o'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_bad_headers(self):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'DELETE /a/c/o\r\n'
@@ -1679,12 +1735,12 @@ class TestReceiver(unittest.TestCase):
              UNPACK_ERR])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
 
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'DELETE /a/c/o\r\n'
@@ -1697,13 +1753,13 @@ class TestReceiver(unittest.TestCase):
              UNPACK_ERR])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_bad_content_length(self):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'PUT /a/c/o\r\n'
@@ -1715,13 +1771,13 @@ class TestReceiver(unittest.TestCase):
              b':ERROR: 0 "invalid literal for int() with base 10: \'a\'"'])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_content_length_with_DELETE(self):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'DELETE /a/c/o\r\n'
@@ -1733,13 +1789,13 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'DELETE subrequest with content-length /a/c/o'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_no_content_length_with_PUT(self):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'PUT /a/c/o\r\n\r\n')
@@ -1750,13 +1806,13 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'No content-length sent for PUT /a/c/o'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
 
     def test_UPDATES_early_termination(self):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'PUT /a/c/o\r\n'
@@ -1767,8 +1823,27 @@ class TestReceiver(unittest.TestCase):
             [b':MISSING_CHECK: START', b':MISSING_CHECK: END'])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.error.assert_called_once_with(
-            'None/device/partition read failed in ssync.Receiver: '
+            '1.2.3.4/device/partition read failed in ssync.Receiver: '
             'Early termination for PUT /a/c/o')
+
+    def test_UPDATES_subrequest_failure(self):
+        req = swob.Request.blank(
+            '/device/partition',
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
+            body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
+                 ':UPDATES: START\r\n'
+                 'DELETE /a/c/o\r\n\r\n')
+        resp = req.get_response(self.controller)
+        final_line = (b":ERROR: 500 b'ERROR: With :UPDATES: "
+                      b"1 failures to 0 successes'")
+        self.assertEqual(
+            self.body_lines(resp.body),
+            [b':MISSING_CHECK: START', b':MISSING_CHECK: END', final_line])
+        self.assertEqual(resp.status_int, 200)
+        lines = self.logger.get_lines_for_level('warning')
+        self.assertEqual(
+            ["1.2.3.4/device/partition ssync subrequest failed with 400: "
+             "DELETE /a/c/o (b'Missing X-Timestamp header')"], lines)
 
     def test_UPDATES_failures(self):
 
@@ -1786,7 +1861,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1812,7 +1887,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1828,7 +1903,7 @@ class TestReceiver(unittest.TestCase):
                  b":ERROR: 0 'Too many 4 failures to 0 successes'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+                '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
             self.assertFalse(self.controller.logger.error.called)
             self.assertTrue(self.controller.logger.warning.called)
             self.assertEqual(4, self.controller.logger.warning.call_count)
@@ -1841,7 +1916,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1873,7 +1948,7 @@ class TestReceiver(unittest.TestCase):
             self.controller.logger = mock.MagicMock()
             req = swob.Request.blank(
                 '/device/partition',
-                environ={'REQUEST_METHOD': 'SSYNC'},
+                environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
                 body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                      ':UPDATES: START\r\n'
                      'DELETE /a/c/o\r\n\r\n'
@@ -1890,7 +1965,7 @@ class TestReceiver(unittest.TestCase):
                  b":ERROR: 0 'Too many 4 failures to 2 successes'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                'None/device/partition EXCEPTION in ssync.Receiver')
+                '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
             self.assertFalse(self.controller.logger.error.called)
             self.assertTrue(self.controller.logger.warning.called)
             self.assertEqual(4, self.controller.logger.warning.call_count)
@@ -2220,7 +2295,7 @@ class TestReceiver(unittest.TestCase):
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
             '/device/partition',
-            environ={'REQUEST_METHOD': 'SSYNC'},
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4'},
             body=':MISSING_CHECK: START\r\n:MISSING_CHECK: END\r\n'
                  ':UPDATES: START\r\n'
                  'BONK /a/c/o\r\n'
@@ -2233,7 +2308,7 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'Invalid subrequest method BONK'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            'None/device/partition EXCEPTION in ssync.Receiver')
+            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
         self.assertEqual(len(_BONK_request), 1)  # sanity
         self.assertIsNone(_BONK_request[0])
 
