@@ -576,6 +576,7 @@
     vars:
       devstack_localrc:
         TEMPEST_VENV_UPPER_CONSTRAINTS: '/opt/stack/requirements/upper-constraints.txt'
+        TEMPEST_BRANCH: '46.3.0'
 
 - project-template:
     name: swift-jobs-arm64
