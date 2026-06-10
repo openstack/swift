@@ -126,27 +126,32 @@ class TestSsyncAnnotatedLogger(unittest.TestCase):
     def test_debug(self):
         self.logger.debug('a message %s', 'arg', extra='kwarg')
         self.mock_underlying.debug.assert_called_once_with(
-            '1.2.3.4/sda1/1 a message %s', 'arg', extra='kwarg')
+            'ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) a message %s',
+            'arg', extra='kwarg')
 
     def test_warning(self):
         self.logger.warning('a message %s', 'arg', extra='kwarg')
         self.mock_underlying.warning.assert_called_once_with(
-            '1.2.3.4/sda1/1 a message %s', 'arg', extra='kwarg')
+            'ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) a message %s',
+            'arg', extra='kwarg')
 
     def test_error(self):
         self.logger.error('a message %s', 'arg', extra='kwarg')
         self.mock_underlying.error.assert_called_once_with(
-            '1.2.3.4/sda1/1 a message %s', 'arg', extra='kwarg')
+            'ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) a message %s',
+            'arg', extra='kwarg')
 
     def test_exception(self):
         self.logger.exception('a message %s', 'arg', exc_info=False)
         self.mock_underlying.exception.assert_called_once_with(
-            '1.2.3.4/sda1/1 a message %s', 'arg', exc_info=False)
+            'ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) a message %s',
+            'arg', exc_info=False)
 
     def test_safe_exception(self):
         self.logger.safe_exception('a message %s', 'arg', exc_info=False)
         self.mock_underlying.exception.assert_called_once_with(
-            '1.2.3.4/sda1/1 a message %s', 'arg', exc_info=False)
+            'ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) a message %s',
+            'arg', exc_info=False)
 
     def test_safe_exception_fallback_forwards_args(self):
         # When _format_log_msg raises (e.g. remote_addr is not stringifiable),
@@ -441,8 +446,8 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [b":ERROR: 0 '0.01 seconds: /somewhere/sda1'"])
             self.controller.logger.debug.assert_called_once_with(
-                '1.2.3.4/sda1/1 SSYNC LOCK TIMEOUT: 0.01 seconds: '
-                '/somewhere/sda1')
+                'ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) '
+                'LOCK TIMEOUT: 0.01 seconds: /somewhere/sda1')
 
     def test_SSYNC_replication_lock_per_partition(self):
         def _concurrent_ssync(path1, path2):
@@ -532,7 +537,8 @@ class TestReceiver(unittest.TestCase):
             mocked_replication_semaphore.release.assert_called_once_with()
             error_lines = self.logger.get_lines_for_level('error')
             self.assertEqual(
-                ['1.2.3.4/device/partition ssync client disconnected'],
+                ['ssync receiver (remote_addr: 1.2.3.4, '
+                 'path: device/partition) client disconnected'],
                 error_lines)
 
         with mock.patch.object(
@@ -564,7 +570,8 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual([], mocks['ismount'].call_args_list)
             error_lines = self.logger.get_lines_for_level('error')
             self.assertEqual(
-                ['1.2.3.4/device/partition ssync client disconnected'],
+                ['ssync receiver (remote_addr: 1.2.3.4, '
+                 'path: device/partition) client disconnected'],
                 error_lines)
 
     def test_SSYNC_mount_check(self):
@@ -599,7 +606,8 @@ class TestReceiver(unittest.TestCase):
                 'device'))] * 2, mocks['ismount'].call_args_list)
             error_lines = self.logger.get_lines_for_level('error')
             self.assertEqual(
-                ['1.2.3.4/device/partition ssync client disconnected'],
+                ['ssync receiver (remote_addr: 1.2.3.4, '
+                 'path: device/partition) client disconnected'],
                 error_lines)
 
     def test_SSYNC_Exception(self):
@@ -635,7 +643,8 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.exception.assert_called_once_with(
-                '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+                'ssync receiver (remote_addr: 1.2.3.4, '
+                'path: device/partition) EXCEPTION')
 
     def test_SSYNC_Exception_Exception(self):
 
@@ -672,7 +681,7 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.exception.assert_called_once_with(
-                'EXCEPTION in ssync.Receiver')
+                'EXCEPTION')
 
     def test_MISSING_CHECK_timeout(self):
 
@@ -713,7 +722,7 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.error.assert_called_once_with(
-                '2.3.4.5/sda1/1 TIMEOUT in ssync.Receiver: '
+                'ssync receiver (remote_addr: 2.3.4.5, path: sda1/1) TIMEOUT: '
                 '0.01 seconds: missing_check line')
 
     def test_MISSING_CHECK_other_exception(self):
@@ -755,7 +764,8 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
             self.assertTrue(mock_shutdown_safe.called)
             self.controller.logger.exception.assert_called_once_with(
-                '3.4.5.6/sda1/1 EXCEPTION in ssync.Receiver')
+                'ssync receiver (remote_addr: 3.4.5.6, path: sda1/1) '
+                'EXCEPTION')
 
     def test_MISSING_CHECK_partial_line(self):
         req = swob.Request.blank(
@@ -770,8 +780,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
-            ['1.2.3.4/sda1/1 read failed in ssync.Receiver: '
-             'missing_check line: missing newline'], lines)
+            ['ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) '
+             'read failed: missing_check line: missing newline'], lines)
 
     def test_MISSING_CHECK_empty_list(self):
 
@@ -998,7 +1008,7 @@ class TestReceiver(unittest.TestCase):
         # make a request with commit disabled - expect data to be wanted
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'SSYNC',
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
                      'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
             body=':MISSING_CHECK: START\r\n' +
@@ -1020,7 +1030,7 @@ class TestReceiver(unittest.TestCase):
         mock_commit.side_effect = Exception
         req = swob.Request.blank(
             '/sda1/1',
-            environ={'REQUEST_METHOD': 'SSYNC',
+            environ={'REQUEST_METHOD': 'SSYNC', 'REMOTE_ADDR': '1.2.3.4',
                      'HTTP_X_BACKEND_STORAGE_POLICY_INDEX': '0',
                      'HTTP_X_BACKEND_SSYNC_FRAG_INDEX': '2'},
             body=':MISSING_CHECK: START\r\n' +
@@ -1038,7 +1048,8 @@ class TestReceiver(unittest.TestCase):
         self.assertFalse(self.controller.logger.error.called)
         self.assertTrue(self.controller.logger.exception.called)
         self.assertIn(
-            'EXCEPTION in ssync.Receiver while attempting commit of',
+            'ssync receiver (remote_addr: 1.2.3.4, path: sda1/1) '
+            'EXCEPTION while attempting commit of',
             self.controller.logger.exception.call_args[0][0])
 
     @patch_policies(with_ec_default=True)
@@ -1399,7 +1410,8 @@ class TestReceiver(unittest.TestCase):
             [b':MISSING_CHECK: START', b':MISSING_CHECK: END'])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.error.assert_called_once_with(
-            '2.3.4.5/device/partition ssync client disconnected')
+            'ssync receiver (remote_addr: 2.3.4.5, path: device/partition) '
+            'client disconnected')
 
     def test_UPDATES_timeout(self):
 
@@ -1445,8 +1457,8 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.error.assert_called_once_with(
-                '2.3.4.5/device/partition TIMEOUT in ssync.Receiver: '
-                '0.01 seconds: updates line')
+                'ssync receiver (remote_addr: 2.3.4.5, '
+                'path: device/partition) TIMEOUT: 0.01 seconds: updates line')
 
     def test_UPDATES_timeout_reading_PUT_subreq_input_1(self):
         # timeout reading from wsgi input part way through a PUT subreq body
@@ -1516,8 +1528,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(
             ['ERROR __call__ error with PUT /device/partition/a/c/o : '
              'MessageTimeout (0.01s) PUT /a/c/o',
-             '2.3.4.5/device/partition TIMEOUT in ssync.Receiver: '
-             '0.01 seconds: PUT /a/c/o'],
+             'ssync receiver (remote_addr: 2.3.4.5, path: device/partition) '
+             'TIMEOUT: 0.01 seconds: PUT /a/c/o'],
             log_lines)
 
     def test_UPDATES_timeout_reading_PUT_subreq_input_2(self):
@@ -1571,8 +1583,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(
             ['ERROR __call__ error with PUT /device/partition/a/c/o : '
              'MessageTimeout (0.01s) PUT /a/c/o',
-             '2.3.4.5/device/partition TIMEOUT in ssync.Receiver: '
-             '0.01 seconds: PUT /a/c/o'],
+             'ssync receiver (remote_addr: 2.3.4.5, path: device/partition) '
+             'TIMEOUT: 0.01 seconds: PUT /a/c/o'],
             log_lines)
 
     def test_UPDATES_other_exception(self):
@@ -1619,7 +1631,8 @@ class TestReceiver(unittest.TestCase):
                 mock_wsgi_input.mock_socket)
             mock_wsgi_input.mock_socket.close.assert_called_once_with()
             self.controller.logger.exception.assert_called_once_with(
-                '3.4.5.6/device/partition EXCEPTION in ssync.Receiver')
+                'ssync receiver (remote_addr: 3.4.5.6, '
+                'path: device/partition) EXCEPTION')
 
     def test_UPDATES_no_problems_no_hard_disconnect(self):
 
@@ -1673,7 +1686,8 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
-            ['1.2.3.4/device/partition EXCEPTION in ssync.Receiver: '], lines)
+            ['ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+             'EXCEPTION: '], lines)
 
     def test_UPDATES_bad_subrequest_line_2(self):
         # If there's no line feed, we probably read a partial buffer
@@ -1699,8 +1713,8 @@ class TestReceiver(unittest.TestCase):
             self.assertEqual(resp.status_int, 200)
         lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
-            ['1.2.3.4/device/partition read failed in ssync.Receiver: '
-             'updates line: missing newline'], lines)
+            ['ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+             'read failed: updates line: missing newline'], lines)
 
     def test_UPDATES_no_headers(self):
         self.controller.logger = mock.MagicMock()
@@ -1717,7 +1731,8 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'Got no headers for DELETE /a/c/o'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+            'ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+            'EXCEPTION')
 
     def test_UPDATES_bad_headers(self):
         self.controller.logger = mock.MagicMock()
@@ -1735,7 +1750,8 @@ class TestReceiver(unittest.TestCase):
              UNPACK_ERR])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+            'ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+            'EXCEPTION')
 
         self.controller.logger = mock.MagicMock()
         req = swob.Request.blank(
@@ -1753,7 +1769,8 @@ class TestReceiver(unittest.TestCase):
              UNPACK_ERR])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+            'ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+            'EXCEPTION')
 
     def test_UPDATES_bad_content_length(self):
         self.controller.logger = mock.MagicMock()
@@ -1771,7 +1788,8 @@ class TestReceiver(unittest.TestCase):
              b':ERROR: 0 "invalid literal for int() with base 10: \'a\'"'])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+            'ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+            'EXCEPTION')
 
     def test_UPDATES_content_length_with_DELETE(self):
         self.controller.logger = mock.MagicMock()
@@ -1789,7 +1807,8 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'DELETE subrequest with content-length /a/c/o'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+            'ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+            'EXCEPTION')
 
     def test_UPDATES_no_content_length_with_PUT(self):
         self.controller.logger = mock.MagicMock()
@@ -1806,7 +1825,8 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'No content-length sent for PUT /a/c/o'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+            'ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+            'EXCEPTION')
 
     def test_UPDATES_early_termination(self):
         self.controller.logger = mock.MagicMock()
@@ -1823,7 +1843,8 @@ class TestReceiver(unittest.TestCase):
             [b':MISSING_CHECK: START', b':MISSING_CHECK: END'])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.error.assert_called_once_with(
-            '1.2.3.4/device/partition read failed in ssync.Receiver: '
+            'ssync receiver (remote_addr: 1.2.3.4, path: device/partition) '
+            'read failed: '
             'Early termination for PUT /a/c/o')
 
     def test_UPDATES_subrequest_failure(self):
@@ -1842,8 +1863,9 @@ class TestReceiver(unittest.TestCase):
         self.assertEqual(resp.status_int, 200)
         lines = self.logger.get_lines_for_level('warning')
         self.assertEqual(
-            ["1.2.3.4/device/partition ssync subrequest failed with 400: "
-             "DELETE /a/c/o (b'Missing X-Timestamp header')"], lines)
+            ["ssync receiver (remote_addr: 1.2.3.4, path: device/partition) "
+             "subrequest failed with 400: DELETE /a/c/o "
+             "(b'Missing X-Timestamp header')"], lines)
 
     def test_UPDATES_failures(self):
 
@@ -1903,7 +1925,8 @@ class TestReceiver(unittest.TestCase):
                  b":ERROR: 0 'Too many 4 failures to 0 successes'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+                'ssync receiver (remote_addr: 1.2.3.4, '
+                'path: device/partition) EXCEPTION')
             self.assertFalse(self.controller.logger.error.called)
             self.assertTrue(self.controller.logger.warning.called)
             self.assertEqual(4, self.controller.logger.warning.call_count)
@@ -1965,7 +1988,8 @@ class TestReceiver(unittest.TestCase):
                  b":ERROR: 0 'Too many 4 failures to 2 successes'"])
             self.assertEqual(resp.status_int, 200)
             self.controller.logger.exception.assert_called_once_with(
-                '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+                'ssync receiver (remote_addr: 1.2.3.4, '
+                'path: device/partition) EXCEPTION')
             self.assertFalse(self.controller.logger.error.called)
             self.assertTrue(self.controller.logger.warning.called)
             self.assertEqual(4, self.controller.logger.warning.call_count)
@@ -2308,7 +2332,8 @@ class TestReceiver(unittest.TestCase):
              b":ERROR: 0 'Invalid subrequest method BONK'"])
         self.assertEqual(resp.status_int, 200)
         self.controller.logger.exception.assert_called_once_with(
-            '1.2.3.4/device/partition EXCEPTION in ssync.Receiver')
+            'ssync receiver (remote_addr: 1.2.3.4, '
+            'path: device/partition) EXCEPTION')
         self.assertEqual(len(_BONK_request), 1)  # sanity
         self.assertIsNone(_BONK_request[0])
 
