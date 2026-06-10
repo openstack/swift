@@ -86,15 +86,9 @@
       Uses tox with the ``py310`` environment.
       It sets TMPDIR to an XFS mount point created via
       tools/test-setup.sh.
-
-      Pins openstack/requirements to stable/2026.1 so the constraints
-      file still installs on py3.10 (master constraints have moved on).
     vars:
       tox_envlist: py310
       python_version: '3.10'
-    required-projects:
-      - name: openstack/requirements
-        override-checkout: stable/2026.1
     post-run: tools/playbooks/common/cover-post.yaml
 
 - job:

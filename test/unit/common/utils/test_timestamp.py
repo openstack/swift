@@ -190,14 +190,116 @@ class TestTimestamp(unittest.TestCase):
         t = timestamp.Timestamp.now()
         self.assertRaises(TypeError, str, t)
 
-    def test_init_with_offset(self):
-        ts = timestamp.Timestamp(1417462430.78693, offset=1)
+    def test_init_from_float(self):
+        ts = timestamp.Timestamp(1234567890.12345)
+        self.assertEqual(0, ts.offset)
+        self.assertEqual('1234567890.12345', ts.internal)
+        self.assertEqual('1234567890.12345', ts.short)
+        self.assertEqual('1234567890.12345', ts.normal)
+
+    def test_init_from_float_with_offset(self):
+        ts = timestamp.Timestamp(1234567890.12345, offset=1)
         self.assertEqual(1, ts.offset)
-        self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+        self.assertEqual('1234567890.12345_0000000000000001', ts.internal)
+        self.assertEqual('1234567890.12345_1', ts.short)
+        self.assertEqual('1234567890.12345', ts.normal)
+
+        ts = timestamp.Timestamp(1234567890.12345, offset=0xffffff)
+        self.assertEqual(0xffffff, ts.offset)
+        self.assertEqual('1234567890.12345_0000000000ffffff', ts.internal)
+        self.assertEqual('1234567890.12345_ffffff', ts.short)
+        self.assertEqual('1234567890.12345', ts.normal)
 
         ts = timestamp.Timestamp(1417462430.78693, offset=True)
         self.assertEqual(1, ts.offset)
         self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
+
+    def test_init_from_float_with_delta(self):
+        ts = timestamp.Timestamp(1234567890.12345, delta=1)
+        self.assertEqual(0, ts.offset)
+        self.assertEqual('1234567890.12346', ts.internal)
+        self.assertEqual('1234567890.12346', ts.short)
+        self.assertEqual('1234567890.12346', ts.normal)
+
+    def test_now(self):
+        now = time.time()
+        with mock.patch('swift.common.utils.timestamp.time.time',
+                        return_value=now):
+            ts = timestamp.Timestamp.now(offset=0xfade)
+        self.assertEqual(0xfade, ts.offset)
+        exp_float = round(float((int(round(now / 1e-5)) * 1e-5)), 5)
+        self.assertEqual(exp_float, float(ts))
+        self.assertEqual('%10.5f' % exp_float, ts.normal)
+        float_part, hex_part = ts.internal.split('_')
+        self.assertEqual(float_part, '%10.5f' % exp_float)
+        self.assertEqual(hex_part, '000000000000fade')
+
+    def test_init_from_timestamp(self):
+        ts_orig = timestamp.Timestamp(1234567890.12345)
+        ts = timestamp.Timestamp(ts_orig)
+        self.assertEqual(ts_orig, ts)
+
+        ts_orig = timestamp.Timestamp(1234567890.12345, offset=1)
+        ts = timestamp.Timestamp(ts_orig)
+        self.assertEqual(ts_orig, ts)
+
+        # offset accumulates
+        ts = timestamp.Timestamp(ts_orig, offset=2)
+        self.assertEqual(3, ts.offset)
+        self.assertEqual(float(ts_orig), float(ts))
+        self.assertEqual(ts_orig.internal[:-1], ts.internal[:-1])
+
+    def test_init_from_normal_timestamp(self):
+        ts_orig = timestamp.NormalTimestamp(1234567890.12345)
+        ts = timestamp.Timestamp(ts_orig)
+        self.assertEqual('1234567890.12345', ts.internal)
+        self.assertEqual(float(ts_orig), float(ts))
+        self.assertEqual(ts_orig, ts)
+
+        # offset added
+        ts = timestamp.Timestamp(ts_orig, offset=1)
+        self.assertEqual(1, ts.offset)
+        self.assertEqual('1234567890.12345_0000000000000001', ts.internal)
+        self.assertEqual(float(ts_orig), float(ts))
+        self.assertNotEqual(ts_orig, ts)
+
+    def test_init_from_str(self):
+        ts = timestamp.Timestamp('1234567890.12345')
+        self.assertEqual(0, ts.offset)
+        self.assertEqual('1234567890.12345', ts.internal)
+
+        ts = timestamp.Timestamp('1234567890.12345_0000000000000abc')
+        self.assertEqual(0xabc, ts.offset)
+        self.assertEqual('1234567890.12345_0000000000000abc', ts.internal)
+
+        ts = timestamp.Timestamp('1234567890.12345_1000000000000abc')
+        self.assertEqual(0x1000000000000abc, ts.offset)
+        self.assertEqual('1234567890.12345_1000000000000abc', ts.internal)
+
+        ts = timestamp.Timestamp('1234567890.12345_1fffffffffffffff')
+        self.assertEqual(0x1fffffffffffffff, ts.offset)
+        self.assertEqual('1234567890.12345_1fffffffffffffff', ts.internal)
+
+    def test_init_from_str_with_offset_arg(self):
+        ts = timestamp.Timestamp('1234567890.12345', offset=1)
+        self.assertEqual(1, ts.offset)
+        self.assertEqual('1234567890.12345_0000000000000001', ts.internal)
+        self.assertEqual('1234567890.12345_1', ts.short)
+        self.assertEqual('1234567890.12345', ts.normal)
+
+        ts = timestamp.Timestamp('1234567890.12345_1000000000000000',
+                                 offset=0xffffff)
+        self.assertEqual(0x1000000000ffffff, ts.offset)
+        self.assertEqual('1234567890.12345_1000000000ffffff', ts.internal)
+        self.assertEqual('1234567890.12345_1000000000ffffff', ts.short)
+        self.assertEqual('1234567890.12345', ts.normal)
+
+    def test_init_from_str_with_delta(self):
+        ts = timestamp.Timestamp('1234567890.12345', delta=1)
+        self.assertEqual(0, ts.offset)
+        self.assertEqual('1234567890.12346', ts.internal)
+        self.assertEqual('1234567890.12346', ts.short)
+        self.assertEqual('1234567890.12346', ts.normal)
 
     def test_init_with_offset_is_relative(self):
         # offset given to constructor is relative to offset of cloned timestamp
@@ -228,21 +330,37 @@ class TestTimestamp(unittest.TestCase):
         with self.assertRaises(TypeError):
             timestamp.Timestamp(1417462430.78693, timestamp.Timestamp(1))
 
-    def test_init_with_offset_limit(self):
-        t = 1417462430.78693
-        # can't have a offset above MAX_OFFSET
+    def test_init_from_str_with_offset_limit(self):
+        t_str = '1417462430.78693'
+        max_offset = 0xffffffffffffffff
+        # reject offsets above the v1 max
         with self.assertRaises(ValueError):
-            timestamp.Timestamp(t, offset=timestamp.MAX_OFFSET + 1)
-        # exactly max offset is fine
-        ts = timestamp.Timestamp(t, offset=timestamp.MAX_OFFSET)
-        self.assertEqual(ts.internal, '1417462430.78693_ffffffffffffffff')
-        # but you can't offset it further
-        with self.assertRaises(ValueError):
+            timestamp.Timestamp(t_str, offset=max_offset + 1)
+        # exactly the v1 max offset is fine
+        ts = timestamp.Timestamp(t_str, offset=max_offset)
+        self.assertEqual('1417462430.78693_ffffffffffffffff', ts.internal)
+        # relative offsets cannot exceed the v1 max
+        with self.assertRaises(ValueError) as cm:
             timestamp.Timestamp(ts.internal, offset=1)
-        # unless you start below it
-        ts = timestamp.Timestamp(t, offset=timestamp.MAX_OFFSET - 1)
+        self.assertEqual(
+            'offset must be less than or equal to 18446744073709551615',
+            str(cm.exception))
+        # unless the relative offset lands exactly on the v1 max
+        ts = timestamp.Timestamp(t_str, offset=max_offset - 1)
         self.assertEqual(timestamp.Timestamp(ts.internal, offset=1),
                          '1417462430.78693_ffffffffffffffff')
+
+    def test_init_from_float_with_offset_limit(self):
+        t = 1417462430.78693
+        max_offset = 0xffffffffffffffff
+        with self.assertRaises(ValueError) as cm:
+            timestamp.Timestamp(t, offset=max_offset + 1)
+        self.assertEqual(
+            'offset must be less than or equal to 18446744073709551615',
+            str(cm.exception))
+        # exactly max offset is fine
+        ts = timestamp.Timestamp(t, offset=max_offset)
+        self.assertEqual(ts.internal, '1417462430.78693_ffffffffffffffff')
 
     def test_offset_setter(self):
         ts = timestamp.Timestamp(1417462430.78693)
@@ -365,6 +483,39 @@ class TestTimestamp(unittest.TestCase):
             self.assertEqual(ts, expected)
             self.assertEqual(ts, float(expected))
             self.assertEqual(ts, timestamp.normalize_timestamp(expected))
+
+    def test_offset_property(self):
+        ts = timestamp.Timestamp.now()
+        internal = ts.internal
+        self.assertEqual(0, ts.offset)
+        ts = timestamp.Timestamp(ts, offset=1)
+        self.assertEqual(1, ts.offset)
+        self.assertEqual(internal + '_0000000000000001', ts.internal)
+        ts = timestamp.Timestamp(ts, offset=0xfffffe)
+        self.assertEqual(0xffffff, ts.offset)
+        self.assertEqual(internal + '_0000000000ffffff', ts.internal)
+
+    def test_normal_format_v1_has_no_offset(self):
+        expected = '1402436408.91203'
+        test_values = (
+            '1402436408.91203',
+            '1402436408.91203_00000000',
+            '1402436408.912030000',
+            '1402436408.912030000_0000000000000',
+            '000001402436408.912030000',
+            '000001402436408.912030000_0000000000',
+            timestamp.Timestamp('1402436408.91203'),
+            timestamp.Timestamp('1402436408.91203', offset=0),
+            timestamp.Timestamp('1402436408.91203_00000000'),
+            timestamp.Timestamp('1402436408.91203_00000000', offset=0),
+        )
+        for value in test_values:
+            with self.subTest(value=value):
+                ts = timestamp.Timestamp(value)
+                # timestamp instance can also compare to string or float
+                self.assertEqual(ts, expected)
+                self.assertEqual(ts, float(expected))
+                self.assertEqual(ts, timestamp.normalize_timestamp(expected))
 
     def test_isoformat(self):
         expected = '2014-06-10T22:47:32.054580'
@@ -1199,8 +1350,8 @@ class TestTimestampVsNormalTimestamp(unittest.TestCase):
         self.ts_offset = timestamp.Timestamp(self.ts, offset=1)
 
     def test_type(self):
-        self.assertFalse(isinstance(self.norm_ts, type(self.ts)))
-        self.assertFalse(isinstance(self.ts, type(self.norm_ts)))
+        self.assertNotIsInstance(self.norm_ts, type(self.ts))
+        self.assertNotIsInstance(self.ts, type(self.norm_ts))
 
     def test_zero(self):
         ts_zero = timestamp.Timestamp.zero()
@@ -1476,15 +1627,15 @@ class TestModuleFunctions(unittest.TestCase):
         self.assertEqual(
             timestamp.last_modified_date_to_timestamp(
                 '1970-01-01T00:00:00.000000'),
-            timestamp.Timestamp.zero()),
+            timestamp.Timestamp.zero())
         self.assertEqual(
             timestamp.last_modified_date_to_timestamp(
                 '2014-02-28T23:22:36.698390'),
-            timestamp.Timestamp('1393629756.698390')),
+            timestamp.Timestamp('1393629756.698390'))
         self.assertEqual(
             timestamp.last_modified_date_to_timestamp(
                 '2011-03-19T04:03:00.604554'),
-            timestamp.NormalTimestamp('1300507380.604554')),
+            timestamp.NormalTimestamp('1300507380.604554'))
 
     def test_last_modified_date_to_timestamp_when_system_not_UTC(self):
         try:

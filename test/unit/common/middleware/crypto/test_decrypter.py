@@ -26,7 +26,8 @@ from swift.common.middleware.crypto import decrypter, keymaster
 from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK, \
     dump_crypto_meta, Crypto, load_crypto_meta
 from swift.common.swob import Request, HTTPException, HTTPOk, \
-    HTTPPreconditionFailed, HTTPNotFound, HTTPPartialContent, bytes_to_wsgi
+    HTTPPreconditionFailed, HTTPNotModified, HTTPNotFound, \
+    HTTPPartialContent, bytes_to_wsgi
 
 from test.debug_logger import debug_logger
 from test.unit.common.middleware.crypto.crypto_helpers import md5hex, \
@@ -307,6 +308,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
                 'x-object-meta-ignores-case',
                 'x-object-meta-test',
             ]),
+            'X-Backend-Crypto-Cipher': Crypto.cipher,
             'Access-Control-Allow-Origin': '*',
         }
         self.assertEqual(dict(headers), expected)
@@ -333,12 +335,38 @@ class TestDecrypterObjectRequests(unittest.TestCase):
         self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
         self.assertEqual('do not encrypt me',
                          resp.headers['x-object-sysmeta-test'])
+        self.assertNotIn('X-Backend-Crypto-Cipher', resp.headers)
 
     def test_GET_412_response(self):
         self._test_412_response('GET')
 
     def test_HEAD_412_response(self):
         self._test_412_response('HEAD')
+
+    def _test_304_response(self, method):
+        # simulate a 304 response to a conditional GET which has an Etag header
+        data = b'the object content'
+        env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        req = Request.blank('/v1/a/c/o', environ=env, method=method)
+        hdrs = self._make_response_headers(
+            0, md5hex(data), fetch_crypto_keys(), b'not used')
+        self.app.register(method, '/v1/a/c/o', HTTPNotModified, headers=hdrs)
+        resp = req.get_response(self.decrypter)
+
+        self.assertEqual('304 Not Modified', resp.status)
+        self.assertEqual(b'', resp.body)
+        self.assertEqual(md5hex(data), resp.headers['Etag'])
+        self.assertEqual('text/plain', resp.headers['Content-Type'])
+        self.assertEqual('encrypt me', resp.headers['x-object-meta-test'])
+        self.assertEqual('do not encrypt me',
+                         resp.headers['x-object-sysmeta-test'])
+        self.assertNotIn('X-Backend-Crypto-Cipher', resp.headers)
+
+    def test_GET_304_response(self):
+        self._test_304_response('GET')
+
+    def test_HEAD_304_response(self):
+        self._test_304_response('HEAD')
 
     def _test_404_response(self, method):
         # simulate a 404 response, sanity check response headers
