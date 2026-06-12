@@ -744,6 +744,20 @@ class TestManageShardRanges(BaseUnitTestCase):
         self.assertEqual(expected, err.getvalue().splitlines())
         self.assertEqual(expected_shard_ranges[:1], json.loads(out.getvalue()))
 
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'show', '-Q',
+                        '--includes', '%6Fbj60'])
+        self.assertEqual(0, ret)
+        expected = [
+            'Loaded db broker for a/c',
+            'Existing shard ranges:',
+        ]
+        self.assertEqual(expected, err.getvalue().splitlines())
+        self.assertEqual(expected_shard_ranges[6:7],
+                         json.loads(out.getvalue()))
+
     def test_merge(self):
         broker = self._make_broker()
         broker.update_metadata({'X-Container-Sysmeta-Sharding':
