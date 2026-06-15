@@ -4324,6 +4324,22 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEqual(b''.join(reader.app_iter_range(5, None)),
                              df_data[5:])
 
+    def test_range_read_drops_cache_at_range_offset(self):
+        # ensure a ranged GET drops the page cache at its range offset, not the
+        # file head (offset 0).
+        # big enough that the EC-encoded fragment still covers 500..1500
+        df, on_disk = self._create_test_file(os.urandom(20000), obj='dcrng')
+        offsets = []
+        # shrink the 1 MiB drop window so any chunk fires a drop
+        with mock.patch('swift.obj.diskfile.DROP_CACHE_WINDOW', 0), \
+                mock.patch('swift.obj.diskfile.drop_buffer_cache',
+                           lambda fd, off, length: offsets.append(off)):
+            body = b''.join(df.reader().app_iter_range(500, 1500))
+        self.assertEqual(body, on_disk[500:1500])
+        # drops fire (keep_cache off) and never target offset 0
+        self.assertTrue(offsets)
+        self.assertEqual(min(offsets), 500, 'offsets=%r' % offsets)
+
     def test_disk_file_app_iter_range_w_none(self):
         df, df_data = self._create_test_file(b'1234567890')
         quarantine_msgs = []

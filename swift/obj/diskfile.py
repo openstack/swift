@@ -2186,6 +2186,11 @@ class BaseDiskFileReader(object):
         """Returns an iterator over the data file."""
         try:
             dropped_cache = 0
+            # absolute file offset this read starts at (a range start, or 0).
+            # _drop_cache wants a file offset, but dropped_cache counts from
+            # here, so add the base -- otherwise a ranged read fadvises the
+            # wrong region (the head of the file rather than what it read).
+            base = self._fp.tell()
             self._bytes_read = 0
             self._started_at_0 = False
             self._read_to_eof = False
@@ -2204,13 +2209,14 @@ class BaseDiskFileReader(object):
                     self._update_checks(chunk)
                     self._bytes_read += len(chunk)
                     if self._bytes_read - dropped_cache > DROP_CACHE_WINDOW:
-                        self._drop_cache(self._fp.fileno(), dropped_cache,
-                                         self._bytes_read - dropped_cache)
+                        self._drop_cache(
+                            self._fp.fileno(), base + dropped_cache,
+                            self._bytes_read - dropped_cache)
                         dropped_cache = self._bytes_read
                     yield chunk
                 else:
                     self._read_to_eof = True
-                    self._drop_cache(self._fp.fileno(), dropped_cache,
+                    self._drop_cache(self._fp.fileno(), base + dropped_cache,
                                      self._bytes_read - dropped_cache)
                     break
         finally:
