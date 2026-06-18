@@ -1009,8 +1009,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_object_tagging(self):
         self._test_unsupported_header('x-amz-tagging')
 
-    def _test_unsupported_resource(self, resource, method='GET'):
-        req = Request.blank('/error?' + resource,
+    def _test_unsupported_resource(self, resource, method='GET',
+                                   bucket='error'):
+        path = ('/%s' % bucket if bucket is not None else '/') + '?' + resource
+        req = Request.blank(path,
                             environ={'REQUEST_METHOD': method,
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
                             headers={'Date': self.get_date_header()})
@@ -1031,6 +1033,17 @@ class TestS3ApiMiddleware(S3ApiTestCase):
 
     def test_PUT_public_access_block(self):
         self._test_unsupported_resource('publicAccessBlock', 'PUT')
+
+    def test_GET_service_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', bucket=None)
+
+    def test_DELETE_service_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'DELETE',
+                                        bucket=None)
+
+    def test_PUT_service_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'PUT',
+                                        bucket=None)
 
     def test_notification(self):
         self._test_unsupported_resource('notification')

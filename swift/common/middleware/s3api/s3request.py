@@ -1823,6 +1823,12 @@ class S3Request(swob.Request):
 
     @property
     def controller(self):
+        unsupported = ('notification', 'policy', 'publicAccessBlock',
+                       'requestPayment', 'torrent', 'website', 'cors',
+                       'restore')
+        if set(unsupported) & set(self.params):
+            return UnsupportedController
+
         if self.is_service_request:
             return ServiceController
 
@@ -1854,12 +1860,6 @@ class S3Request(swob.Request):
             return TaggingController
         if 'object-lock' in self.params:
             return ObjectLockController
-
-        unsupported = ('notification', 'policy', 'publicAccessBlock',
-                       'requestPayment', 'torrent', 'website', 'cors',
-                       'restore')
-        if set(unsupported) & set(self.params):
-            return UnsupportedController
 
         if self.is_object_request:
             return ObjectController
