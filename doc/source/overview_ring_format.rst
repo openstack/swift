@@ -205,7 +205,7 @@ The currently defined section and section names upstream are as follows:
 * ``swift/ring/metadata`` - Ring metadata serialized as json
 * ``swift/ring/devices`` - Devices json serialized data structure.
 
-  * This has been seperated from the ring metadata structure in v1 as it
+  * This has been separated from the ring metadata structure in v1 as it
     gets large
 
 * ``swift/ring/assignments`` - The ring replica2part2dev_id data structure
@@ -235,7 +235,7 @@ network-order.
 
 swift/ring/devices
 ~~~~~~~~~~~~~~~~~~
-This BLOB contains a list of swift device dictionarys. And was seperated out
+This BLOB contains a list of swift device dictionarys. And was separated out
 from the metadata BLOB as this can become a large structure in it's own right.
 
 swift/ring/assignments
