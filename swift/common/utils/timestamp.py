@@ -408,8 +408,6 @@ class Timestamp(BaseTimestamp):
 
     @offset.setter
     def offset(self, value):
-        if not value:
-            return
         if not isinstance(value, int):
             raise TypeError('offset must be an int')
         if value < 0:
