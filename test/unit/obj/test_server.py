@@ -5567,7 +5567,7 @@ class TestObjectController(BaseUnitTestCase):
         try:
             # The following request should return 409 (HTTP Conflict). A
             # tombstone file should not have been created with this timestamp.
-            timestamp = utils.Timestamp(start - 0.00001)
+            timestamp = utils.Timestamp(start - 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5588,7 +5588,7 @@ class TestObjectController(BaseUnitTestCase):
             # be truly deleted (container update is performed) because this
             # timestamp is newer. A tombstone file should have been created
             # with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00001)
+            timestamp = utils.Timestamp(start + 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5608,7 +5608,7 @@ class TestObjectController(BaseUnitTestCase):
             # already have been deleted, but it should have also performed a
             # container update because the timestamp is newer, and a tombstone
             # file should also exist with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00002)
+            timestamp = utils.Timestamp(start + 0.00004)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5627,7 +5627,7 @@ class TestObjectController(BaseUnitTestCase):
             # already have been deleted, and it should not have performed a
             # container update because the timestamp is older, or created a
             # tombstone file with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00001)
+            timestamp = utils.Timestamp(start + 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
