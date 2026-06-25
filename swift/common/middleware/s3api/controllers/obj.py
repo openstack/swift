@@ -199,6 +199,8 @@ class ObjectController(Controller):
         old_versions = json.loads(resp.body)
         resp = None
         for item in old_versions:
+            if item['name'] != req.object_name:
+                break
             if item['content_type'] == DELETE_MARKER_CONTENT_TYPE:
                 resp = None
                 break

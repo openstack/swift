@@ -317,6 +317,60 @@ class TestObjectVersioning(BaseS3TestCase):
             'StorageClass': 'STANDARD',
         }], objs)
 
+    def test_delete_marker_with_prefix_sibling(self):
+        def put_versioned_obj(obj_name, body):
+            resp = self.client.put_object(
+                Bucket=self.bucket_name, Key=obj_name, Body=body)
+            self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+            resp = self.client.head_object(
+                Bucket=self.bucket_name, Key=obj_name)
+            self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+            return resp['VersionId']
+
+        obj_name = self.create_name('versioned-obj')
+        sibling_obj_name = obj_name + '-unrelated-suffix'
+
+        obj_version_id = put_versioned_obj(obj_name, b'obj')
+        put_versioned_obj(sibling_obj_name, b'sibling')
+
+        delete_resp = self.client.delete_object(
+            Bucket=self.bucket_name, Key=obj_name)
+        self.assertEqual(204, delete_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        marker_version_id = delete_resp['VersionId']
+
+        resp = self.client.delete_object(
+            Bucket=self.bucket_name, Key=obj_name,
+            VersionId=obj_version_id)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        resp = self.client.list_object_versions(
+            Bucket=self.bucket_name, Prefix=obj_name)
+        self.assertEqual([sibling_obj_name], [
+            obj['Key'] for obj in resp.get('Versions', [])
+        ])
+        self.assertEqual([{
+            'Key': obj_name,
+            'VersionId': marker_version_id,
+            'IsLatest': True,
+        }], [{
+            'Key': marker['Key'],
+            'VersionId': marker['VersionId'],
+            'IsLatest': marker['IsLatest'],
+        } for marker in resp.get('DeleteMarkers', [])])
+
+        resp = self.client.delete_object(
+            Bucket=self.bucket_name, Key=obj_name,
+            VersionId=marker_version_id)
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        resp = self.client.list_object_versions(
+            Bucket=self.bucket_name, Prefix=obj_name)
+        self.assertEqual([sibling_obj_name], [
+            obj['Key'] for obj in resp.get('Versions', [])
+        ])
+        self.assertNotIn('DeleteMarkers', resp)
+
     def test_delete_versioned_deletes(self):
         etags = []
         obj_name = self.create_name('versioned-obj')
