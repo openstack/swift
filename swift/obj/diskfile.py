@@ -1955,6 +1955,9 @@ class BaseDiskFileWriter(object):
 
     def _finalize_put(self, metadata, target_path, cleanup,
                       logger_thread_locals):
+        if self._diskfile.timing_breakdown:
+            self._diskfile.timing_breakdown.record('tpool_scheduling')
+
         if logger_thread_locals is not None:
             self.logger.thread_locals = logger_thread_locals
         # Write the metadata before calling fsync() so that both data and
@@ -2483,6 +2486,7 @@ class BaseDiskFile(object):
         self._dirs_created = 0
         self.policy = policy
         self.next_part_power = next_part_power
+        self.timing_breakdown = kwargs.get('timing_breakdown')
         if account and container and obj:
             self._name = '/' + '/'.join((account, container, obj))
             self._account = account
