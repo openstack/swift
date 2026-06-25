@@ -39,7 +39,7 @@ from swift.common.ring.utils import validate_args, \
     validate_and_normalize_ip, build_dev_from_opts, \
     parse_builder_ring_filename_args, parse_search_value, \
     parse_search_values_from_opts, parse_change_values_from_opts, \
-    dispersion_report, parse_add_value
+    dispersion_report, parse_add_value, BYTES_TO_TYPE_CODE
 from swift.common.utils import lock_parent_directory, is_valid_ipv6
 
 MAJOR_VERSION = 1
@@ -49,6 +49,7 @@ EXIT_WARNING = 1
 EXIT_ERROR = 2
 
 FORMAT_CHOICES = [str(v) for v in RING_CODECS]
+DEV_ID_SIZE_CHOICES = [str(i) for i in BYTES_TO_TYPE_CODE]
 
 global argv, backup_dir, builder, builder_file, ring_file
 argv = backup_dir = builder = builder_file = ring_file = None
@@ -1336,6 +1337,9 @@ swift-ring-builder <builder_file> write_ring
         parser.add_option('--format-version',
                           choices=FORMAT_CHOICES, default=None,
                           help="specify ring format version")
+        parser.add_option('--dev-id-bytes',
+                          choices=DEV_ID_SIZE_CHOICES, default=None,
+                          help="specify the dev-id bytes size (v2 only)")
         options, args = parser.parse_args(argv)
         if options.format_version is None:
             print("Defaulting to --format-version=1. This ensures the ring\n"
@@ -1351,17 +1355,25 @@ swift-ring-builder <builder_file> write_ring
             print('Unable to write empty ring.')
             exit(EXIT_ERROR)
 
-        ring_data = builder.get_ring()
-        if not ring_data._replica2part2dev_id:
-            if ring_data.devs:
-                print('WARNING: Writing a ring with no partition '
-                      'assignments but with devices; did you forget to run '
-                      '"rebalance"?', file=sys.stderr)
-        ring_data.save(
-            pathjoin(backup_dir, '%d.' % time() + basename(ring_file)),
-            format_version=options.format_version)
-        ring_data.save(ring_file, format_version=options.format_version)
-        exit(EXIT_SUCCESS)
+        try:
+            if options.dev_id_bytes:
+                builder.set_dev_id_bytes(int(options.dev_id_bytes))
+
+            ring_data = builder.get_ring()
+            if not ring_data._replica2part2dev_id:
+                if ring_data.devs:
+                    print('WARNING: Writing a ring with no partition '
+                          'assignments but with devices; did you forget '
+                          'to run "rebalance"?', file=sys.stderr)
+            ring_data.save(
+                pathjoin(backup_dir, '%d.' % time() + basename(ring_file)),
+                format_version=options.format_version)
+            ring_data.save(ring_file, format_version=options.format_version)
+        except ValueError as e:
+            print(e)
+            exit(EXIT_ERROR)
+        else:
+            exit(EXIT_SUCCESS)
 
     @staticmethod
     def write_builder():
