@@ -695,6 +695,21 @@ class BaseS3ApiObj(object):
                                        {})
         self.assertEqual(code, 'RequestTimeout')
 
+    def test_object_PUT_request_timeout_connection_close(self):
+        # RequestTimeout asks client to close connection to avoid framing
+        # issues when client retries on the same connection
+        self.swift.register('PUT', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPRequestTimeout, {}, None)
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body), 'RequestTimeout')
+        self.assertEqual(headers.get('Connection'), 'close')
+
     def test_object_PUT(self):
         etag = self.response_headers['etag']
         content_md5 = binascii.b2a_base64(
