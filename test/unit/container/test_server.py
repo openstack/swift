@@ -50,6 +50,7 @@ from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 
 from test import listen_zero
+from test.unit import DBCloseTrackingApp
 
 
 @contextmanager
@@ -74,9 +75,10 @@ class TestContainerController(BaseUnitTestCase):
         mkdirs(os.path.join(self.testdir, 'sda1'))
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         self.logger = debug_logger()
-        self.controller = container_server.ContainerController(
-            {'devices': self.testdir, 'mount_check': 'false'},
-            logger=self.logger)
+        self.controller = DBCloseTrackingApp(
+            container_server.ContainerController(
+                {'devices': self.testdir, 'mount_check': 'false'},
+                logger=self.logger))
         # some of the policy tests want at least two policies
         self.assertTrue(len(POLICIES) > 1)
 
@@ -4184,7 +4186,9 @@ class TestContainerController(BaseUnitTestCase):
             req = Request.blank(
                 '/sda1/p/a/c/%s' % name, method='PUT', headers=headers)
             self._update_object_put_headers(req)
-            resp = req.get_response(self.controller)
+            # NB: Need base, non-close-tracking app because there's already a
+            # request in flight
+            resp = req.get_response(self.controller.app)
             self.assertEqual(201, resp.status_int)
 
         def get_api_listing():

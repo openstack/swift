@@ -379,6 +379,13 @@ class TestExampleBroker(TestDbBase):
         self.assertEqual(info['status_changed_at'], Timestamp.zero().internal)
         self.assertFalse(broker.is_deleted())
 
+    def test_broker_is_context_manager(self):
+        with self.broker_class(
+                self.db_path, account='a', container='c') as broker:
+            mock_conn = broker.conn = MagicMock()
+        self.assertIsNone(broker.conn)
+        self.assertIn(mock.call.close(), mock_conn.mock_calls)
+
     def test_delete_db(self):
         broker = self.broker_class(self.db_path, account='a', container='c')
         broker.initialize(self.ts().internal)

@@ -133,11 +133,11 @@ class AccountController(BaseStorageServer):
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
         req_timestamp = valid_timestamp(req)
-        broker = self._get_account_broker(drive, part, account)
-        if broker.is_deleted():
-            return self._deleted_response(broker, req, HTTPNotFound)
-        broker.delete_db(req_timestamp.internal)
-        return self._deleted_response(broker, req, HTTPNoContent)
+        with self._get_account_broker(drive, part, account) as broker:
+            if broker.is_deleted():
+                return self._deleted_response(broker, req, HTTPNotFound)
+            broker.delete_db(req_timestamp.internal)
+            return self._deleted_response(broker, req, HTTPNoContent)
 
     def _update_metadata(self, req, broker, req_timestamp):
         metadata = {
@@ -168,50 +168,51 @@ class AccountController(BaseStorageServer):
                 req.headers.get('X-Backend-Storage-Policy-Index', 0)
             if 'x-trans-id' in req.headers:
                 pending_timeout = 3
-            broker = self._get_account_broker(drive, part, account,
-                                              pending_timeout=pending_timeout)
-            if account.startswith(self.auto_create_account_prefix) and \
-                    not os.path.exists(broker.db_file):
-                try:
-                    broker.initialize(timestamp.internal)
-                except DatabaseAlreadyExists:
-                    pass
-            if (req.headers.get('x-account-override-deleted', 'no').lower() !=
-                    'yes' and broker.is_deleted()) \
-                    or not os.path.exists(broker.db_file):
-                return HTTPNotFound(request=req)
-            broker.put_container(container, req.headers['x-put-timestamp'],
-                                 req.headers['x-delete-timestamp'],
-                                 req.headers['x-object-count'],
-                                 req.headers['x-bytes-used'],
-                                 container_policy_index)
-            if req.headers['x-delete-timestamp'] > \
-                    req.headers['x-put-timestamp']:
-                return HTTPNoContent(request=req)
-            else:
-                return HTTPCreated(request=req)
+            with self._get_account_broker(
+                    drive, part, account,
+                    pending_timeout=pending_timeout) as broker:
+                if account.startswith(self.auto_create_account_prefix) and \
+                        not os.path.exists(broker.db_file):
+                    try:
+                        broker.initialize(timestamp.internal)
+                    except DatabaseAlreadyExists:
+                        pass
+                override = req.headers.get('x-account-override-deleted', 'no')
+                if (override.lower() != 'yes' and broker.is_deleted()) or \
+                        not os.path.exists(broker.db_file):
+                    return HTTPNotFound(request=req)
+                broker.put_container(container, req.headers['x-put-timestamp'],
+                                     req.headers['x-delete-timestamp'],
+                                     req.headers['x-object-count'],
+                                     req.headers['x-bytes-used'],
+                                     container_policy_index)
+                if req.headers['x-delete-timestamp'] > \
+                        req.headers['x-put-timestamp']:
+                    return HTTPNoContent(request=req)
+                else:
+                    return HTTPCreated(request=req)
         else:   # put account
             timestamp = valid_timestamp(req)
-            broker = self._get_account_broker(drive, part, account)
-            if not os.path.exists(broker.db_file):
-                try:
-                    broker.initialize(timestamp.internal)
-                    created = True
-                except DatabaseAlreadyExists:
-                    created = False
-            elif broker.is_status_deleted():
-                return self._deleted_response(broker, req, HTTPForbidden,
-                                              body='Recently deleted')
-            else:
-                created = broker.is_deleted()
-                broker.update_put_timestamp(timestamp.internal)
-                if broker.is_deleted():
-                    return HTTPConflict(request=req)
-            self._update_metadata(req, broker, timestamp)
-            if created:
-                return HTTPCreated(request=req)
-            else:
-                return HTTPAccepted(request=req)
+            with self._get_account_broker(drive, part, account) as broker:
+                if not os.path.exists(broker.db_file):
+                    try:
+                        broker.initialize(timestamp.internal)
+                        created = True
+                    except DatabaseAlreadyExists:
+                        created = False
+                elif broker.is_status_deleted():
+                    return self._deleted_response(broker, req, HTTPForbidden,
+                                                  body='Recently deleted')
+                else:
+                    created = broker.is_deleted()
+                    broker.update_put_timestamp(timestamp.internal)
+                    if broker.is_deleted():
+                        return HTTPConflict(request=req)
+                self._update_metadata(req, broker, timestamp)
+                if created:
+                    return HTTPCreated(request=req)
+                else:
+                    return HTTPAccepted(request=req)
 
     @public
     @timing_stats()
@@ -223,15 +224,15 @@ class AccountController(BaseStorageServer):
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_account_broker(drive, part, account,
-                                          pending_timeout=0.1,
-                                          stale_reads_ok=True)
-        if broker.is_deleted():
-            return self._deleted_response(broker, req, HTTPNotFound)
-        headers = get_response_headers(broker)
-        headers['Content-Type'] = out_content_type
-        headers['Content-Length'] = 0
-        return HTTPNoContent(request=req, headers=headers, charset='utf-8')
+        with self._get_account_broker(drive, part, account,
+                                      pending_timeout=0.1,
+                                      stale_reads_ok=True) as broker:
+            if broker.is_deleted():
+                return self._deleted_response(broker, req, HTTPNotFound)
+            headers = get_response_headers(broker)
+            headers['Content-Type'] = out_content_type
+            headers['Content-Length'] = 0
+            return HTTPNoContent(request=req, headers=headers, charset='utf-8')
 
     @public
     @timing_stats()
@@ -250,14 +251,15 @@ class AccountController(BaseStorageServer):
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_account_broker(drive, part, account,
-                                          pending_timeout=0.1,
-                                          stale_reads_ok=True)
-        if broker.is_deleted():
-            return self._deleted_response(broker, req, HTTPNotFound)
-        return account_listing_response(account, req, out_content_type, broker,
-                                        limit, marker, end_marker, prefix,
-                                        delimiter, reverse)
+        with self._get_account_broker(drive, part, account,
+                                      pending_timeout=0.1,
+                                      stale_reads_ok=True) as broker:
+            if broker.is_deleted():
+                return self._deleted_response(broker, req, HTTPNotFound)
+            return account_listing_response(
+                account, req, out_content_type, broker,
+                limit, marker, end_marker, prefix,
+                delimiter, reverse)
 
     @public
     @replication
@@ -295,11 +297,11 @@ class AccountController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if not self.check_free_space(drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_account_broker(drive, part, account)
-        if broker.is_deleted():
-            return self._deleted_response(broker, req, HTTPNotFound)
-        self._update_metadata(req, broker, req_timestamp)
-        return HTTPNoContent(request=req)
+        with self._get_account_broker(drive, part, account) as broker:
+            if broker.is_deleted():
+                return self._deleted_response(broker, req, HTTPNotFound)
+            self._update_metadata(req, broker, req_timestamp)
+            return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):
         start_time = time.time()

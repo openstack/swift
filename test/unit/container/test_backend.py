@@ -49,7 +49,8 @@ from unittest import mock
 
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, with_tempdir, mock_timestamp_now,
-                       mock_normal_timestamp_now, BaseUnitTestCase)
+                       mock_normal_timestamp_now, BaseUnitTestCase,
+                       check_db_connections_get_closed)
 from test.unit.common import test_db
 
 
@@ -4943,7 +4944,8 @@ class TestContainerBroker(test_db.TestDbBase):
                 in enumerate(expected_bounds, start_index)]
 
             with mock.patch('swift.common.utils.time.time',
-                            return_value=float(ts_now)):
+                            return_value=float(ts_now)), \
+                    check_db_connections_get_closed():
                 ranges, last_found = broker.find_shard_ranges(
                     shard_size, limit=limit, existing_ranges=existing,
                     minimum_shard_size=minimum_size)
