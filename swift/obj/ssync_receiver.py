@@ -201,7 +201,7 @@ class SsyncAnnotatedLogger:
         self.ssync_receiver = ssync_receiver
 
     def _format_log_msg(self, msg):
-        return '%s/%s/%s %s' % (
+        return 'ssync receiver (remote_addr: %s, path: %s/%s) %s' % (
             self.ssync_receiver.request.remote_addr,
             self.ssync_receiver.device,
             self.ssync_receiver.partition,
@@ -314,17 +314,17 @@ class Receiver(object):
                     if self.app.replication_semaphore:
                         self.app.replication_semaphore.release()
             except SsyncClientDisconnected:
-                self.req_logger.error('ssync client disconnected')
+                self.req_logger.error('client disconnected')
                 self.disconnect = True
             except exceptions.LockTimeout as err:
-                self.req_logger.debug('SSYNC LOCK TIMEOUT: %s' % err)
+                self.req_logger.debug('LOCK TIMEOUT: %s' % err)
                 yield (':ERROR: %d %r\n' % (0, str(err))).encode('utf8')
             except exceptions.MessageTimeout as err:
-                self.req_logger.error('TIMEOUT in ssync.Receiver: %s' % err)
+                self.req_logger.error('TIMEOUT: %s' % err)
                 yield (':ERROR: %d %r\n' % (408, str(err))).encode('utf8')
             except exceptions.ChunkReadError as err:
                 self.req_logger.error(
-                    'read failed in ssync.Receiver: %s' % err)
+                    'read failed: %s' % err)
                 # Since the client (presumably) hung up, no point in trying to
                 # send anything about the error
             except swob.HTTPException as err:
@@ -332,10 +332,10 @@ class Receiver(object):
                 yield (':ERROR: %d %r\n' % (
                     err.status_int, body)).encode('utf8')
             except Exception as err:
-                self.req_logger.exception('EXCEPTION in ssync.Receiver')
+                self.req_logger.exception('EXCEPTION')
                 yield (':ERROR: %d %r\n' % (0, str(err))).encode('utf8')
         except Exception:
-            self.req_logger.safe_exception('EXCEPTION in ssync.Receiver')
+            self.req_logger.safe_exception('EXCEPTION')
         if self.disconnect:
             # This makes the socket close early so the remote side doesn't have
             # to send its whole request while the lower Eventlet-level just
@@ -425,8 +425,8 @@ class Receiver(object):
                         # if commit fails then log exception and fall back to
                         # wanting a full update
                         self.req_logger.exception(
-                            'EXCEPTION in ssync.Receiver while attempting '
-                            'commit of %s' % df._datadir)
+                            'EXCEPTION while attempting commit of %s'
+                            % df._datadir)
             else:
                 # We have the non-durable frag that is on offer, but our
                 # ts_data may currently be set to an older durable frag, so
@@ -624,7 +624,7 @@ class Receiver(object):
                 successes += 1
             else:
                 self.req_logger.warning(
-                    'ssync subrequest failed with %s: %s (%s)' %
+                    'subrequest failed with %s: %s (%s)' %
                     (resp.status_int, context, resp.body))
                 failures += 1
             if failures >= self.app.replication_failure_threshold and (

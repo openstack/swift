@@ -402,7 +402,12 @@ class Timestamp(BaseTimestamp):
         self.offset = int(hex_str, 16) if hex_str else 0
         return float(float_str)
 
-    def _validate_offset(self, value):
+    @property
+    def offset(self):
+        return self._offset
+
+    @offset.setter
+    def offset(self, value):
         if not isinstance(value, int):
             raise TypeError('offset must be an int')
         if value < 0:
@@ -411,17 +416,7 @@ class Timestamp(BaseTimestamp):
         if value > MAX_OFFSET:
             raise ValueError('offset must be less than or equal to %d'
                              % MAX_OFFSET)
-        return int(value)
-
-    @property
-    def offset(self):
-        return self._offset
-
-    @offset.setter
-    def offset(self, value):
-        if not value:
-            return
-        self._offset = self._validate_offset(value)
+        self._offset = value
 
     def increment_offset(self, value):
         """
@@ -431,8 +426,11 @@ class Timestamp(BaseTimestamp):
         :raises ValueError: if value is not a whole number, or if the
             resulting offset would exceed the maximum supported offset.
         """
-        if value:
-            self.offset += self._validate_offset(value)
+        if not value:
+            return self.offset
+        if value < 0:
+            raise ValueError('value must be non-negative')
+        self.offset += value
         return self.offset
 
     @classmethod

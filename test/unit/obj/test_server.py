@@ -64,7 +64,9 @@ from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
 from swift.common.exceptions import DiskFileDeviceUnavailable, \
-    DiskFileNoSpace, DiskFileQuarantined
+    DiskFileNoSpace, DiskFileQuarantined, DiskFileStateChanged, \
+    DiskFileXattrNotSupported, DiskFileExpired, DiskFileDeleted, \
+    DiskFileNotExist
 from swift.common.wsgi import init_request_processor
 
 
@@ -5567,7 +5569,7 @@ class TestObjectController(BaseUnitTestCase):
         try:
             # The following request should return 409 (HTTP Conflict). A
             # tombstone file should not have been created with this timestamp.
-            timestamp = utils.Timestamp(start - 0.00001)
+            timestamp = utils.Timestamp(start - 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5588,7 +5590,7 @@ class TestObjectController(BaseUnitTestCase):
             # be truly deleted (container update is performed) because this
             # timestamp is newer. A tombstone file should have been created
             # with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00001)
+            timestamp = utils.Timestamp(start + 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5608,7 +5610,7 @@ class TestObjectController(BaseUnitTestCase):
             # already have been deleted, but it should have also performed a
             # container update because the timestamp is newer, and a tombstone
             # file should also exist with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00002)
+            timestamp = utils.Timestamp(start + 0.00004)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5627,7 +5629,7 @@ class TestObjectController(BaseUnitTestCase):
             # already have been deleted, and it should not have performed a
             # container update because the timestamp is older, or created a
             # tombstone file with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00001)
+            timestamp = utils.Timestamp(start + 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5666,6 +5668,179 @@ class TestObjectController(BaseUnitTestCase):
                                 headers={'X-Timestamp': t_delete.internal})
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 507)
+
+    def test_DELETE_fast_request_no_log(self):
+        # Test with a normal-speed DELETE. It shouldn't log a warning.
+        req = Request.blank('/sda1/p/a/c/o_fast',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': '999',
+                                     'Content-Type': 'text/plain'},
+                            body=b'foo')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o_fast',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'X-Timestamp': '1000'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 204)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(len(error_lines), 0)
+
+        # Test with a slower DELETE but still fast enough to not log.
+        req = Request.blank('/sda1/p/a/c/o_slow',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': '1001',
+                                     'Content-Type': 'text/plain'},
+                            body=b'bar')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        self.assertEqual(self.object_controller.slow_delete_log_threshold, 120)
+        now = time()
+        with mock.patch('time.time', side_effect=[now] * 5 +
+                        [now + 40.0] + [now + 50.0] + [now + 100.0] +
+                        [now + 110.0] + [now + 115.0] + [now + 119.9] * 6):
+            req = Request.blank('/sda1/p/a/c/o_slow',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': '1002'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 204)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(len(error_lines), 0)
+
+    def test_DELETE_slow_request_log(self):
+        # Test with a slow DELETE
+        self.assertEqual(self.object_controller.slow_delete_log_threshold, 120)
+        req = Request.blank('/sda1/p/a/c/o_slow',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': '1001',
+                                     'Content-Type': 'text/plain'},
+                            body=b'bar')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        now = 1000.0
+        with mock.patch('time.time', side_effect=[now] * 5 +
+                        [now + 40.0] + [now + 50.0] + [now + 100.0] +
+                        [now + 110.0] + [now + 115.0] + [now + 120.1] * 6):
+            req = Request.blank('/sda1/p/a/c/o_slow',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': '1002'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 204)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('Slow DELETE (120.100s) for /sda1/p/a/c/o_slow, '
+                         'status 204, start_time=1000.000, '
+                         'diskfile_acquisition=0.000s, metadata_read=40.000s, '
+                         'delete_at_update=10.000s, tpool_scheduling=50.000s, '
+                         'tombstone_write=15.000s, container_update=5.100s',
+                         error_lines[0])
+
+    def _do_test_DELETE_log_slow_metadata_read_exception(
+            self, exc, exp_status, start_time=None):
+
+        def mock_read_metadata(self, current_time):
+            raise exc
+
+        t_put = utils.Timestamp.now()
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put.internal,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        self.assertEqual(self.object_controller.slow_delete_log_threshold, 120)
+        now = start_time if start_time else time()
+        with mock.patch('time.time', side_effect=[now] * 5 +
+                        [now + 10.0] + [now + 50.0] + [now + 121.0] +
+                        [now + 124.0] + [now + 130.0] + [now + 140.0] * 7):
+            with mock.patch('swift.obj.diskfile.BaseDiskFile.read_metadata',
+                            mock_read_metadata):
+                t_delete = utils.Timestamp.now()
+                req = Request.blank('/sda1/p/a/c/o',
+                                    environ={'REQUEST_METHOD': 'DELETE'},
+                                    headers={'X-Timestamp': t_delete.internal})
+                resp = req.get_response(self.object_controller)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(1, len(error_lines))
+        return resp, error_lines[0]
+
+    def test_DELETE_log_slow_xattr_not_supported(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileXattrNotSupported(), 507, start_time)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual('Slow DELETE (121.000s) for /sda1/p/a/c/o, '
+                         'status 507, start_time=1000.000, '
+                         'diskfile_acquisition=10.000s, '
+                         'metadata_read=40.000s', error)
+
+    def test_DELETE_log_slow_expired(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileExpired(), 404, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_deleted(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileDeleted(), 404, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_not_exist(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileNotExist(), 404, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_quarantined(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileQuarantined(), 507, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_state_changed(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileStateChanged(), 503, start_time)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual('Slow DELETE (121.000s) for /sda1/p/a/c/o, '
+                         'status 503, start_time=1000.000, '
+                         'diskfile_acquisition=10.000s, '
+                         'metadata_read=40.000s',
+                         error)
 
     def test_object_update_with_offset(self):
         container_updates = []

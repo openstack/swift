@@ -1823,6 +1823,12 @@ class S3Request(swob.Request):
 
     @property
     def controller(self):
+        unsupported = ('notification', 'policy', 'publicAccessBlock',
+                       'requestPayment', 'torrent', 'website', 'cors',
+                       'restore')
+        if set(unsupported) & set(self.params):
+            return UnsupportedController
+
         if self.is_service_request:
             return ServiceController
 
@@ -1854,12 +1860,6 @@ class S3Request(swob.Request):
             return TaggingController
         if 'object-lock' in self.params:
             return ObjectLockController
-
-        unsupported = ('notification', 'policy', 'publicAccessBlock',
-                       'requestPayment', 'torrent', 'website', 'cors',
-                       'restore')
-        if set(unsupported) & set(self.params):
-            return UnsupportedController
 
         if self.is_object_request:
             return ObjectController
@@ -2251,6 +2251,8 @@ class S3Request(swob.Request):
                 raise err_resp[0](*err_resp[1:])
             elif b'quota' in err_msg:
                 raise err_resp(err_msg)
+            elif err_resp == RequestTimeout:
+                raise RequestTimeout(headers={'Connection': 'close'})
             else:
                 raise err_resp()
 

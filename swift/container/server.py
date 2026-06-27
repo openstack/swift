@@ -360,13 +360,14 @@ class ContainerController(BaseStorageServer):
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container)
-        if obj:
-            return self.DELETE_object(
-                req, account, obj, req_timestamp, broker)
-        else:
-            return self.DELETE_container(
-                req, account, container, req_timestamp, broker)
+        with self._get_container_broker(
+                drive, part, account, container) as broker:
+            if obj:
+                return self.DELETE_object(
+                    req, account, obj, req_timestamp, broker)
+            else:
+                return self.DELETE_container(
+                    req, account, container, req_timestamp, broker)
 
     def DELETE_container(self, req, account, container, req_timestamp, broker):
         if not os.path.exists(broker.db_file):
@@ -509,15 +510,17 @@ class ContainerController(BaseStorageServer):
         if not self.check_free_space(drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
 
-        broker = self._get_container_broker(drive, part, account, container)
-        if obj:
-            return self.PUT_object(req, broker, account, obj, req_timestamp)
-        record_type = req.headers.get('x-backend-record-type', '').lower()
-        if record_type == RECORD_TYPE_SHARD:
-            return self.PUT_shard(req, broker, account, req_timestamp)
-        else:
-            return self.PUT_container(req, broker, account,
-                                      container, req_timestamp)
+        with self._get_container_broker(
+                drive, part, account, container) as broker:
+            if obj:
+                return self.PUT_object(req, broker, account,
+                                       obj, req_timestamp)
+            record_type = req.headers.get('x-backend-record-type', '').lower()
+            if record_type == RECORD_TYPE_SHARD:
+                return self.PUT_shard(req, broker, account, req_timestamp)
+            else:
+                return self.PUT_container(req, broker, account,
+                                          container, req_timestamp)
 
     @timing_stats()
     def PUT_object(self, req, broker, account, obj, req_timestamp):
@@ -602,23 +605,24 @@ class ContainerController(BaseStorageServer):
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container,
-                                            pending_timeout=0.1,
-                                            stale_reads_ok=True)
-        info, is_deleted = broker.get_info_is_deleted()
-        headers = gen_resp_headers(info, is_deleted=is_deleted)
-        if is_deleted:
-            return HTTPNotFound(request=req, headers=headers)
-        headers.update(
-            (str_to_wsgi(key), str_to_wsgi(value))
-            for key, (value, timestamp) in broker.metadata.items()
-            if value != '' and (key.lower() in self.save_headers or
-                                is_sys_or_user_meta('container', key)))
-        headers['Content-Type'] = out_content_type
-        headers['Content-Length'] = 0
-        resp = HTTPNoContent(request=req, headers=headers, charset='utf-8')
-        resp.last_modified = Timestamp(headers['X-PUT-Timestamp'])
-        return resp
+        with self._get_container_broker(
+                drive, part, account, container,
+                pending_timeout=0.1,
+                stale_reads_ok=True) as broker:
+            info, is_deleted = broker.get_info_is_deleted()
+            headers = gen_resp_headers(info, is_deleted=is_deleted)
+            if is_deleted:
+                return HTTPNotFound(request=req, headers=headers)
+            headers.update(
+                (str_to_wsgi(key), str_to_wsgi(value))
+                for key, (value, timestamp) in broker.metadata.items()
+                if value != '' and (key.lower() in self.save_headers or
+                                    is_sys_or_user_meta('container', key)))
+            headers['Content-Type'] = out_content_type
+            headers['Content-Length'] = 0
+            resp = HTTPNoContent(request=req, headers=headers, charset='utf-8')
+            resp.last_modified = Timestamp(headers['X-PUT-Timestamp'])
+            return resp
 
     def update_shard_record(self, record, shard_record_full=True):
         """
@@ -763,20 +767,21 @@ class ContainerController(BaseStorageServer):
             check_drive(self.root, drive, self.mount_check)
         except ValueError:
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container,
-                                            pending_timeout=0.1,
-                                            stale_reads_ok=True)
-        info, is_deleted = broker.get_info_is_deleted()
-        record_type = req.headers.get('x-backend-record-type', '').lower()
-        db_state = info.get('db_state')
-        if record_type == 'auto' and db_state in (SHARDING, SHARDED):
-            record_type = 'shard'
-        if record_type == 'shard':
-            return self.GET_shard(req, broker, container, params, info,
-                                  is_deleted, out_content_type)
-        else:
-            return self.GET_object(req, broker, container, params, info,
-                                   is_deleted, out_content_type)
+        with self._get_container_broker(
+                drive, part, account, container,
+                pending_timeout=0.1,
+                stale_reads_ok=True) as broker:
+            info, is_deleted = broker.get_info_is_deleted()
+            record_type = req.headers.get('x-backend-record-type', '').lower()
+            db_state = info.get('db_state')
+            if record_type == 'auto' and db_state in (SHARDING, SHARDED):
+                record_type = 'shard'
+            if record_type == 'shard':
+                return self.GET_shard(req, broker, container, params, info,
+                                      is_deleted, out_content_type)
+            else:
+                return self.GET_object(req, broker, container, params, info,
+                                       is_deleted, out_content_type)
 
     @timing_stats()
     def GET_shard(self, req, broker, container, params, info,
@@ -902,11 +907,11 @@ class ContainerController(BaseStorageServer):
             storage_policy_index
         # Use the retired db while container is in process of sharding,
         # otherwise use current db
-        src_broker = broker.get_brokers()[0]
-        container_list = src_broker.list_objects_iter(
-            limit, marker, end_marker, prefix, delimiter, path,
-            storage_policy_index=storage_policy_index,
-            reverse=reverse, allow_reserved=req.allow_reserved_names)
+        with broker.get_brokers()[0] as src_broker:
+            container_list = src_broker.list_objects_iter(
+                limit, marker, end_marker, prefix, delimiter, path,
+                storage_policy_index=storage_policy_index,
+                reverse=reverse, allow_reserved=req.allow_reserved_names)
         listing = [self.update_object_record(record)
                    for record in container_list]
         return self._create_GET_response(req, out_content_type, info,
@@ -973,15 +978,16 @@ class ContainerController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
 
         requested_policy_index = self.get_and_validate_policy_index(req)
-        broker = self._get_container_broker(drive, part, account, container)
-        self._maybe_autocreate(broker, req_timestamp, account,
-                               requested_policy_index, req)
-        try:
-            objs = json.load(req.environ['wsgi.input'])
-        except ValueError as err:
-            return HTTPBadRequest(body=str(err), content_type='text/plain')
-        broker.merge_items(objs)
-        return HTTPAccepted(request=req)
+        with self._get_container_broker(
+                drive, part, account, container) as broker:
+            self._maybe_autocreate(broker, req_timestamp, account,
+                                   requested_policy_index, req)
+            try:
+                objs = json.load(req.environ['wsgi.input'])
+            except ValueError as err:
+                return HTTPBadRequest(body=str(err), content_type='text/plain')
+            broker.merge_items(objs)
+            return HTTPAccepted(request=req)
 
     @public
     @timing_stats()
@@ -1008,14 +1014,15 @@ class ContainerController(BaseStorageServer):
             return HTTPInsufficientStorage(drive=drive, request=req)
         if not self.check_free_space(drive):
             return HTTPInsufficientStorage(drive=drive, request=req)
-        broker = self._get_container_broker(drive, part, account, container)
-        if broker.is_deleted():
-            return HTTPNotFound(request=req)
-        if not config_true_value(
-                req.headers.get('x-backend-no-timestamp-update', False)):
-            broker.update_put_timestamp(req_timestamp.internal)
-        self._update_metadata(req, broker, req_timestamp, 'POST')
-        return HTTPNoContent(request=req)
+        with self._get_container_broker(
+                drive, part, account, container) as broker:
+            if broker.is_deleted():
+                return HTTPNotFound(request=req)
+            if not config_true_value(
+                    req.headers.get('x-backend-no-timestamp-update', False)):
+                broker.update_put_timestamp(req_timestamp.internal)
+            self._update_metadata(req, broker, req_timestamp, 'POST')
+            return HTTPNoContent(request=req)
 
     def __call__(self, env, start_response):
         start_time = time.time()

@@ -371,6 +371,10 @@ class TestTimestamp(unittest.TestCase):
         self.assertEqual(2, ts.offset)
         self.assertEqual('1417462430.78693_0000000000000002', ts.internal)
 
+        ts.offset = 0
+        self.assertEqual(0, ts.offset)
+        self.assertEqual('1417462430.78693', ts.internal)
+
         ts.offset = True
         self.assertEqual(1, ts.offset)
         self.assertEqual('1417462430.78693_0000000000000001', ts.internal)
