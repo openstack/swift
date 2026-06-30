@@ -30,7 +30,7 @@ from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \
-    PreconditionFailed, KeyTooLongError
+    PreconditionFailed, KeyTooLongError, NoSuchBucket
 
 
 class ObjectController(Controller):
@@ -200,20 +200,25 @@ class ObjectController(Controller):
         resp = None
         for item in old_versions:
             if item['name'] != req.object_name:
+                # no more versions to try
                 break
             if item['content_type'] == DELETE_MARKER_CONTENT_TYPE:
-                resp = None
+                # 'restoring' a delete marker is a no-op
                 break
             try:
                 resp = req.get_response(self.app, 'PUT', query={
                     'version-id': item['version_id']})
-            except PreconditionFailed:
-                self.logger.debug('skipping failed PUT?version-id=%s' %
+                # if that worked, we'll go ahead and fix up the status code
+                resp.status_int = HTTP_NO_CONTENT
+                break
+            except (PreconditionFailed, NoSuchBucket):
+                # note: object_versioning will return 404 for the PUT if the
+                # source object for the restored version cannot be found (e.g.
+                # if the versions listing is stale), but S3Request maps a 404
+                # for a PUT to NoSuchBucket, so we catch that here to avoid it
+                # propagating to the client.
+                self.logger.debug('skipping failed PUT?version-id=%s',
                                   item['version_id'])
-                continue
-            # if that worked, we'll go ahead and fix up the status code
-            resp.status_int = HTTP_NO_CONTENT
-            break
         return resp
 
     @public

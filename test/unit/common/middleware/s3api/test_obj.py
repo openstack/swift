@@ -1678,7 +1678,11 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
              '?prefix=object&versions=True'),
         ], self.swift.calls)
 
-    def test_object_DELETE_current_version_id_is_missing(self):
+    def _do_test_object_DELETE_current_version_id_restores_fallback(
+            self, version_put_resp):
+        # verify that when a DELETE tries to restore the first of several older
+        # versions scraped from a (stale) listing, but the version object does
+        # not actually exist, then the next oldest version is restored.
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPOk, self.response_headers, None)
         resp_headers = {'X-Object-Current-Version-Id': 'null'}
@@ -1696,9 +1700,11 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         }]
         self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
                             json.dumps(old_versions))
+        # first attempt to restore
         self.swift.register('PUT', '/v1/AUTH_test/bucket/object'
                             '?version-id=1574341899.21751',
-                            swob.HTTPPreconditionFailed, {}, None)
+                            version_put_resp, {}, None)
+        # fallback attempt to restore
         self.swift.register('PUT', '/v1/AUTH_test/bucket/object'
                             '?version-id=1574333192.15190',
                             swob.HTTPCreated, {}, None)
@@ -1728,6 +1734,72 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             ('PUT', '/v1/AUTH_test/bucket/object'
              '?version-id=1574333192.15190'),
         ], self.swift.calls)
+
+    def test_object_DELETE_current_version_id_restores_fallback_412(self):
+        self._do_test_object_DELETE_current_version_id_restores_fallback(
+            swob.HTTPPreconditionFailed
+        )
+
+    def test_object_DELETE_current_version_id_restores_fallback_404(self):
+        self._do_test_object_DELETE_current_version_id_restores_fallback(
+            swob.HTTPNotFound
+        )
+
+    def _do_test_object_DELETE_current_version_id_restores_no_fallback(
+            self, version_put_resp):
+        # verify that when a DELETE tries to restore the only older version
+        # scraped from a (stale) listing, but the version object does not
+        # actually exist, then the client gets 204.
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk, self.response_headers, None)
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
+                            '?symlink=get&version-id=1574358170.12293',
+                            swob.HTTPNoContent, resp_headers, None)
+        old_versions = [{
+            'name': 'object',
+            'version_id': '1574341899.21751',
+            'content_type': 'application/missing',
+        }]
+        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
+                            json.dumps(old_versions))
+        self.swift.register('PUT', '/v1/AUTH_test/bucket/object'
+                            '?version-id=1574341899.21751',
+                            version_put_resp, {}, None)
+        req = Request.blank('/bucket/object?versionId=1574358170.12293',
+                            method='DELETE', headers={
+                                'Authorization': 'AWS test:tester:hmac',
+                                'Date': self.get_date_header()})
+        fake_info = {
+            'status': 204,
+            'sysmeta': {
+                'versions-container': '\x00versions\x00bucket',
+            }
+        }
+        with patch('swift.common.middleware.s3api.s3request.'
+                   'get_container_info', return_value=fake_info):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204', body)
+        self.assertEqual([
+            ('HEAD', '/v1/AUTH_test/bucket/object'
+             '?symlink=get&version-id=1574358170.12293'),
+            ('DELETE', '/v1/AUTH_test/bucket/object'
+             '?symlink=get&version-id=1574358170.12293'),
+            ('GET', '/v1/AUTH_test/bucket'
+             '?prefix=object&versions=True'),
+            ('PUT', '/v1/AUTH_test/bucket/object'
+             '?version-id=1574341899.21751'),
+        ], self.swift.calls)
+
+    def test_object_DELETE_current_version_id_restores_no_fallback_412(self):
+        self._do_test_object_DELETE_current_version_id_restores_no_fallback(
+            swob.HTTPPreconditionFailed
+        )
+
+    def test_object_DELETE_current_version_id_restores_no_fallback_404(self):
+        self._do_test_object_DELETE_current_version_id_restores_no_fallback(
+            swob.HTTPNotFound
+        )
 
     def test_object_DELETE_current_version_id_GET_error(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
