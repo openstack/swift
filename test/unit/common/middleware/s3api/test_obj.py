@@ -1544,7 +1544,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
              '?symlink=get&version-id=1574358170.12293')
         ], self.swift.calls)
 
-    def test_object_DELETE_current_version_id(self):
+    def test_object_DELETE_current_version_id_restores_next_oldest(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPOk, self.response_headers, None)
         resp_headers = {'X-Object-Current-Version-Id': 'null'}
@@ -1585,6 +1585,47 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
              '?prefix=object&versions=True', '0'),
             ('PUT', '/v1/AUTH_test/bucket/object'
              '?version-id=1574341899.21751', '0'),
+        ], [
+            (method, path, headers.get('content-length'))
+            for method, path, headers in self.swift.calls_with_headers])
+
+    def test_object_DELETE_current_version_id_nothing_to_restore(self):
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk, self.response_headers, None)
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
+                            '?symlink=get&version-id=1574358170.12293',
+                            swob.HTTPNoContent, resp_headers, None)
+        # prefix listing to find older versions of object may include an
+        # unrelated object...
+        prefix_listing = [{
+            'name': 'object-unrelated-suffix',
+            'version_id': '1574341899.21751',
+            'content_type': 'application/found',
+        }]
+        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
+                            json.dumps(prefix_listing))
+        req = Request.blank('/bucket/object?versionId=1574358170.12293',
+                            method='DELETE', headers={
+                                'Authorization': 'AWS test:tester:hmac',
+                                'Date': self.get_date_header()})
+        fake_info = {
+            'status': 204,
+            'sysmeta': {
+                'versions-container': '\x00versions\x00bucket',
+            }
+        }
+        with patch('swift.common.middleware.s3api.s3request.'
+                   'get_container_info', return_value=fake_info):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204')
+        self.assertEqual([
+            ('HEAD', '/v1/AUTH_test/bucket/object'
+             '?symlink=get&version-id=1574358170.12293', None),
+            ('DELETE', '/v1/AUTH_test/bucket/object'
+             '?symlink=get&version-id=1574358170.12293', None),
+            ('GET', '/v1/AUTH_test/bucket'
+             '?prefix=object&versions=True', '0'),
         ], [
             (method, path, headers.get('content-length'))
             for method, path, headers in self.swift.calls_with_headers])
