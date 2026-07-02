@@ -681,13 +681,13 @@ class ObjectContext(ObjectVersioningContext):
         Handle a PUT?version-id request and create/update the is_latest link to
         point to the specific version. Expects a valid 'version' id.
         """
-        # The intended use case for a PUT?version_id= is to create a symlink to
-        # a version in the versions container. In that context, the version_id
-        # is never expected to be 'null'. If version_id is 'null' then we
+        # The intended use case for a PUT?version-id= is to create a symlink to
+        # a version in the versions container. In that context, the version-id
+        # is never expected to be 'null'. If version-id is 'null' then we
         # cannot create a null version; the best we could do is HEAD the user
         # object to see if it is already a null version (i.e. not a symlink to
         # a version) and if it is not then perhaps return a 404 or 412. As it
-        # is, we just treat a 'null' version_id here as a 400 Bad Request.
+        # is, we just treat a 'null' version-id here as a 400 Bad Request.
         validate_version(req, version, allow_null=False)
         if req.is_chunked:
             has_body = (req.body_file.read(1) != b'')
