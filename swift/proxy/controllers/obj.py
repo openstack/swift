@@ -34,8 +34,8 @@ import time
 import math
 import random
 
-from greenlet import GreenletExit
-from swift.common.concurrency import SwiftPile, Queue, Empty, Timeout
+from swift.common.concurrency import SwiftPile, Queue, Empty, Timeout, \
+    CooperativeRLock, extra_concurrent_get_requests, gather_rounds
 
 from swift.common.utils import (
     clean_content_type, config_true_value, ContextPool, csv_append,
@@ -65,7 +65,7 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
     record_cache_op_metrics, get_cache_key, GetterBase, GetterSource, \
     is_good_source, NodeIter, get_namespaces_from_cache, \
-    namespace_bounds_to_list, namespace_list_to_bounds
+    namespace_bounds_to_list, namespace_list_to_bounds, close_swift_conn
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -637,12 +637,29 @@ class BaseObjectController(Controller):
                        self.logger.thread_locals, final_phase=final_phase)
 
         def _handle_response(putter, response):
-            statuses.append(response.status)
-            reasons.append(response.reason)
             if final_phase:
-                body = response.read()
+                try:
+                    # await_response only bounds the response headers; a
+                    # backend that then stalls or dribbles the body must not
+                    # pin this thread. Bound the read on the response socket
+                    # (getresponse() detached conn.sock into it) and abandon
+                    # the response on timeout, before recording anything so
+                    # the statuses/reasons/bodies lists stay aligned.
+                    with Timeout(self.app.node_timeout,
+                                 socket=getattr(response, 'sock', None)):
+                        body = response.read()
+                except (Exception, Timeout):
+                    self.app.exception_occurred(
+                        putter.node, 'Object',
+                        'Trying to read %(method)s %(path)s response' %
+                        {'method': req.method, 'path': req.path})
+                    close_swift_conn(response)
+                    putter.failed = True
+                    return
             else:
                 body = b''
+            statuses.append(response.status)
+            reasons.append(response.reason)
             bodies.append(body)
             if not self.app.check_response(putter.node, 'Object', response,
                                            req.method, req.path, body):
@@ -1277,7 +1294,9 @@ class ECAppIter(object):
         self.mime_boundary = None
         self.learned_content_type = None
         self.stashed_iter = None
-        self.pool = ContextPool(len(internal_parts_iters))
+        # backpressure=False: bounded EC frag-queue feeders; a blocked spawn
+        # would hold a worker slot (the feeders park on a full queue).
+        self.pool = ContextPool(len(internal_parts_iters), backpressure=False)
 
     def close(self):
         # close down the stashed iter and shutdown the context pool to
@@ -1608,79 +1627,69 @@ class ECAppIter(object):
             yield next_seg
 
     def _decode_segments_from_fragments(self, fragment_iters):
-        # Decodes the fragments from the object servers and yields one
-        # segment at a time.
-        queues = [Queue(1) for _junk in range(len(fragment_iters))]
+        # Decode fragments from the object servers, one segment at a time;
+        # gather_rounds does the mode-specific concurrent gathering.
+        #
+        # Bind to locals so the closures below don't capture self: without
+        # eventlet the feeders are real threads, and a ref to ECAppIter would
+        # keep its generator reachable, delaying the close that drains feeders.
+        logger = self.logger
+        path = self.path
+        thread_locals = self.logger.thread_locals
 
-        def put_fragments_in_queue(frag_iter, queue, logger_thread_locals):
-            self.logger.thread_locals = logger_thread_locals
+        def guarded(frag_iter):
+            # Set the feeder thread's log context and reject leading-whitespace
+            # fragments; gather_rounds turns a raising source into a None.
+            logger.thread_locals = thread_locals
             try:
                 for fragment in frag_iter:
                     if fragment.startswith(b' '):
                         raise Exception('Leading whitespace on fragment.')
-                    queue.put(fragment)
-            except GreenletExit:
-                # killed by contextpool
-                pass
-            except ChunkReadTimeout:
-                # unable to resume in ECFragGetter
-                self.logger.exception(
-                    "ChunkReadTimeout fetching fragments for %r",
-                    quote(self.path))
-            except ChunkWriteTimeout:
-                # slow client disconnect
-                self.logger.exception(
-                    "ChunkWriteTimeout feeding fragments for %r",
-                    quote(self.path))
-            except:  # noqa
-                self.logger.exception("Exception fetching fragments for %r",
-                                      quote(self.path))
+                    yield fragment
             finally:
-                queue.resize(2)  # ensure there's room
-                queue.put(None)
                 frag_iter.close()
 
+        def on_error(exc):
+            if isinstance(exc, ChunkReadTimeout):
+                # unable to resume in ECFragGetter
+                logger.exception(
+                    "ChunkReadTimeout fetching fragments for %r", quote(path))
+            elif isinstance(exc, ChunkWriteTimeout):
+                # slow client disconnect
+                logger.exception(
+                    "ChunkWriteTimeout feeding fragments for %r", quote(path))
+            else:
+                logger.exception(
+                    "Exception fetching fragments for %r", quote(path))
+
         segments_decoded = 0
-        with self.pool as pool:
-            for frag_iter, queue in zip(fragment_iters, queues):
-                pool.spawn(put_fragments_in_queue, frag_iter, queue,
-                           self.logger.thread_locals)
+        guarded_iters = [guarded(frag_iter) for frag_iter in fragment_iters]
+        for fragments in gather_rounds(guarded_iters, self.pool, on_error):
+            # A None means done: all-None is a clean finish; a short list is
+            # un-reconstructible; break so WSGI tears down the connection.
+            frags_with_data = sum([1 for f in fragments if f])
+            if frags_with_data < len(fragments):
+                if frags_with_data > 0:
+                    self.logger.warning(
+                        'Un-recoverable fragment rebuild. Only '
+                        'received %d/%d fragments for %r',
+                        frags_with_data, len(fragments),
+                        quote(self.path))
+                break
+            try:
+                segment = self.policy.pyeclib_driver.decode(fragments)
+            except ECDriverError as err:
+                self.logger.error(
+                    "Error decoding fragments for %r. "
+                    "Segments decoded: %d, "
+                    "Lengths: [%s]: %s" % (
+                        quote(self.path), segments_decoded,
+                        ', '.join(map(str, map(len, fragments))),
+                        str(err)))
+                raise
 
-            while True:
-                fragments = []
-                for queue in queues:
-                    fragment = queue.get()
-                    queue.task_done()
-                    fragments.append(fragment)
-
-                # If any object server connection yields out a None; we're
-                # done.  Either they are all None, and we've finished
-                # successfully; or some un-recoverable failure has left us
-                # with an un-reconstructible list of fragments - so we'll
-                # break out of the iter so WSGI can tear down the broken
-                # connection.
-                frags_with_data = sum([1 for f in fragments if f])
-                if frags_with_data < len(fragments):
-                    if frags_with_data > 0:
-                        self.logger.warning(
-                            'Un-recoverable fragment rebuild. Only received '
-                            '%d/%d fragments for %r', frags_with_data,
-                            len(fragments), quote(self.path))
-                    break
-                try:
-                    segment = self.policy.pyeclib_driver.decode(fragments)
-                except ECDriverError as err:
-                    self.logger.error(
-                        "Error decoding fragments for %r. "
-                        "Segments decoded: %d, "
-                        "Lengths: [%s]: %s" % (
-                            quote(self.path), segments_decoded,
-                            ', '.join(map(str, map(len, fragments))),
-                            str(err)))
-                    raise
-
-                segments_decoded += 1
-                yield segment
+            segments_decoded += 1
+            yield segment
 
     def app_iter_range(self, start, end):
         return self
@@ -2374,6 +2383,12 @@ class ECGetResponseCollection(object):
         self.default_bad_bucket = ECGetResponseBucket(self.policy, None)
         self.bad_buckets = {}
         self.node_iter_count = 0
+        # Without eventlet the ECFragGetters run in real pool threads, calling
+        # provide_alternate_node()/get_extra_headers() concurrently with the
+        # main loop's add_response(); the race loses alternate-node
+        # bookkeeping. Re-entrant because these methods call one another; no-op
+        # under eventlet.
+        self._lock = CooperativeRLock()
 
     def _get_bucket(self, timestamp):
         """
@@ -2401,10 +2416,11 @@ class ECGetResponseCollection(object):
         :raises ValueError: if the response etag or status code values do not
             match any values previously received for the same timestamp
         """
-        if is_success(get.last_status):
-            self.add_good_response(get, parts_iter)
-        else:
-            self.add_bad_resp(get, parts_iter)
+        with self._lock:
+            if is_success(get.last_status):
+                self.add_good_response(get, parts_iter)
+            else:
+                self.add_bad_resp(get, parts_iter)
 
     def add_bad_resp(self, get, parts_iter):
         bad_bucket = self._get_bad_bucket(get.last_status)
@@ -2477,25 +2493,27 @@ class ECGetResponseCollection(object):
         :return: An instance of :class:`~ECGetResponseBucket` or None if there
                  are no buckets in the collection.
         """
-        sorted_buckets = self._sort_buckets()
-        for bucket in sorted_buckets:
-            # tombstones will set bad_bucket.timestamp
-            not_found_bucket = self.bad_buckets.get(404)
-            if not_found_bucket and not_found_bucket.timestamp and \
-                    bucket.timestamp < not_found_bucket.timestamp:
-                # "good bucket" is trumped by newer tombstone
-                continue
-            return bucket
-        return self.least_bad_bucket
+        with self._lock:
+            sorted_buckets = self._sort_buckets()
+            for bucket in sorted_buckets:
+                # tombstones will set bad_bucket.timestamp
+                not_found_bucket = self.bad_buckets.get(404)
+                if not_found_bucket and not_found_bucket.timestamp and \
+                        bucket.timestamp < not_found_bucket.timestamp:
+                    # "good bucket" is trumped by newer tombstone
+                    continue
+                return bucket
+            return self.least_bad_bucket
 
     def choose_best_bucket(self):
-        best_bucket = self.best_bucket
-        # it's now or never -- close down any other requests
-        for bucket in self.buckets.values():
-            if bucket is best_bucket:
-                continue
-            bucket.close_conns()
-        return best_bucket
+        with self._lock:
+            best_bucket = self.best_bucket
+            # it's now or never -- close down any other requests
+            for bucket in self.buckets.values():
+                if bucket is best_bucket:
+                    continue
+                bucket.close_conns()
+            return best_bucket
 
     @property
     def least_bad_bucket(self):
@@ -2514,13 +2532,15 @@ class ECGetResponseCollection(object):
 
     @property
     def shortfall(self):
-        best_bucket = self.best_bucket
-        shortfall = best_bucket.shortfall
-        return min(shortfall, self.least_bad_bucket.shortfall)
+        with self._lock:
+            best_bucket = self.best_bucket
+            shortfall = best_bucket.shortfall
+            return min(shortfall, self.least_bad_bucket.shortfall)
 
     @property
     def durable(self):
-        return self.best_bucket.durable
+        with self._lock:
+            return self.best_bucket.durable
 
     def _get_frag_prefs(self):
         # Construct the current frag_prefs list, with best_bucket prefs first.
@@ -2536,7 +2556,8 @@ class ECGetResponseCollection(object):
         return frag_prefs
 
     def get_extra_headers(self):
-        frag_prefs = self._get_frag_prefs()
+        with self._lock:
+            frag_prefs = self._get_frag_prefs()
         return {'X-Backend-Fragment-Preferences': json.dumps(frag_prefs)}
 
     def _get_alternate_nodes(self):
@@ -2570,7 +2591,8 @@ class ECGetResponseCollection(object):
         return None
 
     def has_alternate_node(self):
-        return True if self._get_alternate_nodes() else False
+        with self._lock:
+            return True if self._get_alternate_nodes() else False
 
     def provide_alternate_node(self):
         """
@@ -2582,10 +2604,11 @@ class ECGetResponseCollection(object):
         :return: A dict describing a node to which the next GET request
                  should be made.
         """
-        self.node_iter_count += 1
-        nodes = self._get_alternate_nodes()
-        if nodes:
-            return nodes.pop(0).copy()
+        with self._lock:
+            self.node_iter_count += 1
+            nodes = self._get_alternate_nodes()
+            if nodes:
+                return nodes.pop(0).copy()
 
 
 class ECFragGetter(GetterBase):
@@ -2798,7 +2821,21 @@ class ECFragGetter(GetterBase):
             self.body = None
             return possible_source
         else:
-            self.body = possible_source.read()
+            try:
+                # A backend that returns an error status then stalls or
+                # dribbles its body must not pin this getter thread. Bound
+                # the read on the response socket (getresponse() detached
+                # conn.sock into it) and abandon it on timeout.
+                with Timeout(self.node_timeout,
+                             socket=getattr(possible_source, 'sock', None)):
+                    self.body = possible_source.read()
+            except (Exception, Timeout):
+                self.app.exception_occurred(
+                    node, 'Object',
+                    'Trying to read GET %(path)s response' %
+                    {'path': self.req.path})
+                close_swift_conn(possible_source)
+                return None
             conn.close()
 
             if self.app.check_response(node, 'Object', possible_source, 'GET',
@@ -2935,22 +2972,27 @@ class ECObjectController(BaseObjectController):
         return range_specs
 
     def feed_remaining_primaries(self, safe_iter, pile, req, partition, policy,
-                                 buckets, feeder_q, logger_thread_locals):
+                                 buckets, feeder_q, logger_thread_locals,
+                                 num_primaries_to_feed):
         timeout = self.app.get_policy_options(policy).concurrency_timeout
-        while True:
+        # The initial batch covered ec_request_count primaries; launch one
+        # request per remaining primary so a zero concurrency_timeout makes a
+        # GET "fully concurrent". Bound the loop by that count, not by polling
+        # primaries_left: with real threads it lags these spawns (a getter must
+        # consume its node first), so a zero timeout would over-spawn.
+        # primaries_left stays as an upper bound.
+        while (num_primaries_to_feed > 0 and
+               safe_iter.unsafe_iter.primaries_left):
             try:
                 feeder_q.get(timeout=timeout)
             except Empty:
-                if safe_iter.unsafe_iter.primaries_left:
-                    # this will run async, if it ends up taking the last
-                    # primary we won't find out until the next pass
-                    pile.spawn(self._fragment_GET_request,
-                               req, safe_iter, partition,
-                               policy, buckets.get_extra_headers,
-                               logger_thread_locals)
-                else:
-                    # ran out of primaries
-                    break
+                # this will run async, if it ends up taking the last
+                # primary we won't find out until the next pass
+                pile.spawn(self._fragment_GET_request,
+                           req, safe_iter, partition,
+                           policy, buckets.get_extra_headers,
+                           logger_thread_locals)
+                num_primaries_to_feed -= 1
             else:
                 # got a stop
                 break
@@ -2983,7 +3025,11 @@ class ECObjectController(BaseObjectController):
         ec_request_count = policy.ec_ndata
         if policy_options.concurrent_gets:
             ec_request_count += policy_options.concurrent_ec_extra_requests
-        with ContextPool(policy.ec_n_unique_fragments) as pool:
+        # backpressure=False: this pool's concurrency is already bounded
+        # (ec_n_unique_fragments) and the feeder recursively spawns into it, so
+        # a blocking spawn would hold a worker slot and throttle the fetch.
+        with ContextPool(policy.ec_n_unique_fragments,
+                         backpressure=False) as pool:
             pile = GreenAsyncPile(pool)
             buckets = ECGetResponseCollection(policy)
             node_iter.set_node_provider(buckets.provide_alternate_node)
@@ -2999,7 +3045,9 @@ class ECObjectController(BaseObjectController):
                 feeder_q = Queue()
                 pool.spawn(self.feed_remaining_primaries, safe_iter, pile, req,
                            partition, policy, buckets, feeder_q,
-                           self.logger.thread_locals)
+                           self.logger.thread_locals,
+                           max(0, node_iter.num_primary_nodes
+                               - ec_request_count))
 
             extra_requests = 0
             # max_extra_requests is an arbitrary hard limit for spawning extra
@@ -3010,6 +3058,15 @@ class ECObjectController(BaseObjectController):
             # be limit at most 2 * replicas.
             max_extra_requests = (
                 (policy.object_ring.replica_count * 2) - policy.ec_ndata)
+            # Re-requesting a known alternate (a node confirmed to hold a
+            # fragment we still need) gets headroom beyond the new-node cap:
+            # native threads run getters concurrently, so fast failures can
+            # spend the cap before a good response reveals an alternate.
+            # Headroom is 0 under eventlet, where alt_request_limit ==
+            # max_extra_requests.
+            alt_request_limit = (
+                max_extra_requests
+                + extra_concurrent_get_requests(max_extra_requests))
             for get, parts_iter in pile:
                 try:
                     buckets.add_response(get, parts_iter)
@@ -3020,8 +3077,13 @@ class ECObjectController(BaseObjectController):
                 if best_bucket.durable and best_bucket.shortfall <= 0:
                     # good enough!
                     break
-                requests_available = extra_requests < max_extra_requests and (
-                    node_iter.nodes_left > 0 or buckets.has_alternate_node())
+                # Under eventlet (alt_request_limit == max_extra_requests) this
+                # is the upstream `extra < max and (nodes_left or alt)`.
+                requests_available = (
+                    (extra_requests < max_extra_requests
+                     and node_iter.nodes_left > 0)
+                    or (extra_requests < alt_request_limit
+                        and buckets.has_alternate_node()))
                 if requests_available and (
                         buckets.shortfall > pile._pending or
                         not is_good_source(get.last_status, self.server_type)):

@@ -24,7 +24,7 @@ from time import time
 import functools
 import sys
 
-from swift.common.concurrency import Timeout, USE_EVENTLET
+from swift.common.concurrency import Timeout, preferred_watchdog
 
 from swift import __canonical_version__ as swift_version
 from swift.common import constraints
@@ -54,10 +54,7 @@ from swift.common.exceptions import APIVersionError
 from swift.common.wsgi import run_wsgi
 from swift.obj import expirer
 
-if USE_EVENTLET:
-    from swift.common.utils import Watchdog
-else:
-    from swift.common.utils import WatchdogNoOp as Watchdog
+Watchdog = preferred_watchdog()
 
 
 DEFAULT_NAMESPACE_AVG_BACKEND_FETCH_TIME = 0.3  # seconds

@@ -17,6 +17,7 @@
 import collections
 import itertools
 import random
+import threading
 import time
 import unittest
 import argparse
@@ -25,7 +26,8 @@ from contextlib import contextmanager
 import json
 
 from unittest import mock
-from swift.common.concurrency import Timeout, sleep, Empty, SwiftPool
+from swift.common.concurrency import Timeout, sleep, Empty, SwiftPool, \
+    USE_EVENTLET
 
 from io import StringIO
 from urllib.parse import quote, parse_qsl
@@ -1611,6 +1613,37 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         self.assertEqual(3, len(timestamps))
         self.assertEqual(1, len(set(timestamps)))
         self.assert_valid_timestamp(timestamps[0])
+
+    def test_get_put_responses_bounds_response_body_read(self):
+        # A backend PUT response whose body read times out must not pin the
+        # coordinating thread: the response is abandoned, the putter marked
+        # failed, and the node counted as unresponsive.
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method='PUT')
+        controller = self.controller_cls(self.app, 'a', 'c', 'o')
+
+        response = mock.MagicMock()
+        # the bounded read arms a Timeout on the response socket, which has
+        # to answer gettimeout() with a real value
+        response.sock = FakeSocket()
+        response.status = 500
+        response.reason = 'Internal Error'
+        # seconds=None: under eventlet a Timeout(seconds) arms a live hub
+        # timer that would fire during a later test.
+        response.read.side_effect = Timeout(None)
+        putter = mock.MagicMock()
+        putter.failed = False
+        putter.node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+        putter.await_response.return_value = response
+
+        statuses, reasons, bodies, etags = controller._get_put_responses(
+            req, [putter], 1, final_phase=True, min_responses=1)
+
+        # the 500 is not recorded; the slot pads out as unresponsive
+        self.assertEqual([503], statuses)
+        self.assertEqual([b''], bodies)
+        self.assertTrue(putter.failed)
+        self.assertTrue(response.read.called)
+        response.nuke_from_orbit.assert_called_once_with()
 
     def test_PUT_error_with_footers(self):
         footers_callback = make_footers_callback(b'')
@@ -3542,7 +3575,20 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
                               headers=headers) as log:
             resp = req.get_response(self.app)
             self.assertEqual(resp.status_int, 200)
+            # disconnect the client before reading any of the body
             resp.app_iter.close()
+            # Every getter must close its backend connection on disconnect;
+            # a feeder stuck on a full queue never reaches frag_iter.close().
+            # Without eventlet real threads may still be draining, so wait.
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                if all(conn.closed for conn in log.responses):
+                    break
+                sleep(0.05)
+            self.assertTrue(
+                log.responses and all(conn.closed for conn in log.responses),
+                'backend connection left open after client disconnect: %r'
+                % [conn.closed for conn in log.responses])
         self.assertEqual(len(log.requests),
                          self.policy.ec_ndata + num_slow)
 
@@ -3564,10 +3610,20 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
             if stats:
                 actual[self.app.error_limiter.node_key(n)] = stats
         self.assertEqual(actual, expected_error_limiting)
-        expected = ["Client disconnected on read of EC frag '/a/c/o'"] * 10
-        self.assertEqual(
-            self.app.logger.get_lines_for_level('warning'),
-            expected)
+        warnings = self.app.logger.get_lines_for_level('warning')
+        if USE_EVENTLET:
+            # eventlet kills every still-suspended feeder greenthread mid-read
+            # (coro.kill), so each of the ten fragment getters logs once.
+            expected = ["Client disconnected on read of EC frag '/a/c/o'"] * 10
+            self.assertEqual(warnings, expected)
+        else:
+            # Real threads can't be killed: feeders see the stop flag and
+            # finish, so how many log a mid-read interruption is scheduling-
+            # dependent. The teardown above verified no leak; here just
+            # require any warning logged is the disconnect one.
+            for warn in warnings:
+                self.assertEqual(
+                    warn, "Client disconnected on read of EC frag '/a/c/o'")
         for read_line in self.app.logger.get_lines_for_level('error'):
             self.assertIn("Trying to read EC fragment during GET (retrying)",
                           read_line)
@@ -3764,13 +3820,19 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
             # timeout immediately
             raise Empty
         feeder_q.get.side_effect = feeder_timeout
+        num_primaries_to_feed = (
+            safe_iter.unsafe_iter.num_primary_nodes - self.policy.ec_ndata)
         controller.feed_remaining_primaries(
             safe_iter, pile, req, 0, self.policy,
-            mock.MagicMock(), feeder_q, mock.MagicMock())
+            mock.MagicMock(), feeder_q, mock.MagicMock(),
+            num_primaries_to_feed)
         expected_timeout = self.app.get_policy_options(
             self.policy).concurrency_timeout
         expected_call = mock.call(timeout=expected_timeout)
-        expected_num_calls = self.policy.ec_nparity + 1
+        # The feeder polls the queue once per remaining primary, bounded by
+        # num_primaries_to_feed, so the poll count matches under eventlet and
+        # real threads (no longer relying on the async primaries_left to stop).
+        expected_num_calls = num_primaries_to_feed
         self.assertEqual(feeder_q.get.call_args_list,
                          [expected_call] * expected_num_calls)
 
@@ -4048,13 +4110,29 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
         self.assertEqual(resp.body, test_data)
 
         policy_opts.concurrent_gets = True
-        status_codes = [200] * (self.policy.object_ring.replicas - 1)
+        # concurrent_gets spawns replicas-1 getters upfront; all issue their
+        # backend request before enough fragments arrive to stop the rest.
+        # Eventlet runs them non-preemptively so they all issue for free, but
+        # real threads race response collection and an extra could be stopped
+        # first. Real backends have latency; model it with a barrier so every
+        # getter issues before any response is consumed. The pool has
+        # ec_n_unique_fragments slots (>= replicas-1), so this can't deadlock.
+        expected_requests = self.policy.object_ring.replicas - 1
+        seen = []
+        barrier = (None if USE_EVENTLET
+                   else threading.Barrier(expected_requests))
+
+        def give_connect(*a, **kw):
+            seen.append(1)
+            if barrier is not None:
+                barrier.wait(timeout=10)
+
+        status_codes = [200] * expected_requests
         with mocked_http_conn(*status_codes, body_iter=ec_archive_bodies,
-                              headers=headers) as log:
+                              headers=headers, give_connect=give_connect):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 200)
-        self.assertEqual(len(log.requests),
-                         self.policy.object_ring.replicas - 1)
+        self.assertEqual(len(seen), expected_requests)
         self.assertEqual(resp.body, test_data)
 
     def test_GET_with_body(self):
@@ -6179,6 +6257,7 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
         for line in self.logger.logger.records['ERROR']:
             self.assertIn(req.headers['x-trans-id'], line)
 
+    @unittest.skipUnless(USE_EVENTLET, 'ChunkWriteTimeout is eventlet-only')
     def test_GET_write_timeout(self):
         # verify EC GET behavior when there's a timeout sending decoded frags
         # via the queue.
@@ -7976,6 +8055,37 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
             {}, None, None, self.logger)
         self.assertEqual(3, getter.node_timeout)
 
+    def test_make_node_request_bounds_error_body_read(self):
+        # An error response whose body read times out must not pin the
+        # getter thread: the response is abandoned and None returned.
+        req = Request.blank(path='/v1/a/c/o')
+        getter = obj.ECFragGetter(
+            self.app, req, None, None, self.policy, 'a/c/o',
+            {}, lambda: {}, self.logger.thread_locals, self.logger)
+        node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
+
+        possible_source = mock.MagicMock()
+        # the bounded read arms a Timeout on the response socket, which has
+        # to answer gettimeout() with a real value
+        possible_source.sock = FakeSocket()
+        possible_source.status = 500
+        possible_source.reason = 'Internal Error'
+        possible_source.getheaders.return_value = []
+        # seconds=None: under eventlet a Timeout(seconds) arms a live hub
+        # timer that would fire during a later test.
+        possible_source.read.side_effect = Timeout(None)
+        conn = mock.MagicMock()
+        conn.sock = FakeSocket()
+        conn.getresponse.return_value = possible_source
+
+        with mock.patch('swift.proxy.controllers.obj.http_connect',
+                        return_value=conn):
+            result = getter._make_node_request(node)
+
+        self.assertIsNone(result)
+        self.assertTrue(possible_source.read.called)
+        possible_source.nuke_from_orbit.assert_called_once_with()
+
     def test_iter_bytes_from_response_part(self):
         part = FileLikeIter([b'some', b'thing'])
         it = self.getter._iter_bytes_from_response_part(part, nbytes=None)
@@ -8824,13 +8934,22 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
             # Preset the cache value, but only available after 4 retries.
             req.environ['swift.cache'].set(cache_key, cached_namespaces.bounds)
 
+            # Advance the clock from sleep(), not per time.time() call: the
+            # incidental call count differs between eventlet and real threads.
+            # Each sleep wakes the request past the token cutoff.
+            clock = [4000.99]
+
+            def busy_scheduler_sleep(seconds):
+                clock[0] += 1.0
+
             with mock.patch(
-                    'swift.proxy.controllers.obj.time.time') as mock_time, \
-                mock.patch('swift.common.utils.sleep') as mock_sleep, \
+                    'swift.proxy.controllers.obj.time.time',
+                    side_effect=lambda: clock[0]), \
+                mock.patch('swift.common.utils.sleep',
+                           side_effect=busy_scheduler_sleep) as mock_sleep, \
                 mocked_http_conn(
                     *status_codes, headers=resp_headers, body=body) \
                     as fake_conn:
-                mock_time.side_effect = itertools.count(4000.99, 1.0)
                 resp = req.get_response(self.app)
 
             # our populator only sleeps once, when it wakes up we're past the
@@ -9041,6 +9160,8 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
         do_test('PUT', 'sharding')
         do_test('PUT', 'sharded')
 
+    @unittest.skipUnless(
+        USE_EVENTLET, 'needs eventlet lockstep to force token contention')
     def test_get_backend_updating_shard_concurrent_reqs_cooperatively(self):
         self.memcache = FakeMemcache()
         self.logger.clear()
@@ -9141,6 +9262,8 @@ class TestCooperativeToken(BaseObjectControllerMixin, unittest.TestCase):
         self.assertEqual(
             self.memcache.store[cache_key], cached_namespaces.bounds)
 
+    @unittest.skipUnless(
+        USE_EVENTLET, 'needs eventlet lockstep to force token contention')
     def test_get_backend_updating_shard_concurrent_reqs_with_failures(self):
         # Tests token-based cooperative caching resilience when 1-2 of the 3
         # token winners fail to fetch shard ranges (503 errors) during 100

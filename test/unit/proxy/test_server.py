@@ -44,10 +44,17 @@ import uuid
 
 from unittest import mock
 from swift.common.concurrency import (
-    sleep, spawn, wsgi, Timeout, debug, green_http_client as http_client,
+    sleep, spawn, Timeout, debug, green_http_client as http_client,
     USE_EVENTLET
 )
-from swift.common.http_protocol import SwiftHttpProtocol
+if USE_EVENTLET:
+    from swift.common.concurrency import wsgi
+    from swift.common.http_protocol import SwiftHttpProtocol
+else:
+    # gunicorn provides the WSGI server in threading mode; its drop-in
+    # server() ignores the eventlet-only protocol/capitalize kwargs.
+    import swift.common.wsgi_gunicorn as wsgi
+    SwiftHttpProtocol = None
 from io import BytesIO
 
 from urllib.parse import quote, parse_qsl
@@ -59,7 +66,8 @@ from test.unit import (
     connect_tcp, readuntil2crlfs, fake_http_connect, FakeRing,
     FakeMemcache, patch_policies, write_fake_ring, mocked_http_conn,
     DEFAULT_TEST_EC_TYPE, make_timestamp_iter, skip_if_no_xattrs,
-    FakeHTTPResponse, node_error_count, node_last_error, set_node_errors)
+    FakeHTTPResponse, node_error_count, node_last_error, set_node_errors,
+    FakeSocket, sleep_or_timeout)
 from test.unit.helpers import setup_servers, teardown_servers
 from swift.common.statsd_client import StatsdClient
 from swift.proxy import server as proxy_server
@@ -3059,18 +3067,25 @@ class TestReplicatedObjectController(
         got_obj = b''.join(obj_parts)
         self.assertLessEqual(len(got_obj), len(obj) - shrinkage)
 
-        # Make sure the server closed the connection
-        with self.assertRaises(socket.error):
-            # Two calls are necessary; you can apparently write to a socket
-            # that the peer has closed exactly once without error, then the
-            # kernel discovers that the connection is not open and
-            # subsequent send attempts fail.
-            sock.sendall(b'GET /info HTTP/1.1\r\n')
-            # OS X especially seems to want this to detect the close
-            time.sleep(0.001)
-            sock.sendall(b'Host: localhost\r\n'
-                         b'X-Storage-Token: t\r\n'
-                         b'\r\n')
+        # The server must close the connection: a mid-stream error after the
+        # headers must break keep-alive so the client sees the truncation.
+        if USE_EVENTLET:
+            with self.assertRaises(socket.error):
+                # Two calls are necessary; you can apparently write to a socket
+                # that the peer has closed exactly once without error, then the
+                # kernel discovers that the connection is not open and
+                # subsequent send attempts fail.
+                sock.sendall(b'GET /info HTTP/1.1\r\n')
+                # OS X especially seems to want this to detect the close
+                time.sleep(0.001)
+                sock.sendall(b'Host: localhost\r\n'
+                             b'X-Storage-Token: t\r\n'
+                             b'\r\n')
+        else:
+            # gunicorn does an RFC 9112 graceful close (FIN + drain read), so
+            # unlike eventlet's full close the client sees EOF on read, not a
+            # write error. The FIN breaks keep-alive; verify via read EOF.
+            self.assertEqual(b'', fd.read())
 
     @unpatch_policies
     def test_GET_short_read_resuming(self):
@@ -5386,6 +5401,12 @@ class TestReplicatedObjectController(
                 dev['ip'] = '127.0.0.1'
                 dev['port'] = 1
 
+            # Without eventlet the client timeout is enforced at the socket
+            # (WatchdogTimeout sets socket.settimeout), so the fake slow body
+            # must honor it: sleep_or_timeout raises socket.timeout once
+            # exceeded. Under eventlet the watchdog interrupts the sleep.
+            sock = FakeSocket()
+
             class SlowBody(object):
 
                 def __init__(self):
@@ -5393,7 +5414,7 @@ class TestReplicatedObjectController(
 
                 def read(self, size=-1):
                     if self.sent < 4:
-                        sleep(0.1)
+                        sleep_or_timeout(0.1, sock)
                         self.sent += 1
                         return b' '
                     return b''
@@ -5401,7 +5422,8 @@ class TestReplicatedObjectController(
             req = Request.blank('/v1/a/c/o',
                                 environ={'REQUEST_METHOD': 'PUT',
                                          'swift.cache': FakeMemcache(),
-                                         'wsgi.input': SlowBody()},
+                                         'wsgi.input': SlowBody(),
+                                         'gunicorn.socket': sock},
                                 headers={'Content-Length': '4',
                                          'Content-Type': 'text/plain'})
             self.app.update_request(req)
@@ -7051,12 +7073,20 @@ class TestReplicatedObjectController(
             else:
                 sock.close()
             # Make sure the GC is run again for pythons without reference
-            # counting
-            for i in range(4):
+            # counting. Without eventlet a worker thread holds its Request
+            # until it notices the disconnect (on its next write to the closed
+            # socket), so poll and GC until tracked instances drain to the
+            # pre-GET baseline; a genuine leak never drains and fails on the
+            # deadline.
+            deadline = time.time() + 5
+            while True:
                 sleep(0)  # let eventlet do its thing
                 gc.collect()
-            else:
-                sleep(0)
+                if len(_request_instances) <= before_request_instances:
+                    break
+                if time.time() >= deadline:
+                    break
+                sleep(0.1)
             self.assertEqual(
                 before_request_instances, len(_request_instances))
 
@@ -8649,9 +8679,18 @@ class BaseTestECObjectController(BaseTestObjectController):
                     _test_servers[0].logger.get_lines_for_level('warning'))
 
         # check for disconnect message!
-        expected = [
-            "Client disconnected on read of EC frag '/a/%s-discon/test'"
-            % self.ec_policy.name] * 2
+        if USE_EVENTLET:
+            # eventlet leaves the backend fragment reads suspended while the
+            # write to the disconnected client blocks; killing those
+            # greenthreads interrupts a read and logs a per-getter warning.
+            expected = [
+                "Client disconnected on read of EC frag '/a/%s-discon/test'"
+                % self.ec_policy.name] * 2
+        else:
+            # Without eventlet the in-process fragment reads finish before the
+            # disconnect is detected, so there's no in-flight read to warn
+            # about; the disconnect is still handled cleanly (checks below).
+            expected = []
         self.assertEqual(
             _test_servers[0].logger.get_lines_for_level('warning'),
             expected)
@@ -8704,7 +8743,17 @@ class BaseTestECObjectController(BaseTestObjectController):
         self._sleep_enough(condition)
         expected = ['Client disconnected without sending enough data']
         warns = _test_servers[0].logger.get_lines_for_level('warning')
-        self.assertEqual(expected, warns)
+        if USE_EVENTLET:
+            self.assertEqual(expected, warns)
+        else:
+            # Without eventlet a client aborting a Content-Length PUT may send
+            # a FIN (clean short read, "without sending enough data") or a RST
+            # (socket error mapped to ChunkReadError, "without sending last
+            # chunk"), depending on TCP timing; both report the disconnect.
+            # Accept either.
+            self.assertIn(warns, (
+                ['Client disconnected without sending enough data'],
+                ['Client disconnected without sending last chunk']))
         errors = _test_servers[0].logger.get_lines_for_level('error')
         self.assertEqual([], errors)
 

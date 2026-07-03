@@ -41,7 +41,8 @@ from swift.common.storage_policy import StoragePolicy, StoragePolicyCollection
 from test.debug_logger import debug_logger
 from test.unit import (
     fake_http_connect, FakeRing, FakeMemcache, PatchPolicies, patch_policies,
-    FakeSource, StubResponse, CaptureIteratorFactory, BaseUnitTestCase)
+    FakeSource, StubResponse, CaptureIteratorFactory, BaseUnitTestCase,
+    FakeSocket)
 from swift.common.request_helpers import (
     get_sys_meta_prefix, get_object_transient_sysmeta
 )
@@ -1774,6 +1775,7 @@ class TestGetOrHeadHandler(BaseTest):
             lambda h, *default: '1' if h == 'X-PUT-Timestamp'
             else (default[0] if default else None))
         conn = mock.MagicMock()
+        conn.sock = FakeSocket()
         conn.getresponse.return_value = possible_source
 
         def fake_http_connect(*a, **kw):
@@ -1817,6 +1819,9 @@ class TestGetOrHeadHandler(BaseTest):
         node = {'ip': '1.2.3.4', 'port': 6200, 'device': 'sda'}
 
         possible_source = mock.MagicMock()
+        # the bounded read arms a Timeout on the response socket, which has
+        # to answer gettimeout() with a real value
+        possible_source.sock = FakeSocket()
         possible_source.status = 500
         possible_source.reason = 'Internal Error'
         possible_source.getheaders.return_value = []
@@ -1826,6 +1831,7 @@ class TestGetOrHeadHandler(BaseTest):
         # timer that would fire during a later test.
         possible_source.read.side_effect = Timeout(None)
         conn = mock.MagicMock()
+        conn.sock = FakeSocket()
         conn.getresponse.return_value = possible_source
 
         with mock.patch('swift.proxy.controllers.base.http_connect',

@@ -110,6 +110,7 @@ if USE_EVENTLET:
     # No real lock needed under eventlet (cooperative scheduling)
     from contextlib import nullcontext
     CooperativeLock = nullcontext
+    CooperativeRLock = nullcontext
 
     # Return an un-monkeypatched stdlib module (eventlet patches several).
     original = eventlet.patcher.original
@@ -200,6 +201,12 @@ if USE_EVENTLET:
         # timeout is enforced there rather than here.
         return proc.stdout.read()
 
+    def extra_concurrent_get_requests(base):
+        # eventlet runs spawned GET getters in cooperative lockstep, so a
+        # request budget is only reached after good responses have revealed
+        # what else to ask for; no extra headroom is needed.
+        return 0
+
 else:
     import http.client as green_http_client
     import os as green_os
@@ -214,7 +221,7 @@ else:
     )
     from queue import Empty, Queue as _StdQueue
     from threading import Event, Event as ThreadingEvent, Semaphore
-    from threading import Lock as CooperativeLock
+    from threading import Lock as CooperativeLock, RLock as CooperativeRLock
 
     class Queue(_StdQueue):
         def resize(self, size):
@@ -522,6 +529,13 @@ else:
         if 'exc' in result:
             raise result['exc']
         return result.get('out')
+
+    def extra_concurrent_get_requests(base):
+        # Native threads run spawned getters concurrently, so fast failures
+        # can spend a request budget before a good response reveals what else
+        # to ask for. Add headroom to absorb that; it stays a hard cap, so a
+        # misbehaving backend can't drive an unbounded loop.
+        return base
 
     class Pool(object):
         """
@@ -938,6 +952,79 @@ def signal_for(action, child=False, uses_eventlet=USE_EVENTLET):
 # first round with a None. on_error(exc) is called when a source raises;
 # iterators are closed on exit (incl. early GeneratorExit). Bound to a
 # mode-specific variant at import so callers don't branch per call.
+if USE_EVENTLET:
+    def gather_rounds(iters, pool, on_error=None):
+        # Feed each iterator into a depth-1 queue via the pool so sources
+        # advance concurrently; the pool kills the feeders when it exits.
+        iters = list(iters)
+        queues = [Queue(1) for _junk in iters]
+
+        def feed(it, queue):
+            try:
+                for item in it:
+                    queue.put(item)
+            except GreenletExit:
+                # killed by the pool on early close
+                pass
+            except BaseException as exc:  # noqa
+                # BaseException, not Exception: Chunk*Timeout derives from it.
+                if on_error is not None:
+                    on_error(exc)
+            finally:
+                queue.resize(2)  # ensure there's room
+                queue.put(None)
+                it.close()
+
+        with pool as spawner:
+            for it, queue in zip(iters, queues):
+                spawner.spawn(feed, it, queue)
+            while True:
+                round_ = []
+                for queue in queues:
+                    item = queue.get()
+                    queue.task_done()
+                    round_.append(item)
+                yield round_
+                if any(item is None for item in round_):
+                    return
+
+else:
+    def gather_rounds(iters, pool, on_error=None):
+        # Advance serially, deliberately not via concurrent pool feeders.
+        # Without eventlet a feeder thread can't be killed on early close
+        # (client disconnect): it keeps running next() on its source, so
+        # closing that source from the request thread (ECAppIter.close) races
+        # the feeder -- "generator already executing" -- and leaks the backend
+        # socket until the read times out. Serial keeps each source owned by
+        # one thread, so cleanup is race-free.
+        #
+        # Cost: a healthy round is ~max of the per-source read latencies (the
+        # kernel buffers idle sockets while one is read), but a round with
+        # stalled sources pays ~one read timeout per stall rather than
+        # overlapping them as eventlet's feeders do. Accepted: it only slows
+        # failures on an already-degraded cluster and never corrupts or leaks.
+        iters = list(iters)
+        try:
+            while True:
+                round_ = []
+                for it in iters:
+                    try:
+                        item = next(it, None)
+                    except BaseException as exc:  # noqa
+                        # BaseException, not Exception: Chunk*Timeout
+                        # derives from it.
+                        if on_error is not None:
+                            on_error(exc)
+                        item = None
+                    round_.append(item)
+                yield round_
+                if any(item is None for item in round_):
+                    return
+        finally:
+            for it in iters:
+                it.close()
+
+
 MODE_ENV_VAR = 'USE_EVENTLET'
 
 
@@ -1185,6 +1272,16 @@ def get_swift_http_protocols():
     return SwiftHttpProtocol, SwiftHttpProxiedProtocol
 
 
+def preferred_watchdog():
+    # eventlet's greenthread Watchdog, or the no-op stand-in without eventlet.
+    # Lazy-imported from utils to avoid an import cycle (utils imports us).
+    if USE_EVENTLET:
+        from swift.common.utils import Watchdog
+        return Watchdog
+    from swift.common.utils import WatchdogNoOp
+    return WatchdogNoOp
+
+
 def pool_get_with_timeout(base_pool, pool_timeout, timeout_exc):
     # Acquire an item from base_pool, raising timeout_exc after pool_timeout in
     # both modes. Under eventlet the exc Timeout interrupts the blocked get();
@@ -1234,6 +1331,7 @@ __all__ = [
     'original',
     'DEFAULT_PROFILE_MODULE',
     'make_pile_queue',
+    'gather_rounds',
     'export_mode',
     'mode_from_environ',
     'HttpProtocol',
@@ -1258,6 +1356,7 @@ __all__ = [
     'timeout',
     'websocket',
     'CooperativeLock',
+    'CooperativeRLock',
     'Event',
     'ThreadingEvent',
     'socket',
