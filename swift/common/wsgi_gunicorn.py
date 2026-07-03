@@ -729,6 +729,31 @@ class ChunkedInput(_CountingInput):
         return self._account(data, size)
 
 
+def _tune_malloc():
+    """glibc's malloc dynamically shrinks its trim/mmap thresholds in
+    multithreaded processes, making it return every large per-chunk buffer
+    to the kernel on free and page-fault it back (re-zeroed) on the next
+    allocation -- measured ~835 minor faults per EC fragment GET vs 2 in
+    the single-threaded eventlet worker, costing ~40% object-tier CPU per
+    byte and a large slice of request latency. Pin the thresholds (an
+    explicit mallopt also disables the dynamic shrinking) so the arena
+    recycles the buffers instead. Called in the master pre-fork; the
+    settings are process state, so workers inherit them. Non-glibc
+    platforms lack mallopt and are silently skipped.
+    SWIFT_GTHREAD_NO_MALLOC_TUNE=1 disables (measurement).
+    """
+    if config_true_value(os.environ.get('SWIFT_GTHREAD_NO_MALLOC_TUNE')):
+        return False
+    try:
+        import ctypes
+        libc = ctypes.CDLL(None)
+        m_trim_threshold, m_mmap_threshold = -1, -3
+        return bool(libc.mallopt(m_trim_threshold, 128 * 1024 * 1024) and
+                    libc.mallopt(m_mmap_threshold, 4 * 1024 * 1024))
+    except (ImportError, OSError, AttributeError, TypeError):
+        return False
+
+
 def check_config_gunicorn(conf_path, app_section, *args, **kwargs):
     """
     Load and validate configuration for gunicorn mode. Mostly borrowed from
@@ -1060,6 +1085,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     # Do some daemonization process hygiene before running the server.
     clean_up_daemon_hygiene()
+
+    # Pin glibc malloc thresholds before forking workers (see _tune_malloc).
+    _tune_malloc()
 
     # Ensure TZ environment variable exists to avoid stat('/etc/localtime')
     # on some platforms. This locks in reported times to UTC.

@@ -270,3 +270,15 @@ class TestProxyProtocolEnforcement(unittest.TestCase):
             b'PROXY TCP4 1.1.1.1 2.2.2.2 100 200\r\n'
             b'GET / HTTP/1.1\r\nHost: x\r\n\r\n')
         self.assertIsNotNone(req.proxy_protocol_info)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestTuneMalloc(unittest.TestCase):
+    def test_pins_thresholds_on_glibc(self):
+        # glibc mallopt returns nonzero on success; the helper reports it
+        self.assertTrue(wsgi_gunicorn._tune_malloc())
+
+    def test_kill_switch(self):
+        with mock.patch.dict('os.environ',
+                             {'SWIFT_GTHREAD_NO_MALLOC_TUNE': '1'}):
+            self.assertFalse(wsgi_gunicorn._tune_malloc())
