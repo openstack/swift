@@ -26,6 +26,7 @@ from collections import defaultdict
 import unittest
 from uuid import uuid4
 import shutil
+import socket
 from http.client import HTTPConnection
 from urllib.parse import urlparse
 
@@ -121,6 +122,21 @@ def check_server(ipport, ipport2server):
         rv = _retry_timeout(_check_proxy, args=(
             'test:tester', 'testing'))
     return rv
+
+
+def _check_listen(ipport):
+    with socket.create_connection(ipport, timeout=1):
+        return True
+
+
+def wait_for_listen(ipport):
+    """
+    Poll until something accepts TCP connections at ipport. gunicorn binds
+    its listen socket a moment after the process starts (eventlet bound
+    synchronously), so a caller that queries a server immediately after
+    (re)start can race it (ECONNREFUSED); this closes that gap.
+    """
+    return _retry_timeout(_check_listen, args=(ipport,))
 
 
 def kill_server(ipport, ipport2server):
@@ -451,6 +467,13 @@ class ProbeTest(unittest.TestCase):
         obj_len = len(obj)
         self.assertEqual(obj_len, length, 'len(%r) == %d, not %d' % (
             obj, obj_len, length))
+
+    def restart_proxy(self):
+        # gunicorn binds its listen socket after process start; wait for it
+        # (else a request races it: ECONNREFUSED).
+        Manager(['proxy-server']).restart()
+        proxy = urlparse(self.url)
+        wait_for_listen((proxy.hostname, proxy.port))
 
     def device_dir(self, node):
         server_type, config_number = get_server_number(

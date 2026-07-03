@@ -407,7 +407,7 @@ class TestReconstructorRebuild(ECProbeTest):
 
         # restart proxy to clear error-limiting so that the revived drive
         # participates again
-        Manager(['proxy-server']).restart()
+        self.restart_proxy()
 
         # client GET will fail with 503 ...
         with self.assertRaises(ClientException) as cm:

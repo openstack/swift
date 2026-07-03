@@ -455,7 +455,7 @@ class TestECObjectHandoff(ECProbeTest):
         })
 
         # clear node error limiting
-        Manager(['proxy']).restart()
+        self.restart_proxy()
 
         resp_etag = self.get_object(container_name, object_name)
         self.assertEqual(resp_etag, new_contents.etag)

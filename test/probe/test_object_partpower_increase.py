@@ -25,7 +25,7 @@ from uuid import uuid4
 
 from swiftclient import client
 
-from swift.common.manager import Manager, Server
+from swift.common.manager import Server
 from swift.common.ring import RingBuilder
 from swift.common.utils import replace_partition_in_path, readconf
 from swift.obj.diskfile import get_data_dir
@@ -107,7 +107,7 @@ class TestPartPowerIncrease(ProbeTest):
         ring_data.save(self.ring_file)
 
         # Ensure the proxy uses the changed ring
-        Manager(['proxy']).restart()
+        self.restart_proxy()
 
         # Ensure object is still accessible
         client.head_object(self.url, self.token, container, obj)
@@ -154,7 +154,7 @@ class TestPartPowerIncrease(ProbeTest):
         ring_data.save(self.ring_file)
 
         # Ensure the proxy uses the changed ring
-        Manager(['proxy']).restart()
+        self.restart_proxy()
 
         # Ensure objects are still accessible
         client.head_object(self.url, self.token, container, obj)

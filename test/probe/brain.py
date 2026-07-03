@@ -30,7 +30,28 @@ from swift.common.http import HTTP_NOT_FOUND
 from swiftclient import client, get_auth, ClientException
 
 from test.probe import PROXY_BASE_URL
-from test.probe.common import ENABLED_POLICIES
+from test.probe.common import ENABLED_POLICIES, wait_for_listen
+
+
+class ReadyManager(Manager):
+    """
+    Manager that waits for (re)started servers to accept connections before
+    returning. gunicorn binds its listen socket a moment after the process
+    starts (eventlet bound synchronously), so a test that queries a server
+    right after start()/restart() can race it (ECONNREFUSED). The ring maps a
+    server number to its bind ip:port (number == device id + 1).
+    """
+    ring = None
+
+    def start(self, **kwargs):
+        status = super().start(**kwargs)
+        if self.ring is not None:
+            number = kwargs.get('number')
+            for dev in self.ring.devs:
+                if dev and (number is None or dev['id'] + 1 == number):
+                    wait_for_listen((dev['ip'], dev['port']))
+        return status
+
 
 TIMEOUT = 60
 
@@ -73,7 +94,7 @@ class BaseBrain(object, metaclass=meta_command):
         self.container_name = container_name
         self.object_name = object_name
         server_list = ['%s-server' % server_type] if server_type else ['all']
-        self.servers = Manager(server_list)
+        self.servers = ReadyManager(server_list)
         policies = list(ENABLED_POLICIES)
         random.shuffle(policies)
         self.policies = itertools.cycle(policies)
@@ -97,6 +118,7 @@ class BaseBrain(object, metaclass=meta_command):
         else:
             raise ValueError('Unknown server_type: %r' % server_type)
         self.server_type = server_type
+        self.servers.ring = self.ring
 
         self.part, self.nodes = self.ring.get_nodes(self.account, c, o)
 

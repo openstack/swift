@@ -32,7 +32,7 @@ from swift.common.ring import Ring
 from swift.common.manager import Manager
 
 from swift.common.concurrency import (
-    SwiftPool, USE_EVENTLET, sleep, Queue, socket
+    SwiftPool, USE_EVENTLET, sleep, Queue, socket, reset_pool
 )
 
 from test.probe import PROXY_BASE_URL
@@ -169,32 +169,37 @@ class TestWSGIServerProcessHandling(ReplProbeTest):
 
 
 class OldReloadMixin(object):
+    def _server_ok(self, starting, current):
+        # eventlet reload re-execs (the server pid changes); gunicorn reloads
+        # in place (the master pid persists).
+        if USE_EVENTLET:
+            return not (starting & current)
+        return starting == current
+
     def make_post_reload_pid_cb(self):
         def _cb(post_reload_pids):
-            # We expect all old server PIDs to be gone, a new server present,
-            # and for there to be exactly 1 old worker PID plus additional new
-            # worker PIDs.
-            old_servers_dead = not (self.starting_pids['server'] &
-                                    post_reload_pids['server'])
+            # We expect the server replaced (eventlet) or persisted (gunicorn),
+            # exactly 1 old worker PID still draining, plus new worker PIDs.
+            server_ok = self._server_ok(self.starting_pids['server'],
+                                        post_reload_pids['server'])
             one_old_worker = 1 == len(self.starting_pids['worker'] &
                                       post_reload_pids['worker'])
             new_workers_present = (post_reload_pids['worker'] -
                                    self.starting_pids['worker'])
-            return (post_reload_pids['server'] and old_servers_dead and
+            return (post_reload_pids['server'] and server_ok and
                     one_old_worker and new_workers_present)
         return _cb
 
     def make_post_close_pid_cb(self):
         def _cb(post_close_pids):
-            # We expect all old server PIDs to be gone, a new server present,
-            # no old worker PIDs, and additional new worker PIDs.
-            old_servers_dead = not (self.starting_pids['server'] &
-                                    post_close_pids['server'])
+            # As above, but the draining old worker is now gone too.
+            server_ok = self._server_ok(self.starting_pids['server'],
+                                        post_close_pids['server'])
             old_workers_dead = not (self.starting_pids['worker'] &
                                     post_close_pids['worker'])
             new_workers_present = (post_close_pids['worker'] -
                                    self.starting_pids['worker'])
-            return (post_close_pids['server'] and old_servers_dead and
+            return (post_close_pids['server'] and server_ok and
                     old_workers_dead and new_workers_present)
         return _cb
 
@@ -476,8 +481,7 @@ def spawn_services(ip_ports, timeout=10):
     try:
         yield q
     finally:
-        for gt in list(pool.coroutines_running):
-            gt.kill()
+        reset_pool(pool)
 
 
 class TestHungDaemon(unittest.TestCase):

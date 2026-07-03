@@ -74,6 +74,21 @@ class TestObjectFailures(ReplProbeTest):
         data_file = get_data_file_path(obj_dir)
         return onode, opart, data_file
 
+    def assert_quarantined(self, onode, opart, container, obj):
+        # Quarantine happens on the previous GET reader's close, which runs
+        # concurrently in a threaded server (synchronous under eventlet); poll
+        # until 404.
+        for _ in range(50):
+            try:
+                direct_client.direct_get_object(
+                    onode, opart, self.account, container, obj, headers={
+                        'X-Backend-Storage-Policy-Index': self.policy.idx})
+            except ClientException as err:
+                self.assertEqual(err.http_status, 404)
+                return
+            time.sleep(0.1)
+        raise Exception("Did not quarantine object")
+
     def run_quarantine(self):
         container = 'container-%s' % uuid4()
         obj = 'object-%s' % uuid4()
@@ -93,13 +108,7 @@ class TestObjectFailures(ReplProbeTest):
             onode, opart, self.account, container, obj, headers={
                 'X-Backend-Storage-Policy-Index': self.policy.idx})[-1]
         self.assertEqual(odata, backend_data)
-        try:
-            direct_client.direct_get_object(
-                onode, opart, self.account, container, obj, headers={
-                    'X-Backend-Storage-Policy-Index': self.policy.idx})
-            raise Exception("Did not quarantine object")
-        except ClientException as err:
-            self.assertEqual(err.http_status, 404)
+        self.assert_quarantined(onode, opart, container, obj)
 
     def run_quarantine_range_etag(self):
         container = 'container-range-%s' % uuid4()
@@ -126,13 +135,7 @@ class TestObjectFailures(ReplProbeTest):
                 headers=req_headers)[-1]
             self.assertEqual(odata, result)
 
-        try:
-            direct_client.direct_get_object(
-                onode, opart, self.account, container, obj, headers={
-                    'X-Backend-Storage-Policy-Index': self.policy.idx})
-            raise Exception("Did not quarantine object")
-        except ClientException as err:
-            self.assertEqual(err.http_status, 404)
+        self.assert_quarantined(onode, opart, container, obj)
 
     def run_quarantine_zero_byte_get(self):
         container = 'container-zbyte-%s' % uuid4()
