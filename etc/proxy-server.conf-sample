@@ -28,8 +28,9 @@ bind_port = 8080
 
 # Use an integer to override the number of pre-forked processes that will
 # accept connections.  Should default to the number of effective cpu
-# cores in the system.  It's worth noting that individual workers will
-# use many eventlet co-routines to service multiple concurrent requests.
+# cores in the system.  Under eventlet each worker uses many co-routines to
+# service concurrent requests; under gunicorn (eventlet disabled) concurrency
+# within a worker comes from `threads` (see below) instead, so set both.
 # workers = auto
 #
 # Maximum concurrent requests per worker
@@ -136,7 +137,15 @@ bind_port = 8080
 # Timeout to use when looking for pipelined requests. Set to zero to disable
 # request pipelining. Defaults to client_timeout. Requires eventlet>=0.33.4;
 # with earlier eventlet, any non-zero value is treated as client_timeout.
+# Under gunicorn (eventlet disabled) the default is 5 seconds.
 # keepalive_timeout =
+#
+# Number of threads per worker, used only under gunicorn (eventlet disabled).
+# Real OS threads, so workers * threads bounds concurrent requests. Size to
+# peak concurrent connections; a slow or idle client holds a thread for its
+# lifetime, so set client_timeout and keepalive_timeout to prevent pool
+# exhaustion.
+# threads = 16
 #
 # Note: enabling evenlet_debug might reveal sensitive information, for example
 # signatures for temp urls
@@ -628,9 +637,6 @@ user_test5_tester5 = testing5 service
 # An identity that has this role can read anything in a project, so it is
 # basically a swiftoperator, but read-only.
 # project_reader_roles =
-#
-# Number of threads per worker when using Gunicorn
-# threads = 4
 
 [filter:s3api]
 use = egg:swift#s3api

@@ -25,8 +25,9 @@ import time
 import traceback
 import socket
 
-from swift.common.concurrency import sleep, wsgi, Timeout, tpool, spawn
-from swift.common.wsgi import run_wsgi, wsgi_input_class
+from swift.common.concurrency import sleep, wsgi, Timeout, tpool, spawn, \
+    wsgi_input_class
+from swift.common.wsgi import run_wsgi
 
 from swift.common.utils import public, get_logger, \
     config_true_value, config_percent_value, \
@@ -1487,7 +1488,7 @@ class ObjectController(BaseStorageServer):
         # but the common case is sending the whole object, so we'll start
         # there.
         if req.method == 'GET' and res.status_int == 200 and \
-           isinstance(env['wsgi.input'], wsgi_input_class):
+           isinstance(env['wsgi.input'], wsgi_input_class()):
             app_iter = getattr(res, 'app_iter', None)
             checker = getattr(app_iter, 'can_zero_copy_send', None)
             if checker and checker():

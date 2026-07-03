@@ -1136,7 +1136,8 @@ class ReplicatedObjectController(BaseObjectController):
                 with WatchdogTimeout(self.app.watchdog,
                                      self.app.client_timeout,
                                      ChunkReadTimeout,
-                                     socket=sock):
+                                     socket=sock,
+                                     shutdown_read_only=True):
                     try:
                         chunk = next(data_source)
                     except StopIteration:
@@ -1167,7 +1168,8 @@ class ReplicatedObjectController(BaseObjectController):
             self.logger.warning(
                 'ERROR Client read timeout (%ss)', err.seconds)
             self.logger.increment('object.client_timeouts')
-            raise HTTPRequestTimeout(request=req)
+            raise HTTPRequestTimeout(request=req,
+                                     headers={'Connection': 'close'})
         except HTTPException:
             raise
         except ChunkReadError:
@@ -3303,7 +3305,8 @@ class ECObjectController(BaseObjectController):
                 with WatchdogTimeout(self.app.watchdog,
                                      self.app.client_timeout,
                                      ChunkReadTimeout,
-                                     socket=sock):
+                                     socket=sock,
+                                     shutdown_read_only=True):
                     try:
                         chunk = next(data_source)
                     except StopIteration:
@@ -3389,7 +3392,8 @@ class ECObjectController(BaseObjectController):
             self.logger.warning(
                 'ERROR Client read timeout (%ss)', err.seconds)
             self.logger.increment('object.client_timeouts')
-            raise HTTPRequestTimeout(request=req)
+            raise HTTPRequestTimeout(request=req,
+                                     headers={'Connection': 'close'})
         except ChunkReadError:
             self.logger.warning(
                 'Client disconnected without sending last chunk')

@@ -47,10 +47,10 @@ import itertools
 import stat
 
 from swift.common.concurrency import (
-    eventlet, SwiftPool, sleep, Timeout, Event, socket, Semaphore, Empty,
-    report_worker_exception, CooperativeLock, socket_timeout_exit,
-    make_pile_queue, socket_timeout_enter, reset_pool, original,
-    eventlet_monkey_patch
+    eventlet, SwiftPool, sleep, Timeout, Event, socket,
+    Semaphore, Empty, CooperativeLock, original, make_pile_queue, reset_pool,
+    eventlet_monkey_patch, report_worker_exception,
+    socket_timeout_enter, socket_timeout_exit,
 )
 # Re-exported for callers that historically imported it from here (relinker).
 from swift.common.concurrency import install_hub  # noqa: F401
@@ -5290,13 +5290,15 @@ class NotificationServer(object):
         self.close()
 
 
-def systemd_notify(logger=None, msg=b"READY=1"):
+def systemd_notify(logger=None, msg=b"READY=1", pid=None):
     """
     Send systemd-compatible notifications.
 
     Attempt to send the message to swift's pid-specific notification socket;
     see :func:`get_pid_notify_socket`. This is used by the ``swift-reload``
-    command.
+    command. ``pid`` selects which pid's socket to address; it defaults to the
+    calling process, but a gunicorn worker passes the master's pid so the
+    notification reaches the socket ``swift-reload`` bound for the master.
 
     Additionally, notify the service manager that started this process, if
     it has set the NOTIFY_SOCKET environment variable. For example, systemd
@@ -5312,11 +5314,13 @@ def systemd_notify(logger=None, msg=b"READY=1"):
 
     :param logger: a logger object
     :param msg: the message to send
+    :param pid: pid whose notification socket to address (default: this
+        process)
     """
     if not isinstance(msg, bytes):
         msg = msg.encode('utf8')
 
-    notify_sockets = [get_pid_notify_socket()]
+    notify_sockets = [get_pid_notify_socket(pid)]
     systemd_socket = os.getenv('NOTIFY_SOCKET')
     if systemd_socket:
         notify_sockets.append(systemd_socket)
@@ -5486,7 +5490,8 @@ class WatchdogTimeout(object):
     exception class.
     """
 
-    def __init__(self, watchdog, timeout, exc, timeout_at=None, socket=None):
+    def __init__(self, watchdog, timeout, exc, timeout_at=None, socket=None,
+                 shutdown_read_only=False):
         """
         Schedule a timeout in a Watchdog instance
 
@@ -5495,6 +5500,9 @@ class WatchdogTimeout(object):
         :param exc: exception class to raise when the timeout expires
         :param timeout_at: allow to force the expiration timestamp
         :param socket: optional socket to set timeout
+        :param shutdown_read_only: without eventlet, shut down only the read
+            half (SHUT_RD) on timeout, keeping the write half open so a stalled
+            client read can still be answered.
         """
         self.watchdog = watchdog
         self.key = watchdog.start(timeout, exc, timeout_at=timeout_at)
@@ -5503,13 +5511,15 @@ class WatchdogTimeout(object):
         self.socket = socket
         self.previous_timeout = None
         self.exc = exc
+        self.shutdown_read_only = shutdown_read_only
 
     def __enter__(self):
         # Pass timeout_at so threading mode bounds the socket by the shared
         # deadline (e.g. all PUT backends share one chunk deadline) rather than
         # giving each a fresh full timeout. No-op under eventlet.
         self.previous_timeout = socket_timeout_enter(
-            self.socket, self.timeout, timeout_at=self.timeout_at)
+            self.socket, self.timeout, timeout_at=self.timeout_at,
+            read_only=self.shutdown_read_only)
 
     def __exit__(self, exc_type, value, traceback):
         self.watchdog.stop(self.key)

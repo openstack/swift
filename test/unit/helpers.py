@@ -24,7 +24,7 @@ import os
 from tempfile import mkdtemp
 import warnings
 
-from swift.common.concurrency import spawn, wsgi
+from swift.common.concurrency import spawn, USE_EVENTLET
 from unittest import mock
 from shutil import rmtree
 
@@ -36,7 +36,14 @@ from swift.common.storage_policy import StoragePolicy, ECStoragePolicy
 from swift.common.middleware import listing_formats, proxy_logging
 from swift.common import utils
 from swift.common.utils import mkdirs, NullLogger, Timestamp
-from swift.common.http_protocol import SwiftHttpProtocol
+if USE_EVENTLET:
+    from swift.common.concurrency import wsgi
+    from swift.common.http_protocol import SwiftHttpProtocol
+else:
+    # gunicorn provides the WSGI server in threading mode; its drop-in
+    # server() ignores the eventlet-only protocol/capitalize kwargs below.
+    import swift.common.wsgi_gunicorn as wsgi
+    SwiftHttpProtocol = None
 from swift.container import server as container_server
 from swift.obj import server as object_server
 from swift.proxy import server as proxy_server

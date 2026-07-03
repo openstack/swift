@@ -13,15 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import builtins
 import itertools
 import socket
+import sys
 import time
 import unittest
+from unittest import mock
 
 import threading
 from swift.common.concurrency import (
     Pool, USE_EVENTLET, Timeout, spawn, tpool, SwiftPool, sleep, reset_pool,
-    SwiftPile, socket_timeout_enter, socket_timeout_exit, set_read_timeout)
+    SwiftPile, socket_timeout_enter, socket_timeout_exit, set_read_timeout,
+    run_wsgi_server)
 
 
 class TestSocketTimeoutHelpers(unittest.TestCase):
@@ -689,3 +693,35 @@ class TestPoolCreateFailure(unittest.TestCase):
         self.assertEqual(len(a_err), 1)
         # B must create once the slot frees, not hang until its timeout
         self.assertEqual(b_res, ['conn'])
+
+
+@unittest.skipIf(USE_EVENTLET, "gunicorn dispatch is threading-mode only")
+class TestRunWsgiServerGate(unittest.TestCase):
+    def test_missing_gunicorn_is_actionable(self):
+        # On Python < 3.10 gunicorn is not installed (requirements.txt
+        # marker); the dispatch must reject the mode with an actionable
+        # error, not a bare ModuleNotFoundError.
+        real_import = builtins.__import__
+
+        def no_gunicorn(name, *args, **kwargs):
+            if name == 'gunicorn':
+                raise ModuleNotFoundError("No module named 'gunicorn'",
+                                          name='gunicorn')
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch.dict(sys.modules), \
+                mock.patch('builtins.__import__', side_effect=no_gunicorn):
+            sys.modules.pop('gunicorn', None)
+            with self.assertRaises(RuntimeError) as cm:
+                run_wsgi_server('/etc/swift/x.conf', 'app', None)
+        self.assertIn('requires gunicorn', str(cm.exception))
+        self.assertIn('Python >= 3.10', str(cm.exception))
+
+    def test_broken_wsgi_gunicorn_surfaces(self):
+        # With gunicorn installed, a real import failure in Swift's own
+        # wsgi_gunicorn must propagate, not be misreported as a missing
+        # gunicorn.
+        with mock.patch.dict(sys.modules,
+                             {'swift.common.wsgi_gunicorn': None}):
+            with self.assertRaises(ImportError):
+                run_wsgi_server('/etc/swift/x.conf', 'app', None)

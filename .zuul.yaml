@@ -170,18 +170,19 @@
     nodeset: centos-9-stream
     vars:
       python_version: 3.9
+      tox_envlist: func-py39
 
 - job:
     name: swift-tox-func-encryption-py39-centos-9-stream
     parent: swift-tox-func-py39-centos-9-stream
     vars:
-      tox_envlist: func-encryption
+      tox_envlist: func-encryption-py39
 
 - job:
     name: swift-tox-func-ec-py39-centos-9-stream
     parent: swift-tox-func-py39-centos-9-stream
     vars:
-      tox_envlist: func-ec
+      tox_envlist: func-ec-py39
 
 - job:
     name: swift-tox-func-encryption-py312

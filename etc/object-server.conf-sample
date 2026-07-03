@@ -114,8 +114,11 @@ bind_port = 6200
 # ionice_class =
 # ionice_priority =
 #
-# Number of threads per worker when using Gunicorn
-# threads = 4
+# Threads per worker, used only under gunicorn (eventlet disabled). Real OS
+# threads, so workers * threads bounds concurrent requests. Disk reads release
+# the GIL so extra threads parallelize reads, but too many make small-object
+# serving GIL-bound. Pair with client_timeout so slow clients can't exhaust it.
+# threads = 16
 
 [pipeline:main]
 pipeline = healthcheck recon backend_ratelimit object-server

@@ -156,6 +156,11 @@ if USE_EVENTLET:
     def spawn(func, *args, **kwargs):
         return EventletResult(eventlet.spawn(func, *args, **kwargs))
 
+    def register_kill_hook(callback):
+        # eventlet's GreenThread.kill() interrupts the greenthread directly,
+        # so no cooperative stop hook is needed.
+        pass
+
     # spawn_n is not used with a kwarg, just use the unwrapped function
     spawn_n = eventlet.spawn_n
 
@@ -394,6 +399,14 @@ else:
             # still mutate shared state or hold resources until it returns.
             if self._kill_hook is not None:
                 self._kill_hook()
+
+    def register_kill_hook(callback):
+        # Called from inside a spawned thread by a long-running callable
+        # (e.g. the in-process test WSGI server) so spawn().kill() can stop
+        # it. No-op if not running inside spawn().
+        handle = getattr(_spawn_kill_local, 'handle', None)
+        if handle is not None:
+            handle._kill_hook = callback
 
     class Executor:
         """Drop-in replacement for eventlet.tpool running in the current
@@ -1063,6 +1076,54 @@ def install_hub():
         eventlet.hubs.use_hub(get_hub())
 
 
+def set_wsgi_max_header_line(size):
+    # The eventlet WSGI server caps header line size on its module global.
+    if USE_EVENTLET:
+        wsgi.MAX_HEADER_LINE = size
+
+
+def wsgi_input_class():
+    # Stream class the WSGI server hands the app as the raw input. Imported
+    # lazily so gunicorn is only loaded where it is actually used (the server),
+    # not in every process that imports this module.
+    if USE_EVENTLET:
+        return wsgi.Input
+    from gunicorn.http.body import Body
+    return Body
+
+
+def get_swift_http_protocols():
+    # The eventlet WSGI server's HTTP protocol handler classes, or (None, None)
+    # without eventlet where there is no eventlet WSGI server to extend.
+    if not USE_EVENTLET:
+        return None, None
+    from swift.common.http_protocol import SwiftHttpProtocol, \
+        SwiftHttpProxiedProtocol
+    return SwiftHttpProtocol, SwiftHttpProxiedProtocol
+
+
+def run_wsgi_server(conf_path, app_section, eventlet_runner, *args, **kwargs):
+    # Under eventlet run the in-process server; otherwise hand off to gunicorn.
+    if USE_EVENTLET:
+        return eventlet_runner(conf_path, app_section, *args, **kwargs)
+    try:
+        import gunicorn  # noqa: F401
+    except ModuleNotFoundError as err:
+        if err.name != 'gunicorn':
+            raise
+        # requirements.txt installs gunicorn only on Python >= 3.10; reject
+        # the mode with an actionable message instead of a bare ImportError.
+        # Probing gunicorn itself (rather than guarding the wsgi_gunicorn
+        # import) lets any real import failure below surface untouched.
+        raise RuntimeError(
+            'Running Swift without eventlet requires gunicorn >= 24.1.1, '
+            'which needs Python >= 3.10 (this is Python %d.%d). Install '
+            'eventlet or upgrade Python.'
+            % (sys.version_info[0], sys.version_info[1])) from err
+    from swift.common.wsgi_gunicorn import run_wsgi as gunicorn_run_wsgi
+    return gunicorn_run_wsgi(conf_path, app_section, *args, **kwargs)
+
+
 # flake8 raises a F401 without this
 __all__ = [
     'USE_EVENTLET',
@@ -1091,6 +1152,7 @@ __all__ = [
     'listen',
     'sleep',
     'spawn',
+    'register_kill_hook',
     'timeout',
     'websocket',
     'CooperativeLock',

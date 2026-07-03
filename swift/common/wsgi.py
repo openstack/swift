@@ -27,16 +27,15 @@ import time
 import warnings
 
 from swift.common.concurrency import (
-    eventlet, SwiftPool, sleep, wsgi, listen, Timeout, socket, ssl,
-    green_os, USE_EVENTLET
+    eventlet, SwiftPool, sleep, spawn_n, wsgi, listen, Timeout, socket, ssl,
+    green_os, set_wsgi_max_header_line, run_wsgi_server,
+    get_swift_http_protocols,
 )
 from paste.deploy import loadwsgi
 from io import BytesIO, StringIO
 
 from swift.common import utils, constraints
-if USE_EVENTLET:
-    from swift.common.http_protocol import SwiftHttpProtocol, \
-        SwiftHttpProxiedProtocol
+SwiftHttpProtocol, SwiftHttpProxiedProtocol = get_swift_http_protocols()
 from swift.common.storage_policy import BindPortsCache
 from swift.common.swob import Request, wsgi_unquote
 from swift.common.utils import capture_stdio, disable_fallocate, \
@@ -51,13 +50,7 @@ NOTIFY_FD_ENV_KEY = '__SWIFT_SERVER_NOTIFY_FD'
 CHILD_STATE_FD_ENV_KEY = '__SWIFT_SERVER_CHILD_STATE_FD'
 
 # Set maximum line size of message headers to be accepted.
-if USE_EVENTLET:
-    wsgi.MAX_HEADER_LINE = constraints.MAX_HEADER_SIZE
-    # Used by obj/server.py to detect the raw server input stream.
-    wsgi_input_class = wsgi.Input
-else:
-    from gunicorn.http.body import Body
-    wsgi_input_class = Body
+set_wsgi_max_header_line(constraints.MAX_HEADER_SIZE)
 
 try:
     import multiprocessing
@@ -663,7 +656,7 @@ class StrategyBase(object):
                                     "Could not kill stale pid %d: %s", pid, e)
                     # else, pid got re-used?
 
-            eventlet.spawn_n(smother)
+            spawn_n(smother)
 
         finally:
             os.close(worker_state_fd)
@@ -1023,11 +1016,13 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         load and validate the config but do not run the server.
     :returns: 0 if successful, nonzero otherwise
     """
-    # When eventlet is disabled, hand off to the gunicorn/gthread server.
-    if not USE_EVENTLET:
-        from swift.common.wsgi_gunicorn import run_wsgi as gunicorn_run_wsgi
-        return gunicorn_run_wsgi(conf_path, app_section, *args, **kwargs)
+    # Under eventlet run the in-process server below; otherwise hand off to
+    # the gunicorn/gthread server.
+    return run_wsgi_server(conf_path, app_section, _run_wsgi_eventlet,
+                           *args, **kwargs)
 
+
+def _run_wsgi_eventlet(conf_path, app_section, *args, **kwargs):
     try:
         conf, logger, global_conf, strategy = check_config(
             conf_path, app_section, *args, **kwargs)
