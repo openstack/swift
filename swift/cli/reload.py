@@ -26,12 +26,13 @@ import argparse
 import errno
 import os
 import os.path
-import signal
 import socket
 import subprocess
 import sys
 
 from swift.common.utils import NotificationServer
+from swift.common.concurrency import signal_for
+from swift.common.manager import pid_uses_eventlet
 
 
 EXIT_BAD_PID = 2  # similar to argparse exiting 2 on an unknown arg
@@ -86,10 +87,41 @@ def main(args=None):
 
     cmd, script = validate_manager_pid(args.pid)
 
+    # Send the seamless-reload signal for the target's mode, not this
+    # process's: gunicorn reads eventlet's SIGUSR1 as "reopen logs", not
+    # reload.
+    try:
+        target = pid_uses_eventlet(args.pid)
+    except OSError:
+        # Truly unknown (unreadable environment). USR1 is still the safe
+        # choice -- a gunicorn master only reopens its logs -- but say so.
+        print('Warning: could not read the mode of pid %s; sending '
+              'eventlet\'s USR1, which a gunicorn master treats as '
+              '"reopen logs" -- it will NOT reload. Pin USE_EVENTLET in '
+              'the server environment to avoid this.'
+              % args.pid, file=sys.stderr)
+        target = None
+    if target is None:
+        # Readable but unpinned: a server started before swift-init pinned
+        # USE_EVENTLET on spawn -- legacy eventlet.
+        target = True
+    sig = signal_for('seamless', uses_eventlet=target)
+
     if args.verbose:
         print("Checking config for %s" % script)
+    # --test-config picks its mode from USE_EVENTLET in its own env, so pin it
+    # to the target's; else a gunicorn server is validated via the eventlet
+    # path and gunicorn-only config errors slip through, crashing the master
+    # on SIGHUP.
+    env = dict(os.environ)
+    env['USE_EVENTLET'] = 'true' if target else 'false'
+    # The target is a session leader (validate_manager_pid required sid==pid),
+    # so its pid is its workers' sid. Pass it so bind validation tolerates an
+    # in-use port only for this server's own listener, not another process on
+    # a newly configured port.
+    env['SWIFT_RELOAD_OWNER_SID'] = str(args.pid)
     try:
-        subprocess.check_call(cmd + ["--test-config"])
+        subprocess.check_call(cmd + ["--test-config"], env=env)
     except subprocess.CalledProcessError:
         print("Failed to validate config", file=sys.stderr)
         exit(EXIT_RELOAD_FAILED)
@@ -98,8 +130,8 @@ def main(args=None):
         try:
             with NotificationServer(args.pid, args.timeout) as notifications:
                 if args.verbose:
-                    print("Sending USR1 signal")
-                os.kill(args.pid, signal.SIGUSR1)
+                    print("Sending %s signal" % sig.name)
+                os.kill(args.pid, sig)
 
                 try:
                     ready = False
@@ -125,8 +157,8 @@ def main(args=None):
             exit(EXIT_RELOAD_FAILED)
     else:  # --no-wait
         if args.verbose:
-            print("Sending USR1 signal")
-        os.kill(args.pid, signal.SIGUSR1)
+            print("Sending %s signal" % sig.name)
+        os.kill(args.pid, sig)
 
     print("Reloaded %s" % script)
 

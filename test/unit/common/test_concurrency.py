@@ -15,6 +15,7 @@
 
 import builtins
 import itertools
+import signal
 import socket
 import sys
 import time
@@ -25,7 +26,7 @@ import threading
 from swift.common.concurrency import (
     Pool, USE_EVENTLET, Timeout, spawn, tpool, SwiftPool, sleep, reset_pool,
     SwiftPile, socket_timeout_enter, socket_timeout_exit, set_read_timeout,
-    run_wsgi_server)
+    run_wsgi_server, signal_for)
 
 
 class TestSocketTimeoutHelpers(unittest.TestCase):
@@ -42,6 +43,36 @@ class TestSocketTimeoutHelpers(unittest.TestCase):
                 self.assertEqual(s.gettimeout(), 10.0)
         finally:
             s.close()
+
+
+class TestSignalFor(unittest.TestCase):
+    # signal_for is a pure mapping, so assert both modes regardless of the
+    # process's own mode.
+    def test_eventlet_mapping(self):
+        self.assertEqual(signal_for('graceful', uses_eventlet=True),
+                         signal.SIGHUP)
+        self.assertEqual(signal_for('seamless', uses_eventlet=True),
+                         signal.SIGUSR1)
+        self.assertEqual(signal_for('default', uses_eventlet=True),
+                         signal.SIGTERM)
+        # child variants match the parent under eventlet
+        self.assertEqual(
+            signal_for('seamless', child=True, uses_eventlet=True),
+            signal.SIGUSR1)
+
+    def test_gunicorn_mapping(self):
+        self.assertEqual(signal_for('graceful', uses_eventlet=False),
+                         signal.SIGTERM)
+        self.assertEqual(signal_for('seamless', uses_eventlet=False),
+                         signal.SIGHUP)
+        self.assertEqual(signal_for('default', uses_eventlet=False),
+                         signal.SIGTERM)
+        self.assertEqual(
+            signal_for('seamless', child=True, uses_eventlet=False),
+            signal.SIGTERM)
+        self.assertEqual(
+            signal_for('default', child=True, uses_eventlet=False),
+            signal.SIGINT)
 
 
 @unittest.skipIf(USE_EVENTLET, "Only tested when eventlet is disabled")

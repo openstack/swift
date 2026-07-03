@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import io
 import unittest
 from test.unit import temptree
 
@@ -31,8 +32,13 @@ from importlib import reload as reload_module
 from swift.common import manager
 from swift.common.exceptions import InvalidPidFileException
 
-from swift.common.concurrency import eventlet
-threading = eventlet.patcher.original('threading')
+from swift.common.concurrency import eventlet, USE_EVENTLET
+
+if USE_EVENTLET:
+    # Tests need the real (non-monkeypatched) threading module
+    threading = eventlet.patcher.original('threading')
+else:
+    import threading
 
 DUMMY_SIG = 1
 
@@ -322,6 +328,32 @@ class TestManagerModule(unittest.TestCase):
             self.assertFalse(manager.verify_server('Object'))
             self.assertFalse(manager.verify_server('object1'))
             self.assertFalse(manager.verify_server(None))
+
+    def test_pid_uses_eventlet(self):
+        def fake_environ(content):
+            return mock.mock_open(read_data=content)
+
+        # explicit modes
+        with mock.patch('swift.common.manager.open',
+                        fake_environ(b'PATH=/bin\0USE_EVENTLET=false\0')):
+            self.assertIs(manager.pid_uses_eventlet(123), False)
+        with mock.patch('swift.common.manager.open',
+                        fake_environ(b'USE_EVENTLET=true\0PATH=/bin\0')):
+            self.assertIs(manager.pid_uses_eventlet(123), True)
+        # other recognised false strings
+        for val in (b'0', b'no', b'off', b'f', b'n', b'FALSE'):
+            with mock.patch('swift.common.manager.open',
+                            fake_environ(b'USE_EVENTLET=' + val + b'\0')):
+                self.assertIs(manager.pid_uses_eventlet(123), False)
+        # readable but not pinned -> None (a legacy server started before
+        # swift-init pinned the mode)
+        with mock.patch('swift.common.manager.open',
+                        fake_environ(b'PATH=/bin\0')):
+            self.assertIsNone(manager.pid_uses_eventlet(123))
+        # unreadable (no such pid / no permission) -> raises
+        with mock.patch('swift.common.manager.open',
+                        side_effect=OSError):
+            self.assertRaises(OSError, manager.pid_uses_eventlet, 999999)
 
 
 class TestServer(unittest.TestCase):
@@ -1033,7 +1065,11 @@ class TestServer(unittest.TestCase):
             self.assertEqual(len(all_pids), 1)
             self.assertTrue(os.path.exists(os.path.join(t, 'thing-doer.pid')))
 
-    def test_kill_running_pids(self):
+    @mock.patch('swift.common.manager.pid_uses_eventlet', return_value=None)
+    def test_kill_running_pids(self, mock_mode):
+        # pid_uses_eventlet returns None (readable but unpinned), which
+        # means a legacy eventlet server; per-target resolution is covered
+        # separately.
         pid_files = (
             ('object-server.pid', 1),
             ('object-replicator1.pid', 11),
@@ -1067,7 +1103,11 @@ class TestServer(unittest.TestCase):
             pids = server.kill_running_pids(graceful=True)
             self.assertEqual(len(pids), 1)
             self.assertIn(1, pids)
-            self.assertEqual(manager.os.pid_sigs[1], [signal.SIGHUP])
+            # the mock pids are unpinned, i.e. legacy eventlet: graceful
+            # keeps eventlet's drain semantics regardless of CLI mode
+            self.assertEqual(
+                manager.os.pid_sigs[1],
+                [manager.signal_for('graceful', uses_eventlet=True)])
             # start up other servers
             manager.os = MockOs([11, 12])
             # test multi server kill & ignore graceful on unsupported server
@@ -1082,6 +1122,23 @@ class TestServer(unittest.TestCase):
                                  [signal.SIGTERM])
             # and the other pid is of course not signaled
             self.assertNotIn(1, manager.os.pid_sigs)
+
+    def test_kill_running_pids_uses_target_mode(self):
+        # When the target's mode is readable, the signal for THAT mode is sent
+        # (not this process's), so a CLI in the other mode doesn't misfire.
+        files, running_pids = ('object-server.pid',), (1,)
+        for target_eventlet in (True, False):
+            with temptree(files, running_pids) as t:
+                manager.RUN_DIR = t
+                manager.os = MockOs([1])
+                server = manager.Server('object', run_dir=t)
+                with mock.patch('swift.common.manager.pid_uses_eventlet',
+                                return_value=target_eventlet):
+                    server.kill_running_pids(graceful=True)
+                self.assertEqual(
+                    manager.os.pid_sigs[1],
+                    [manager.signal_for('graceful',
+                                        uses_eventlet=target_eventlet)])
 
     def test_status(self):
         conf_files = (
@@ -1215,9 +1272,10 @@ class TestServer(unittest.TestCase):
         class MockProc(object):
 
             def __init__(self, pid, args, stdout=MockProcess.NOTHING,
-                         stderr=MockProcess.NOTHING):
+                         stderr=MockProcess.NOTHING, env=None):
                 self.pid = pid
                 self.args = args
+                self.env = env
                 self.stdout = stdout
                 if stderr == MockProcess.STDOUT:
                     self.stderr = self.stdout
@@ -1256,6 +1314,10 @@ class TestServer(unittest.TestCase):
                     # assert stdout is piped
                     self.assertEqual(proc.stdout, MockProcess.PIPE)
                     self.assertEqual(proc.stderr, proc.stdout)
+                    # mode pinned in child env so it can be read back later
+                    self.assertEqual(
+                        proc.env['USE_EVENTLET'],
+                        'true' if USE_EVENTLET else 'false')
                     # test multi server process calls spawn multiple times
                     manager.subprocess = MockProcess([11, 12, 13, 14])
                     conf1 = self.join_swift_dir('test-server/1.conf')
@@ -2317,7 +2379,10 @@ class TestManager(unittest.TestCase):
         self.assertEqual(m.start_was_called, True)
 
     def test_reload(self):
-        def do_test(graceful):
+        # the strategy is chosen per target from its running mode, not from
+        # this process's mode: gunicorn targets reload in place, eventlet
+        # targets (and unknown targets, conservatively) stop then start.
+        def do_test(target_mode, expect_seamless, graceful=True):
             called = defaultdict(list)
 
             def stop(self, **kwargs):
@@ -2328,28 +2393,45 @@ class TestManager(unittest.TestCase):
                 called[self].append(('start', kwargs))
                 return 0
 
+            def seamless(self, **kwargs):
+                called[self].append(('reload_seamless', kwargs))
+                return 0
+
             m = manager.Manager(['*-server'])
             expected_servers = set([server.server for server in m.servers])
             self.assertEqual(len(expected_servers), 4)
             for server in expected_servers:
                 self.assertIn(server, manager.GRACEFUL_SHUTDOWN_SERVERS)
 
-            with mock.patch('swift.common.manager.Manager.start', start):
-                with mock.patch('swift.common.manager.Manager.stop', stop):
-                    status = m.reload(graceful=graceful)
+            with mock.patch('swift.common.manager.Manager.start', start), \
+                    mock.patch('swift.common.manager.Manager.stop', stop), \
+                    mock.patch('swift.common.manager.Manager.reload_seamless',
+                               seamless), \
+                    mock.patch.object(manager.Server, '_target_uses_eventlet',
+                                      return_value=target_mode):
+                status = m.reload(graceful=graceful)
 
             self.assertEqual(status, 0)
             self.assertEqual(4, len(called))
             actual_servers = set()
-            for m, calls in called.items():
-                self.assertEqual(calls, [('stop', {'graceful': True}),
-                                         ('start', {'graceful': True})])
-                actual_servers.update([server.server for server in m.servers])
+            for mgr, calls in called.items():
+                if expect_seamless:
+                    self.assertEqual(
+                        calls, [('reload_seamless', {'graceful': graceful})])
+                else:
+                    # graceful is forced for the stop+start strategy
+                    self.assertEqual(calls, [('stop', {'graceful': True}),
+                                             ('start', {'graceful': True})])
+                actual_servers.update(
+                    [server.server for server in mgr.servers])
             self.assertEqual(expected_servers, actual_servers)
 
         with mock.patch.object(manager, 'which', lambda x: x):
-            do_test(graceful=True)
-            do_test(graceful=False)  # graceful is forced regardless
+            do_test(False, expect_seamless=True)
+            do_test(True, expect_seamless=False)
+            do_test(True, expect_seamless=False, graceful=False)
+            # unknown mode: the legacy stop+start works for either server
+            do_test(None, expect_seamless=False)
 
     @mock.patch.object(manager, 'verify_server',
                        side_effect=lambda server: 'error' not in server)
@@ -2402,6 +2484,69 @@ class TestManager(unittest.TestCase):
         status = m.run_command('mock_cmd', **kwargs)
         self.assertEqual(status, 0)
         self.assertEqual(m.cmd_was_called, True)
+
+
+class TestUnknownModeSignals(unittest.TestCase):
+    # With an unknown target mode the signal must not be able to make
+    # things worse: seamless keeps eventlet's USR1 (a gunicorn master only
+    # reopens logs), while graceful/default use the common SIGTERM path
+    # (eventlet's SIGHUP would make a gunicorn master reload instead of
+    # stop, colliding with the subsequent start).
+
+    def _signal(self, action, mode):
+        server = manager.Server('proxy-server')
+        with mock.patch.object(manager.Server, '_target_uses_eventlet',
+                               return_value=mode), \
+                mock.patch('sys.stderr', new_callable=io.StringIO) as err:
+            sig = server._action_signal(action, child=False)
+        return sig, err.getvalue()
+
+    def test_seamless_unknown_is_usr1_with_warning(self):
+        sig, err = self._signal('seamless', None)
+        self.assertEqual(sig, signal.SIGUSR1)
+        self.assertIn('will NOT reload', err)
+
+    def test_graceful_unknown_is_sigterm_with_warning(self):
+        sig, err = self._signal('graceful', None)
+        self.assertEqual(sig, signal.SIGTERM)
+        self.assertIn('skips eventlet', err)
+
+    def test_default_unknown_is_sigterm_silently(self):
+        sig, err = self._signal('default', None)
+        self.assertEqual(sig, signal.SIGTERM)
+        self.assertEqual(err, '')
+
+    def test_known_modes_are_silent(self):
+        sig, err = self._signal('graceful', True)
+        self.assertEqual(sig, signal.SIGHUP)
+        self.assertEqual(err, '')
+        sig, err = self._signal('graceful', False)
+        self.assertEqual(sig, signal.SIGTERM)
+        self.assertEqual(err, '')
+
+    def _consensus(self, modes):
+        server = manager.Server('proxy-server')
+        pids = [('/run/%d.pid' % i, i) for i in range(1, len(modes) + 1)]
+        with mock.patch.object(manager.Server, 'iter_pid_files',
+                               return_value=iter(pids)), \
+                mock.patch.object(manager, 'pid_uses_eventlet',
+                                  side_effect=modes):
+            return server._target_uses_eventlet()
+
+    def test_consensus(self):
+        # pinned and agreeing
+        self.assertIs(True, self._consensus([True, True]))
+        self.assertIs(False, self._consensus([False, False]))
+        # unpinned pids are legacy eventlet -- the expected first-upgrade
+        # state, since only this Swift pins USE_EVENTLET on spawn
+        self.assertIs(True, self._consensus([None, None]))
+        self.assertIs(True, self._consensus([True, None]))
+        # unpinned + gunicorn is a genuine mix -> unknown
+        self.assertIsNone(self._consensus([False, None]))
+        # pinned but disagreeing -> unknown
+        self.assertIsNone(self._consensus([True, False]))
+        # any unreadable pid -> unknown, even beside a readable one
+        self.assertIsNone(self._consensus([True, OSError()]))
 
 
 if __name__ == '__main__':

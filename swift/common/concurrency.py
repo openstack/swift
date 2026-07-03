@@ -24,6 +24,7 @@ import heapq
 import importlib.util
 import os
 import select
+import signal
 import sys
 import threading
 import time
@@ -888,6 +889,64 @@ def set_read_timeout(sock, timeout):
             pass
 
 
+def signal_for(action, child=False, uses_eventlet=USE_EVENTLET):
+    """Return the signal number for a shutdown ``action`` against a server
+    running in the given mode.
+
+    eventlet and gunicorn interpret signals differently (eventlet: SIGHUP =
+    graceful shutdown, SIGUSR1 = seamless reload; gunicorn: SIGTERM = graceful,
+    SIGHUP = reload, SIGUSR1 = reopen logs), so a CLI signalling a server that
+    runs the *other* mode must use the target's mapping rather than its own
+    constants -- otherwise e.g. ``reload`` shuts an eventlet server down.
+
+    :param action: one of 'graceful', 'seamless', 'default'
+    :param child: True to signal child/worker processes
+    :param uses_eventlet: the target server's mode (default: this process's)
+    """
+    if uses_eventlet:
+        # child variants match the parent's under eventlet
+        return {'graceful': signal.SIGHUP,
+                'seamless': signal.SIGUSR1,
+                'default': signal.SIGTERM}[action]
+    if child:
+        return {'graceful': signal.SIGTERM,
+                'seamless': signal.SIGTERM,
+                'default': signal.SIGINT}[action]
+    return {'graceful': signal.SIGTERM,
+            'seamless': signal.SIGHUP,
+            'default': signal.SIGTERM}[action]
+
+
+# gather_rounds: yield rounds from parallel iterators -- one item per
+# iterator, None for a source that finished or raised, stopping after the
+# first round with a None. on_error(exc) is called when a source raises;
+# iterators are closed on exit (incl. early GeneratorExit). Bound to a
+# mode-specific variant at import so callers don't branch per call.
+MODE_ENV_VAR = 'USE_EVENTLET'
+
+
+def export_mode(env):
+    """Pin this process's eventlet/threading mode into a child ``env`` dict so
+    the child -- and any later CLI that reads ``/proc/<pid>/environ`` via
+    :func:`mode_from_environ` -- resolves the same mode. Returns ``env``.
+    """
+    env[MODE_ENV_VAR] = 'true' if USE_EVENTLET else 'false'
+    return env
+
+
+def mode_from_environ(entries):
+    """Given the NUL-split bytes of a process's ``environ``, return ``True``/
+    ``False`` if it pinned a mode via :func:`export_mode`, else ``None``. Uses
+    the same true/false resolution as this module's own startup.
+    """
+    prefix = (MODE_ENV_VAR + '=').encode('latin-1')
+    for entry in entries:
+        if entry.startswith(prefix):
+            val = entry.split(b'=', 1)[1].decode('latin-1', 'replace')
+            return val.lower() not in {'false', '0', 'no', 'off', 'f', 'n'}
+    return None
+
+
 class _DeadlineWatchdog(object):
     """Single daemon thread that shuts down a socket once its wall-clock
     deadline passes, interrupting a blocked native recv()/send().
@@ -1134,6 +1193,8 @@ __all__ = [
     'read_subprocess',
     'original',
     'make_pile_queue',
+    'export_mode',
+    'mode_from_environ',
     'HttpProtocol',
     'HttpProtocolMessageClass',
     'eventlet_only',

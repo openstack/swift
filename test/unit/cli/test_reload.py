@@ -14,13 +14,13 @@
 # limitations under the License.
 
 from unittest import mock
-import signal
 import socket
 import subprocess
 import unittest
 
 from io import StringIO
 from swift.cli import reload
+import signal
 
 
 @mock.patch('sys.stderr', new_callable=StringIO)
@@ -131,6 +131,11 @@ class TestMain(unittest.TestCase):
         self.mock_kill = patcher.start()
         self.addCleanup(patcher.stop)
 
+        patcher = mock.patch.object(reload, 'pid_uses_eventlet',
+                                    return_value=None)
+        self.mock_pid_uses_eventlet = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_good(self):
         self.mock_validate.return_value = (
             [
@@ -144,12 +149,14 @@ class TestMain(unittest.TestCase):
             b'READY=1',
         ]
         self.assertIsNone(reload.main(['123', '-v']))
-        self.assertEqual(self.mock_check_call.mock_calls, [mock.call([
+        self.mock_check_call.assert_called_once_with([
             '/usr/bin/swift-proxy-server',
             '/etc/swift/proxy-server.conf',
             '--test-config',
-        ])])
+        ], env=mock.ANY)
         self.assertEqual(self.mock_kill.mock_calls, [
+            # the target is unpinned in these tests, i.e. legacy
+            # eventlet: USR1 regardless of CLI mode
             mock.call(123, signal.SIGUSR1),
         ])
 
@@ -170,15 +177,19 @@ class TestMain(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             reload.main(['123'])
         self.assertEqual(caught.exception.args, (reload.EXIT_RELOAD_TIMEOUT,))
-        self.assertEqual(self.mock_check_call.mock_calls, [mock.call([
+        self.mock_check_call.assert_called_once_with([
             '/usr/bin/python3',
             '/usr/bin/swift-proxy-server',
             '/etc/swift/proxy-server.conf',
             '--test-config',
-        ])])
+        ], env=mock.ANY)
         self.assertEqual(self.mock_kill.mock_calls, [
+            # the target is unpinned in these tests, i.e. legacy
+            # eventlet: USR1 regardless of CLI mode
             mock.call(123, signal.SIGUSR1),
         ])
+        # the target is unpinned (mock returns None) -> legacy eventlet,
+        # silently
         self.assertEqual(self.mock_stderr.getvalue(),
                          'Timed out reloading swift-proxy-server\n')
 
@@ -196,13 +207,41 @@ class TestMain(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             reload.main(['123'])
         self.assertEqual(caught.exception.args, (reload.EXIT_RELOAD_FAILED,))
-        self.assertEqual(self.mock_check_call.mock_calls, [mock.call([
+        self.mock_check_call.assert_called_once_with([
             '/usr/bin/python3',
             '/usr/bin/swift-object-server',
             '/etc/swift/object-server/1.conf',
             '--test-config',
-        ])])
+        ], env=mock.ANY)
         self.assertEqual(self.mock_kill.mock_calls, [])
+
+    def test_unreadable_target_mode_warns_and_uses_usr1(self):
+        # If the target's environment can't be read at all, warn and still
+        # send eventlet's USR1 (a gunicorn master only reopens its logs).
+        self.mock_validate.return_value = (
+            ['/usr/bin/swift-proxy-server', '/etc/swift/proxy-server.conf'],
+            'swift-proxy-server')
+        self.mock_pid_uses_eventlet.side_effect = OSError()
+        reload.main(['123', '-w'])
+        self.assertEqual(self.mock_kill.mock_calls,
+                         [mock.call(123, signal.SIGUSR1)])
+        self.assertIn('could not read the mode of pid 123',
+                      self.mock_stderr.getvalue())
+        env = self.mock_check_call.call_args[1]['env']
+        self.assertEqual(env['USE_EVENTLET'], 'true')
+
+    def test_validate_uses_target_mode_in_env(self):
+        # The --test-config subprocess must run in the target server's mode
+        # (USE_EVENTLET), not the CLI's.
+        self.mock_validate.return_value = (
+            ['/usr/bin/swift-proxy-server', '/etc/swift/proxy-server.conf'],
+            'swift-proxy-server')
+        for target, expected in ((False, 'false'), (True, 'true')):
+            self.mock_check_call.reset_mock()
+            self.mock_pid_uses_eventlet.return_value = target
+            reload.main(['123', '-w'])  # --no-wait: skip notification socket
+            env = self.mock_check_call.call_args[1]['env']
+            self.assertEqual(env['USE_EVENTLET'], expected)
 
     def test_needs_pid(self):
         with self.assertRaises(SystemExit) as caught:

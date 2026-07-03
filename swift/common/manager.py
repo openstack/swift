@@ -28,7 +28,9 @@ import tempfile
 from shutil import which
 
 from swift.common.utils import search_tree, remove_file, write_file, readconf
-from swift.common.concurrency import USE_EVENTLET
+from swift.common.concurrency import (
+    signal_for, export_mode, mode_from_environ,
+)
 from swift.common.exceptions import InvalidPidFileException
 
 SWIFT_DIR = '/etc/swift'
@@ -187,6 +189,29 @@ def get_child_pids(pid):
     output = subprocess.check_output(
         ["ps", "--ppid", str(pid), "--no-headers", "-o", "pid"])
     return {int(pid) for pid in output.split()}
+
+
+def pid_uses_eventlet(pid):
+    """
+    Read a running server's mode from its environment.
+
+    The graceful/seamless signal numbers differ between eventlet and gunicorn
+    mode, so a CLI signalling a server must agree with it on the mode. Servers
+    spawned by the manager pin ``USE_EVENTLET`` in their environment (see
+    :meth:`Server.spawn`), so it can be read back from ``/proc/<pid>/environ``.
+
+    :param pid: process id
+    :returns: ``True``/``False`` if the mode is pinned, else ``None`` -- the
+              environment was readable but the server did not pin the mode,
+              i.e. it was started before this Swift pinned it: a legacy
+              eventlet server (a gunicorn server needs the pin, or an
+              eventlet-free environment started outside swift-init).
+    :raises OSError: if the environment cannot be read (e.g. not Linux, no
+                     permission, no such process).
+    """
+    with open('%s/%d/environ' % (PROC_DIR, pid), 'rb') as f:
+        entries = f.read().split(b'\0')
+    return mode_from_environ(entries)
 
 
 def format_server_name(servername):
@@ -407,18 +432,30 @@ class Manager(object):
     def reload(self, **kwargs):
         """graceful shutdown then restart on supporting servers
         """
-        kwargs['graceful'] = True
         status = 0
         for server in self.server_names:
             m = Manager([server])
-            status += m.stop(**kwargs)
-            status += m.start(**kwargs)
+            # Choose the strategy from each target's mode, not this
+            # process's: eventlet has no in-place reload, while a gunicorn
+            # master reloads in place (it persists, workers recycle as
+            # in-flight requests drain).
+            uses_eventlet = next(
+                iter(m.servers))._target_uses_eventlet(**kwargs)
+            if uses_eventlet is False:
+                status += m.reload_seamless(**kwargs)
+            else:
+                # eventlet, or unknown: the legacy stop-then-start works
+                # for either mode.
+                skwargs = dict(kwargs, graceful=True)
+                status += m.stop(**skwargs)
+                status += m.start(**skwargs)
         return status
 
     @command
     def reload_seamless(self, **kwargs):
-        """seamlessly re-exec, then shutdown of old listen sockets on
-           supporting servers
+        """seamless reload on supporting servers: eventlet re-execs and then
+           shuts down the old listen sockets; gunicorn recycles its workers
+           in place under a persistent master
         """
         kwargs.pop('graceful', None)
         kwargs['seamless'] = True
@@ -725,51 +762,95 @@ class Server(object):
     def kill_running_pids(self, **kwargs):
         """Kill running pids
 
-        :param graceful: if True, attempt SIGHUP on supporting servers
-        :param seamless: if True, attempt SIGUSR1 on supporting servers
+        :param graceful: if True, send the graceful-shutdown signal to
+                         supporting servers (SIGHUP for eventlet, SIGTERM for
+                         gunicorn)
+        :param seamless: if True, send the seamless-reload signal to
+                         supporting servers (SIGUSR1 for eventlet, SIGHUP for
+                         gunicorn)
 
         :returns: a dict mapping pids (ints) to pid_files (paths)
 
         """
-        graceful = kwargs.get('graceful')
-        seamless = kwargs.get('seamless')
-        if graceful and self.server in GRACEFUL_SHUTDOWN_SERVERS:
-            sig = signal.SIGHUP
-        elif seamless and self.server in SEAMLESS_SHUTDOWN_SERVERS:
-            if USE_EVENTLET:
-                sig = signal.SIGUSR1
-            else:
-                sig = signal.SIGHUP
-        else:
-            sig = signal.SIGTERM
+        sig = self._action_signal(self._shutdown_action(**kwargs),
+                                  child=False, **kwargs)
         return self.signal_pids(sig, **kwargs)
+
+    def _shutdown_action(self, **kwargs):
+        if kwargs.get('graceful') and self.server in GRACEFUL_SHUTDOWN_SERVERS:
+            return 'graceful'
+        if kwargs.get('seamless') and self.server in SEAMLESS_SHUTDOWN_SERVERS:
+            return 'seamless'
+        return 'default'
+
+    def _target_uses_eventlet(self, **kwargs):
+        # Consensus mode of this server's running pids (see
+        # pid_uses_eventlet): None unless every pid's environment could be
+        # read and they all agree. An unpinned environment counts as
+        # eventlet -- that is the expected first-upgrade state, since only
+        # this Swift pins USE_EVENTLET on spawn -- so a legacy server's
+        # reload keeps its graceful drain.
+        modes = set()
+        for pid_file, pid in self.iter_pid_files(**kwargs):
+            if not pid:
+                continue
+            try:
+                mode = pid_uses_eventlet(pid)
+            except OSError:
+                return None
+            modes.add(True if mode is None else mode)
+        return modes.pop() if len(modes) == 1 else None
+
+    def _action_signal(self, action, child, **kwargs):
+        # Pick the signal for the *target server's* mode, so a CLI running the
+        # other mode doesn't misfire -- e.g. SIGHUP reloads a gunicorn server
+        # but shuts an eventlet one down.
+        mode = self._target_uses_eventlet(**kwargs)
+        if mode is not None:
+            return signal_for(action, child=child, uses_eventlet=mode)
+        # Unknown mode: choose the signal that cannot make things worse, and
+        # warn so the operator knows what was sent and how to avoid the
+        # ambiguity (pin USE_EVENTLET in the server's environment; servers
+        # started by this swift-init pin it automatically).
+        if action == 'seamless':
+            # eventlet's USR1: correct for eventlet, and a gunicorn master
+            # only reopens its logs -- it will NOT reload.
+            print('Warning: could not determine whether %s runs eventlet '
+                  'or gunicorn; sending eventlet\'s seamless-reload signal '
+                  '(USR1). A gunicorn master treats USR1 as "reopen logs" '
+                  'and will NOT reload. Pin USE_EVENTLET in the server '
+                  'environment to avoid this.' % self.server,
+                  file=sys.stderr)
+            return signal_for(action, child=child, uses_eventlet=True)
+        if action == 'graceful':
+            # gunicorn's SIGTERM stops either mode -- eventlet just stops
+            # immediately instead of draining -- whereas eventlet's SIGHUP
+            # would make a gunicorn master reload instead of stop, and a
+            # subsequent start would collide with it.
+            print('Warning: could not determine whether %s runs eventlet '
+                  'or gunicorn; sending SIGTERM, which stops either but '
+                  'skips eventlet\'s graceful drain. Pin USE_EVENTLET in '
+                  'the server environment to avoid this.' % self.server,
+                  file=sys.stderr)
+        # 'default' needs no warning: SIGTERM stops both modes.
+        return signal_for(action, child=child, uses_eventlet=False)
 
     def kill_child_pids(self, **kwargs):
         """Kill child pids, leaving server overseer to respawn them
 
-        :param graceful: if True, attempt SIGHUP on supporting servers
-        :param seamless: if True, attempt SIGUSR1 on supporting servers
+        The signal is chosen for the target server's mode (see
+        :func:`swift.common.concurrency.signal_for`).
+
+        :param graceful: if True, send the graceful signal to supporting
+                         servers
+        :param seamless: if True, send the seamless-reload signal to
+                         supporting servers
 
         :returns: a dict mapping pids (ints) to pid_files (paths)
 
         """
-        graceful = kwargs.get('graceful')
-        seamless = kwargs.get('seamless')
-        if graceful and self.server in GRACEFUL_SHUTDOWN_SERVERS:
-            if USE_EVENTLET:
-                sig = signal.SIGHUP
-            else:
-                sig = signal.SIGTERM
-        elif seamless and self.server in SEAMLESS_SHUTDOWN_SERVERS:
-            if USE_EVENTLET:
-                sig = signal.SIGUSR1
-            else:
-                sig = signal.SIGTERM
-        else:
-            if USE_EVENTLET:
-                sig = signal.SIGTERM
-            else:
-                sig = signal.SIGINT
+        sig = self._action_signal(self._shutdown_action(**kwargs),
+                                  child=True, **kwargs)
         return self.signal_children(sig, **kwargs)
 
     def status(self, pids=None, **kwargs):
@@ -836,7 +917,11 @@ class Server(object):
                 re_out = subprocess.PIPE
             else:
                 re_out = open(os.devnull, 'w+b')
-        proc = subprocess.Popen(args, stdout=re_out, stderr=re_err)
+        # Pin the server's mode to this manager's, so it doesn't depend on
+        # whether eventlet is installed, and so a later CLI can read it back
+        # (see pid_uses_eventlet) to detect a mode mismatch.
+        env = export_mode(os.environ.copy())
+        proc = subprocess.Popen(args, stdout=re_out, stderr=re_err, env=env)
         pid_file = self.get_pid_file_name(conf_file)
         write_file(pid_file, proc.pid)
         self.procs.append(proc)
