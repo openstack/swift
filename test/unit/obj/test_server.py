@@ -33,9 +33,14 @@ from contextlib import contextmanager
 from textwrap import dedent
 
 from swift.common.concurrency import (
-    sleep, spawn, wsgi, Timeout, tpool,
+    sleep, spawn, Timeout, tpool,
     green_http_client as http_client, USE_EVENTLET
 )
+if USE_EVENTLET:
+    from swift.common.concurrency import wsgi
+else:
+    # gunicorn provides the in-process WSGI server in threading mode.
+    import swift.common.wsgi_gunicorn as wsgi
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
@@ -5626,6 +5631,9 @@ class TestObjectController(BaseUnitTestCase):
         # Test swift.obj.server.ObjectController.DELETE and container
         # updates, making sure container update is called in the correct
         # state.
+        # Space the timestamps two resolution units apart: a single 0.00001
+        # (one PRECISION unit) step can float-round start and start+0.00001
+        # into the same bucket, so the "newer" DELETE isn't (409 not 204).
         start = time()
         orig_timestamp = utils.Timestamp(start)
         headers = {'X-Timestamp': orig_timestamp.internal,
@@ -10172,6 +10180,7 @@ class TestObjectServer(unittest.TestCase):
         self.port = sock.getsockname()[1]
 
     def tearDown(self):
+        self.server.kill()
         rmtree(self.tmpdir)
 
     def test_not_found(self):
@@ -10286,7 +10295,10 @@ class TestObjectServer(unittest.TestCase):
         conn.send(b'c\r\n--boundary123\r\n')
 
         # disconnect client
-        conn.sock.fd._real_close()
+        if hasattr(conn.sock, 'fd'):
+            conn.sock.fd._real_close()
+        else:
+            conn.sock.close()
         for i in range(2):
             sleep(0)
         self.assertFalse(self.logger.get_lines_for_level('error'))
@@ -10304,6 +10316,17 @@ class TestObjectServer(unittest.TestCase):
                 file_path = os.path.join(root, filename)
                 found_files[ext].append(file_path)
         return found_files
+
+    def _wait_for_info_log_lines(self):
+        # In threading mode a worker thread handles the request, so the 499
+        # access-log line may not be written yet when the client resumes.
+        # Poll until it appears; under eventlet it's already there.
+        timeout = time() + (self.conf['client_timeout'] + 1)
+        while True:
+            log_lines = self.logger.get_lines_for_level('info')
+            if log_lines or time() >= timeout:
+                return log_lines
+            sleep(0.01)
 
     @contextmanager
     def _check_multiphase_put_commit_handling(self,
@@ -10396,14 +10419,15 @@ class TestObjectServer(unittest.TestCase):
         with self._check_multiphase_put_commit_handling() as context:
             conn = context['conn']
             # just bail straight out
-            conn.sock.fd._real_close()
-        sleep(0)
-
+            if hasattr(conn.sock, 'fd'):
+                conn.sock.fd._real_close()
+            else:
+                conn.sock.close()
         put_timestamp = context['put_timestamp']
         _container_update = context['mock_container_update']
 
         # and make sure it demonstrates the client disconnect
-        log_lines = self.logger.get_lines_for_level('info')
+        log_lines = self._wait_for_info_log_lines()
         self.assertEqual(len(log_lines), 1)
         self.assertIn(' 499 ', log_lines[0])
 
@@ -10437,14 +10461,15 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            conn.sock.fd._real_close()
-        sleep(0)
-
+            if hasattr(conn.sock, 'fd'):
+                conn.sock.fd._real_close()
+            else:
+                conn.sock.close()
         put_timestamp = context['put_timestamp']
         _container_update = context['mock_container_update']
 
         # and make sure it demonstrates the client disconnect
-        log_lines = self.logger.get_lines_for_level('info')
+        log_lines = self._wait_for_info_log_lines()
         self.assertEqual(len(log_lines), 1)
         self.assertIn(' 499 ', log_lines[0])
 
@@ -10613,11 +10638,13 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            conn.sock.fd._real_close()
-        sleep(0)
+            if hasattr(conn.sock, 'fd'):
+                conn.sock.fd._real_close()
+            else:
+                conn.sock.close()
 
         # and make sure it demonstrates the client disconnect
-        log_lines = self.logger.get_lines_for_level('info')
+        log_lines = self._wait_for_info_log_lines()
         self.assertEqual(len(log_lines), 1)
         self.assertIn(' 499 ', log_lines[0])
 
@@ -10808,7 +10835,10 @@ class TestObjectServer(unittest.TestCase):
             conn.send(to_send)
 
             # and then bail out
-            conn.sock.fd._real_close()
+            if hasattr(conn.sock, 'fd'):
+                conn.sock.fd._real_close()
+            else:
+                conn.sock.close()
 
         # the object server needs to recognize the socket is closed
         # or at least timeout, we'll have to wait

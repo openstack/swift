@@ -46,7 +46,7 @@ from test.debug_logger import debug_logger
 from test.unit import (patch_policies, mocked_http_conn, FabricatedRing,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
                        encode_frag_archive_bodies, quiet_eventlet_exceptions,
-                       skip_if_no_xattrs, BaseUnitTestCase)
+                       skip_if_no_xattrs, BaseUnitTestCase, FakeSocket)
 from test.unit.obj.common import write_diskfile
 
 
@@ -4301,6 +4301,9 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
             ssync_headers.append((name, value))
 
         ssync_conn = mock.MagicMock()
+        # Sender.connect() arms a Timeout on the connection's socket, which
+        # has to answer gettimeout() with a real value
+        ssync_conn.sock = FakeSocket()
         ssync_conn.getresponse.return_value = ssync_resp
         ssync_conn.putheader = capture_headers
 

@@ -787,7 +787,11 @@ class ObjectUpdater(Daemon):
             self.max_objects_per_container_per_second,
             max_deferred_elements=self.max_deferred_updates,
             drain_until=self.begin + self.interval)
-        with ContextPool(self.concurrency) as pool:
+        # backpressure: one task per async-pending update over an unbounded
+        # stream; bound the queue so a slow backend can't exhaust memory.
+        # process_object_update fans out per-node work with bare spawn(), not
+        # onto this pool, so blocking the producer is safe.
+        with ContextPool(self.concurrency, backpressure=True) as pool:
             for update_ctx in ap_iter:
                 pool.spawn(self.process_object_update, **update_ctx)
                 now = time.time()

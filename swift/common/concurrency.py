@@ -871,6 +871,14 @@ def close_real_socket(sock):
         sock.close()
 
 
+def set_connect_timeout(connection, timeout):
+    # Real threads can't be interrupted mid connect/send, so set a socket-level
+    # timeout. Under eventlet the surrounding timer enforces it and a socket
+    # timeout would surface unconverted, so leave it unset.
+    if not USE_EVENTLET:
+        connection.timeout = timeout
+
+
 def clear_connect_timeout(sock):
     # Once a backend connection is established (the connect was bounded by the
     # conn_timeout passed to http_connect), the socket must not keep that short

@@ -19,7 +19,8 @@ import os
 import unittest
 
 import urllib.parse
-from swift.common.concurrency import spawn, SwiftPool, USE_EVENTLET
+import time
+from swift.common.concurrency import spawn, SwiftPool, USE_EVENTLET, sleep
 if USE_EVENTLET:
     from eventlet import wsgi
 else:
@@ -66,7 +67,7 @@ class TestBaseSsync(BaseTest):
         self.rx_controller = server.ObjectController(conf, self.rx_logger)
         self.ts_iter = make_timestamp_iter()
         self.rx_ip = '127.0.0.1'
-        sock = listen_zero()
+        self.rx_sock = sock = listen_zero()
         self.rx_server_pool = SwiftPool(size=1)
         self.rx_server = spawn(
             wsgi.server, sock, self.rx_controller, log=self.rx_logger,
@@ -84,11 +85,25 @@ class TestBaseSsync(BaseTest):
     def _wait_for_rx_server(self):
         # wait for receiver thread to complete before checking logs, but don't
         # wait forever
-        with Timeout(
-                seconds=1,
-                exception=AssertionError(
-                    'timed out waiting for ssync receiver thread')):
-            self.rx_server_pool.waitall()
+        if USE_EVENTLET:
+            with Timeout(
+                    seconds=1,
+                    exception=AssertionError(
+                        'timed out waiting for ssync receiver thread')):
+                self.rx_server_pool.waitall()
+        else:
+            # gunicorn ignores custom_pool, so rx_server_pool is never used.
+            # The receiver logs during connection cleanup after the sender
+            # returns, so wait for the in-flight connection to drain first.
+            entry = wsgi._test_workers.get(self.rx_sock.fileno())
+            if entry is None:
+                return
+            worker = entry[0]
+            deadline = time.time() + 1
+            while time.time() < deadline:
+                if getattr(worker, 'nr_conns', 0) == 0:
+                    return
+                sleep(0.01)
 
     def make_connect_wrapper(self, sender):
         """

@@ -29,7 +29,8 @@ import json
 
 from test import listen_zero
 from test.debug_logger import debug_logger
-from test.unit import patch_policies, mocked_http_conn, BaseUnitTestCase
+from test.unit import (patch_policies, mocked_http_conn, BaseUnitTestCase,
+                       FakeSocket)
 from time import time
 
 from swift.obj import updater as object_updater
@@ -808,8 +809,10 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
-        self.assertEqual([0],
-                         unpickle(open(op_path, 'rb')).get('successes'))
+        # one node gets the single 201; which one is nondeterministic without
+        # eventlet, so assert the count not the index.
+        self.assertEqual(
+            1, len(unpickle(open(op_path, 'rb')).get('successes')))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertEqual(
             sorted(ou.logger.statsd_client.calls['timing']),
@@ -829,8 +832,10 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
-        self.assertEqual([0, 2],
-                         unpickle(open(op_path, 'rb')).get('successes'))
+        # the two failed nodes are retried; one gets the 201 (total two).
+        # Node index is nondeterministic without eventlet -- assert the count.
+        self.assertEqual(
+            2, len(unpickle(open(op_path, 'rb')).get('successes')))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertEqual(
             sorted(ou.logger.statsd_client.calls['timing']),
@@ -843,13 +848,18 @@ class TestObjectUpdater(BaseUnitTestCase):
         ou.logger.clear()
         with Timeout(99) as exc, \
                 mock.patch('swift.obj.updater.http_connect') as mock_connect:
+            # object_update() arms a Timeout on the connection's socket,
+            # which has to answer gettimeout() with a real value
+            mock_connect.return_value.sock = FakeSocket()
             mock_connect.return_value.getresponse.side_effect = exc
             ou._process_device_in_child(self.sda1, 'sda1')
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
-        self.assertEqual([0, 2],
-                         unpickle(open(op_path, 'rb')).get('successes'))
+        # this update times out (no new success), so the success count is
+        # unchanged from the previous pass (two).
+        self.assertEqual(
+            2, len(unpickle(open(op_path, 'rb')).get('successes')))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertIn(
             'Timeout waiting on remote server 127.0.0.1:%d/sda1: 99 seconds'
@@ -2310,6 +2320,10 @@ class TestObjectUpdater(BaseUnitTestCase):
             # only one bucket needed for test
             'per_container_ratelimit_buckets': 1,
             'max_deferred_updates': 1,
+            # serialize sends so the asserted update order is deterministic
+            # under both eventlet and threading (real threads otherwise
+            # complete the concurrent sends in an arbitrary order)
+            'concurrency': 1,
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
         self.async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
@@ -2429,6 +2443,10 @@ class TestObjectUpdater(BaseUnitTestCase):
             # only one bucket needed for test
             'per_container_ratelimit_buckets': 1,
             'max_deferred_updates': 2,
+            # serialize sends so the asserted update order is deterministic
+            # under both eventlet and threading (real threads otherwise
+            # complete the concurrent sends in an arbitrary order)
+            'concurrency': 1,
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
         self.async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))
@@ -2553,6 +2571,10 @@ class TestObjectUpdater(BaseUnitTestCase):
             'per_container_ratelimit_buckets': 1,
             'max_deferred_updates': 5,
             'interval': 0.4,
+            # serialize sends so the asserted update order is deterministic
+            # under both eventlet and threading (real threads otherwise
+            # complete the concurrent sends in an arbitrary order)
+            'concurrency': 1,
         }
         daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
         self.async_dir = os.path.join(self.sda1, get_async_dir(POLICIES[0]))

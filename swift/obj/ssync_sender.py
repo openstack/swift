@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from swift.common.concurrency import sleep
+from swift.common.concurrency import sleep, set_connect_timeout
 import urllib
 
 from swift.common import bufferedhttp
@@ -246,6 +246,9 @@ class Sender(object):
         node_addr = '%s:%s' % (self.node['replication_ip'],
                                self.node['replication_port'])
         connection = SsyncBufferedHTTPConnection(node_addr)
+        # Socket-level connect timeout (no-op under eventlet); MessageTimeout
+        # maps the resulting socket.timeout back for a consistent error.
+        set_connect_timeout(connection, self.daemon.conn_timeout)
         with exceptions.MessageTimeout(
                 self.daemon.conn_timeout, 'connect send',
                 socket=connection.sock):

@@ -16,7 +16,6 @@ import io
 import os
 import unittest
 
-from swift.common.concurrency import sleep
 from unittest import mock
 import urllib.parse
 
@@ -91,7 +90,10 @@ class FakeConnection(object):
     def send(self, data):
         self.sent.append(data)
         if self.sleeps:
-            sleep(self.sleeps.pop(0))
+            # sleep_or_timeout raises socket.timeout when the slept duration
+            # exceeds the socket timeout set by the sender's MessageTimeout;
+            # without eventlet that is how the send timeout is enforced.
+            sleep_or_timeout(self.sleeps.pop(0), self.sock)
 
     def close(self):
         self.closed = True
@@ -233,6 +235,7 @@ class TestSender(SenderBase):
                 'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
+            mock_conn.sock = FakeSocket()
             mock_resp = mock.MagicMock()
             mock_resp.status = 200
             mock_conn.getresponse.return_value = mock_resp
@@ -267,6 +270,7 @@ class TestSender(SenderBase):
                 'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
+            mock_conn.sock = FakeSocket()
             mock_resp = mock.MagicMock()
             mock_resp.status = 200
             mock_conn.getresponse.return_value = mock_resp
@@ -299,6 +303,7 @@ class TestSender(SenderBase):
                 'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
+            mock_conn.sock = FakeSocket()
             mock_resp = mock.MagicMock()
             mock_resp.status = 200
             mock_conn.getresponse.return_value = mock_resp
@@ -331,6 +336,7 @@ class TestSender(SenderBase):
                 'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
+            mock_conn.sock = FakeSocket()
             mock_resp = mock.MagicMock()
             mock_resp.status = 200
             mock_conn.getresponse.return_value = mock_resp
@@ -363,6 +369,7 @@ class TestSender(SenderBase):
                 'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
+            mock_conn.sock = FakeSocket()
             mock_resp = mock.MagicMock()
             mock_resp.status = 200
             mock_conn.getresponse.return_value = mock_resp
@@ -398,6 +405,7 @@ class TestSender(SenderBase):
                 'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
+            mock_conn.sock = FakeSocket()
             mock_resp = mock.MagicMock()
             mock_resp.status = 200
             mock_conn.getresponse.return_value = mock_resp
@@ -434,6 +442,7 @@ class TestSender(SenderBase):
                 'swift.obj.ssync_sender.SsyncBufferedHTTPConnection'
         ) as mock_conn_class:
             mock_conn = mock_conn_class.return_value
+            mock_conn.sock = FakeSocket()
             mock_conn.getresponse.return_value = FakeResponse('', resp_headers)
             sender.connect()
         mock_conn_class.assert_called_once_with('1.2.3.4:5678')
@@ -703,12 +712,28 @@ class TestSender(SenderBase):
         self.sender = ssync_sender.Sender(self.daemon, node, job, None)
         self.sender.suffixes = ['abc']
 
-        def putrequest(self_conn, *args, **kwargs):
-            sleep_or_timeout(0.1, self_conn.sock)
+        class FakeBufferedHTTPConnection(NullBufferedHTTPConnection):
+            # Mirror a real connection: no socket until connect(), so the
+            # 'connect send' MessageTimeout (socket=None) can't settimeout it.
+            # Without eventlet, conn_timeout is enforced only by the
+            # connection.timeout that Sender.connect sets and connect() applies
+            # to the socket, so a slow putrequest raises socket.timeout that
+            # MessageTimeout maps back. Under eventlet the timer fires instead.
+            def __init__(self_conn, *args, **kwargs):
+                self_conn.sock = None
+                self_conn.timeout = None
+
+            def connect(self_conn):
+                self_conn.sock = FakeSocket()
+                self_conn.sock.settimeout(self_conn.timeout)
+
+            def putrequest(self_conn, *args, **kwargs):
+                self_conn.connect()
+                sleep_or_timeout(0.1, self_conn.sock)
 
         with mock.patch.object(
-                ssync_sender.bufferedhttp.BufferedHTTPConnection,
-                'putrequest', putrequest):
+                ssync_sender, 'SsyncBufferedHTTPConnection',
+                FakeBufferedHTTPConnection):
             success, candidates = self.sender()
             self.assertFalse(success)
             self.assertEqual(candidates, {})

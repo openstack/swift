@@ -574,7 +574,10 @@ class ObjectExpirer(Daemon):
                              'with dequeue_from_legacy == true.')
             return
 
-        pool = SwiftPool(self.concurrency)
+        # backpressure: bound the queue so a slow backend can't exhaust memory
+        # over the unbounded task stream (waitall only at the end). Safe to
+        # block the producer: delete_object doesn't spawn back onto this pool.
+        pool = SwiftPool(self.concurrency, backpressure=True)
         self.report_first_time = self.report_last_time = time()
         self.report_objects = 0
         try:
