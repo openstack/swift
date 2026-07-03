@@ -592,6 +592,26 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.assertEqual(parts[6], '200')
         self.assertEqual(parts[-1], 'test:tester')  # access_user_id
 
+    def test_signed_url_v4_rejects_unsigned_copy_source(self):
+        amz_date = self.get_v4_amz_date_header()
+        req = Request.blank(
+            '/bucket/object?X-Amz-Algorithm=AWS4-HMAC-SHA256&'
+            'X-Amz-Credential=test:tester/%s/us-east-1/s3/aws4_request&'
+            'X-Amz-Date=%s&X-Amz-Expires=1000&X-Amz-SignedHeaders=host&'
+            'X-Amz-Signature=X' % (amz_date.split('T', 1)[0], amz_date),
+            method='PUT',
+            headers={'X-Amz-Copy-Source': '/private/secret'})
+        req.environ['headers_raw'] = list(req.headers.items())
+
+        status, _headers, body = self.call_s3api(req)
+
+        self.assertEqual('403 Forbidden', status)
+        self.assertEqual('AccessDenied', self._get_error_code(body))
+        self.assertEqual(
+            'There were headers present in the request which were not signed',
+            self._get_error_message(body))
+        self.assertFalse(self.swift.calls)
+
     def test_signed_urls_v4_bad_credential(self):
         def test(credential, message, extra=b''):
             req = Request.blank(
