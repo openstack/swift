@@ -102,6 +102,16 @@ SIGV4_MUST_BE_SIGNED_AMZ_PREFIXES = (
 )
 
 
+DISALLOWED_CLIENT_HEADERS = frozenset((
+    'x-copy-from',
+    'x-copy-from-account',
+    'x-symlink-target',
+    'x-symlink-target-account',
+    'x-object-manifest',
+    'x-static-large-object',
+))
+
+
 CHECKSUMS_BY_HEADER = {
     'x-amz-checksum-crc32': checksum.crc32,
     'x-amz-checksum-crc32c': checksum.crc32c,
@@ -1120,6 +1130,10 @@ class S3Request(swob.Request):
         # Avoids that swift.swob.Response replaces Location header value
         # by full URL when absolute path given. See swift.swob for more detail.
         self.environ['swift.leave_relative_location'] = True
+
+        for header in list(self.headers):
+            if header.lower() in DISALLOWED_CLIENT_HEADERS:
+                self.headers.pop(header, None)
 
     def validate_part_number(self, parts_count=None, check_max=True):
         """
