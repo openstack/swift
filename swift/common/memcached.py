@@ -52,7 +52,8 @@ import logging
 import time as tm
 from bisect import bisect
 
-from swift.common.concurrency import socket, ssl, Pool, Timeout
+from swift.common.concurrency import socket, ssl, Pool, Timeout, \
+    pool_get_with_timeout
 from configparser import ConfigParser, NoSectionError, NoOptionError
 from swift.common import utils
 from swift.common.exceptions import MemcacheConnectionError, \
@@ -150,18 +151,21 @@ class MemcacheConnPool(Pool):
             raise
         return (sock.makefile('rwb'), sock)
 
-    def get(self):
-        fp, sock = super(MemcacheConnPool, self).get()
+    def get(self, pool_timeout=None):
+        # pool_get_with_timeout enforces pool_timeout in both modes and
+        # raises MemcachePoolTimeout on expiry.
+        fp, sock = pool_get_with_timeout(
+            super(MemcacheConnPool, self), pool_timeout, MemcachePoolTimeout)
         try:
             if fp is None:
                 # An error happened previously, so we need a new connection
                 fp, sock = self.create()
             return fp, sock
-        except MemcachePoolTimeout:
-            # This is the only place that knows an item was successfully taken
-            # from the pool, so it has to be responsible for repopulating it.
-            # Any other errors should get handled in _get_conns(); see the
-            # comment about timeouts during create() there.
+        except Timeout:
+            # create() timed out with a pool item already taken, and this is
+            # the only place that knows it was taken. Catching
+            # MemcachePoolTimeout alone never fired: pool_get_with_timeout
+            # raises it before this try block.
             self.put((None, None))
             raise
 
@@ -345,8 +349,8 @@ class MemcacheRing(object):
                 continue
             sock = None
             try:
-                with MemcachePoolTimeout(self._pool_timeout):
-                    fp, sock = self._client_cache[server].get()
+                fp, sock = self._client_cache[server].get(
+                    pool_timeout=self._pool_timeout)
                 any_yielded = True
                 yield server, fp, sock
             except MemcachePoolTimeout as e:

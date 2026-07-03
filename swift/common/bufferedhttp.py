@@ -36,11 +36,11 @@ import socket
 from swift.common.concurrency import (
     CONTINUE, HTTPConnection, HTTPResponse, HTTPSConnection, _UNKNOWN,
     ImproperConnectionState, real_socket, close_real_socket,
-    green_http_client, USE_EVENTLET, clear_connect_timeout
+    set_green_maxheaders, clear_connect_timeout,
 )
 from urllib.parse import quote, parse_qsl, urlencode
 
-# Starting in Python 3.14, non-ASCII header parsing got even more difficult.
+# Python 3.14 added strict header-name validation; disable it.
 # See https://github.com/python/cpython/commit/c432d014
 email._policybase.validate_header_name = lambda name: None
 
@@ -48,15 +48,14 @@ email._policybase.validate_header_name = lambda name: None
 # Give it some slack, so the app is more likely to get the chance to reject
 # with a 400 instead.
 http.client._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
-if USE_EVENTLET:
-    green_http_client._MAXHEADERS = constraints.MAX_HEADER_COUNT * 1.6
+set_green_maxheaders(constraints.MAX_HEADER_COUNT * 1.6)
 
 
 class BufferedHTTPResponse(HTTPResponse):
     """HTTPResponse class that buffers reading of headers"""
 
     def __init__(self, sock, debuglevel=0, strict=0,
-                 method=None):          # pragma: no cover
+                 method=None, buffered_fp=True):  # pragma: no cover
         # sock should be an eventlet.greenio.GreenSocket
         self.sock = sock
         if sock is None:
@@ -70,7 +69,15 @@ class BufferedHTTPResponse(HTTPResponse):
             # eventlet wraps the socket; real_socket() returns the underlying
             # socket.socket (which has _real_close).
             self._real_socket = real_socket(sock)
-            self.fp = sock.makefile('rb')
+            if buffered_fp:
+                # Size the buffer so a 64 KiB body read is one recv; the
+                # default 8 KiB would cost two recvs plus a buffer copy.
+                self.fp = sock.makefile('rb', 65536)
+            else:
+                # getexpect() calls expect_response(), which builds its own
+                # unbuffered fp; don't allocate a 64 KiB buffer just to
+                # throw it away.
+                self.fp = None
         self.debuglevel = debuglevel
         self.strict = strict
         self._method = method
@@ -209,7 +216,7 @@ class BufferedHTTPConnection(HTTPConnection):
         HTTPConnection.putheader(self, header, value)
 
     def getexpect(self):
-        kwargs = {'method': self._method}
+        kwargs = {'method': self._method, 'buffered_fp': False}
         if hasattr(self, 'strict'):
             kwargs['strict'] = self.strict
         response = BufferedHTTPResponse(self.sock, **kwargs)

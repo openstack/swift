@@ -26,12 +26,24 @@ import threading
 from swift.common.concurrency import (
     Pool, USE_EVENTLET, Timeout, spawn, tpool, SwiftPool, sleep, reset_pool,
     SwiftPile, socket_timeout_enter, socket_timeout_exit, set_read_timeout,
-    run_wsgi_server, signal_for)
+    run_wsgi_server, signal_for, clear_connect_timeout)
 
 
 class TestSocketTimeoutHelpers(unittest.TestCase):
     # clear_connect_timeout (eventlet) and set_read_timeout (threading) are
     # complementary no-ops in the other mode.
+    def test_clear_connect_timeout(self):
+        s = socket.socket()
+        s.settimeout(0.5)
+        try:
+            clear_connect_timeout(s)
+            if USE_EVENTLET:
+                self.assertIsNone(s.gettimeout())
+            else:
+                self.assertEqual(s.gettimeout(), 0.5)
+        finally:
+            s.close()
+
     def test_set_read_timeout(self):
         s = socket.socket()
         s.settimeout(0.5)

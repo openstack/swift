@@ -20,7 +20,7 @@ from unittest import mock
 import unittest
 import socket
 
-from swift.common.concurrency import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout, USE_EVENTLET
 
 from swift.common import bufferedhttp
 
@@ -46,6 +46,16 @@ class MockHTTPSConnection(object):
 
 
 class TestBufferedHTTP(unittest.TestCase):
+
+    def test_response_retains_socket_until_close(self):
+        # getresponse() hands the socket to the response for a Connection:
+        # close backend (nulling conn.sock), so resp.sock -- not conn.sock --
+        # is the live socket during the body read.
+        sock = mock.MagicMock()
+        resp = bufferedhttp.BufferedHTTPResponse(sock, method='GET')
+        self.assertIs(resp.sock, sock)
+        resp.close()
+        self.assertIsNone(resp.sock)
 
     def test_http_connect(self):
         bindsock = listen_zero()
@@ -101,6 +111,41 @@ class TestBufferedHTTP(unittest.TestCase):
                 err = event.wait()
                 if err:
                     raise Exception(err)
+
+    def test_http_connect_clears_connect_timeout_for_reads(self):
+        # The connect timeout must not linger on the socket and bound body
+        # reads too. Under eventlet it's cleared (reads bounded by node_timeout
+        # via the Watchdog); without eventlet the per-read WatchdogTimeout
+        # bounds reads, so the connect timeout stays on the socket.
+        bindsock = listen_zero()
+
+        def accept():
+            try:
+                with Timeout(3):
+                    sock, addr = bindsock.accept()
+                    fp = sock.makefile('rwb')
+                    fp.write(b'HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n')
+                    fp.flush()
+            except BaseException as err:
+                return err
+            return None
+
+        event = spawn(accept)
+        try:
+            with Timeout(3):
+                conn = bufferedhttp.http_connect(
+                    '127.0.0.1', bindsock.getsockname()[1], 'dev', 'par',
+                    'GET', '/path', {}, timeout=0.5)
+                if USE_EVENTLET:
+                    self.assertIsNone(conn.sock.gettimeout())
+                else:
+                    self.assertEqual(conn.sock.gettimeout(), 0.5)
+                conn.getresponse().read()
+                conn.close()
+        finally:
+            err = event.wait()
+            if err:
+                raise Exception(err)
 
     def test_get_expect(self):
         bindsock = listen_zero()

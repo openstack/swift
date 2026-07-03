@@ -438,6 +438,19 @@ class TestDirectClient(BaseTestCase):
         for params in test_params:
             do_test(params)
 
+    def test_direct_get_container_rearms_read_timeout_for_body(self):
+        # after headers are read under response_timeout, re-arm the body
+        # read with response_timeout; otherwise (threading mode) the socket
+        # keeps the short conn_timeout.
+        headers = HeaderKeyDict({'key': 'value'})
+        body = b'[{"hash": "8f4e3", "last_modified": "317260", "bytes": 209}]'
+        with mock.patch('swift.common.direct_client.set_read_timeout') as srt:
+            with mocked_http_conn(200, headers, body) as conn:
+                direct_client.direct_get_container(
+                    self.node, self.part, self.account, self.container,
+                    response_timeout=42)
+        srt.assert_called_once_with(conn.sock, 42)
+
     def test_direct_get_container_no_content_does_not_decode_body(self):
         headers = {}
         body = ''

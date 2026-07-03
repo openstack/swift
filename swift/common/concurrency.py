@@ -53,7 +53,6 @@ del config_false_value
 
 if USE_EVENTLET:
     import eventlet.green.profile as eprofile
-    from eventlet.green.http import client as green_http_client
     import eventlet  # noqa: F401
     import eventlet.debug
     import eventlet.greenio
@@ -91,6 +90,7 @@ if USE_EVENTLET:
     from eventlet.green import socket, ssl, subprocess
     from eventlet.green import os as green_os
     from eventlet.green import threading as green_threading
+    from eventlet.green.http import client as green_http_client
     from eventlet.green.urllib import request as urllib_request
     from eventlet.hubs import trampoline
     from eventlet.pools import Pool
@@ -197,8 +197,8 @@ if USE_EVENTLET:
         return proc.stdout.read()
 
 else:
-    import http.client as green_http_client
     eprofile = None
+    import http.client as green_http_client
     import os as green_os
     import socket
     import ssl
@@ -1141,6 +1141,14 @@ def set_wsgi_max_header_line(size):
         wsgi.MAX_HEADER_LINE = size
 
 
+def set_green_maxheaders(count):
+    # Raise the header-count cap on eventlet's green HTTP client. Without
+    # eventlet green_http_client is the stdlib module, already capped by the
+    # caller, so there is nothing extra to do.
+    if USE_EVENTLET:
+        green_http_client._MAXHEADERS = count
+
+
 def wsgi_input_class():
     # Stream class the WSGI server hands the app as the raw input. Imported
     # lazily so gunicorn is only loaded where it is actually used (the server),
@@ -1159,6 +1167,22 @@ def get_swift_http_protocols():
     from swift.common.http_protocol import SwiftHttpProtocol, \
         SwiftHttpProxiedProtocol
     return SwiftHttpProtocol, SwiftHttpProxiedProtocol
+
+
+def pool_get_with_timeout(base_pool, pool_timeout, timeout_exc):
+    # Acquire an item from base_pool, raising timeout_exc after pool_timeout in
+    # both modes. Under eventlet the exc Timeout interrupts the blocked get();
+    # without eventlet the timeout is passed into the blocking get and the
+    # resulting Timeout is mapped to timeout_exc. get() also runs create(),
+    # so a Timeout from creating an item is mapped too, not just one from
+    # waiting on the pool.
+    if USE_EVENTLET:
+        with timeout_exc(pool_timeout):
+            return base_pool.get()
+    try:
+        return base_pool.get(timeout=pool_timeout)
+    except Timeout:
+        raise timeout_exc(pool_timeout)
 
 
 def run_wsgi_server(conf_path, app_section, eventlet_runner, *args, **kwargs):

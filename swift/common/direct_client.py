@@ -22,7 +22,7 @@ import json
 import os
 import socket
 
-from swift.common.concurrency import sleep, Timeout
+from swift.common.concurrency import sleep, Timeout, set_read_timeout
 from http.client import HTTPException
 
 from swift.common.bufferedhttp import http_connect, http_connect_raw
@@ -203,6 +203,10 @@ def _get_direct_account_container(path, stype, node, part,
                         timeout=conn_timeout)
     with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
+    # The Timeout above restored the socket to conn_timeout; re-arm body
+    # reads with response_timeout. No-op under eventlet, where body reads
+    # are bounded by the greenthread Watchdog.
+    set_read_timeout(resp.sock, response_timeout)
     if not is_success(resp.status):
         resp.read()
         raise DirectClientException(stype, 'GET', node, part, path, resp)
@@ -483,6 +487,10 @@ def direct_get_object(node, part, account, container, obj, conn_timeout=5,
                         timeout=conn_timeout)
     with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
+    # re-arm body reads with the response timeout (see _get_direct_account_
+    # container); object bodies can exceed it in total, but a stalled read
+    # still fires per-recv. No-op under eventlet.
+    set_read_timeout(resp.sock, response_timeout)
     if not is_success(resp.status):
         resp.read()
         raise DirectClientException('Object', 'GET', node, part, path, resp)
@@ -613,6 +621,7 @@ def direct_get_suffix_hashes(node, part, suffixes, conn_timeout=5,
                         headers=gen_headers(headers), timeout=conn_timeout)
     with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
+    set_read_timeout(resp.sock, response_timeout)  # re-arm body read
     if not is_success(resp.status):
         raise DirectClientException('Object', 'REPLICATE',
                                     node, part, path, resp,
@@ -689,6 +698,7 @@ def direct_get_recon(node, recon_command, conn_timeout=5, response_timeout=15,
                             headers=gen_headers(headers), timeout=conn_timeout)
     with Timeout(response_timeout, socket=conn.sock):
         resp = conn.getresponse()
+    set_read_timeout(resp.sock, response_timeout)  # re-arm body read
     if not is_success(resp.status):
         raise DirectClientReconException('GET', node, path, resp)
     return json.loads(resp.read())

@@ -28,7 +28,9 @@ import os
 from unittest import mock
 from configparser import NoSectionError, NoOptionError
 
-from swift.common.concurrency import SwiftPool, sleep, Queue, Pool, ssl
+from swift.common.concurrency import SwiftPool, sleep, Queue, Empty, Pool, \
+    ssl
+from swift.common.exceptions import MemcachePoolTimeout
 
 from swift.common import memcached
 from swift.common.memcached import MemcacheConnectionError, md5hash, \
@@ -36,6 +38,8 @@ from swift.common.memcached import MemcacheConnectionError, md5hash, \
 from swift.common.utils import md5, human_readable
 from unittest.mock import patch, MagicMock
 from test.debug_logger import debug_logger
+# test.unit imports this module, so sleep_or_timeout etc. are imported
+# lazily to avoid a circular import.
 
 
 class MockedMemcachePool(memcached.MemcacheConnPool):
@@ -272,7 +276,10 @@ class TestMemcached(unittest.TestCase):
         self.assertIs(client.logger, self.logger)
 
     def test_tls_context_kwarg(self):
-        with patch('swift.common.memcached.socket.socket'):
+        with patch('swift.common.memcached.socket.socket') as mock_socket_cls:
+            # create() arms a Timeout on the socket, which has to answer
+            # gettimeout() with a real value
+            mock_socket_cls.return_value.gettimeout.return_value = None
             server = '%s:%s' % ('[::1]', 11211)
             client = memcached.MemcacheRing([server])
             self.assertIsNone(client._client_cache[server]._tls_context)
@@ -1066,6 +1073,7 @@ class TestMemcached(unittest.TestCase):
 
             # patch socket, stub socket.socket, mock sock
             mock_sock = mock_module.socket.return_value
+            mock_sock.gettimeout.return_value = None
 
             # track clients waiting for connections
             connected = []
@@ -1127,9 +1135,14 @@ class TestMemcached(unittest.TestCase):
         served = defaultdict(int)
 
         class MockConnectionPool(memcached.MemcacheConnPool):
-            def get(self):
+            def get(self, pool_timeout=None):
                 pending[self.host] += 1
-                conn = connections[self.host].get()
+                # Map the get timeout (Empty) to MemcachePoolTimeout; a
+                # timed-out get never reaches the decrement below.
+                try:
+                    conn = connections[self.host].get(timeout=pool_timeout)
+                except Empty:
+                    raise MemcachePoolTimeout(pool_timeout)
                 pending[self.host] -= 1
                 return conn
 
@@ -1149,12 +1162,14 @@ class TestMemcached(unittest.TestCase):
             # fast. All ten (10) clients should try to talk to .5 first, and
             # then move on to .4, and we'll assert all that below.
             mock_conn = MagicMock(), MagicMock()
+            mock_conn[1].gettimeout.return_value = None
             mock_conn[0].readline = lambda: b'STORED\r\n'
             mock_conn[1].sendall = lambda x: sleep(0.2)
             connections['1.2.3.5'].put(mock_conn)
             connections['1.2.3.5'].put(mock_conn)
 
             mock_conn = MagicMock(), MagicMock()
+            mock_conn[1].gettimeout.return_value = None
             mock_conn[0].readline = lambda: b'STORED\r\n'
             connections['1.2.3.4'].put(mock_conn)
             connections['1.2.3.4'].put(mock_conn)
@@ -1193,12 +1208,23 @@ class TestMemcached(unittest.TestCase):
 
             mock_module.getaddrinfo = mock_getaddrinfo
 
+            from test.unit import sleep_or_timeout
+
             # patch socket, stub socket.socket, mock sock
             mock_sock = mock_module.socket.return_value
+            mock_sock.gettimeout.return_value = None
+
+            # Make settimeout/gettimeout behave like a real socket so
+            # sleep_or_timeout can simulate a socket-level timeout without
+            # eventlet (which interrupts the sleep directly).
+            _sock_timeout = {}
+            mock_sock.settimeout.side_effect = \
+                lambda t: _sock_timeout.__setitem__('v', t)
+            mock_sock.gettimeout.side_effect = lambda: _sock_timeout.get('v')
 
             def wait_connect(addr):
                 # slow connect gives Timeout Exception
-                sleep(1)
+                sleep_or_timeout(1, mock_sock)
 
             # patch connect method
             mock_sock.connect = wait_connect
@@ -1442,8 +1468,10 @@ class TestMemcached(unittest.TestCase):
             '1.2.3.4:11211'] = MockedMemcachePool(
             [(mock_memcache, mock_memcache)] * 2)
 
+        from test.unit import sleep_or_timeout
+
         def handle_add(key, flags, exptime, num_bytes, noreply=b''):
-            sleep(0.05)
+            sleep_or_timeout(0.05, mock_memcache)
 
         with patch('time.time', ) as mock_time:
             with mock.patch.object(mock_memcache, 'handle_add', handle_add):
@@ -1475,8 +1503,10 @@ class TestMemcached(unittest.TestCase):
             '1.2.3.4:11211'] = MockedMemcachePool(
             [(mock_memcache, mock_memcache)] * 2)
 
+        from test.unit import sleep_or_timeout
+
         def handle_set(key, flags, exptime, num_bytes, noreply=b''):
-            sleep(0.05)
+            sleep_or_timeout(0.05, mock_memcache)
 
         with patch('time.time', ) as mock_time:
             with mock.patch.object(mock_memcache, 'handle_set', handle_set):
@@ -1510,8 +1540,10 @@ class TestMemcached(unittest.TestCase):
             '1.2.3.4:11211'] = MockedMemcachePool(
             [(mock_memcache, mock_memcache)] * 2)
 
+        from test.unit import sleep_or_timeout
+
         def handle_get(*keys):
-            sleep(0.05)
+            sleep_or_timeout(0.05, mock_memcache)
 
         with patch('time.time', ) as mock_time:
             with mock.patch.object(mock_memcache, 'handle_get', handle_get):

@@ -169,9 +169,8 @@ class ReplHttp(object):
         'device': 'sdb',
     }
 
-    def replicate(self, *args, timeout=None):
+    def replicate(self, *args):
         self.replicated = True
-        self.timeout = timeout
 
         class Response(object):
             status = self.set_status
@@ -537,19 +536,27 @@ class TestDBReplicator(unittest.TestCase):
         self.assertEqual(['connect', 'request'], calls)
         mock_to.assert_called_once_with(7, socket=conn.sock)
 
-    def test_repl_connection_explicit_timeout_overrides(self):
-        # An explicit per-call timeout wins over the connection's own timeout.
+    def test_repl_connection_clears_connect_timeout(self):
+        # ReplConnection bypasses http_connect_raw, so it must clear the
+        # connect timeout after connecting -- else the socket keeps the short
+        # node_timeout and a long REPLICATE merge (replicate_timeout) is cut
+        # off early under eventlet.
         node = {'replication_ip': '127.0.0.1', 'replication_port': 80,
                 'device': 'sdb1'}
-        conn = db_replicator.ReplConnection(node, '1234567890', 'abcdefg',
+        conn = db_replicator.ReplConnection(node, '1', 'h',
                                             logging.getLogger())
-        conn.timeout = 7
-        conn.sock = mock.MagicMock()
-        conn.request = lambda *args: None
-        conn.getresponse = lambda: mock.MagicMock()
-        with mock.patch('swift.common.db_replicator.Timeout') as mock_to:
-            conn.replicate(1, timeout=42)
-        mock_to.assert_called_once_with(42, socket=conn.sock)
+        fake_sock = object()
+
+        def set_sock(*a, **k):
+            conn.sock = fake_sock
+
+        with mock.patch('swift.common.bufferedhttp.BufferedHTTPConnection'
+                        '.connect', side_effect=set_sock) as base_connect, \
+                mock.patch.object(db_replicator,
+                                  'clear_connect_timeout') as cct:
+            conn.connect()
+        base_connect.assert_called_once()
+        cct.assert_called_once_with(fake_sock)
 
     def test_rsync_file(self):
         replicator = ConcreteReplicator({})
