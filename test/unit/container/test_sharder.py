@@ -589,7 +589,12 @@ class TestSharder(BaseTestSharder):
                     sharder.stats['sharding'].update(fake_stats)
 
                 with mock.patch(
-                        'swift.container.sharder.time.sleep') as mock_sleep:
+                        'swift.container.sharder.time.sleep') as mock_sleep, \
+                        mock.patch(
+                            'swift.common.utils.EventletRateLimiter._sleep'):
+                    # EventletRateLimiter._sleep() falls back to time.sleep()
+                    # without eventlet; patch it so only run_forever's own
+                    # sleeps are counted.
                     with mock.patch(
                             'swift.container.sharder.is_sharding_candidate',
                             return_value=True):

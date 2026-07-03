@@ -1560,6 +1560,18 @@ class FakeHTTPResponse(object):
         return self.resp.body
 
 
+def _hook_accepts_sock(hook):
+    # True only if the hook declares a ``sock`` parameter or **kwargs.
+    # Anything we can't introspect (e.g. a MagicMock) is treated as not
+    # accepting it, preserving the historical (op, *args) convention.
+    try:
+        params = inspect.signature(hook).parameters
+    except (TypeError, ValueError):
+        return False
+    return 'sock' in params or any(
+        p.kind == p.VAR_KEYWORD for p in params.values())
+
+
 def attach_fake_replication_rpc(rpc, replicate_hook=None, errors=None):
     class FakeReplConnection(object):
 
@@ -1589,7 +1601,14 @@ def attach_fake_replication_rpc(rpc, replicate_hook=None, errors=None):
                         swob_response = rpc.dispatch(replicate_args, args)
                     resp = FakeHTTPResponse(swob_response)
                 if replicate_hook:
-                    replicate_hook(op, *sync_args)
+                    # Only hooks declaring ``sock`` or **kwargs get the
+                    # socket, to honour a node_timeout via Timeout(socket=...)
+                    # (see sleep_or_timeout). Passing it to the usual
+                    # (op, *args) or MagicMock hooks would raise TypeError.
+                    if _hook_accepts_sock(replicate_hook):
+                        replicate_hook(op, *sync_args, sock=self.sock)
+                    else:
+                        replicate_hook(op, *sync_args)
             return resp
 
     return FakeReplConnection

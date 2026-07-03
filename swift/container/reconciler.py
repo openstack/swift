@@ -18,7 +18,8 @@ import socket
 import itertools
 import logging
 
-from swift.common.concurrency import SwiftPile, SwiftPool, Timeout
+from swift.common.concurrency import SwiftPile, SwiftPool, Timeout, \
+    CooperativeLock
 
 from swift.common import constraints
 from swift.common.daemon import Daemon, run_daemon
@@ -379,6 +380,9 @@ class ContainerReconciler(Daemon):
                 'log_name', self.log_route)})
         self.swift_dir = conf.get('swift_dir', '/etc/swift')
         self.stats = defaultdict(int)
+        # guards self.stats: pool workers update it via stats_log while the
+        # producer snapshots (log_stats) or replaces it between passes
+        self._stats_lock = CooperativeLock()
         self.last_stat_time = time.time()
         self.ring_check_interval = float(conf.get('ring_check_interval', 15))
         self.concurrency = int(conf.get('concurrency', 1))
@@ -403,7 +407,8 @@ class ContainerReconciler(Daemon):
         level = kwargs.pop('level', logging.DEBUG)
         log_message = '%s: ' % metric + msg
         self.logger.log(level, log_message, *args, **kwargs)
-        self.stats[metric] += 1
+        with self._stats_lock:
+            self.stats[metric] += 1
 
     def log_stats(self, force=False):
         """
@@ -414,7 +419,9 @@ class ContainerReconciler(Daemon):
         should_log = force or (now - self.last_stat_time > 60)
         if should_log:
             self.last_stat_time = now
-            self.logger.info('Reconciler Stats: %r', dict(**self.stats))
+            with self._stats_lock:
+                stats = dict(self.stats)
+            self.logger.info('Reconciler Stats: %r', stats)
 
     def pop_queue(self, container, obj, q_ts, q_record):
         """
@@ -821,7 +828,10 @@ class ContainerReconciler(Daemon):
         workers in the pool.
         """
         self.logger.debug('pulling items from the queue')
-        pool = SwiftPool(self.concurrency)
+        # backpressure caps in-flight tasks over the unbounded queue stream;
+        # safe to block the producer since process_queue_item never spawns
+        # back onto this pool.
+        pool = SwiftPool(self.concurrency, backpressure=True)
         for container in self._iter_containers():
             self.logger.debug('checking container %s', container)
             for raw_obj in self._iter_objects(container):
@@ -851,7 +861,8 @@ class ContainerReconciler(Daemon):
     def run_forever(self, *args, **kwargs):
         while True:
             self.run_once(*args, **kwargs)
-            self.stats = defaultdict(int)
+            with self._stats_lock:
+                self.stats = defaultdict(int)
             self.logger.info('sleeping between intervals (%ss)', self.interval)
             time.sleep(self.interval)
 

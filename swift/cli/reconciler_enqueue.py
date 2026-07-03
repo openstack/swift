@@ -14,7 +14,7 @@
 import sys
 from optparse import OptionParser
 
-from swift.common.concurrency import eventlet, USE_EVENTLET
+from swift.common.concurrency import hub_exceptions
 
 from swift.common.ring import Ring
 from swift.common.utils import split_path
@@ -48,8 +48,7 @@ parser.add_option('-f', '--force', action='store_true',
 
 
 def main():
-    if USE_EVENTLET:
-        eventlet.debug.hub_exceptions(True)
+    hub_exceptions(True)
     options, args = parser.parse_args()
     try:
         policy_index, path, timestamp = args

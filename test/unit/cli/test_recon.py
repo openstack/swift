@@ -35,7 +35,9 @@ from swift.common.ring import builder
 from swift.common.ring import utils as ring_utils
 from swift.common.storage_policy import StoragePolicy, POLICIES
 from test.unit import patch_policies
-GREEN_URLLIB_URLOPEN = 'eventlet.green.urllib.request.urlopen'
+# Patch whichever urllib_request recon imported (eventlet's green urllib with
+# eventlet, else stdlib) so the mock intercepts in both modes.
+GREEN_URLLIB_URLOPEN = urllib_request.__name__ + '.urlopen'
 
 
 class TestHelpers(unittest.TestCase):

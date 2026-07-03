@@ -24,7 +24,7 @@ import os
 import time
 from collections import defaultdict
 
-from swift.common.concurrency import Timeout, hubs, USE_EVENTLET
+from swift.common.concurrency import Timeout
 
 from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
@@ -32,7 +32,7 @@ from swift.common.utils import replace_partition_in_path, config_true_value, \
     audit_location_generator, readconf, drop_privileges, \
     RateLimitedIterator, distribute_evenly, \
     non_negative_float, non_negative_int, config_auto_int_value, \
-    dump_recon_cache, get_partition_from_path, get_hub
+    dump_recon_cache, get_partition_from_path, install_hub
 from swift.common.utils.logs import SwiftLogAdapter, get_swift_logger, \
     get_prefixed_swift_logger
 from swift.obj import diskfile
@@ -912,8 +912,7 @@ def main(args=None):
                              'removed. (default: false)')
 
     args = parser.parse_args(args)
-    if USE_EVENTLET:
-        hubs.use_hub(get_hub())
+    install_hub()
     if args.conf_file:
         conf = readconf(args.conf_file, 'object-relinker')
         if args.debug:

@@ -21,11 +21,12 @@ import operator
 import time
 import unittest
 import socket
+import threading
 import os
 import errno
 import itertools
 import random
-from swift.common.concurrency import sleep
+from swift.common.concurrency import sleep, USE_EVENTLET
 
 from collections import defaultdict
 import urllib.parse
@@ -857,6 +858,21 @@ class TestReconciler(BaseUnitTestCase):
         self.assertRaises(ValueError, reconciler.ContainerReconciler,
                           conf, self.logger, self.swift)
 
+    @unittest.skipIf(USE_EVENTLET, 'a real lock only under threading')
+    def test_stats_updates_are_locked(self):
+        # pool workers update self.stats via stats_log while the producer
+        # snapshots or replaces it; both sides must serialize on _stats_lock
+        with self.reconciler._stats_lock:
+            t = threading.Thread(
+                target=self.reconciler.stats_log, args=('metric', 'msg'))
+            t.daemon = True
+            t.start()
+            t.join(timeout=0.2)
+            self.assertTrue(t.is_alive())  # blocked on the lock
+        t.join(timeout=5)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(1, self.reconciler.stats['metric'])
+
     def test_processes_config(self):
         conf = {}
         r = reconciler.ContainerReconciler(conf, self.logger, self.swift)
@@ -945,18 +961,18 @@ class TestReconciler(BaseUnitTestCase):
             (1, "/AUTH_bob/c/o2"): ts[1],
         })
 
-        order_recieved = []
+        order_received = []
 
         def fake_reconcile_object(account, container, obj, q_policy_index,
                                   q_ts, q_op, path, **kwargs):
-            order_recieved.append(obj)
+            order_received.append(obj)
             return True
 
         self.reconciler._reconcile_object = fake_reconcile_object
         self.assertEqual(self.reconciler.concurrency, 1)  # sanity
         deleted_container_entries = self._run_once()
-        self.assertEqual(order_recieved, ['o1', 'o2'])
-        # process in order recieved
+        self.assertEqual(order_received, ['o1', 'o2'])
+        # process in order received
         self.assertEqual(deleted_container_entries, [
             ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o1',
              Timestamp(ts[0], offset=2).internal),
@@ -974,11 +990,11 @@ class TestReconciler(BaseUnitTestCase):
             (1, "/AUTH_bob/c/o2"): ts[1],
         })
 
-        order_recieved = []
+        order_received = []
 
         def fake_reconcile_object(account, container, obj, q_policy_index,
                                   q_ts, q_op, path, **kwargs):
-            order_recieved.append(obj)
+            order_received.append(obj)
             if obj == 'o1':
                 # o1 takes longer than o2 for some reason
                 for i in range(10):
@@ -988,14 +1004,20 @@ class TestReconciler(BaseUnitTestCase):
         self.reconciler._reconcile_object = fake_reconcile_object
         self.reconciler.concurrency = 2
         deleted_container_entries = self._run_once()
-        self.assertEqual(order_recieved, ['o1', 'o2'])
-        # ... and so we finish o2 first
-        self.assertEqual(deleted_container_entries, [
-            ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o2',
-             Timestamp(ts[1], offset=2).internal),
-            ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o1',
-             Timestamp(ts[0], offset=2).internal),
-        ])
+        o1_entry = ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o1',
+                    Timestamp(ts[0], offset=2).internal)
+        o2_entry = ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o2',
+                    Timestamp(ts[1], offset=2).internal)
+        if USE_EVENTLET:
+            self.assertEqual(order_received, ['o1', 'o2'])
+            # ... and so we finish o2 first
+            self.assertEqual(deleted_container_entries, [o2_entry, o1_entry])
+        else:
+            # under real threads o1's sleep(0.0) loop doesn't reliably
+            # finish after o2, so completion/deletion order isn't deterministic
+            self.assertEqual(sorted(order_received), ['o1', 'o2'])
+            self.assertEqual(sorted(deleted_container_entries),
+                             sorted([o2_entry, o1_entry]))
 
     def test_multi_process_should_process(self):
         def mkqi(a, c, o):

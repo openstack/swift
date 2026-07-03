@@ -20,8 +20,7 @@ from optparse import OptionParser
 from sys import exit, stdout
 from time import time
 
-from swift.common.concurrency import SwiftPool, patcher, sleep, Pool, \
-    USE_EVENTLET
+from swift.common.concurrency import SwiftPool, sleep, Pool, monkey_patch
 from configparser import ConfigParser
 
 from swift.common.internal_client import SimpleClient
@@ -80,8 +79,7 @@ def report(success):
 
 def main():
     global begun, created, item_type, next_report, need_to_create, retries_done
-    if USE_EVENTLET:
-        patcher.monkey_patch()
+    monkey_patch()
     try:
         # Delay importing so urllib3 will import monkey-patched modules
         from swiftclient import get_auth

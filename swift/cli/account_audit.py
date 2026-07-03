@@ -20,7 +20,8 @@ import getopt
 from itertools import chain
 
 import json
-from swift.common.concurrency import SwiftPool, Event
+from swift.common.concurrency import SwiftPool, ThreadingEvent as Event, \
+    CooperativeLock
 from urllib.parse import quote
 
 from swift.common.ring import Ring
@@ -54,6 +55,10 @@ class Auditor(object):
     def __init__(self, swift_dir='/etc/swift', concurrency=50, deep=False,
                  error_file=None):
         self.pool = SwiftPool(concurrency)
+        # Guards the check/create on in_progress + list_cache so concurrent
+        # threads can't both create an Event for the same key (a no-op under
+        # eventlet's cooperative scheduling, a real lock under threading).
+        self._cache_lock = CooperativeLock()
         self.object_ring = Ring(swift_dir, ring_name='object')
         self.container_ring = Ring(swift_dir, ring_name='container')
         self.account_ring = Ring(swift_dir, ring_name='account')
@@ -148,81 +153,96 @@ class Auditor(object):
         self.objects_checked += 1
 
     def audit_container(self, account, name, recurse=False):
-        if (account, name) in self.in_progress:
-            self.in_progress[(account, name)].wait()
-        if (account, name) in self.list_cache:
-            return self.list_cache[(account, name)]
-        self.in_progress[(account, name)] = Event()
-        print('Auditing container "%s"' % name)
-        path = '/%s/%s' % (account, name)
-        account_listing = self.audit_account(account)
-        consistent = True
-        if name not in account_listing:
-            consistent = False
-            print("  Container %s not in account listing!" % path)
-        part, nodes = \
-            self.container_ring.get_nodes(account, name.encode('utf-8'))
-        rec_d = {}
-        responses = {}
-        for node in nodes:
-            marker = ''
-            results = True
-            while results:
-                try:
-                    conn = http_connect(node['ip'], node['port'],
-                                        node['device'], part, 'GET',
-                                        path.encode('utf-8'), {},
-                                        'format=json&marker=%s' %
-                                        quote(marker.encode('utf-8')))
-                    resp = conn.getresponse()
-                    if resp.status // 100 != 2:
-                        self.container_not_found += 1
+        key = (account, name)
+        with self._cache_lock:
+            if key in self.list_cache:
+                return self.list_cache[key]
+            evt = self.in_progress.get(key)
+            owner = evt is None
+            if owner:
+                evt = self.in_progress[key] = Event()
+        if not owner:
+            evt.wait()
+            return self.list_cache.get(key)
+        try:
+            print('Auditing container "%s"' % name)
+            path = '/%s/%s' % (account, name)
+            account_listing = self.audit_account(account)
+            consistent = True
+            if name not in account_listing:
+                consistent = False
+                print("  Container %s not in account listing!" % path)
+            part, nodes = \
+                self.container_ring.get_nodes(account, name.encode('utf-8'))
+            rec_d = {}
+            responses = {}
+            for node in nodes:
+                marker = ''
+                results = True
+                while results:
+                    try:
+                        conn = http_connect(node['ip'], node['port'],
+                                            node['device'], part, 'GET',
+                                            path.encode('utf-8'), {},
+                                            'format=json&marker=%s' %
+                                            quote(marker.encode('utf-8')))
+                        resp = conn.getresponse()
+                        if resp.status // 100 != 2:
+                            self.container_not_found += 1
+                            consistent = False
+                            print('  Bad status GETting container '
+                                  '"%s" on %s/%s' %
+                                  (path, node['ip'], node['device']))
+                            break
+                        if node['id'] not in responses:
+                            responses[node['id']] = {
+                                h.lower(): v for h, v in resp.getheaders()}
+                        results = json.loads(resp.read())
+                    except Exception:
+                        self.container_exceptions += 1
                         consistent = False
-                        print('  Bad status GETting container "%s" on %s/%s' %
+                        print('  Exception GETting container "%s" on %s/%s' %
                               (path, node['ip'], node['device']))
                         break
-                    if node['id'] not in responses:
-                        responses[node['id']] = {
-                            h.lower(): v for h, v in resp.getheaders()}
-                    results = json.loads(resp.read())
-                except Exception:
-                    self.container_exceptions += 1
-                    consistent = False
-                    print('  Exception GETting container "%s" on %s/%s' %
-                          (path, node['ip'], node['device']))
-                    break
-                if results:
-                    marker = results[-1]['name']
-                    for obj in results:
-                        obj_name = obj['name']
-                        if obj_name not in rec_d:
-                            rec_d[obj_name] = obj
-                        if (obj['last_modified'] !=
-                                rec_d[obj_name]['last_modified']):
-                            self.container_obj_mismatch += 1
-                            consistent = False
-                            print("  Different versions of %s/%s "
-                                  "in container dbs." % (name, obj['name']))
-                            if (obj['last_modified'] >
-                                    rec_d[obj_name]['last_modified']):
+                    if results:
+                        marker = results[-1]['name']
+                        for obj in results:
+                            obj_name = obj['name']
+                            if obj_name not in rec_d:
                                 rec_d[obj_name] = obj
-        obj_counts = [int(header['x-container-object-count'])
-                      for header in responses.values()]
-        if not obj_counts:
-            consistent = False
-            print("  Failed to fetch container %s at all!" % path)
-        else:
-            if len(set(obj_counts)) != 1:
-                self.container_count_mismatch += 1
+                            if (obj['last_modified'] !=
+                                    rec_d[obj_name]['last_modified']):
+                                self.container_obj_mismatch += 1
+                                consistent = False
+                                print("  Different versions of %s/%s "
+                                      "in container dbs." %
+                                      (name, obj['name']))
+                                if (obj['last_modified'] >
+                                        rec_d[obj_name]['last_modified']):
+                                    rec_d[obj_name] = obj
+            obj_counts = [int(header['x-container-object-count'])
+                          for header in responses.values()]
+            if not obj_counts:
                 consistent = False
-                print(
-                    "  Container databases don't agree on number of objects.")
-                print(
-                    "  Max: %s, Min: %s" % (max(obj_counts), min(obj_counts)))
-        self.containers_checked += 1
-        self.list_cache[(account, name)] = rec_d
-        self.in_progress[(account, name)].send(True)
-        del self.in_progress[(account, name)]
+                print("  Failed to fetch container %s at all!" % path)
+            else:
+                if len(set(obj_counts)) != 1:
+                    self.container_count_mismatch += 1
+                    consistent = False
+                    print(
+                        "  Container databases don't agree on "
+                        "number of objects.")
+                    print(
+                        "  Max: %s, Min: %s" %
+                        (max(obj_counts), min(obj_counts)))
+            self.containers_checked += 1
+            self.list_cache[key] = rec_d
+        finally:
+            # wake waiters even when the audit fails, else they
+            # block on evt.wait() forever
+            with self._cache_lock:
+                self.in_progress[key].set()
+                del self.in_progress[key]
         if recurse:
             for obj in rec_d.keys():
                 self.pool.spawn_n(self.audit_object, account, name, obj)
@@ -232,74 +252,85 @@ class Auditor(object):
         return rec_d
 
     def audit_account(self, account, recurse=False):
-        if account in self.in_progress:
-            self.in_progress[account].wait()
-        if account in self.list_cache:
-            return self.list_cache[account]
-        self.in_progress[account] = Event()
-        print('Auditing account "%s"' % account)
-        consistent = True
-        path = '/%s' % account
-        part, nodes = self.account_ring.get_nodes(account)
-        responses = {}
-        for node in nodes:
-            marker = ''
-            results = True
-            while results:
-                node_id = node['id']
-                try:
-                    conn = http_connect(node['ip'], node['port'],
-                                        node['device'], part, 'GET', path, {},
-                                        'format=json&marker=%s' %
-                                        quote(marker.encode('utf-8')))
-                    resp = conn.getresponse()
-                    if resp.status // 100 != 2:
-                        self.account_not_found += 1
+        with self._cache_lock:
+            if account in self.list_cache:
+                return self.list_cache[account]
+            evt = self.in_progress.get(account)
+            owner = evt is None
+            if owner:
+                evt = self.in_progress[account] = Event()
+        if not owner:
+            evt.wait()
+            return self.list_cache.get(account)
+        try:
+            print('Auditing account "%s"' % account)
+            consistent = True
+            path = '/%s' % account
+            part, nodes = self.account_ring.get_nodes(account)
+            responses = {}
+            for node in nodes:
+                marker = ''
+                results = True
+                while results:
+                    node_id = node['id']
+                    try:
+                        conn = http_connect(node['ip'], node['port'],
+                                            node['device'], part,
+                                            'GET', path, {},
+                                            'format=json&marker=%s' %
+                                            quote(marker.encode('utf-8')))
+                        resp = conn.getresponse()
+                        if resp.status // 100 != 2:
+                            self.account_not_found += 1
+                            consistent = False
+                            print("  Bad status GETting account '%s' "
+                                  " from %s:%s" %
+                                  (account, node['ip'], node['device']))
+                            break
+                        results = json.loads(resp.read())
+                    except Exception:
+                        self.account_exceptions += 1
                         consistent = False
-                        print("  Bad status GETting account '%s' "
-                              " from %s:%s" %
+                        print("  Exception GETting account '%s' on %s:%s" %
                               (account, node['ip'], node['device']))
                         break
-                    results = json.loads(resp.read())
-                except Exception:
-                    self.account_exceptions += 1
-                    consistent = False
-                    print("  Exception GETting account '%s' on %s:%s" %
-                          (account, node['ip'], node['device']))
-                    break
-                if node_id not in responses:
-                    responses[node_id] = [
-                        {h.lower(): v for h, v in resp.getheaders()}, []]
-                responses[node_id][1].extend(results)
-                if results:
-                    marker = results[-1]['name']
-        headers = [r[0] for r in responses.values()]
-        cont_counts = [int(header['x-account-container-count'])
-                       for header in headers]
-        if len(set(cont_counts)) != 1:
-            self.account_container_mismatch += 1
-            consistent = False
-            print("  Account databases for '%s' don't agree on"
-                  " number of containers." % account)
-            if cont_counts:
-                print("  Max: %s, Min: %s" % (max(cont_counts),
-                                              min(cont_counts)))
-        obj_counts = [int(header['x-account-object-count'])
-                      for header in headers]
-        if len(set(obj_counts)) != 1:
-            self.account_object_mismatch += 1
-            consistent = False
-            print("  Account databases for '%s' don't agree on"
-                  " number of objects." % account)
-            if obj_counts:
-                print("  Max: %s, Min: %s" % (max(obj_counts),
-                                              min(obj_counts)))
-        containers = set()
-        for resp in responses.values():
-            containers.update(container['name'] for container in resp[1])
-        self.list_cache[account] = containers
-        self.in_progress[account].send(True)
-        del self.in_progress[account]
+                    if node_id not in responses:
+                        responses[node_id] = [
+                            {h.lower(): v for h, v in resp.getheaders()}, []]
+                    responses[node_id][1].extend(results)
+                    if results:
+                        marker = results[-1]['name']
+            headers = [r[0] for r in responses.values()]
+            cont_counts = [int(header['x-account-container-count'])
+                           for header in headers]
+            if len(set(cont_counts)) != 1:
+                self.account_container_mismatch += 1
+                consistent = False
+                print("  Account databases for '%s' don't agree on"
+                      " number of containers." % account)
+                if cont_counts:
+                    print("  Max: %s, Min: %s" % (max(cont_counts),
+                                                  min(cont_counts)))
+            obj_counts = [int(header['x-account-object-count'])
+                          for header in headers]
+            if len(set(obj_counts)) != 1:
+                self.account_object_mismatch += 1
+                consistent = False
+                print("  Account databases for '%s' don't agree on"
+                      " number of objects." % account)
+                if obj_counts:
+                    print("  Max: %s, Min: %s" % (max(obj_counts),
+                                                  min(obj_counts)))
+            containers = set()
+            for resp in responses.values():
+                containers.update(container['name'] for container in resp[1])
+            self.list_cache[account] = containers
+        finally:
+            # wake waiters even when the audit fails, else they
+            # block on evt.wait() forever
+            with self._cache_lock:
+                self.in_progress[account].set()
+                del self.in_progress[account]
         self.accounts_checked += 1
         if recurse:
             for container in containers:

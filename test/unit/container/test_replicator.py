@@ -22,8 +22,6 @@ from unittest import mock
 import random
 import sqlite3
 
-from swift.common.concurrency import sleep
-
 from swift.common import db_replicator
 from swift.common.swob import HTTPServerError
 from swift.container import replicator, backend, server, sync_store
@@ -38,7 +36,7 @@ from swift.common.storage_policy import POLICIES
 from test.debug_logger import debug_logger
 from test.unit.common import test_db_replicator
 from test.unit import patch_policies, make_timestamp_iter, mock_check_drive, \
-    attach_fake_replication_rpc, FakeHTTPResponse
+    attach_fake_replication_rpc, FakeHTTPResponse, sleep_or_timeout
 from contextlib import contextmanager
 
 
@@ -1889,10 +1887,13 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
 
         replicate_calls = []
 
-        def replicate_hook(op, *args):
+        def replicate_hook(op, *args, sock=None):
             replicate_calls.append(op)
             if op == 'get_shard_ranges':
-                sleep(0.1)
+                # honour the node_timeout that db_replicator sets on the
+                # connection socket; under threading a plain sleep can't be
+                # interrupted by Timeout, so raise socket.timeout via the sock
+                sleep_or_timeout(0.1, sock)
 
         fake_repl_connection = attach_fake_replication_rpc(
             self.rpc, replicate_hook=replicate_hook)
