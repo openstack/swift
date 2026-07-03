@@ -275,8 +275,11 @@ class HTMLViewer(object):
                                                  nfl_filter, download_format)
             else:
                 if action == 'clear':
-                    self.profile_log.clear(profile_id)
+                    # renew first: it waits out in-flight dumps and makes
+                    # queued ones stale, so none can resurrect the files
+                    # deleted below
                     clear_callback and clear_callback()
+                    self.profile_log.clear(profile_id)
                 content, headers = self.index_page(log_files, sort, limit,
                                                    fulldirs, nfl_filter,
                                                    profile_id, url)

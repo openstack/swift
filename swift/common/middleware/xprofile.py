@@ -80,10 +80,12 @@ it to visualize statistic data::
 """
 
 import os
+import pstats
 import sys
 import time
 
-from swift.common.concurrency import greenthread, SwiftPool, original, eprofile
+from swift.common.concurrency import (
+    SwiftPool, original, CooperativeLock, DEFAULT_PROFILE_MODULE)
 import urllib
 
 from swift.common.utils import get_logger, config_true_value
@@ -109,7 +111,8 @@ PROFILE_EXEC_LAZY = """
 app_iter_ = self.app(environ, start_response)
 """
 
-thread = original('_thread')  # non-monkeypatched module needed
+# the non-monkeypatched module is needed to read the real thread id
+thread = original('_thread')
 
 
 # This monkey patch code fix the problem of eventlet profile tool
@@ -119,7 +122,6 @@ def new_setup(self):
     self._has_setup = True
     self.cur = None
     self.timings = {}
-    self.current_tasklet = greenthread.getcurrent()
     self.thread_id = thread.get_ident()
     self.simulate_call("profiler")
 
@@ -163,13 +165,23 @@ class ProfileMiddleware(object):
         self.path = conf.get('path', '__profile__').replace('/', '')
         self.unwind = config_true_value(conf.get('unwind', 'no'))
         self.profile_module = conf.get('profile_module',
-                                       'eventlet.green.profile')
-        self.profiler = get_profiler(self.profile_module)
+                                       DEFAULT_PROFILE_MODULE)
+        # A profiler only observes the OS thread that runs it, and sharing
+        # one across threads corrupts its bookkeeping -- so each worker
+        # thread profiles on its own profiler, created lazily. Under
+        # eventlet every request runs on the same OS thread (use the
+        # unpatched threading.local), so this degenerates to the single
+        # shared profiler it always was.
+        self._thread_locals = original('threading').local()
+        self._profilers = []            # (lock, profiler) per live thread
+        self._profilers_lock = CooperativeLock()
+        self._generation = 0
         self.profile_log = ProfileLog(self.log_filename_prefix,
                                       self.dump_timestamp)
         self.viewer = HTMLViewer(self.path, self.profile_module,
                                  self.profile_log)
         self.dump_pool = SwiftPool(1000)
+        self._dump_lock = CooperativeLock()  # serialize dump-file writes
         self.last_dump_at = None
 
     def __del__(self):
@@ -185,13 +197,56 @@ class ProfileMiddleware(object):
                                                 strict_parsing=False))
         return query_dict
 
+    def _get_profiler(self):
+        # this thread's (lock, profiler); recreated after renew_profile()
+        if getattr(self._thread_locals, 'generation', None) == \
+                self._generation:
+            return self._thread_locals.entry
+        entry = (CooperativeLock(), get_profiler(self.profile_module))
+        with self._profilers_lock:
+            generation = self._generation
+            self._profilers.append(entry)
+        self._thread_locals.generation = generation
+        self._thread_locals.entry = entry
+        return entry
+
     def dump_checkpoint(self):
         current_time = time.time()
         if self.last_dump_at is None or self.last_dump_at +\
                 self.dump_interval < current_time:
-            self.dump_pool.spawn_n(self.profile_log.dump_profile,
-                                   self.profiler, os.getpid())
             self.last_dump_at = current_time
+            with self._profilers_lock:
+                generation = self._generation
+            self.dump_pool.spawn_n(self._dump_aggregate, os.getpid(),
+                                   generation)
+
+    def _dump_aggregate(self, pid, generation):
+        # Merge a consistent snapshot of every thread's profiler; each
+        # entry's lock keeps the snapshot out of that thread's in-flight
+        # request. The merged pstats.Stats duck-types what
+        # ProfileLog.dump_profile() needs (dump_stats() and .stats).
+        # The job carries the generation it was queued for: renew_profile()
+        # (run by the viewer's "clear" action before the files are deleted)
+        # bumps it, so a stale queued dump must not resurrect cleared data.
+        with self._profilers_lock:
+            if generation != self._generation:
+                return
+            entries = list(self._profilers)
+        aggregate = None
+        for lock, profiler in entries:
+            with lock:
+                if aggregate is None:
+                    aggregate = pstats.Stats(profiler)
+                else:
+                    aggregate.add(profiler)
+        if aggregate is not None:
+            with self._dump_lock:
+                # re-check under the dump lock: renew_profile() takes it
+                # too, so after a renewal no stale write can slip through
+                with self._profilers_lock:
+                    if generation != self._generation:
+                        return
+                self.profile_log.dump_profile(aggregate, pid)
 
     def __call__(self, environ, start_response):
         request = Request(environ)
@@ -230,23 +285,34 @@ class ProfileMiddleware(object):
             _locals = locals()
             code = self.unwind and PROFILE_EXEC_EAGER or\
                 PROFILE_EXEC_LAZY
-            self.profiler.runctx(code, globals(), _locals)
+            lock, profiler = self._get_profiler()
+            with lock:
+                profiler.runctx(code, globals(), _locals)
             app_iter = _locals['app_iter_']
             self.dump_checkpoint()
             return app_iter
 
     def renew_profile(self):
-        self.profiler = get_profiler(self.profile_module)
+        # start a new generation: each thread lazily creates a fresh
+        # profiler and the old ones are dropped. Taking the dump lock waits
+        # out any in-flight dump write, so once this returns no dump of the
+        # old generation can be published (the viewer calls this before
+        # clearing the dump files).
+        with self._dump_lock:
+            with self._profilers_lock:
+                self._generation += 1
+                self._profilers = []
 
 
 def get_profiler(profile_module):
-    if profile_module == 'eventlet.green.profile':
-        eprofile.Profile._setup = new_setup
-        eprofile.Profile.runctx = new_runctx
-        eprofile.Profile.runcall = new_runcall
     # hacked method to import profile module supported in python 2.6
     __import__(profile_module)
-    return sys.modules[profile_module].Profile()
+    module = sys.modules[profile_module]
+    if profile_module == 'eventlet.green.profile':
+        module.Profile._setup = new_setup
+        module.Profile.runctx = new_runctx
+        module.Profile.runcall = new_runcall
+    return module.Profile()
 
 
 def filter_factory(global_conf, **local_conf):

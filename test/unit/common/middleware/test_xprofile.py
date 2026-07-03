@@ -15,8 +15,10 @@
 
 import os
 import json
+import pstats
 import shutil
 import tempfile
+import threading
 import unittest
 
 from io import BytesIO
@@ -182,10 +184,57 @@ class TestProfileMiddleware(unittest.TestCase):
         self.assertTrue(self.app.last_dump_at is not None)
 
     def test_renew_profile(self):
-        old_profiler = self.app.profiler
+        _, old_profiler = self.app._get_profiler()
         self.app.renew_profile()
-        new_profiler = self.app.profiler
+        _, new_profiler = self.app._get_profiler()
         self.assertTrue(old_profiler != new_profiler)
+
+    def test_profiler_is_per_thread(self):
+        # each worker thread gets its own profiler; sharing one corrupts
+        # its bookkeeping
+        _, mine = self.app._get_profiler()
+        others = []
+        t = threading.Thread(
+            target=lambda: others.append(self.app._get_profiler()[1]))
+        t.start()
+        t.join(5)
+        self.assertEqual(1, len(others))
+        self.assertIsNot(mine, others[0])
+        # stable within a thread
+        self.assertIs(mine, self.app._get_profiler()[1])
+
+    def test_dump_aggregates_all_threads(self):
+        # profile some work on two threads, then dump: the merged stats
+        # must be loadable and non-empty
+        def work():
+            _, profiler = self.app._get_profiler()
+            profiler.runctx('import os;os.getcwd();', globals(), locals())
+
+        work()
+        t = threading.Thread(target=work)
+        t.start()
+        t.join(5)
+        self.app._dump_aggregate('dumptest', self.app._generation)
+        path = self.app.log_filename_prefix + 'dumptest'
+        self.assertTrue(os.path.exists(path))
+        stats = pstats.Stats(path)
+        self.assertTrue(stats.stats)
+
+    def test_stale_dump_is_skipped_after_renew(self):
+        # A dump queued before a clear/renew must not resurrect the old
+        # generation's data: renew_profile() makes it stale.
+        _, profiler = self.app._get_profiler()
+        profiler.runctx('import os;os.getcwd();', globals(), locals())
+        stale_generation = self.app._generation
+        self.app.renew_profile()
+        self.app._dump_aggregate('staletest', stale_generation)
+        path = self.app.log_filename_prefix + 'staletest'
+        self.assertFalse(os.path.exists(path))
+        # and a current-generation dump still works after the renewal
+        _, profiler = self.app._get_profiler()
+        profiler.runctx('import os;os.getcwd();', globals(), locals())
+        self.app._dump_aggregate('staletest', self.app._generation)
+        self.assertTrue(os.path.exists(path))
 
     def test_int_values(self):
         for body in (

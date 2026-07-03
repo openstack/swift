@@ -52,7 +52,6 @@ del config_false_value
 
 
 if USE_EVENTLET:
-    import eventlet.green.profile as eprofile
     import eventlet  # noqa: F401
     import eventlet.debug
     import eventlet.greenio
@@ -71,6 +70,9 @@ if USE_EVENTLET:
     from eventlet.green.http.client import CONTINUE, HTTPConnection, \
         HTTPResponse, HTTPSConnection, ImproperConnectionState, _UNKNOWN
     from eventlet.greenthread import getcurrent, spawn as greenthread_spawn
+
+    def current_id():
+        return id(getcurrent())
 
     hub_exceptions = eventlet.debug.hub_exceptions
     hub_prevent_multiple_readers = eventlet.debug.hub_prevent_multiple_readers
@@ -111,6 +113,8 @@ if USE_EVENTLET:
 
     # Return an un-monkeypatched stdlib module (eventlet patches several).
     original = eventlet.patcher.original
+    # Greenthread-aware profiler default for the xprofile middleware.
+    DEFAULT_PROFILE_MODULE = 'eventlet.green.profile'
 
     def make_pile_queue(size):
         # Bounded result queue for GreenAsyncPile: producers are greenthreads,
@@ -197,7 +201,6 @@ if USE_EVENTLET:
         return proc.stdout.read()
 
 else:
-    eprofile = None
     import http.client as green_http_client
     import os as green_os
     import socket
@@ -228,6 +231,8 @@ else:
         # No monkeypatching without eventlet, so the imported module already
         # is the "original".
         return importlib.import_module(name)
+
+    DEFAULT_PROFILE_MODULE = 'cProfile'
 
     def make_pile_queue(size):
         # Unbounded result queue for GreenAsyncPile: producers are real pool
@@ -262,6 +267,9 @@ else:
     wsgi = None
     getcurrent = None
     greenthread_spawn = None
+
+    def current_id():
+        return threading.get_ident()
 
     def _noop(*args, **kwargs):
         pass
@@ -1216,6 +1224,7 @@ __all__ = [
     'wait_subprocess',
     'read_subprocess',
     'original',
+    'DEFAULT_PROFILE_MODULE',
     'make_pile_queue',
     'export_mode',
     'mode_from_environ',
@@ -1269,4 +1278,5 @@ __all__ = [
     'shutdown_safe',
     'spawn_n',
     'ChunkReadError',
+    'current_id',
 ]

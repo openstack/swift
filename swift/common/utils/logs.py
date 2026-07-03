@@ -26,7 +26,8 @@ import sys
 import time
 import fcntl
 from swift.common.concurrency import (
-    eventlet, green_http_client, green_threading as threading, USE_EVENTLET
+    green_http_client, green_threading as threading,
+    current_id, hub_prevent_multiple_readers,
 )
 import datetime
 
@@ -97,8 +98,7 @@ class PipeMutex(object):
         #
         # It would be better to turn off multiple-reader detection for only
         # our calls to trampoline(), but eventlet does not support that.
-        if USE_EVENTLET:
-            eventlet.debug.hub_prevent_multiple_readers(False)
+        hub_prevent_multiple_readers(False)
 
     def acquire(self, blocking=True):
         """
@@ -112,10 +112,7 @@ class PipeMutex(object):
         times as it wants to, though it must then release it that many times
         too.
         """
-        if USE_EVENTLET:
-            current_greenthread_id = id(eventlet.greenthread.getcurrent())
-        else:
-            current_greenthread_id = threading.current_thread().ident
+        current_greenthread_id = current_id()
         if self.owner == current_greenthread_id:
             self.recursion_depth += 1
             return True
@@ -136,20 +133,16 @@ class PipeMutex(object):
                     return False
 
                 # Tell eventlet to suspend the current greenthread until
-                # self.rfd becomes readable. This will happen when someone
-                # else writes to self.wfd.
-                # In threading mode this simply sleeps shortly, allowing
-                # other threads to continue in the meantime
+                # self.rfd becomes readable. This will happen when someone else
+                # writes to self.wfd. Without eventlet this sleeps briefly,
+                # yielding to other threads.
                 trampoline(self.rfd, read=True)
 
     def release(self):
         """
         Release the mutex.
         """
-        if USE_EVENTLET:
-            current_greenthread_id = id(eventlet.greenthread.getcurrent())
-        else:
-            current_greenthread_id = threading.current_thread().ident
+        current_greenthread_id = current_id()
         if self.owner != current_greenthread_id:
             raise RuntimeError("cannot release un-acquired lock")
 
@@ -219,8 +212,7 @@ class NoopMutex(object):
         #
         # It would be better to turn off multiple-reader detection for only
         # the logging socket fd, but eventlet does not support that.
-        if USE_EVENTLET:
-            eventlet.debug.hub_prevent_multiple_readers(False)
+        hub_prevent_multiple_readers(False)
 
     def acquire(self, blocking=True):
         pass

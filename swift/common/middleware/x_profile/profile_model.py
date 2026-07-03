@@ -271,6 +271,14 @@ class ProfileLog(object):
                 pfn = pfn + "-" + str(time.time())
             tmpfn = pfn + ".tmp"
             profiler.dump_stats(tmpfn)
+            # empty stats (nothing profiled) can't be loaded by pstats, so
+            # drop the temp dump instead of renaming it into place. The check
+            # must follow the dump: a Profile has no .stats until dump_stats()
+            # builds it, and _dump_aggregate passes a pstats.Stats, which has
+            # no create_stats().
+            if not profiler.stats:
+                os.remove(tmpfn)
+                return None
             os.rename(tmpfn, pfn)
             return pfn
 

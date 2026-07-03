@@ -24,7 +24,7 @@ import sys
 import time
 import unittest
 import uuid
-from swift.common.concurrency import eventlet, green_http_client
+from swift.common.concurrency import eventlet, green_http_client, USE_EVENTLET
 import functools
 from unittest import mock
 
@@ -1243,6 +1243,9 @@ class TestSwiftLogAdapter(BaseTestCase):
         mocked.assert_called_with('Caught: Connection refused')
 
 
+@unittest.skipUnless(USE_EVENTLET,
+                     'PipeMutex is only used with eventlet; threading mode '
+                     'uses NoopMutex')
 class TestPipeMutex(BaseTestCase):
     def setUp(self):
         super().setUp()
