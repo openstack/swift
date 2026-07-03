@@ -21,9 +21,11 @@ import unittest
 import urllib.parse
 import time
 from swift.common.concurrency import spawn, SwiftPool, USE_EVENTLET, sleep
+from test import import_gunicorn_or_skip
 if USE_EVENTLET:
     from eventlet import wsgi
 else:
+    import_gunicorn_or_skip()
     import swift.common.wsgi_gunicorn as wsgi
 
 from swift.common.exceptions import DiskFileNotExist, DiskFileError, \

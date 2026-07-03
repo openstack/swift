@@ -23,7 +23,10 @@ import socket
 
 from swift.common.concurrency import USE_EVENTLET
 
+from test import import_gunicorn_or_skip
+
 if not USE_EVENTLET:
+    import_gunicorn_or_skip()
     import swift.common.wsgi_gunicorn as wsgi_gunicorn
     from swift.common.wsgi_gunicorn import ChunkedInput, _bind_str, \
         _check_can_bind, _resolve_worker_count, _check_binds_bindable, \

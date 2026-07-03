@@ -47,12 +47,14 @@ from swift.common.concurrency import (
     sleep, spawn, Timeout, debug, green_http_client as http_client,
     USE_EVENTLET
 )
+from test import import_gunicorn_or_skip
 if USE_EVENTLET:
     from swift.common.concurrency import wsgi
     from swift.common.http_protocol import SwiftHttpProtocol
 else:
     # gunicorn provides the WSGI server in threading mode; its drop-in
     # server() ignores the eventlet-only protocol/capitalize kwargs.
+    import_gunicorn_or_skip()
     import swift.common.wsgi_gunicorn as wsgi
     SwiftHttpProtocol = None
 from io import BytesIO

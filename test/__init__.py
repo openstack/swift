@@ -21,6 +21,24 @@ from unittest.util import safe_repr
 
 import unittest
 
+
+def import_gunicorn_or_skip():
+    """Skip the caller when gunicorn is not installed.
+
+    requirements.txt installs gunicorn only on Python >= 3.10; without
+    eventlet the gunicorn-backed tests cannot run there. Probe exactly for
+    an absent gunicorn so any other import failure -- a broken gunicorn or
+    a regression in Swift's own modules -- still surfaces.
+    """
+    try:
+        import gunicorn  # noqa: F401
+    except ModuleNotFoundError as err:
+        if err.name != 'gunicorn':
+            raise
+        raise unittest.SkipTest('gunicorn is not installed (running '
+                                'without eventlet requires Python >= 3.10)')
+
+
 from swift.common.concurrency import socket
 
 from swift.common.utils import readconf

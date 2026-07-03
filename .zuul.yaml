@@ -596,6 +596,20 @@
       nslookup_target: 'opendev.org'
       enable_fips: true
 
+- job:
+    name: swift-tox-py3-no-eventlet
+    parent: swift-tox-base
+    nodeset: ubuntu-noble
+    description: |
+      Run unit-tests for swift without eventlet (USE_EVENTLET=False).
+
+      Uses tox with the ``py3-no-eventlet`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: py3-no-eventlet
+      python_version: '3.12'
+
 - project-template:
     name: swift-jobs-arm64
     description: |
@@ -644,6 +658,8 @@
         - swift-tox-py313:
             irrelevant-files: *unittest-irrelevant-files
         - swift-tox-py314:
+            irrelevant-files: *unittest-irrelevant-files
+        - swift-tox-py3-no-eventlet:
             irrelevant-files: *unittest-irrelevant-files
 
         # Functional tests

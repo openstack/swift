@@ -25,6 +25,7 @@ from tempfile import mkdtemp
 import warnings
 
 from swift.common.concurrency import spawn, USE_EVENTLET
+from test import import_gunicorn_or_skip
 from unittest import mock
 from shutil import rmtree
 
@@ -42,6 +43,7 @@ if USE_EVENTLET:
 else:
     # gunicorn provides the WSGI server in threading mode; its drop-in
     # server() ignores the eventlet-only protocol/capitalize kwargs below.
+    import_gunicorn_or_skip()
     import swift.common.wsgi_gunicorn as wsgi
     SwiftHttpProtocol = None
 from swift.container import server as container_server

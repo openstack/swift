@@ -73,6 +73,34 @@ is as follows:
 
 6. All old workers have now exited. Only new code and configs are in use.
 
+.. note::
+
+   Running without eventlet requires Python >= 3.10: the gunicorn version
+   Swift needs (>= 24.1.1) is not available on older interpreters, and
+   Swift rejects the mode at startup there. On Python 3.7--3.9, run with
+   eventlet.
+
+   The process tree above describes the eventlet WSGI server. When Swift is
+   run without eventlet, the WSGI server is gunicorn, which reloads in place:
+   a persistent master re-reads the configuration and starts fresh workers
+   that rebuild the application pipeline, so configuration, ring, and
+   ``swift.conf`` changes take effect. The master does *not* re-exec, so
+   changed Python code (a Swift upgrade, edited middleware) is **not** picked
+   up by a reload in this mode -- perform a full restart to apply code
+   changes. The signals also differ: a seamless reload is ``SIGHUP`` (gunicorn
+   reads ``SIGUSR1`` as "reopen logs"). ``swift-init`` and ``swift-reload``
+   read each target server's mode from its environment (``USE_EVENTLET``,
+   pinned on spawn) and choose the reload strategy and signal accordingly,
+   so mixed-mode clusters (e.g. during a migration) can be managed with
+   either CLI. A server without the pin -- one started before this Swift,
+   the expected first-upgrade state -- is treated as legacy eventlet, so
+   its graceful reload semantics are preserved. Only when a target's mode
+   is genuinely unknown (its environment is unreadable, or its processes
+   disagree) do the CLIs fall back defensively, with a warning: seamless
+   reloads still use eventlet's ``USR1`` (harmless on gunicorn), while
+   graceful stops use ``SIGTERM``, which stops either mode but skips
+   eventlet's graceful drain.
+
 ``swift-reload``
 ----------------
 
@@ -82,6 +110,7 @@ to help validate the reload process. Given a PID, it will
 1. Validate that the PID seems to belong to a Swift WSGI server manager
    process,
 2. Check that the config file used by that PID is currently valid,
-3. Send the ``USR1`` signal to initiate a reload, and
+3. Send the seamless-reload signal for the target's mode (``USR1`` for
+   eventlet, ``HUP`` for gunicorn) to initiate a reload, and
 4. Wait for the new workers to come up (indicating the reload is complete)
    before exiting.

@@ -211,6 +211,20 @@ If you do not run a separate object-server for replication, then this setting
 must be available to the object-replicator and object-reconstructor (i.e.
 appear in the [DEFAULT] config section).
 
+.. note::
+
+   ``servers_per_port`` behaves differently when Swift runs without eventlet
+   (``USE_EVENTLET=false``), where the object-server is served by gunicorn.
+   gunicorn's single arbiter binds every local ring port and all of its
+   worker threads accept on all of those ports, so this mode restores
+   listeners on each port but does **not** provide the per-port *process*
+   isolation that the eventlet implementation does -- a slow disk's port is
+   not fenced off into its own worker processes. The number of workers is
+   still scaled by ``servers_per_port`` times the number of local ports.
+   Changed ring ports are also picked up on a reload (SIGHUP) rather than
+   being polled continuously at ``ring_check_interval``, so push a ring with
+   new ports and then reload the object-server.
+
 .. _general-service-configuration:
 
 -----------------------------
@@ -570,6 +584,23 @@ On systems that have more cores, and more memory, where one can afford to run
 more workers, raising the number of workers and lowering the maximum number of
 clients serviced per worker can lessen the impact of CPU intensive or stalled
 requests.
+
+When Swift is run without eventlet (``USE_EVENTLET=false``), the WSGI servers
+run under gunicorn with threaded workers and ``max_clients`` does not apply.
+Instead, the ``threads`` setting controls how many real OS threads each worker
+uses to service requests concurrently, so ``workers`` multiplied by ``threads``
+bounds the number of requests a node can serve at once. Because these are real
+threads rather than eventlet greenthreads (of which a single worker can cheaply
+run thousands), size ``threads`` to the expected peak concurrent connections:
+enough to keep concurrent, GIL-releasing disk reads flowing in parallel across
+cores, but not so many that the CPU-bound portion of small-object handling
+contends heavily on the GIL. The best value depends on the workload (e.g.
+parallel fsync favors more threads, GIL contention favors fewer), so benchmark
+with a representative workload rather than relying on rules of thumb. Note
+that, unlike a greenthread, a slow or idle client holds a real thread for the
+lifetime of its connection, so ensure ``client_timeout`` (and
+``keepalive_timeout`` on the proxy) are set such that slow clients cannot
+exhaust the thread pool. The default for ``threads`` is 16.
 
 The ``nice_priority`` parameter can be used to set program scheduling priority.
 The ``ionice_class`` and ``ionice_priority`` parameters can be used to set I/O scheduling

@@ -29,6 +29,7 @@ import random
 import base64
 
 from swift.common.concurrency import USE_EVENTLET
+from test import import_gunicorn_or_skip
 if USE_EVENTLET:
     import eventlet.debug
     from swift.common.http_protocol import SwiftHttpProtocol
@@ -47,6 +48,7 @@ from http.client import HTTPException
 if USE_EVENTLET:
     from eventlet import wsgi
 else:
+    import_gunicorn_or_skip()
     import swift.common.wsgi_gunicorn as wsgi
 from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError

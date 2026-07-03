@@ -20,12 +20,14 @@ import tempfile
 import unittest
 
 from swift.common.concurrency import spawn, USE_EVENTLET
+from test import import_gunicorn_or_skip
 
 if USE_EVENTLET:
     from swift.common.concurrency import wsgi
     WsgiInput = wsgi.Input
 else:
     # gunicorn provides the WSGI server (wsgi.server) in threading mode.
+    import_gunicorn_or_skip()
     import swift.common.wsgi_gunicorn as wsgi
     from swift.common.concurrency import ChunkReadError as _ChunkReadError
 
