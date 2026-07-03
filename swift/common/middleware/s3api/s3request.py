@@ -94,6 +94,14 @@ SIGV4_CHUNK_MIN_SIZE = 8192
 SERVICE = 's3'  # useful for mocking out in tests
 
 
+SIGV4_MUST_BE_SIGNED_AMZ_PREFIXES = (
+    'x-amz-copy',
+    'x-amz-acl',
+    'x-amz-grant',
+    'x-amz-meta',
+)
+
+
 CHECKSUMS_BY_HEADER = {
     'x-amz-checksum-crc32': checksum.crc32,
     'x-amz-checksum-crc32c': checksum.crc32c,
@@ -923,6 +931,14 @@ class SigV4Mixin(object):
             headers_lower_dict = dict(
                 (k.lower().strip(), ' '.join(_header_strip(v or '').split()))
                 for (k, v) in self.headers.items())
+
+        for key in headers_lower_dict:
+            key = swob.wsgi_to_str(key)
+            if (key not in self._signed_headers
+                    and key.startswith(SIGV4_MUST_BE_SIGNED_AMZ_PREFIXES)):
+                raise AccessDenied(
+                    'There were headers present in the request which were '
+                    'not signed', headers_not_signed=key)
 
         if 'host' in headers_lower_dict and re.match(
                 'Boto/2.[0-9].[0-2]',

@@ -396,6 +396,43 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(status.split()[0], '403')
         self.assertEqual(body, b'')
 
+    def _make_sigv4_req(self, extra_headers):
+        date_header = self.get_v4_amz_date_header()
+        scope_date = date_header.split('T', 1)[0]
+        headers = {
+            'X-Amz-Date': date_header,
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
+                'SignedHeaders=%s,'
+                'Signature=X' % (
+                    scope_date, ';'.join(sorted(['host', 'x-amz-date']))),
+            'X-Amz-Content-SHA256': '0' * 64,
+        }
+        headers.update(extra_headers)
+        return Request.blank('/bucket/object', method='PUT', headers=headers)
+
+    def test_sigv4_unsigned_sensitive_x_amz_header_is_rejected(self):
+        for header, value in (
+                ('X-Amz-Copy-Source', '/victim/secret'),
+                ('X-Amz-Copy-Source-Range', 'bytes=0-1'),
+                ('X-Amz-Metadata-Directive', 'REPLACE'),
+                ('X-Amz-Acl', 'public-read'),
+                ('X-Amz-Grant-Read', 'id=someone'),
+                ('X-Amz-Meta-Injected', 'x')):
+            req = self._make_sigv4_req({header: value})
+            with self.assertRaises(AccessDenied) as cm:
+                SigV4Request(req.environ, conf=self.s3api.conf)
+            self.assertEqual(
+                'There were headers present in the request which were '
+                'not signed', cm.exception._msg)
+            self.assertEqual(
+                header.lower(), cm.exception.info['headers_not_signed'])
+
+    def test_sigv4_unsigned_inert_x_amz_header_is_allowed(self):
+        req = self._make_sigv4_req({'X-Amz-Storage-Class': 'STANDARD'})
+        SigV4Request(req.environ, conf=self.s3api.conf)
+
     def _test_request_timestamp_sigv4(self, date_header):
         # signature v4 here
         environ = {
