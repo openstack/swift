@@ -1,0 +1,20 @@
+---
+security:
+  - |
+    Block client-supplied container-update headers. Previously, these could
+    be used to perform server-side request forgery (SSRF) attacks. Refer to
+    `CVE-2026-50221 <https://www.cve.org/CVERecord?id=CVE-2026-50221>`__ for
+    more information.
+
+  - |
+    Restrict the types of data that may be sent between object servers and
+    replicators. Previously, if an object server were compromised, it could
+    use REPLICATE responses to attempt to compromise other nodes through
+    their replicators.
+
+  - |
+    Fixed an infinite loop when attempting to read from a truncated
+    aws-chunked input. This could be used as a Denial-of-Service vector
+    as the proxy-server process stopped handling other requests. Refer to
+    `CVE-2026-49017 <https://www.cve.org/CVERecord?id=CVE-2026-49017>`__ for
+    more information.
