@@ -42,6 +42,22 @@ class BaseS3ApiMultiDelete:
                             '/v1/AUTH_test/bucket/business/caf\xc3\xa9',
                             swob.HTTPOk, {}, None)
 
+    def assertDeleteCalls(self, calls, expected):
+        # Keys are deleted through a concurrency pool, so per-key calls
+        # interleave under threading. Assert the same calls plus the ordering
+        # that must still hold: the bucket HEAD (container_info) first, and
+        # each object's HEAD before its DELETE.
+        self.assertCountEqual(calls, expected)
+        self.assertEqual(calls[0], ('HEAD', '/v1/AUTH_test/bucket'))
+        headed = set()
+        for method, path in calls:
+            base = path.split('?')[0]
+            if method == 'HEAD':
+                headed.add(base)
+            elif method == 'DELETE':
+                self.assertIn(base, headed,
+                              'DELETE %s issued before its HEAD' % base)
+
     def test_object_multi_DELETE_to_object(self):
         elem = Element('Delete')
         obj = SubElement(elem, 'Object')
@@ -213,7 +229,7 @@ class BaseS3ApiMultiDelete:
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')), 5)
         self.assertEqual(len(elem.findall('Error')), 0)
-        self.assertEqual(self.swift.calls, [
+        self.assertDeleteCalls(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket/Key1?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/Key1'),
@@ -282,16 +298,17 @@ class BaseS3ApiMultiDelete:
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')), 2)
         self.assertEqual(len(elem.findall('Error')), 2)
-        self.assertEqual(
-            [(el.find('Code').text, el.find('Message').text)
+        # <Error> entries come back in completion order; compare unordered
+        self.assertCountEqual(
+            [tuple(el.find(x).text for x in ('Key', 'Code', 'Message'))
              for el in elem.findall('Error')],
-            [('AccessDenied', 'Access Denied.'),
-             ('SLODeleteError', '\n'.join([
+            [('Key3', 'AccessDenied', 'Access Denied.'),
+             ('Key4', 'SLODeleteError', '\n'.join([
                  '400 Bad Request',
                  '/bucket+segments/obj1: 403 Forbidden',
                  '/bucket+segments/obj2: 403 Forbidden']))]
         )
-        self.assertEqual(self.swift.calls, [
+        self.assertDeleteCalls(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket/Key1?symlink=get'),
             ('DELETE', '/v1/AUTH_test/bucket/Key1'),
@@ -337,7 +354,8 @@ class BaseS3ApiMultiDelete:
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')), 2)
         self.assertEqual(len(elem.findall('Error')), 2)
-        self.assertEqual(
+        # <Error> entries come back in completion order; compare unordered
+        self.assertCountEqual(
             [tuple(el.find(x).text for x in ('Key', 'Code', 'Message'))
              for el in elem.findall('Error')],
             [('Key3', 'AccessDenied', 'Access Denied.'),
@@ -476,7 +494,7 @@ class BaseS3ApiMultiDelete:
             status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '200')
 
-        self.assertEqual(self.swift.calls, [
+        self.assertDeleteCalls(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', key1),
             ('DELETE', key1),
@@ -537,7 +555,7 @@ class BaseS3ApiMultiDelete:
         elem = fromstring(body)
         self.assertEqual(len(elem.findall('Deleted')), 3)
 
-        self.assertEqual(self.swift.calls, [
+        self.assertDeleteCalls(self.swift.calls, [
             ('HEAD', '/v1/AUTH_test/bucket'),
             ('HEAD', '/v1/AUTH_test/bucket/Key1'
              '?symlink=get&version-id=%s' % t1.normal),
