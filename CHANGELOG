@@ -91,6 +91,26 @@ swift (2.38.0)
     * Various other minor bug fixes and improvements.
 
 
+swift (2.37.2, gazpacho stable backports)
+
+    * Block client-supplied container-update headers. Previously, these could
+      be used to perform server-side request forgery (SSRF) attacks. Refer to
+      CVE-2026-50221 for more information.
+
+    * Restrict the types of data that may be sent between object servers and
+      replicators. Previously, if an object server were compromised, it could
+      use REPLICATE responses to attempt to compromise other nodes through
+      their replicators.
+
+    * Fixed an infinite loop in s3api when attempting to read from a truncated
+      aws-chunked input. This could be used as a Denial-of-Service vector
+      as the proxy-server process stopped handling other requests. Refer to
+      CVE-2026-49017 for more information.
+
+    * Prepare object versioning for a future release that may use more complex
+      version IDs.
+
+
 swift (2.37.1, OpenStack Gazpacho)
 
     * Python 3.14 (with the GIL enabled) is now supported.
@@ -195,6 +215,23 @@ swift (2.37.0)
     * Various other minor bug fixes and improvements.
 
 
+swift (2.36.2, flamingo stable backports)
+
+    * Block client-supplied container-update headers. Previously, these could
+      be used to perform server-side request forgery (SSRF) attacks. Refer to
+      CVE-2026-50221 for more information.
+
+    * Restrict the types of data that may be sent between object servers and
+      replicators. Previously, if an object server were compromised, it could
+      use REPLICATE responses to attempt to compromise other nodes through
+      their replicators.
+
+    * Fixed an infinite loop in s3api when attempting to read from a truncated
+      aws-chunked input. This could be used as a Denial-of-Service vector
+      as the proxy-server process stopped handling other requests. Refer to
+      CVE-2026-49017 for more information.
+
+
 swift (2.36.1, flamingo stable backports)
 
     * The s3token middleware now passes service auth tokens to Keystone
@@ -281,6 +318,23 @@ swift (2.36.0, OpenStack Flamingo)
       waiting for the partition lock.
 
     * Various other minor bug fixes and improvements.
+
+
+swift (2.35.3, epoxy stable backports)
+
+    * Block client-supplied container-update headers. Previously, these could
+      be used to perform server-side request forgery (SSRF) attacks. Refer to
+      CVE-2026-50221 for more information.
+
+    * Restrict the types of data that may be sent between object servers and
+      replicators. Previously, if an object server were compromised, it could
+      use REPLICATE responses to attempt to compromise other nodes through
+      their replicators.
+
+    * Fixed an infinite loop in s3api when attempting to read from a truncated
+      aws-chunked input. This could be used as a Denial-of-Service vector
+      as the proxy-server process stopped handling other requests. Refer to
+      CVE-2026-49017 for more information.
 
 
 swift (2.35.2, epoxy stable backports)
