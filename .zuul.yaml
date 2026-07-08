@@ -235,6 +235,19 @@
       tox_envlist: func-ec
 
 - job:
+    name: swift-tox-func-no-eventlet-py312
+    parent: swift-tox-func-py312
+    description: |
+      Run functional tests for swift under cPython version 3.12
+      without eventlet (USE_EVENTLET=false), in-process.
+
+      Uses tox with the ``func-no-eventlet`` environment.
+      It sets TMPDIR to an XFS mount point created via
+      tools/test-setup.sh.
+    vars:
+      tox_envlist: func-no-eventlet
+
+- job:
     name: swift-dsvm-functional
     parent: devstack-minimal
     description: |
@@ -668,6 +681,8 @@
         - swift-tox-func-encryption-py312:
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-ec-py312:
+            irrelevant-files: *functest-irrelevant-files
+        - swift-tox-func-no-eventlet-py312:
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-py39-centos-9-stream:
             irrelevant-files: *functest-irrelevant-files
