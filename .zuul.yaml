@@ -365,6 +365,24 @@
     timeout: 10800
 
 - job:
+    name: swift-probetests-no-eventlet-centos-9-stream
+    parent: swift-probetests-centos-9-stream
+    description: |
+      Setup a SAIO dev environment and run Swift's probe tests
+      without eventlet (USE_EVENTLET=false). The probe harness starts
+      the SAIO servers itself, so they come up in threading mode.
+    vars:
+      # CentOS Stream 9's default Python is 3.9, but the threading WSGI
+      # server requires gunicorn >= 24.1.1, which requires Python >= 3.10.
+      swift_python_packages:
+        - python3.11
+        - python3.11-devel
+        - python3.11-pip
+      swift_python_executable: python3.11
+      swift_pip_executable: pip3.11
+      swift_use_eventlet: 'false'
+
+- job:
     name: swift-func-cors
     parent: swift-probetests-centos-9-stream
     description: |
@@ -717,6 +735,8 @@
               - ^doc/(requirements.txt|(manpages|s3api|source)/.*)$
               - ^test/(cors|unit|functional|s3api)/.*$
               - ^(.gitreview|.mailmap|AUTHORS|CHANGELOG|.*\.rst)$
+        - swift-probetests-no-eventlet-centos-9-stream:
+            irrelevant-files: *probetest-irrelevant-files
         - swift-dsvm-functional:
             irrelevant-files: *functest-irrelevant-files
         - swift-dsvm-functional-ipv6:

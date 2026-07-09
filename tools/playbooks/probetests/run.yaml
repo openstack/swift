@@ -21,6 +21,11 @@
       shell:
         cmd: |
           source ~/.bashrc
-          pytest test/probe/ || pytest --last-failed test/probe/
+          {{ swift_python_executable | default('python3') }} -m pytest test/probe/ || \
+            {{ swift_python_executable | default('python3') }} -m pytest --last-failed test/probe/
         executable: /bin/bash
         chdir: '{{ zuul.project.src_dir }}'
+      environment:
+        # The probe harness spawns the SAIO servers itself (via Manager),
+        # so this selects the mode the whole cluster starts in.
+        USE_EVENTLET: "{{ swift_use_eventlet | default('true') }}"

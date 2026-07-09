@@ -22,6 +22,7 @@
         name: .
         chdir: '{{ zuul.project.src_dir }}'
         editable: true
+        executable: "{{ swift_pip_executable | default(omit) }}"
 
     - name: make rings
       shell:

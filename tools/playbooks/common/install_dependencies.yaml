@@ -17,10 +17,17 @@
   roles:
     - ensure-pip
   tasks:
+    - name: install selected Python runtime
+      package:
+        name: "{{ swift_python_packages }}"
+        state: present
+      when: swift_python_packages is defined
+
     - name: upgrade pip
       pip:
         name: pip
         extra_args: --upgrade
+        executable: "{{ swift_pip_executable | default(omit) }}"
 
     - name: install rsync-daemon - CentOS 8, 9
       package:
@@ -31,7 +38,11 @@
         - ansible_facts['distribution_major_version'] != "7"
 
     - name: install python modules with pip
-      pip: name={{ item }} state=present extra_args='--upgrade'
+      pip:
+        name: "{{ item }}"
+        state: present
+        extra_args: --upgrade
+        executable: "{{ swift_pip_executable | default(omit) }}"
       with_items:
         - mock
         - crudini
