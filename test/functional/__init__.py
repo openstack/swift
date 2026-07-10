@@ -23,8 +23,7 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 import sys
 import socket
 import locale
-import eventlet
-import eventlet.debug
+from swift.common.concurrency import eventlet
 import functools
 import random
 import base64

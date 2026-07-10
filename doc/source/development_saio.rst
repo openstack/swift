@@ -214,7 +214,7 @@ Common Post-Device Setup
         mkdir -p /var/run/swift
         chown <your-user-name>:<your-group-name> /var/run/swift
 
-   * On CentOS and Fedora we can use systemd (rc.local is deprecated)::
+   * On CentOS, Fedora, and OpenSuse releases we can use systemd tmpfiles (rc.local is deprecated)::
 
         cat << EOF |sudo tee /etc/tmpfiles.d/swift.conf
         d /var/cache/swift 0755 ${USER} ${USER} - -
@@ -223,8 +223,6 @@ Common Post-Device Setup
         d /var/cache/swift4 0755 ${USER} ${USER} - -
         d /var/run/swift 0755 ${USER} ${USER} - -
         EOF
-
-   * On OpenSuse place the lines in ``/etc/init.d/boot.local``.
 
    .. note::
       On some systems the rc file might need to be an executable shell script.
@@ -280,6 +278,17 @@ environment variable.
 ----------------
 Getting the code
 ----------------
+
+   .. note::
+      Some systems, like OpenSuse, use an externally-managed
+      Python environment by default. See `PEP 668
+      <https://peps.python.org/pep-0668/>`__ for details.
+      This means you might want to create and activate a virtual environment for Python commands.
+      When using a virtual environment, run the Python commands in this guide without ``sudo``::
+
+         python3 -m venv $HOME/.venv
+         . $HOME/.venv/bin/activate
+         pip install setuptools
 
 #. Check out the python-swiftclient repo::
 
@@ -441,6 +450,12 @@ to install it if you want to use individual logging.
 
       $PrivDropToGroup adm
 
+   .. note::
+      The ``adm`` group does not exist on OpenSuse, so use make an ```rsyslog``` group instead::
+
+         sudo groupadd --system rsyslog
+         sudo usermod -a -G rsyslog <your-user-name>
+
 #. If using hourly logs (see above) perform::
 
       sudo mkdir -p /var/log/swift/hourly
@@ -457,9 +472,16 @@ to install it if you want to use individual logging.
       sudo chmod -R g+w /var/log/swift
       sudo service rsyslog restart
 
-   * On CentOS, Fedora and OpenSuse::
+   * On CentOS and Fedora::
 
       sudo chown -R root:adm /var/log/swift
+      sudo chmod -R g+w /var/log/swift
+      sudo systemctl restart rsyslog
+      sudo systemctl enable rsyslog
+
+   * On OpenSuse::
+
+      sudo chown -R root:rsyslog /var/log/swift
       sudo chmod -R g+w /var/log/swift
       sudo systemctl restart rsyslog
       sudo systemctl enable rsyslog

@@ -24,7 +24,7 @@ import os
 import time
 from collections import defaultdict
 
-from eventlet import hubs
+from swift.common.concurrency import Timeout, hubs
 
 from swift.common.exceptions import LockTimeout
 from swift.common.storage_policy import POLICIES
@@ -387,13 +387,13 @@ class Relinker(object):
         self._update_recon(device)
 
     def hashes_filter(self, suff_path, hashes):
-        hashes = list(hashes)
+        mismatched_hashes = list()
         for hsh in hashes:
             fname = os.path.join(suff_path, hsh)
-            if fname == replace_partition_in_path(
+            if fname != replace_partition_in_path(
                     self.conf['devices'], fname, self.next_part_power):
-                hashes.remove(hsh)
-        return hashes
+                mismatched_hashes.append(hsh)
+        return mismatched_hashes
 
     def do_relink(self, device, hash_path, new_hash_path, filename,
                   already_quarantined=False):
@@ -684,8 +684,21 @@ class Relinker(object):
         return worker_data
 
     def run(self):
-        num_policies = 0
         self._update_worker_stats()
+        status = EXIT_ERROR
+        try:
+            status = self._run()
+        except (Exception, Timeout):
+            # Eventlet timeouts inherit from BaseException, but still need
+            # recon status and a traceback for the parent/operator.
+            self.logger.error(
+                'Unhandled exception in relinker worker', exc_info=True)
+        finally:
+            self._update_worker_stats(return_code=status)
+        return status
+
+    def _run(self):
+        num_policies = 0
         for policy in self.conf['policies']:
             self.policy = policy
             policy.object_ring = None  # Ensure it will be reloaded
@@ -706,7 +719,6 @@ class Relinker(object):
         if not num_policies:
             self.logger.warning(
                 "No policy found to increase the partition power.")
-            self._update_worker_stats(return_code=EXIT_NO_APPLICABLE_POLICY)
             return EXIT_NO_APPLICABLE_POLICY
 
         if self.total_errors > 0:
@@ -744,7 +756,6 @@ class Relinker(object):
             '%d removed, %d errors)', hash_dirs, files,
             linked, removed, action_errors + listdir_errors)
 
-        self._update_worker_stats(return_code=status)
         return status
 
 

@@ -28,6 +28,7 @@ import threading
 import uuid
 import xattr
 import re
+import string
 import sys
 from collections import defaultdict
 from random import shuffle, randint
@@ -37,7 +38,7 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 import pyeclib.ec_iface
 
-from eventlet import hubs, timeout, tpool, spawn, sleep
+from swift.common.concurrency import hubs, timeout, tpool, spawn, sleep
 from swift.obj.diskfile import update_auditor_status, EUCLEAN
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
@@ -47,8 +48,10 @@ from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        BaseUnitTestCase)
 from swift.obj import diskfile
 from swift.common import utils
+from swift.common.base_storage_server import TimingBreakdown
 from swift.common.utils import hash_path, mkdirs, Timestamp, lock_path, \
     encode_timestamps, O_TMPFILE, md5 as _md5, MD5_OF_EMPTY_STRING
+from swift.common.utils.pickle import unpickle
 from swift.common import ring
 from swift.common.splice import splice
 from swift.common.exceptions import DiskFileNotExist, DiskFileQuarantined, \
@@ -4323,6 +4326,62 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEqual(b''.join(reader.app_iter_range(5, None)),
                              df_data[5:])
 
+    def test_full_read_drops_cache_at_offset(self):
+        # ensure full reads drop the page cache at the offsets read.
+        self.conf['keep_cache_size'] = 256 * 1024
+        self.df_mgr = self.mgr_cls(self.conf, self.logger)
+        self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
+
+        body = ''.join(
+            letter * (128 * 1024) for letter in string.ascii_lowercase
+        ).encode('ascii')
+        df, on_disk = self._create_test_file(
+            body, obj='dcfull')
+        drop_cache_window = 128 * 1024
+        with mock.patch('swift.obj.diskfile.DROP_CACHE_WINDOW',
+                        drop_cache_window), \
+                mock.patch('swift.obj.diskfile.drop_buffer_cache') \
+                as mock_drop_cache:
+            reader = df.reader(keep_cache=True)
+            read_body = b''.join(reader)
+        self.assertEqual(read_body, on_disk)
+        fd = mock.ANY
+        read_size = df._disk_chunk_size
+        drop_size = read_size * (drop_cache_window // read_size + 1)
+        full_drop_count, final_size = divmod(len(read_body), drop_size)
+        expected_calls = [
+            mock.call(fd, i * drop_size, drop_size)
+            for i in range(full_drop_count)
+        ] + [
+            mock.call(fd, full_drop_count * drop_size, final_size)]
+        self.assertEqual(expected_calls, mock_drop_cache.call_args_list)
+
+    def test_range_read_drops_cache_at_range_offset(self):
+        # ensure a ranged GET drops the page cache at its range offset, not the
+        # file head (offset 0).
+        self.conf['keep_cache_size'] = 256 * 1024
+        self.df_mgr = self.mgr_cls(self.conf, self.logger)
+        self.df_router = diskfile.DiskFileRouter(self.conf, self.logger)
+
+        body = ''.join(
+            letter * (128 * 1024) for letter in string.ascii_lowercase
+        ).encode('ascii')
+        df, on_disk = self._create_test_file(
+            body, obj='dcrng')
+        drop_cache_window = 128 * 1024
+        with mock.patch('swift.obj.diskfile.DROP_CACHE_WINDOW',
+                        drop_cache_window), \
+                mock.patch('swift.obj.diskfile.drop_buffer_cache') \
+                as mock_drop_cache:
+            read_body = b''.join(
+                df.reader(keep_cache=True).app_iter_range(500, 400000))
+        self.assertEqual(read_body, on_disk[500:400000])
+        fd = mock.ANY
+        self.assertEqual(
+            [mock.call(fd, 500, 196608),
+             mock.call(fd, 197108, 196608)],
+            mock_drop_cache.call_args_list)
+
     def test_disk_file_app_iter_range_w_none(self):
         df, df_data = self._create_test_file(b'1234567890')
         quarantine_msgs = []
@@ -6265,6 +6324,22 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
         self.assertFalse(_m_renamer.called)
 
+    def test_diskfile_writer_timing_breakdown(self):
+        timing_breakdown = TimingBreakdown()
+        df = self._simple_get_diskfile(timing_breakdown=timing_breakdown)
+
+        # Mock the record method to verify it's called
+        with mock.patch.object(timing_breakdown, 'record') as mock_record:
+            with df.create() as writer:
+                writer.write(b'test data')
+                metadata = {
+                    'ETag': 'test_etag',
+                    'X-Timestamp': Timestamp.now().internal,
+                    'Content-Length': '9',
+                }
+                writer.put(metadata)
+        mock_record.assert_called_with('tpool_scheduling')
+
 
 @patch_policies(test_policies)
 class TestDiskFile(DiskFileMixin, BaseUnitTestCase):
@@ -7823,7 +7898,7 @@ class TestSuffixHashes(BaseUnitTestCase):
             self.assertTrue(os.path.exists(hashes_file))
             self.assertIn(os.path.basename(suffix_dir), hashes)
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(hashes, found_hashes)
@@ -8061,7 +8136,7 @@ class TestSuffixHashes(BaseUnitTestCase):
                     Exception, df_mgr.get_hashes, 'sda1', '0', [], policy)
             # sanity on-disk state is invalid
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertEqual(False, found_hashes.pop('valid'))
             # verify subsequent call to get_hashes reaches correct outcome
@@ -8085,7 +8160,7 @@ class TestSuffixHashes(BaseUnitTestCase):
                 self.assertIn(suffix, hashes)
                 self.assertIsNone(hashes[suffix])
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 self.assertTrue(hashes['valid'])
                 self.assertEqual(hashes, found_hashes)
             with open(invalidations_file, 'r') as f:
@@ -8111,7 +8186,7 @@ class TestSuffixHashes(BaseUnitTestCase):
             invalidations_file = os.path.join(
                 part_path, diskfile.HASH_INVALIDATIONS_FILE)
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(original_hashes, found_hashes)
@@ -8125,7 +8200,7 @@ class TestSuffixHashes(BaseUnitTestCase):
                 self.assertEqual(suffix + "\n", f.read())
             # hashes file is unchanged
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(original_hashes, found_hashes)
@@ -8144,7 +8219,7 @@ class TestSuffixHashes(BaseUnitTestCase):
                 self.assertEqual(suffix2 + "\n", f.read())
             # hashes file is not yet changed
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 self.assertTrue(hashes['valid'])
                 self.assertEqual(hashes, found_hashes)
 
@@ -8161,7 +8236,7 @@ class TestSuffixHashes(BaseUnitTestCase):
                                  sorted(invalids))  # sanity
             # hashes file is not yet changed
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 self.assertTrue(hashes['valid'])
                 self.assertEqual(hashes, found_hashes)
             # consolidate hashes
@@ -8262,7 +8337,7 @@ class TestSuffixHashes(BaseUnitTestCase):
 
             # sanity check hashes file
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(hashes, found_hashes)
@@ -8282,7 +8357,7 @@ class TestSuffixHashes(BaseUnitTestCase):
 
             # sanity check hashes file
             with open(hashes_file, 'rb') as f:
-                found_hashes = pickle.load(f)
+                found_hashes = unpickle(f)
                 found_hashes.pop('updated')
                 self.assertTrue(found_hashes.pop('valid'))
                 self.assertEqual(hashes, found_hashes)
@@ -9748,7 +9823,7 @@ class TestHashesHelpers(unittest.TestCase):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
         with open(hashes_file, 'rb') as f:
-            data = pickle.load(f)
+            data = unpickle(f)
         expected = {
             '888': 'fake',
             'updated': now,
@@ -9763,7 +9838,7 @@ class TestHashesHelpers(unittest.TestCase):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
         with open(hashes_file, 'rb') as f:
-            data = pickle.load(f)
+            data = unpickle(f)
         expected = {
             'updated': now,
             'valid': False,
@@ -9777,7 +9852,7 @@ class TestHashesHelpers(unittest.TestCase):
             diskfile.write_hashes(self.testdir, hashes)
         hashes_file = os.path.join(self.testdir, diskfile.HASH_FILE)
         with open(hashes_file, 'rb') as f:
-            data = pickle.load(f)
+            data = unpickle(f)
         expected = {
             'updated': now,
             'valid': False,

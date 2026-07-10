@@ -43,8 +43,9 @@ from collections import defaultdict
 import uuid
 
 from unittest import mock
-from eventlet import sleep, spawn, wsgi, Timeout, debug
-from eventlet.green.http import client as http_client
+from swift.common.concurrency import (
+    sleep, spawn, wsgi, Timeout, debug, green_http_client as http_client
+)
 from io import BytesIO
 
 from urllib.parse import quote, parse_qsl
@@ -12333,7 +12334,7 @@ class TestSwiftInfo(unittest.TestCase):
         self.assertEqual(len(si), 19)
 
         si = registry.get_swift_info()['swift']
-        # Tehse settings is by default excluded by disallowed_sections
+        # These settings is by default excluded by disallowed_sections
         self.assertEqual(si['valid_api_versions'],
                          constraints.VALID_API_VERSIONS)
         self.assertEqual(si['auto_create_account_prefix'],

@@ -53,27 +53,6 @@ POLICIES_BY_TYPE = defaultdict(list)
 for p in POLICIES:
     POLICIES_BY_TYPE[p.policy_type].append(p)
 
-DEFAULT_INTERNAL_CLIENT_CONF = {
-    'DEFAULT':
-        {'swift_dir': '/etc/swift'},
-
-    'pipeline:main':
-        {'pipeline': 'catch_errors cache copy proxy-server'},
-
-    'app:proxy-server':
-        {'use': 'egg:swift#proxy',
-         'allow_account_management': True},
-
-    'filter:copy':
-        {'use': 'egg:swift#copy'},
-
-    'filter:cache':
-        {'use': 'egg:swift#memcache'},
-
-    'filter:catch_errors':
-        {'use': 'egg:swift#catch_errors'}
-}
-
 
 def get_server_number(ipport, ipport2server):
     server_number = ipport2server[ipport]
@@ -537,17 +516,27 @@ class ProbeTest(unittest.TestCase):
         else:
             subprocess.run(["sudo", "mount", device], check=True)
 
-    def make_internal_client(self, conf=None):
+    def make_custom_internal_client(self, conf):
         tempdir = mkdtemp()
         try:
             conf_path = os.path.join(tempdir, 'internal_client.conf')
             cp = ConfigParser()
-            cp.read_dict(conf or DEFAULT_INTERNAL_CLIENT_CONF)
+            cp.read_dict(conf)
             with open(conf_path, 'w') as fd:
                 cp.write(fd)
-            return internal_client.InternalClient(conf_path, 'test', 1)
+            return internal_client.InternalClient(
+                conf_path,
+                'test',
+                request_tries=1)
         finally:
             shutil.rmtree(tempdir)
+
+    def make_internal_client(self):
+        return internal_client.InternalClient(
+            '/etc/swift/internal-client.conf',
+            'test',
+            request_tries=1,
+        )
 
     def get_all_object_nodes(self):
         """

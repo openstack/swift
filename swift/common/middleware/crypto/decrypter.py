@@ -372,6 +372,16 @@ class DecrypterObjContext(BaseDecrypterContext):
             resp_iter = app_resp
 
         mod_resp_headers = purge_crypto_sysmeta_headers(mod_resp_headers)
+
+        # expose encryption metadata if it was encrypted
+        if (put_crypto_meta and put_keys and
+                req.method in ('GET', 'HEAD') and
+                is_success(self._get_status_int())):
+            if put_crypto_meta.get('cipher'):
+                mod_resp_headers.append(
+                    ('X-Backend-Crypto-Cipher',
+                     put_crypto_meta['cipher']))
+
         start_response(self._response_status, mod_resp_headers,
                        self._response_exc_info)
 

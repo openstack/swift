@@ -25,8 +25,7 @@ import time
 import traceback
 import socket
 
-from eventlet import sleep, wsgi, Timeout, tpool
-from eventlet.greenthread import spawn
+from swift.common.concurrency import sleep, wsgi, Timeout, tpool, spawn
 
 from swift.common.utils import public, get_logger, \
     config_true_value, config_percent_value, \
@@ -34,8 +33,7 @@ from swift.common.utils import public, get_logger, \
     get_log_line, Timestamp, parse_mime_headers, \
     iter_multipart_mime_documents, extract_swift_bytes, safe_json_loads, \
     config_auto_int_value, split_path, get_redirect_data, \
-    normalize_timestamp, md5, parse_options, CooperativeIterator, \
-    MD5_OF_EMPTY_STRING
+    md5, parse_options, CooperativeIterator, MD5_OF_EMPTY_STRING
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_object_creation, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
@@ -48,7 +46,7 @@ from swift.common.request_helpers import resolve_ignore_range_header, \
 from swift.obj import ssync_receiver, expirer
 from swift.common.http import is_success, HTTP_MOVED_PERMANENTLY
 from swift.common.base_storage_server import BaseStorageServer, \
-    timing_stats, labeled_timing_stats
+    timing_stats, labeled_timing_stats, request_timing_logging
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.request_helpers import get_name_and_placement, \
     is_user_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
@@ -130,6 +128,7 @@ class EventletPlungerString(bytes):
     eventlet.wsgi to force the headers out, so we use an
     EventletPlungerString to empty out all of Eventlet's buffers.
     """
+
     def __len__(self):
         return wsgi.MINIMUM_CHUNK_SIZE + 1
 
@@ -166,6 +165,8 @@ class ObjectController(BaseStorageServer):
         self.cooperative_period = int(conf.get("cooperative_period", 0))
         self.etag_validate_frac = config_percent_value(
             conf.get("etag_validate_pct", 100))
+        self.slow_delete_log_threshold = float(
+            conf.get('slow_delete_log_threshold_seconds', 120))
 
         default_allowed_headers = '''
             content-disposition,
@@ -1226,9 +1227,7 @@ class ObjectController(BaseStorageServer):
         timing_stats_labels['container'] = container
         timing_stats_labels['policy'] = int(policy)
 
-        request.headers.setdefault('X-Timestamp',
-                                   normalize_timestamp(time.time()))
-        req_timestamp = valid_timestamp(request)
+        req_timestamp = request.ensure_x_timestamp()
         frag_prefs = safe_json_loads(
             request.headers.get('X-Backend-Fragment-Preferences'))
         try:
@@ -1316,9 +1315,7 @@ class ObjectController(BaseStorageServer):
         timing_stats_labels['container'] = container
         timing_stats_labels['policy'] = int(policy)
 
-        request.headers.setdefault('X-Timestamp',
-                                   normalize_timestamp(time.time()))
-        req_timestamp = valid_timestamp(request)
+        req_timestamp = request.ensure_x_timestamp()
         frag_prefs = safe_json_loads(
             request.headers.get('X-Backend-Fragment-Preferences'))
         try:
@@ -1373,7 +1370,8 @@ class ObjectController(BaseStorageServer):
     @public
     @timing_stats()
     @labeled_timing_stats(metric=LABELED_METRIC_NAME)
-    def DELETE(self, request, timing_stats_labels):
+    @request_timing_logging(threshold_attr='slow_delete_log_threshold')
+    def DELETE(self, request, timing_stats_labels, timing_breakdown):
         """Handle HTTP DELETE requests for the Swift Object Server."""
         device, partition, account, container, obj, policy = \
             get_obj_name_and_placement(request)
@@ -1386,9 +1384,13 @@ class ObjectController(BaseStorageServer):
         try:
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
-                policy=policy, next_part_power=next_part_power)
+                policy=policy, next_part_power=next_part_power,
+                timing_breakdown=timing_breakdown)
         except DiskFileDeviceUnavailable:
             return HTTPInsufficientStorage(drive=device, request=request)
+        finally:
+            timing_breakdown.record('diskfile_acquisition')
+
         try:
             orig_metadata = disk_file.read_metadata(current_time=req_timestamp)
         except DiskFileXattrNotSupported:
@@ -1417,6 +1419,9 @@ class ObjectController(BaseStorageServer):
                 response_class = HTTPNoContent
             else:
                 response_class = HTTPConflict
+        finally:
+            timing_breakdown.record('metadata_read')
+
         response_timestamp = max(orig_timestamp, req_timestamp)
         orig_delete_at = Timestamp(
             orig_metadata.get('X-Delete-At') or Timestamp.zero())
@@ -1445,15 +1450,21 @@ class ObjectController(BaseStorageServer):
             else:
                 # differentiate success from no object at all
                 response_class = HTTPNoContent
+
         self._conditional_delete_at_update(
             request, device, account, container, obj, policy, {},
             orig_delete_at, 0
         )
+        timing_breakdown.record('delete_at_update')
+
         if orig_timestamp < req_timestamp:
             try:
                 disk_file.delete(req_timestamp)
             except DiskFileNoSpace:
                 return HTTPInsufficientStorage(drive=device, request=request)
+            finally:
+                timing_breakdown.record('tombstone_write')
+
             update_headers = HeaderKeyDict(
                 {'x-timestamp': req_timestamp.internal})
             self.container_update(
@@ -1462,6 +1473,7 @@ class ObjectController(BaseStorageServer):
             self._handle_custom_container_updates(
                 request, device, account, container, obj, policy,
                 update_headers)
+            timing_breakdown.record('container_update')
         response = response_class(
             request=request,
             headers={'X-Backend-Timestamp': response_timestamp.internal,

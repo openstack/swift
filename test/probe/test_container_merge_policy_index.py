@@ -244,7 +244,7 @@ class TestContainerMergePolicyIndex(BaseTestContainerMergePolicyIndex):
 
     def get_object_name(self, name):
         """
-        hook for sublcass to translate object names
+        hook for subclass to translate object names
         """
         return name
 

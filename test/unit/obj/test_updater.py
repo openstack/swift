@@ -12,7 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import eventlet
+import errno
+
+from swift.common.concurrency import eventlet, spawn, Timeout
 import pickle
 from queue import PriorityQueue
 from unittest import mock
@@ -31,8 +33,6 @@ from test.debug_logger import debug_logger
 from test.unit import patch_policies, mocked_http_conn, BaseUnitTestCase
 from time import time
 
-from eventlet import spawn, Timeout
-
 from swift.obj import updater as object_updater
 from swift.obj.diskfile import (
     ASYNCDIR_BASE, get_async_dir, DiskFileManager, get_tmp_dir)
@@ -41,6 +41,7 @@ from swift.common import utils
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.swob import bytes_to_wsgi
 from swift.common.utils import hash_path, mkdirs, Timestamp
+from swift.common.utils.pickle import unpickle
 from swift.common.storage_policy import StoragePolicy, POLICIES
 
 
@@ -743,7 +744,7 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.assertTrue(os.path.exists(op_path))
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1, 'outdated_unlinks': 1})
-        self.assertIsNone(pickle.load(open(op_path, 'rb')).get('successes'))
+        self.assertIsNone(unpickle(open(op_path, 'rb')).get('successes'))
         self.assertEqual(
             ['ERROR with remote server 127.0.0.1:60789/sda1: '
              'Connection refused'] * 3,
@@ -809,7 +810,7 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0],
-                         pickle.load(open(op_path, 'rb')).get('successes'))
+                         unpickle(open(op_path, 'rb')).get('successes'))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertEqual(
             sorted(ou.logger.statsd_client.calls['timing']),
@@ -830,7 +831,7 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0, 2],
-                         pickle.load(open(op_path, 'rb')).get('successes'))
+                         unpickle(open(op_path, 'rb')).get('successes'))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertEqual(
             sorted(ou.logger.statsd_client.calls['timing']),
@@ -849,7 +850,7 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0, 2],
-                         pickle.load(open(op_path, 'rb')).get('successes'))
+                         unpickle(open(op_path, 'rb')).get('successes'))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertIn(
             'Timeout waiting on remote server 127.0.0.1:%d/sda1: 99 seconds'
@@ -869,7 +870,7 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
                          {'failures': 1})
         self.assertEqual([0, 2],
-                         pickle.load(open(op_path, 'rb')).get('successes'))
+                         unpickle(open(op_path, 'rb')).get('successes'))
         self.assertEqual([], ou.logger.get_lines_for_level('error'))
         self.assertIn(
             'Timeout connecting to remote server 127.0.0.1:%d/sda1: 9 seconds'
@@ -1737,7 +1738,7 @@ class TestObjectUpdater(BaseUnitTestCase):
         async_path = os.path.join(
             async_dir, async_subdirs[0], async_files[0])
         with open(async_path, 'rb') as fd:
-            async_data = pickle.load(fd)
+            async_data = unpickle(fd)
         return async_path, async_data
 
     def _check_obj_put_async_update_bad_redirect_headers(self, headers):
@@ -2016,7 +2017,8 @@ class TestObjectUpdater(BaseUnitTestCase):
             daemon.logger.statsd_client.get_stats_counts())
         self.assertFalse(os.listdir(async_dir))  # no async file
 
-    def test_obj_update_quarantine(self):
+    def test_obj_update_bad_pickle_quarantine(self):
+        # an error unpickling will result in a quarantine
         policies = list(POLICIES)
         random.shuffle(policies)
 
@@ -2033,9 +2035,8 @@ class TestObjectUpdater(BaseUnitTestCase):
         ohash = hash_path('a', 'c', 'o')
         odir = os.path.join(async_dir, ohash[-3:])
         mkdirs(odir)
-        op_path = os.path.join(
-            odir,
-            '%s-%s' % (ohash, next(self.ts_iter).internal))
+        op_filename = '%s-%s' % (ohash, next(self.ts_iter).internal)
+        op_path = os.path.join(odir, op_filename)
         with open(op_path, 'wb') as async_pending:
             async_pending.write(b'\xff')  # invalid pickle
 
@@ -2047,6 +2048,51 @@ class TestObjectUpdater(BaseUnitTestCase):
             {'quarantines': 1},
             daemon.logger.statsd_client.get_stats_counts())
         self.assertFalse(os.listdir(async_dir))  # no asyncs
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(["ERROR Pickle problem unpickling, quarantining %s: "
+                          % op_path], error_lines)
+        self.assertTrue(os.path.exists(
+            os.path.join(self.sda1, 'quarantined', 'objects', op_filename)))
+
+    def test_obj_update_os_error_quarantine(self):
+        # an error reading the file (except ENOENT) will result in a quarantine
+        policies = list(POLICIES)
+        random.shuffle(policies)
+
+        # setup updater
+        conf = {
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+        }
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
+        async_dir = os.path.join(self.sda1, get_async_dir(policies[0]))
+        os.mkdir(async_dir)
+
+        ohash = hash_path('a', 'c', 'o')
+        odir = os.path.join(async_dir, ohash[-3:])
+        mkdirs(odir)
+        op_filename = '%s-%s' % (ohash, next(self.ts_iter).internal)
+        op_path = os.path.join(odir, op_filename)
+        with open(op_path, 'wb') as async_pending:
+            async_pending.write(b'')
+
+        with mock.patch('swift.obj.updater.dump_recon_cache'), \
+                mock.patch('builtins.open',
+                           side_effect=OSError(errno.EIO, None)):
+            # call _load_update directly in case mocked open has other effects
+            daemon._load_update(self.sda1, op_path)
+
+        self.assertEqual(
+            {'quarantines': 1},
+            daemon.logger.statsd_client.get_stats_counts())
+        self.assertFalse(os.listdir(async_dir))  # no asyncs
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertEqual(
+            ["ERROR Pickle problem reading, quarantining %s: [Errno 5] None"
+             % op_path], error_lines)
+        self.assertTrue(os.path.exists(
+            os.path.join(self.sda1, 'quarantined', 'objects', op_filename)))
 
     def test_obj_update_gone_missing(self):
         # if you've got multiple updaters running (say, both a background
@@ -2068,9 +2114,8 @@ class TestObjectUpdater(BaseUnitTestCase):
         ohash = hash_path('a', 'c', 'o')
         odir = os.path.join(async_dir, ohash[-3:])
         mkdirs(odir)
-        op_path = os.path.join(
-            odir,
-            '%s-%s' % (ohash, next(self.ts_iter).internal))
+        op_filename = '%s-%s' % (ohash, next(self.ts_iter).internal)
+        op_path = os.path.join(odir, op_filename)
 
         self.assertEqual(os.listdir(async_dir), [ohash[-3:]])
         self.assertFalse(os.listdir(odir))
@@ -2081,6 +2126,10 @@ class TestObjectUpdater(BaseUnitTestCase):
             {}, daemon.logger.statsd_client.get_stats_counts())
         self.assertEqual(os.listdir(async_dir), [ohash[-3:]])
         self.assertFalse(os.listdir(odir))
+        error_lines = self.logger.get_lines_for_level('error')
+        self.assertFalse(error_lines)
+        self.assertFalse(os.path.exists(
+            os.path.join(self.sda1, 'quarantined', 'objects', op_filename)))
 
     def _write_dummy_pickle(self, path, a, c, o, cp=None):
         update = {

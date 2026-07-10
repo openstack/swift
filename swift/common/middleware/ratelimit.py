@@ -14,7 +14,7 @@
 # limitations under the License.
 import time
 
-import eventlet
+from swift.common.concurrency import sleep
 
 from swift.common.utils import cache_from_env, get_logger
 from swift.common.registry import register_swift_info
@@ -262,7 +262,7 @@ class RateLimitMiddleware(object):
                 account_global_ratelimit == 'BLACKLIST':
             self.logger.error('Returning 497 because of blacklisting: %s',
                               account_name)
-            eventlet.sleep(self.BLACK_LIST_SLEEP)
+            sleep(self.BLACK_LIST_SLEEP)
             return Response(status='497 Blacklisted',
                             body='Your account has been blacklisted',
                             request=req)
@@ -280,7 +280,7 @@ class RateLimitMiddleware(object):
                         {'sleep': need_to_sleep, 'account': account_name,
                          'container': container_name, 'object': obj_name})
                 if need_to_sleep > 0:
-                    eventlet.sleep(need_to_sleep)
+                    sleep(need_to_sleep)
             except MaxSleepTimeHitError as e:
                 if obj_name:
                     path = '/'.join((account_name, container_name, obj_name))

@@ -74,8 +74,8 @@ class BaseTimestamp:
             * any other type whose string representation can be parsed by the
               subclass being constructed.
 
-        :param delta: (int) deca-microsecond difference to be added to the
-            ``timestamp`` value.
+        :param delta: deca-microsecond difference to be added to the
+            ``timestamp`` value; should be an integer value.
         :param check_bounds: if True (default) then a ValueError will be raised
             if the given timestamp is less than 0 or greater than the maximum
             time that can be represented by this class.
@@ -92,14 +92,15 @@ class BaseTimestamp:
             else:
                 timestamp_str = str(timestamp)
             float_timestamp = self._parse(timestamp_str, **kwargs)
-        self.raw = int(round(float_timestamp / PRECISION))
+        raw = int(round(float_timestamp / PRECISION))
         # add delta
         if delta:
-            self.raw = self.raw + delta
-            if self.raw <= 0:
+            if raw + delta < 0:
                 raise ValueError(
-                    'delta must be greater than %d' % (-1 * self.raw))
-        self.timestamp = round(float(self.raw * PRECISION), 5)
+                    'delta must be greater than %d' % (-1 * raw - 1))
+            raw += delta
+
+        self.timestamp = round(float(raw * PRECISION), 5)
         if check_bounds:
             self._check_bounds()
 
@@ -114,6 +115,10 @@ class BaseTimestamp:
             raise ValueError('timestamp cannot be negative')
         if self.timestamp >= 10000000000:
             raise ValueError('timestamp too large')
+
+    @property
+    def raw(self):
+        return int(round(self.timestamp / PRECISION))
 
     @classmethod
     def max(cls):
@@ -311,8 +316,8 @@ class NormalTimestamp(BaseTimestamp):
               whose string representation can be cast to a float. The string
               must not container underscores.
 
-        :param delta: (int) deca-microsecond difference to be added to the
-            ``timestamp`` value.
+        :param delta: deca-microsecond difference to be added to the
+            ``timestamp`` value; should be an integer value.
         :param check_bounds: if True (default) then a ValueError will be raised
             if the given timestamp is less than 0 or greater than the maximum
             time that can be represented by this class.
@@ -398,8 +403,8 @@ class Timestamp(BaseTimestamp):
         :param offset: (int) the internal offset vector. When ``timestamp`` is
             a float this value initialises the offset, otherwise this value
             will be added to any existing offset of the parsed ``timestamp``.
-        :param delta: (int) deca-microsecond difference to be added to the
-            ``timestamp`` value.
+        :param delta: deca-microsecond difference to be added to the
+            ``timestamp`` value; should be an integer value.
         :param check_bounds: if True (default) then a ValueError will be raised
             if the given timestamp is less than 0 or greater than the maximum
             time that can be represented by this class.
@@ -427,8 +432,8 @@ class Timestamp(BaseTimestamp):
 
     @offset.setter
     def offset(self, value):
-        if not value:
-            return
+        if not isinstance(value, int):
+            raise TypeError('offset must be an int')
         if value < 0:
             raise ValueError('offset must be non-negative')
 
@@ -441,13 +446,14 @@ class Timestamp(BaseTimestamp):
         """
         Increment the offset of the timestamp by the given value.
 
-        :raises ValueError: if value is negative or if the resulting offset
-            would exceed the maximum supported offset.
+        :param value: (int) increment to the second internal offset vector.
+        :raises ValueError: if value is not a whole number, or if the
+            resulting offset would exceed the maximum supported offset.
         """
         if not value:
-            return
+            return self.offset
         if value < 0:
-            raise ValueError('offset must be non-negative')
+            raise ValueError('value must be non-negative')
         self.offset += value
         return self.offset
 
@@ -582,14 +588,14 @@ def decode_timestamps(encoded, explicit=False):
         # preserve any offset in t1 - only construct a distinct
         # timestamp if there is a non-zero delta.
         if delta:
-            t2 = Timestamp((t1.raw + delta) * PRECISION)
+            t2 = Timestamp(t1.normal, delta=delta)
     elif not explicit:
         t2 = t1
     if len(parts) > 2:
         t3 = t2
         delta = signs[2] * int(parts[2], 16)
         if delta:
-            t3 = Timestamp((t2.raw + delta) * PRECISION)
+            t3 = Timestamp(t2.normal, delta=delta)
     elif not explicit:
         t3 = t2
     return t1, t2, t3

@@ -31,7 +31,7 @@ from importlib import reload as reload_module
 from swift.common import manager
 from swift.common.exceptions import InvalidPidFileException
 
-import eventlet
+from swift.common.concurrency import eventlet
 threading = eventlet.patcher.original('threading')
 
 DUMMY_SIG = 1

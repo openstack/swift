@@ -1015,18 +1015,41 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_object_tagging(self):
         self._test_unsupported_header('x-amz-tagging')
 
-    def _test_unsupported_resource(self, resource):
-        req = Request.blank('/error?' + resource,
-                            environ={'REQUEST_METHOD': 'GET',
+    def _test_unsupported_resource(self, resource, method='GET',
+                                   bucket='error'):
+        path = ('/%s' % bucket if bucket is not None else '/') + '?' + resource
+        req = Request.blank(path,
+                            environ={'REQUEST_METHOD': method,
                                      'HTTP_AUTHORIZATION': 'AWS X:Y:Z'},
                             headers={'Date': self.get_date_header()})
         status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '501')
         self.assertEqual(self._get_error_code(body), 'NotImplemented')
         self.assertEqual(
             {'501.NotImplemented': 1},
             self.s3api.logger.logger.statsd_client.get_stats_counts())
         self.assertEqual('s3:err:NotImplemented',
                          get_log_info(req.environ))
+
+    def test_GET_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock')
+
+    def test_DELETE_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'DELETE')
+
+    def test_PUT_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'PUT')
+
+    def test_GET_service_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', bucket=None)
+
+    def test_DELETE_service_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'DELETE',
+                                        bucket=None)
+
+    def test_PUT_service_public_access_block(self):
+        self._test_unsupported_resource('publicAccessBlock', 'PUT',
+                                        bucket=None)
 
     def test_notification(self):
         self._test_unsupported_resource('notification')
@@ -1646,7 +1669,10 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         self.keystone_auth = KeystoneAuth(
             self.swift, {'operator_roles': 'swift-user'})
         self.auth_token = AuthProtocol(
-            self.keystone_auth, {'delay_auth_decision': 'True'})
+            self.keystone_auth, {
+                'delay_auth_decision': 'True',
+                'www_authenticate_uri': 'https://fakehost/identity',
+            })
         self.s3_token = S3Token(
             self.auth_token, {'auth_uri': 'https://fakehost/identity'})
         self.s3api = S3ApiMiddleware(self.s3_token, self.conf)

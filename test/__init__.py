@@ -21,7 +21,7 @@ from unittest.util import safe_repr
 
 import unittest
 
-from eventlet.green import socket
+from swift.common.concurrency import socket
 
 from swift.common.utils import readconf
 from swift.common.utils.timestamp import Timestamp, NormalTimestamp

@@ -125,7 +125,7 @@ from swift.common.request_helpers import copy_header_subset, remove_items, \
     is_sys_meta, is_sys_or_user_meta, is_object_transient_sysmeta, \
     check_path_header, OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX
 from swift.common.wsgi import WSGIContext, make_subrequest
-import eventlet
+from swift.common.concurrency import eventlet
 from swift.common.request_helpers import get_heartbeat_response_body
 
 

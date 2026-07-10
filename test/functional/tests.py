@@ -23,7 +23,7 @@ import time
 import unittest
 import uuid
 from copy import deepcopy
-import eventlet
+from swift.common.concurrency import eventlet
 from swift.common.http import is_success, is_client_error
 from swift.common.swob import normalize_etag
 from swift.common.utils import md5

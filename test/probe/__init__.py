@@ -14,7 +14,7 @@
 # limitations under the License.
 
 
-import eventlet
+from swift.common.concurrency import eventlet
 eventlet.monkey_patch()
 
 import subprocess

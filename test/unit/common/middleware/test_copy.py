@@ -17,7 +17,7 @@
 from unittest import mock
 import unittest
 import urllib.parse
-import eventlet
+from swift.common.concurrency import eventlet
 
 from swift.common import swob
 from swift.common.middleware import copy

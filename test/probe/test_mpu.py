@@ -14,7 +14,6 @@
 # limitations under the License.
 import binascii
 import collections
-import copy
 import json
 import unittest
 import uuid
@@ -31,13 +30,13 @@ from swift.common.middleware.mpu import MPUSessionHandler, \
 from swift.common.object_ref import ObjectRef, HistoryId
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import normalize_etag
-from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING, Timestamp
+from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING, Timestamp, \
+    readconf
 from swift.container.auditor import ContainerAuditor
 from swiftclient import client as swiftclient, ClientException
 
 from test.probe.brain import BrainSplitter
-from test.probe.common import ReplProbeTest, ENABLED_POLICIES, \
-    DEFAULT_INTERNAL_CLIENT_CONF
+from test.probe.common import ReplProbeTest, ENABLED_POLICIES
 
 from boto3.s3.transfer import TransferConfig
 from test.s3api import get_s3_client
@@ -313,19 +312,54 @@ class BaseTestNativeMPU(BaseTestMPU):
         self.maxDiff = None
 
     def make_mpu_internal_client(self):
-        conf = copy.deepcopy(DEFAULT_INTERNAL_CLIENT_CONF)
-        conf['DEFAULT']['log_name'] = 'mpu-internal-client'
-        conf['DEFAULT']['log_level'] = 'DEBUG'
-        conf['filter:mpu'] = {'use': 'egg:swift#mpu'}
-        conf['filter:slo'] = {'use': 'egg:swift#slo'}
-        conf['filter:proxy-logging'] = {'use': 'egg:swift#proxy_logging'}
-        pipeline = conf['pipeline:main']['pipeline']
-        pipeline = pipeline.split(' ')
-        pipeline.insert(pipeline.index('proxy-server'), 'slo')
-        pipeline.insert(pipeline.index('slo'), 'mpu')
-        pipeline.insert(pipeline.index('catch_errors') + 1, 'proxy-logging')
+        # make an internal client that has mpu in the pipeline; internal client
+        # does not support allow_modify_pipeline so we have to hack the
+        # pipeline conf before loading rather than mock the server's
+        # required_filters for modification during loading.
+        def insert_filter(pipeline, filter, after):
+            if filter in pipeline:
+                return
+            index = 0
+            for other in after:
+                if (other in pipeline):
+                    index = max(index, pipeline.index(other) + 1)
+            pipeline.insert(index, filter)
+
+        conf = readconf('/etc/swift/internal-client.conf')
+        del conf['log_name']
+        del conf['__file__']
+        conf.setdefault('DEFAULT', {})
+        conf['DEFAULT']['swift_dir'] = '/etc/swift'
+        pipeline = conf['pipeline:main']['pipeline'].split(' ')
+
+        # TODO: remove slo when no longer required
+        conf.setdefault('filter:slo',
+                        {'use': 'egg:swift#slo'})
+        insert_filter(pipeline, 'slo',
+                      ['copy', 'staticweb', 'tempauth', 'keystoneauth',
+                       'catch_errors', 'gatekeeper', 'cache', 'proxy-logging'])
+
+        conf.setdefault('filter:mpu',
+                        {'use': 'egg:swift#mpu',
+                         'log_name': 'internal-client-mpu',
+                         'log_level': 'DEBUG'})
+        insert_filter(pipeline, 'mpu',
+                      ['copy', 'staticweb', 'tempauth', 'keystoneauth',
+                       'catch_errors', 'gatekeeper', 'cache', 'proxy-logging'])
+
+        conf.setdefault('filter:proxy-logging',
+                        {'use': 'egg:swift#proxy_logging'})
+        conf['filter:proxy-logging'].update(
+            {'log_name': 'internal-client-proxy',
+             'log_level': 'DEBUG'})
+        insert_filter(pipeline, 'proxy-logging',
+                      ['catch_errors', 'gatekeeper'])
+
         conf['pipeline:main']['pipeline'] = ' '.join(pipeline)
-        return self.make_internal_client(conf=conf)
+        print('internal client pipeline: %s'
+              % conf['pipeline:main']['pipeline'])
+
+        return self.make_custom_internal_client(conf=conf)
 
     def post_object(self, container, obj, headers=None, query_string='',
                     body=b''):
@@ -1081,7 +1115,8 @@ class TestNativeMPU(BaseTestNativeMPU):
                 body_file=BytesIO(json.dumps(manifest).encode('ascii')),
                 params={'upload-id': upload_id})
             body_dict = json.loads(resp.body)
-            self.assertEqual('201 Created', body_dict['Response Status'])
+            self.assertEqual('201 Created', body_dict['Response Status'],
+                             body_dict)
 
         # check the downloads...
         exp_etags = ['"%s"' % calc_s3mpu_etag(chunk_etags_1),

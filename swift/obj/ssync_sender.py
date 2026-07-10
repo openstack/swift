@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from eventlet import sleep
+from swift.common.concurrency import sleep
 import urllib
 
 from swift.common import bufferedhttp

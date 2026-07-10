@@ -17,7 +17,7 @@ import os
 import time
 from random import random
 
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 
 import swift.common.db
 from swift.common.utils import get_logger, audit_location_generator, \

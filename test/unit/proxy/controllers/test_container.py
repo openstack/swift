@@ -18,7 +18,7 @@ from unittest import mock
 import socket
 import unittest
 
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 import urllib.parse
 from itertools import zip_longest
 

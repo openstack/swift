@@ -39,7 +39,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, ServiceUnavailable, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, \
     InvalidPartArgument, InvalidPartNumber, InvalidRequest, \
-    XAmzContentSHA256Mismatch, ErrorResponse, S3NotImplemented
+    XAmzContentSHA256Mismatch, ErrorResponse, S3NotImplemented, MalformedXML
 from swift.common.utils import checksum
 from swift.common.utils.timestamp import Timestamp
 from test.debug_logger import debug_logger
@@ -105,6 +105,21 @@ class TestRequest(S3ApiTestCase):
         super(TestRequest, self).setUp()
         self.s3api.conf.s3_acl = True
         s3request.SIGV4_CHUNK_MIN_SIZE = 2
+
+    def test_xml_rejects_chunked_body_over_max_length(self):
+        body = b'<Delete></Delete> '
+        sw_req = Request.blank(
+            '/bucket?delete',
+            environ={'REQUEST_METHOD': 'POST',
+                     'wsgi.input': BytesIO(body)},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'Transfer-Encoding': 'chunked'})
+        sw_req.environ.pop('CONTENT_LENGTH', None)
+        req = S3Request(sw_req.environ)
+
+        with self.assertRaises(MalformedXML):
+            req.xml(len(body) - 1)
 
     @patch('swift.common.middleware.s3api.acl_handlers.ACL_MAP', Fake_ACL_MAP)
     @patch('swift.common.middleware.s3api.s3request.S3AclRequest.authenticate',
@@ -1802,6 +1817,13 @@ class TestRequest(S3ApiTestCase):
         s3req = self._test_sig_v4_streaming_unsigned_payload_trailer(body)
         self.assertEqual(b'abcdefghijklmnopqrstuvwxyz\n',
                          s3req.environ['wsgi.input'].read())
+
+    def test_sig_v4_strm_unsgnd_pyld_trl_incomplete_chunk(self):
+        body = 'a\r\nabcdefghij\r\n' \
+               'a\r\nklm'
+        s3req = self._test_sig_v4_streaming_unsigned_payload_trailer(body)
+        with self.assertRaises(s3request.S3InputIncomplete):
+            s3req.environ['wsgi.input'].read()
 
     def test_sig_v4_strm_unsgnd_pyld_trl_none_ok(self):
         # verify it's ok to not send any trailer

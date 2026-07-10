@@ -50,16 +50,16 @@ from contextlib import contextmanager
 from collections import defaultdict
 from datetime import timedelta
 
-from eventlet import Timeout, tpool
-from eventlet.hubs import trampoline
+from swift.common.concurrency import Timeout, tpool, trampoline
 from pyeclib.ec_iface import ECDriverError, ECInvalidFragmentMetadata, \
     ECBadFragmentChecksum, ECInvalidParameter
 
 from swift.common.constraints import check_drive
 from swift.common.request_helpers import is_sys_meta
+from swift.common.utils.pickle import unpickle, write_pickle
 from swift.common.utils import mkdirs, Timestamp, \
     storage_directory, hash_path, renamer, fallocate, fsync, fdatasync, \
-    fsync_dir, drop_buffer_cache, lock_path, write_pickle, \
+    fsync_dir, drop_buffer_cache, lock_path, \
     config_true_value, listdir, split_path, remove_file, \
     get_md5_socket, F_SETPIPE_SZ, decode_timestamps, encode_timestamps, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
@@ -244,7 +244,7 @@ def _read_file_metadata(fd, add_missing_checksum=False):
     # strings are utf-8 encoded when written, but have not always been
     # (see https://bugs.launchpad.net/swift/+bug/1678018) so encode them again
     # when read
-    metadata = pickle.loads(metadata, encoding='bytes')  # nosec: B301
+    metadata = unpickle(metadata, encoding='bytes')
     return _decode_metadata(metadata, metadata_written_by_py3)
 
 
@@ -388,7 +388,7 @@ def read_hashes(partition_dir):
         pass
     else:
         try:
-            hashes = pickle.loads(pickled_hashes)  # nosec: B301
+            hashes = unpickle(pickled_hashes)
         except Exception:
             # pickle.loads() can raise a wide variety of exceptions when
             # given invalid input depending on the way in which the
@@ -1955,6 +1955,9 @@ class BaseDiskFileWriter(object):
 
     def _finalize_put(self, metadata, target_path, cleanup,
                       logger_thread_locals):
+        if self._diskfile.timing_breakdown:
+            self._diskfile.timing_breakdown.record('tpool_scheduling')
+
         if logger_thread_locals is not None:
             self.logger.thread_locals = logger_thread_locals
         # Write the metadata before calling fsync() so that both data and
@@ -2186,6 +2189,7 @@ class BaseDiskFileReader(object):
         """Returns an iterator over the data file."""
         try:
             dropped_cache = 0
+            start_offset = self._fp.tell()
             self._bytes_read = 0
             self._started_at_0 = False
             self._read_to_eof = False
@@ -2204,13 +2208,15 @@ class BaseDiskFileReader(object):
                     self._update_checks(chunk)
                     self._bytes_read += len(chunk)
                     if self._bytes_read - dropped_cache > DROP_CACHE_WINDOW:
-                        self._drop_cache(self._fp.fileno(), dropped_cache,
-                                         self._bytes_read - dropped_cache)
+                        self._drop_cache(
+                            self._fp.fileno(), start_offset + dropped_cache,
+                            self._bytes_read - dropped_cache)
                         dropped_cache = self._bytes_read
                     yield chunk
                 else:
                     self._read_to_eof = True
-                    self._drop_cache(self._fp.fileno(), dropped_cache,
+                    self._drop_cache(self._fp.fileno(),
+                                     start_offset + dropped_cache,
                                      self._bytes_read - dropped_cache)
                     break
         finally:
@@ -2480,6 +2486,7 @@ class BaseDiskFile(object):
         self._dirs_created = 0
         self.policy = policy
         self.next_part_power = next_part_power
+        self.timing_breakdown = kwargs.get('timing_breakdown')
         if account and container and obj:
             self._name = '/' + '/'.join((account, container, obj))
             self._account = account

@@ -19,7 +19,7 @@ import io
 import time
 from contextlib import contextmanager
 
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 
 from swift.common.utils import Timestamp
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \

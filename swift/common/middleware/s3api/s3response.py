@@ -23,7 +23,7 @@ from swift.common.utils import config_true_value
 from swift.common.request_helpers import is_sys_meta
 
 from swift.common.middleware.s3api.utils import snake_to_camel, \
-    sysmeta_prefix, sysmeta_header
+    sysmeta_prefix, sysmeta_header, convert_swift_to_s3_cipher
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
@@ -102,6 +102,12 @@ def translate_swift_to_s3(key, val):
                 'expiry-date="%s", rule-id="%s"' % (expiry_date, rule_id)
         except (ValueError, TypeError):
             pass
+    elif _key == 'x-backend-crypto-cipher':
+        s3_cipher = convert_swift_to_s3_cipher(val)
+        if s3_cipher:
+            return 'x-amz-server-side-encryption', s3_cipher
+        else:
+            return None
     # else, drop the header
     return None
 

@@ -35,7 +35,7 @@ import operator
 import random
 from copy import deepcopy
 
-from eventlet.timeout import Timeout
+from swift.common.concurrency import Timeout
 
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.wsgi import make_pre_authed_env, make_pre_authed_request

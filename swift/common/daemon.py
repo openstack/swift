@@ -20,8 +20,7 @@ import time
 import signal
 from re import sub
 
-import eventlet
-import eventlet.debug
+from swift.common.concurrency import eventlet
 
 from swift.common import utils
 

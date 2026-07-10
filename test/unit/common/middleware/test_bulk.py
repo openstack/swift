@@ -24,7 +24,7 @@ from unittest import mock
 from io import BytesIO
 from shutil import rmtree
 from tempfile import mkdtemp
-from eventlet import sleep
+from swift.common.concurrency import sleep
 from unittest.mock import patch, call
 from test.debug_logger import debug_logger
 from test.unit.common.middleware.helpers import FakeSwift

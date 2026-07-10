@@ -254,17 +254,32 @@ def parse_versions_object_name(versioned_name):
     return name, version
 
 
-def validate_version(version):
+def validate_version(req, version, allow_null=True):
     """
     Validate a version.
 
     :param version: version string to validate
     :raises ValueError: if the version is invalid
     """
-    try:
-        Timestamp(version)
-    except (ValueError, TypeError):
-        raise ValueError('Invalid version: %s' % version)
+    if version != 'null' or not allow_null:
+        try:
+            Timestamp(version)
+        except ValueError:
+            raise HTTPBadRequest('Invalid version parameter', request=req)
+
+
+def timestamp_to_version(timestamp):
+    """
+    Convert a timestamp value to a version string. The offset of the timestamp
+    is ignored.
+
+    :param timestamp: timestamp value to convert. Can be a string or instance
+        of BaseTimestamp.
+    :returns: version string.
+    """
+    result = Timestamp(timestamp)
+    result.offset = 0
+    return result.internal
 
 
 def build_listing(*to_splice, **kwargs):
@@ -348,7 +363,7 @@ class ObjectContext(ObjectVersioningContext):
         # Drop any offset from ts. Timestamp offsets are never exposed to
         # clients, so Timestamp.normal is sufficient to define a version as
         # perceived by clients.
-        return req.timestamp.normal
+        return timestamp_to_version(req.timestamp)
 
     def get_null_version(self, resp):
         """
@@ -365,7 +380,7 @@ class ObjectContext(ObjectVersioningContext):
                 resp.headers.get(
                     'x-timestamp',
                     str(parse_date_header(resp.headers['last-modified'])))))
-        return Timestamp(timestamp_str).internal
+        return timestamp_to_version(timestamp_str)
 
     def _get_source_object(self, req, path_info):
         # make a pre_auth request in case the user has write access
@@ -613,6 +628,7 @@ class ObjectContext(ObjectVersioningContext):
             version = self.get_version(req)
         elif self.s3_compat:
             # put to versions container while versioning is suspended
+            req.ensure_x_timestamp()
             version = 'null'
         else:
             # put to user container while versioning is suspended
@@ -763,8 +779,8 @@ class ObjectContext(ObjectVersioningContext):
         if self.s3_compat and (version_is_latest or not resp_version_id):
             # The only in-tree use for this header is in the s3api object
             # response handler, which performs a restore-on-delete if the
-            # header is 'none'.
-            resp.headers['X-Object-Current-Version-Id'] = 'none'
+            # header is 'null'.
+            resp.headers['X-Object-Current-Version-Id'] = 'null'
         elif not resp_version_id:
             # For backwards compatibility with any out-of-tree use case, 'null'
             # is returned in the non-s3-compat scenario.
@@ -781,7 +797,9 @@ class ObjectContext(ObjectVersioningContext):
         :param req: original request.
         :param version: version to make the latest.
         """
-        # this is used by s3api restore-on-delete
+        # The intended use case for a PUT?version-id= is to create a symlink to
+        # a version in the versions container.
+        validate_version(req, version, allow_null=True)
         if req.is_chunked:
             has_body = (req.body_file.read(1) != b'')
         elif req.content_length is None:
@@ -887,7 +905,7 @@ class ObjectContext(ObjectVersioningContext):
         :param req: The original request
         :param version: version of the object to act on
         """
-        # ?version-id requests are allowed for GET, HEAD, DELETE reqs
+        # ?version-id requests are allowed for GET, HEAD, PUT, DELETE reqs
         if req.method == 'POST':
             raise HTTPBadRequest(
                 '%s to a specific version is not allowed' % req.method,
@@ -896,12 +914,7 @@ class ObjectContext(ObjectVersioningContext):
             raise HTTPBadRequest(
                 'version-aware operations require that the container is '
                 'versioned', request=req)
-        if version != 'null':
-            try:
-                validate_version(version)
-            except ValueError:
-                raise HTTPBadRequest('Invalid version parameter: %s' % version,
-                                     request=req)
+        validate_version(req, version, allow_null=True)
 
         if req.method == 'DELETE':
             return self.handle_delete_with_version_id(req, version)
@@ -1274,12 +1287,15 @@ class ContainerContext(ObjectVersioningContext):
                     params['marker'])  # just before all timestamps
             else:
                 try:
-                    version = params.pop('version_marker')
-                    validate_version(version)
+                    # note: use Timestamp.internal here so that the exact value
+                    # of any non-zero hex part in the request parameter value
+                    # is retained, including any unexpected non-zero offset
+                    v_marker_str = Timestamp(
+                        params.pop('version_marker')).internal
                 except ValueError:
                     raise HTTPBadRequest('invalid version_marker param')
                 params['marker'] = build_versions_object_name(
-                    params['marker'], version)
+                    params['marker'], v_marker_str)
         elif 'version_marker' in params:
             raise HTTPBadRequest('version_marker param requires marker')
 

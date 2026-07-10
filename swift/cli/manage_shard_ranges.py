@@ -160,6 +160,7 @@ import json
 import os.path
 import sys
 import time
+import urllib.parse
 from contextlib import contextmanager
 
 from swift.common.utils.timestamp import NormalTimestamp
@@ -351,8 +352,11 @@ def find_ranges(broker, args):
 
 
 def show_shard_ranges(broker, args):
+    includes = getattr(args, 'includes', None)
+    if includes is not None and getattr(args, 'quoted', False):
+        includes = urllib.parse.unquote(includes)
     shard_ranges = broker.get_shard_ranges(
-        includes=getattr(args, 'includes', None),
+        includes=includes,
         include_deleted=getattr(args, 'include_deleted', False))
     shard_data = [dict(sr, state=sr.state_text)
                   for sr in shard_ranges]
@@ -1026,6 +1030,9 @@ def _make_parser():
         help='Show only shard range bounds in output.')
     show_parser.add_argument('--includes',
                              help='limit shard ranges to include key')
+    show_parser.add_argument(
+        '-Q', '--quoted', action='store_true',
+        help='URL-decode --includes before matching shard ranges.')
     show_parser.set_defaults(func=show_shard_ranges)
 
     # info

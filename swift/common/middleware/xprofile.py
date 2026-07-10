@@ -83,8 +83,7 @@ import os
 import sys
 import time
 
-from eventlet import greenthread, GreenPool, patcher
-import eventlet.green.profile as eprofile
+from swift.common.concurrency import greenthread, GreenPool, patcher, eprofile
 import urllib
 
 from swift.common.utils import get_logger, config_true_value

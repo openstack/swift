@@ -14,7 +14,6 @@
 # limitations under the License.
 import queue
 
-import pickle  # nosec: B403
 import errno
 import os
 import signal
@@ -25,13 +24,14 @@ from random import random, shuffle
 from bisect import insort
 from collections import deque
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 
 from swift.common.bufferedhttp import http_connect
 from swift.common.constraints import check_drive
 from swift.common.exceptions import ConnectionTimeout
 from swift.common.ring import Ring
-from swift.common.utils import get_logger, renamer, write_pickle, \
+from swift.common.utils.pickle import unpickle, write_pickle
+from swift.common.utils import get_logger, renamer, \
     dump_recon_cache, config_true_value, RateLimitedIterator, split_path, \
     eventlet_monkey_patch, get_redirect_data, ContextPool, hash_path, \
     non_negative_float, config_positive_int_value, non_negative_int, \
@@ -646,13 +646,22 @@ class ObjectUpdater(Daemon):
         )
 
     def _load_update(self, device, update_path):
+        pickle_data = None
         try:
-            return pickle.load(open(update_path, 'rb'))  # nosec: B301
+            with open(update_path, 'rb') as fp:
+                pickle_data = fp.read()
+            return unpickle(pickle_data)
         except Exception as e:
             if getattr(e, 'errno', None) == errno.ENOENT:
-                return
-            self.logger.exception(
-                'ERROR Pickle problem, quarantining %s', update_path)
+                return None
+            if pickle_data is None:
+                self.logger.exception(
+                    'ERROR Pickle problem reading, quarantining %s',
+                    update_path)
+            else:
+                self.logger.exception(
+                    'ERROR Pickle problem unpickling, quarantining %s',
+                    update_path)
             self.stats.quarantines += 1
             self.logger.increment('quarantines')
             target_path = os.path.join(device, 'quarantined', 'objects',
@@ -665,7 +674,7 @@ class ObjectUpdater(Daemon):
                 os.rmdir(os.path.dirname(update_path))
             except OSError:
                 pass
-            return
+            return None
 
     def _iter_async_pendings(self, device):
         """

@@ -83,8 +83,8 @@ from swift.common.middleware.s3api.acl_utils import handle_acl_header
 # signature string.
 ALLOWED_SUB_RESOURCES = sorted([
     'acl', 'delete', 'lifecycle', 'location', 'logging', 'notification',
-    'partNumber', 'policy', 'requestPayment', 'torrent', 'uploads', 'uploadId',
-    'versionId', 'versioning', 'versions', 'website',
+    'partNumber', 'policy', 'publicAccessBlock', 'requestPayment', 'torrent',
+    'uploads', 'uploadId', 'versionId', 'versioning', 'versions', 'website',
     'response-cache-control', 'response-content-disposition',
     'response-content-encoding', 'response-content-language',
     'response-content-type', 'response-expires', 'cors', 'tagging', 'restore',
@@ -448,6 +448,8 @@ class StreamingInput:
             self._to_read -= len(buf)
             if readline and buf[-1:] == b'\n':
                 break
+            if not buf and not self._completed_payload:
+                raise S3InputIncomplete
         return b''.join(bufs)
 
     def _read_trailers(self):
@@ -1697,9 +1699,10 @@ class S3Request(swob.Request):
             raise MalformedXML()
 
         if te or ml:
-            # Limit the read similar to how SLO handles manifests
             with self.translate_read_errors():
-                body = self.body_file.read(max_length)
+                body = self.body_file.read(max_length + 1)
+            if len(body) > max_length:
+                raise MalformedXML()
         else:
             # No (or zero) Content-Length provided, and not chunked transfer;
             # no body. Assume zero-length, and enforce a required body below.
@@ -1823,6 +1826,12 @@ class S3Request(swob.Request):
 
     @property
     def controller(self):
+        unsupported = ('notification', 'policy', 'publicAccessBlock',
+                       'requestPayment', 'torrent', 'website', 'cors',
+                       'restore')
+        if set(unsupported) & set(self.params):
+            return UnsupportedController
+
         if self.is_service_request:
             return ServiceController
 
@@ -1854,11 +1863,6 @@ class S3Request(swob.Request):
             return TaggingController
         if 'object-lock' in self.params:
             return ObjectLockController
-
-        unsupported = ('notification', 'policy', 'requestPayment', 'torrent',
-                       'website', 'cors', 'restore')
-        if set(unsupported) & set(self.params):
-            return UnsupportedController
 
         if self.is_object_request:
             return ObjectController
@@ -2256,6 +2260,8 @@ class S3Request(swob.Request):
                 raise err_resp[0](*err_resp[1:])
             elif b'quota' in err_msg:
                 raise err_resp(err_msg)
+            elif err_resp == RequestTimeout:
+                raise RequestTimeout(headers={'Connection': 'close'})
             else:
                 raise err_resp()
 

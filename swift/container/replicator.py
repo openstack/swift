@@ -16,7 +16,7 @@
 import os
 import json
 from collections import defaultdict
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 import optparse
 from random import choice
 
@@ -425,8 +425,8 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
         # if the local db has started sharding since the original 'sync'
         # request then abort object replication now; instantiate a fresh broker
         # each time this check if performed so to get latest state
-        broker = ContainerBroker(db_file, logger=self.logger)
-        return broker.sharding_initiated()
+        with ContainerBroker(db_file, logger=self.logger) as broker:
+            return broker.sharding_initiated()
 
     def _post_rsync_then_merge_hook(self, existing_broker, new_broker):
         # Note the following hook will need to change to using a pointer and

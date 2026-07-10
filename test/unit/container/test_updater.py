@@ -21,7 +21,7 @@ from tempfile import mkdtemp
 from test.debug_logger import debug_logger
 from test.unit import mock_check_drive, BaseUnitTestCase
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 
 from swift.common import exceptions, utils
 from swift.container import updater as container_updater

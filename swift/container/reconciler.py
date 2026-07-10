@@ -18,7 +18,7 @@ import socket
 import itertools
 import logging
 
-from eventlet import GreenPile, GreenPool, Timeout
+from swift.common.concurrency import GreenPile, GreenPool, Timeout
 
 from swift.common import constraints
 from swift.common.daemon import Daemon, run_daemon

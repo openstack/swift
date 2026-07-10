@@ -20,7 +20,7 @@ from unittest import mock
 import unittest
 import socket
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 
 from swift.common import bufferedhttp
 

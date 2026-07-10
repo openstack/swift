@@ -14,7 +14,9 @@
 # limitations under the License.
 import time
 
-from test.s3api import BaseS3TestCase
+from botocore.exceptions import ClientError
+
+from test.s3api import BaseS3TestCase, code_from_error, status_from_error
 
 
 class TestObject(BaseS3TestCase):
@@ -54,3 +56,43 @@ class TestObject(BaseS3TestCase):
         self.assertGreater(
             copy_resp['CopyObjectResult']['LastModified'],
             src_head_resp['LastModified'])
+
+    def test_object_server_side_encryption_header(self):
+        obj_name = self.create_name('sse')
+        body = b'abcd'
+        try:
+            put_resp = self.client.put_object(
+                Bucket=self.bucket_name,
+                Key=obj_name,
+                Body=body,
+                ServerSideEncryption='AES256',
+            )
+        except ClientError as err:
+            if (status_from_error(err) == 501 and
+                    code_from_error(err) == 'NotImplemented'):
+                self.skipTest('x-amz-server-side-encryption is not supported')
+            raise
+        self.assertEqual(200, put_resp['ResponseMetadata']['HTTPStatusCode'])
+
+        head_resp = self.client.head_object(
+            Bucket=self.bucket_name,
+            Key=obj_name,
+        )
+        self.assertEqual(200, head_resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('AES256', head_resp['ServerSideEncryption'])
+        self.assertEqual(
+            'AES256',
+            head_resp['ResponseMetadata']['HTTPHeaders'].get(
+                'x-amz-server-side-encryption'))
+
+        get_resp = self.client.get_object(
+            Bucket=self.bucket_name,
+            Key=obj_name,
+        )
+        self.assertEqual(200, get_resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('AES256', get_resp['ServerSideEncryption'])
+        self.assertEqual(
+            'AES256',
+            get_resp['ResponseMetadata']['HTTPHeaders'].get(
+                'x-amz-server-side-encryption'))
+        self.assertEqual(body, get_resp['Body'].read())

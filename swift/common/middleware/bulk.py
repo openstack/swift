@@ -197,7 +197,7 @@ payload sent to the proxy (the list of objects/containers to be deleted).
 from swift.common.request_helpers import get_heartbeat_response_body
 import tarfile
 from time import time
-from eventlet import sleep
+from swift.common.concurrency import sleep
 import zlib
 from swift.common.swob import Request, HTTPBadGateway, \
     HTTPCreated, HTTPBadRequest, HTTPNotFound, HTTPUnauthorized, HTTPOk, \

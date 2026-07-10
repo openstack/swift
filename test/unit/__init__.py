@@ -28,10 +28,11 @@ import itertools
 from numbers import Number
 from tempfile import NamedTemporaryFile
 import time
-import eventlet
-from eventlet import greenpool, debug as eventlet_debug
-from eventlet.green import socket
+from swift.common.concurrency import (
+    eventlet, greenpool, debug as eventlet_debug, socket
+)
 from tempfile import mkdtemp, mkstemp, gettempdir
+import traceback
 from shutil import rmtree
 import signal
 import json
@@ -45,6 +46,7 @@ from http.client import HTTPException
 from swift.common import memcached
 from swift.common import storage_policy, swob, utils, exceptions, \
     internal_client
+from swift.common.db import GreenDBConnection
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
@@ -1716,3 +1718,73 @@ class FakeInternalClient(internal_client.InternalClient):
         unused_responses = [r for r in self.resp_iter]
         if unused_responses:
             raise Exception('Unused responses: %r' % unused_responses)
+
+
+class CloseTracker:
+    open_conns = []
+
+    def __init__(self, *a, **kw):
+        self.conn = GreenDBConnection(*a, **kw)
+        self.stack = [
+            fs for fs in traceback.extract_stack()
+            if not any(
+                x in fs.filename
+                for x in ('unittest', 'pytest', 'pluggy')
+            )
+        ]
+        CloseTracker.open_conns.append(self)
+
+    def close(self):
+        CloseTracker.open_conns.remove(self)
+        self.conn.close()
+
+    def __repr__(self):
+        formatted_stack = "".join(traceback.format_list(self.stack))
+        return f'<CloseTracker: {self.conn} created at\n{formatted_stack}>'
+
+    def __getattribute__(self, name):
+        if name in ('conn', 'close', 'stack'):
+            return object.__getattribute__(self, name)
+        return getattr(self.conn, name)
+
+    def __setattr__(self, name, value):
+        if name in ('conn', 'close', 'stack'):
+            return object.__setattr__(self, name, value)
+        return setattr(self.conn, name, value)
+
+    @staticmethod
+    def assert_all_closed():
+        open_conns = CloseTracker.open_conns[:]
+        try:
+            assert open_conns == [], open_conns
+        finally:
+            # Even on failures, reset for the next test
+            for conn in open_conns:
+                conn.close()
+
+
+@contextmanager
+def check_db_connections_get_closed():
+    with mocklib.patch('swift.common.db.GreenDBConnection', CloseTracker):
+        yield
+    CloseTracker.assert_all_closed()
+
+
+class DBCloseTrackingApp:
+    def __init__(self, app):
+        self.app = app
+
+    def __call__(self, env, start_response):
+        with check_db_connections_get_closed():
+            # Responses should always be short for a DB server
+            return list(self.app(env, start_response))
+
+    def __getattribute__(self, name):
+        if name in ('app', '__call__'):
+            return object.__getattribute__(self, name)
+        return getattr(self.app, name)
+
+    def __setattr__(self, name, value):
+        if name in ('app'):
+            return object.__setattr__(self, name, value)
+        return setattr(self.app, name, value)

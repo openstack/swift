@@ -21,8 +21,7 @@ from optparse import OptionParser
 from sys import exit, stdout, stderr
 from time import time
 
-from eventlet import GreenPool, hubs, patcher, Timeout
-from eventlet.pools import Pool
+from swift.common.concurrency import GreenPool, hubs, patcher, Timeout, Pool
 
 from swift.common import direct_client
 from swift.common.internal_client import SimpleClient

@@ -74,6 +74,18 @@ class TestGatekeeper(unittest.TestCase):
     x_backend_headers = {'X-Backend-Replication': 'true',
                          'X-Backend-Replication-Headers': 'stuff'}
 
+    update_headers = {'X-Account-Host': 'localhost:8888',
+                      'X-Account-Device': 'stuff',
+                      'X-Account-Partition': '0',
+                      'X-Container-Host': 'localhost:8888',
+                      'X-Container-Device': 'stuff',
+                      'X-Container-Partition': '0',
+                      'X-Container-Root-Db-State': 'stuff',
+                      'X-Delete-At-Host': 'localhost:8888',
+                      'X-Delete-At-Container': 'stuff',
+                      'X-Delete-At-Device': 'stuff',
+                      'X-Delete-At-Partition': '0'}
+
     object_transient_sysmeta_headers = {
         'x-object-transient-sysmeta-': 'value',
         'x-object-transient-sysmeta-foo': 'value'}
@@ -82,6 +94,7 @@ class TestGatekeeper(unittest.TestCase):
     forbidden_headers_out = dict(sysmeta_headers)
     forbidden_headers_out.update(x_backend_headers)
     forbidden_headers_out.update(object_transient_sysmeta_headers)
+    forbidden_headers_out.update(update_headers)
     forbidden_headers_in = dict(forbidden_headers_out)
     shunted_headers_in = dict(x_timestamp_headers)
 

@@ -22,11 +22,10 @@ import random
 import shutil
 import time
 import itertools
-import pickle  # nosec: B403
 
-import eventlet
-from eventlet import GreenPool, queue, tpool, Timeout, sleep
-from eventlet.green import subprocess
+from swift.common.concurrency import (
+    spawn, spawn_n, GreenPool, queue, tpool, Timeout, sleep, subprocess
+)
 
 from swift.common.constraints import check_drive
 from swift.common.ring.utils import is_local_device
@@ -36,6 +35,7 @@ from swift.common.utils import whataremyips, unlink_older_than, \
     config_auto_int_value, storage_directory, load_recon_cache, EUCLEAN, \
     parse_override_options, distribute_evenly, listdir, node_to_string, \
     get_prefixed_logger
+from swift.common.utils.pickle import unpickle
 from swift.common.bufferedhttp import http_connect
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
@@ -709,8 +709,7 @@ class ObjectReplicator(Daemon):
                                 failure_devs_info.add((node['replication_ip'],
                                                        node['device']))
                                 continue
-                            remote_hash = pickle.loads(
-                                resp.read())  # nosec: B301
+                            remote_hash = unpickle(resp.read())
                         finally:
                             conn.close()
                         del resp
@@ -813,7 +812,7 @@ class ObjectReplicator(Daemon):
         logs progress.
         """
         while True:
-            eventlet.sleep(self.stats_interval)
+            sleep(self.stats_interval)
             self.stats_line()
 
     def build_replication_jobs(self, policy, ips, override_devices=None,
@@ -962,8 +961,8 @@ class ObjectReplicator(Daemon):
         self.all_devs_info = set()
         self.handoffs_remaining = 0
 
-        stats = eventlet.spawn(self.heartbeat)
-        eventlet.sleep()  # Give spawns a cycle
+        stats = spawn(self.heartbeat)
+        sleep()  # Give spawns a cycle
 
         current_nodes = None
         dev_stats = None
@@ -1092,7 +1091,7 @@ class ObjectReplicator(Daemon):
             self.is_multiprocess_worker = True
             self._emplace_log_prefix(multiprocess_worker_index)
 
-        rsync_reaper = eventlet.spawn(self._child_process_reaper)
+        rsync_reaper = spawn(self._child_process_reaper)
         self._zero_stats()
         self.logger.info("Running object replicator in script mode.")
 
@@ -1138,7 +1137,7 @@ class ObjectReplicator(Daemon):
             self.is_multiprocess_worker = True
             self._emplace_log_prefix(multiprocess_worker_index)
         self.logger.info("Starting object replicator in daemon mode.")
-        eventlet.spawn_n(self._child_process_reaper)
+        spawn_n(self._child_process_reaper)
         # Run the replicator continually
         while True:
             self._zero_stats()

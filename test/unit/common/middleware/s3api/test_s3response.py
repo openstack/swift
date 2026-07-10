@@ -143,6 +143,26 @@ class TestResponse(unittest.TestCase):
         self.assertNotIn('x-amz-expiration', s3resp.headers)
         self.assertEqual('"theetag"', s3resp.headers['ETag'])
 
+    def test_response_x_backend_crypto_cipher_to_sse(self):
+        # Test X-Backend-Crypto-Cipher to x-amz-server-side-encryption
+        # translation.
+        resp = Response(headers={
+            'X-Backend-Crypto-Cipher': 'AES_CTR_256',
+        })
+        s3resp = S3Response.from_swift_resp(resp)
+        self.assertIn('x-amz-server-side-encryption', s3resp.headers)
+        self.assertEqual(
+            'AES256',
+            s3resp.headers['x-amz-server-side-encryption'])
+
+    def test_response_x_backend_crypto_cipher_fake(self):
+        # Header should not exist if not cipher is known
+        resp = Response(headers={
+            'X-Backend-Crypto-Cipher': 'One day, I will be a cipher algorithm',
+        })
+        s3resp = S3Response.from_swift_resp(resp)
+        self.assertNotIn('x-amz-server-side-encryption', s3resp.headers)
+
 
 class DummyErrorResponse(ErrorResponse):
     _status = "418 I'm a teapot"

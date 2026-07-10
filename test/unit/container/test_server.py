@@ -28,7 +28,7 @@ from shutil import rmtree
 from tempfile import mkdtemp
 from xml.dom import minidom
 
-from eventlet import spawn, Timeout
+from swift.common.concurrency import spawn, Timeout
 import json
 from urllib.parse import quote
 
@@ -50,6 +50,7 @@ from swift.common.storage_policy import (POLICIES, StoragePolicy)
 from swift.common.request_helpers import get_sys_meta_prefix, get_reserved_name
 
 from test import listen_zero
+from test.unit import DBCloseTrackingApp
 
 
 @contextmanager
@@ -74,9 +75,10 @@ class TestContainerController(BaseUnitTestCase):
         mkdirs(os.path.join(self.testdir, 'sda1'))
         mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
         self.logger = debug_logger()
-        self.controller = container_server.ContainerController(
-            {'devices': self.testdir, 'mount_check': 'false'},
-            logger=self.logger)
+        self.controller = DBCloseTrackingApp(
+            container_server.ContainerController(
+                {'devices': self.testdir, 'mount_check': 'false'},
+                logger=self.logger))
         # some of the policy tests want at least two policies
         self.assertTrue(len(POLICIES) > 1)
 
@@ -1811,6 +1813,18 @@ class TestContainerController(BaseUnitTestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
 
+    def test_DELETE_container_x_backend_storage_policy_index_ignored(self):
+        # X-Backend-Storage-Policy-Index isn't relevant when deleting the
+        # container itself
+        self._populate_container('/sda1/p/a/c')
+        req = Request.blank(
+            '/sda1/p/a/c',
+            environ={'REQUEST_METHOD': 'DELETE'},
+            headers={'X-Timestamp': self.ts().internal,
+                     'X-Backend-Storage-Policy-Index': 'bad'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+
     def test_GET_with_override_deleted_ignored_for_objects(self):
         self._populate_and_delete_container('/sda1/p/a/c')
         # the override-deleted header is ignored for object records
@@ -2145,6 +2159,19 @@ class TestContainerController(BaseUnitTestCase):
             'X-Timestamp': next(ts)})
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 404)
+
+    def test_DELETE_object_invalid_x_backend_storage_policy_index(self):
+        req = Request.blank(
+            '/sda1/p/a/c', method='PUT', headers={
+                'X-Timestamp': self.ts().internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 201)
+        req = Request.blank(
+            '/sda1/p/a/c/o', method='DELETE', headers={
+                'X-Backend-Storage-Policy-Index': 'bad',
+                'X-Timestamp': self.ts().internal})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 400)
 
     def test_object_update_with_offset(self):
         # create container
@@ -4159,7 +4186,9 @@ class TestContainerController(BaseUnitTestCase):
             req = Request.blank(
                 '/sda1/p/a/c/%s' % name, method='PUT', headers=headers)
             self._update_object_put_headers(req)
-            resp = req.get_response(self.controller)
+            # NB: Need base, non-close-tracking app because there's already a
+            # request in flight
+            resp = req.get_response(self.controller.app)
             self.assertEqual(201, resp.status_int)
 
         def get_api_listing():

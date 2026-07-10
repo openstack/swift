@@ -22,7 +22,7 @@ from unittest import mock
 import random
 import sqlite3
 
-from eventlet import sleep
+from swift.common.concurrency import sleep
 
 from swift.common import db_replicator
 from swift.common.swob import HTTPServerError

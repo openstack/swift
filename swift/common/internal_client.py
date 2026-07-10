@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from eventlet import sleep, Timeout, spawn
-from eventlet.green import socket
-from eventlet.green.http import client as http_client
-from eventlet.green.urllib import request as urllib_request
+from swift.common.concurrency import (
+    sleep, Timeout, spawn, socket, green_http_client as http_client,
+    urllib_request
+)
 import json
 import urllib
 import struct

@@ -182,7 +182,7 @@ import base64
 import zlib
 
 from cryptography import fernet
-from eventlet import Timeout
+from swift.common.concurrency import Timeout
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.swob import (
     Response, Request, wsgi_to_str, str_to_wsgi, wsgi_unquote,

@@ -31,7 +31,7 @@ from swift.common.middleware.symlink import TGT_OBJ_SYSMETA_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES, SYMLOOP_EXTEND
 from swift.common.middleware.versioned_writes.object_versioning import \
     SYSMETA_VERSIONS_CONT, SYSMETA_VERSIONS_ENABLED, \
-    SYSMETA_VERSIONS_SYMLINK, DELETE_MARKER_CONTENT_TYPE
+    SYSMETA_VERSIONS_SYMLINK, DELETE_MARKER_CONTENT_TYPE, timestamp_to_version
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy
 from swift.common.utils import md5
@@ -676,7 +676,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(Timestamp(ts1, offset=1), ts2)
 
     def test_PUT_timestamp_set_by_preceding_middleware(self):
-        # verify that an existing x-timestamp is used by a multipart put
+        # verify that an existing x-timestamp is used by a version put, but the
+        # offset part is ignored
         put_body = 'stuff' * 100
         req = Request.blank(
             '/v1/a/c/o', method='PUT', body=put_body,
@@ -688,9 +689,15 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             environ={'swift.cache': self.cache_version_on,
                      'swift.trans_id': 'fake_trans_id'})
         ts_req = req.ensure_x_timestamp()
+        self.assertEqual(0, ts_req.offset)  # sanity check
+        # version-id should not have the offset...
+        exp_version = (~ts_req).internal
+        # give the inbound request timestamp a non-zero offset which should be
+        # ignored for the version-id
+        ts_req.offset = 1
+        req.headers['x-timestamp'] = ts_req.internal
 
         self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
-        exp_version = (~ts_req).internal
         self.app.register(
             'PUT',
             self.build_versions_path(obj='o', version=exp_version),
@@ -717,8 +724,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(('PUT', '/v1/a/c/o'),
                          (calls[2].method, calls[2].path))
         ts = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
-        # XXX it's not clear why the symlink timestamp gets an offset
-        self.assertEqual(1, ts.offset)
+        # XXX it's not clear why the symlink timestamp gets an offset increment
+        self.assertEqual(2, ts.offset)
         self.assertEqual(Timestamp(ts_req, offset=1), ts)
 
     def test_PUT_overwrite_x_timestamp_with_offset(self):
@@ -1343,12 +1350,15 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         ])
 
     def test_PUT_overwrite_unversioned_object_timestamp_with_hex_part(self):
-        # it's ok for the source x-backend-timestamp to have a hex part/offset
-        ts_old = Timestamp(self.ts(), offset=1)
-        get_resp_headers = {'x-timestamp': ts_old.normal,
-                            'x-backend-timestamp': ts_old.internal,
-                            'last-modified': date_header_format(ts_old)}
-        exp_old_version = (~ts_old).internal
+        # it's ok for the source x-backend-timestamp to have a hex part/offset,
+        # but the offset is ignored when creating the version string
+        ts_old_without_offset = self.ts()
+        ts_old_with_offset = Timestamp(ts_old_without_offset, offset=1)
+        get_resp_headers = {
+            'x-timestamp': ts_old_with_offset.normal,
+            'x-backend-timestamp': ts_old_with_offset.internal,
+            'last-modified': date_header_format(ts_old_with_offset)}
+        exp_old_version = (~ts_old_without_offset).internal
         self._do_test_PUT_overwrite_unversioned_object_timestamp(
             get_resp_headers, exp_old_version)
 
@@ -1898,6 +1908,51 @@ class ObjectVersioningTestDelete(ObjectVersioningBaseTestCase):
         ts2 = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
         self.assertEqual(ts1, ts2)
 
+    def test_DELETE_timestamp_set_by_preceding_middleware(self):
+        # verify that an existing x-timestamp offset is ignored for the
+        # delete-marker version id
+        req = Request.blank(
+            '/v1/a/c/o', method='DELETE',
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id'})
+        ts_req = req.ensure_x_timestamp()
+        self.assertEqual(0, ts_req.offset)  # sanity check
+        exp_obj_version = ts_req.internal
+        exp_version = (~ts_req).internal
+        # give the inbound request timestamp a non-zero offset which should be
+        # ignored for the delete-marker version-id
+        ts_req.offset = 1
+        req.headers['x-timestamp'] = ts_req.internal
+
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=exp_version),
+            swob.HTTPCreated, {}, '')
+        self.app.register(
+            'DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, None)
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '204 No Content')
+        self.assertIn(('X-Object-Version-Id', exp_obj_version), headers)
+        calls = self.app.call_list
+        self.assertEqual(3, len(calls))
+        # GET
+        self.assertEqual(('GET', '/v1/a/c/o?symlink=get'),
+                         (calls[0].method, calls[0].path))
+        # PUT delete marker to versions
+        self.assertEqual('PUT', calls[1].method)
+        ts = self.assert_valid_timestamp(calls[1].headers.get('X-Timestamp'))
+        self.assertEqual(ts_req, ts)
+        self.assertEqual('/v1/a/%s/%s'
+                         % (self.build_container_name('c'),
+                            self.build_object_name('o', exp_version)),
+                         calls[1].path)
+        # DELETE
+        self.assertEqual(('DELETE', '/v1/a/c/o'),
+                         (calls[2].method, calls[2].path))
+        ts = self.assert_valid_timestamp(calls[2].headers.get('X-Timestamp'))
+        self.assertEqual(ts_req, ts)
+
 
 class ObjectVersioningTestCopy(ObjectVersioningBaseTestCase):
     def test_COPY_overwrite_tombstone(self):
@@ -2241,14 +2296,19 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertIn(b're-enable object versioning', body)
 
     def test_PUT_version_invalid(self):
-        invalid_versions = ('null', 'something', '-10')
-        for version_id in invalid_versions:
+        def do_test(invalid_version):
             req = Request.blank(
                 '/v1/a/c/o', method='PUT',
+                headers={'Content-Length': '0'},
                 environ={'swift.cache': self.cache_version_on},
-                params={'version-id': invalid_versions})
+                params={'version-id': invalid_version})
             status, headers, body = self.call_ov(req)
             self.assertEqual(status, '400 Bad Request')
+
+        # these are invalid in any context...
+        do_test('something')
+        do_test('-10')
+        do_test('12345678901')
 
     def test_POST_error(self):
         req = Request.blank(
@@ -2287,6 +2347,27 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertEqual(b'', body)
 
     def test_GET_version_id_with_hex_part(self):
+        self.app.register(
+            'GET',
+            self.build_versions_path(
+                obj='o', version='9999999939.99998_d12345678a000000'),
+            swob.HTTPOk, {}, 'foobar')
+        req = Request.blank(
+            '/v1/a/c/o', method='GET',
+            environ={'swift.cache': self.cache_version_on},
+            params={'version-id': '0000000060.00000_2edcba9876000000'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertIn(
+            ('X-Object-Version-Id', '0000000060.00000_2edcba9876000000'),
+            headers)
+        self.assertEqual(b'foobar', body)
+
+    def test_GET_version_id_with_hex_part_non_zero_offset(self):
+        # Backward compatibility: a version-id supplied by a client may have a
+        # non-zero offset if it was created before this fix. The middleware
+        # must use it verbatim (not strip the offset) when looking up the
+        # stored object, so that pre-existing versions remain accessible.
         self.app.register(
             'GET',
             self.build_versions_path(
@@ -2817,6 +2898,9 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             'content_type': 'text/plain',
         }]
 
+        # Exercise forward-compatible v2-style hex parts: the leading
+        # digit identifies the timestamp encoding, the next digits may
+        # be jitter, and only the final 6 hex digits encode offset.
         versions_listing_body = [{
             'bytes': 9,
             'name': self.build_object_name('obj', '9999999979.99999'),
@@ -2825,6 +2909,17 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
             'content_type': 'text/plain',
         }, {
             'bytes': 8,
+            # stored name for a v2-style version-id with zero
+            # offset hex digits; stored names carry inverted hex parts
+            'name': self.build_object_name(
+                'obj', '9999999989.99998_d123456789000000'),
+            'hash': 'ebdd8d46ecb4a07f6c433d67eb35d5f2',
+            'last_modified': '1970-01-01T00:00:10.000000',
+            'content_type': 'text/plain',
+        }, {
+            'bytes': 8,
+            # stored name for a v2-style version-id with non-zero
+            # offset hex digits; stored names carry inverted hex parts
             'name': self.build_object_name(
                 'obj', '9999999989.99998_d123456789edcbaa'),
             'hash': 'ebdd8d46ecb4a07f6c433d67eb35d5f2',
@@ -2867,7 +2962,18 @@ class ObjectVersioningTestContainerOperations(ObjectVersioningBaseTestCase):
         }, {
             'bytes': 8,
             'name': 'obj',
-            # note: version_id with hex part
+            # v2-style hex part: version digit plus jitter, with
+            # final 6 offset hex digits zero
+            'version_id': '0000000010.00000_2edcba9877000000',
+            'hash': 'ebdd8d46ecb4a07f6c433d67eb35d5f2',
+            'last_modified': '1970-01-01T00:00:10.000000',
+            'content_type': 'text/plain',
+            'is_latest': False,
+        }, {
+            'bytes': 8,
+            'name': 'obj',
+            # v2-style hex part: version digit plus jitter, with
+            # final 6 offset hex digits non-zero
             'version_id': '0000000010.00000_2edcba9876123456',
             'hash': 'ebdd8d46ecb4a07f6c433d67eb35d5f2',
             'last_modified': '1970-01-01T00:00:10.000000',
@@ -4009,7 +4115,7 @@ class TestModuleFunctions(unittest.TestCase):
     def test_validate_version_ok(self):
         def do_test(version):
             try:
-                object_versioning.validate_version(version)
+                object_versioning.validate_version(Request({}), version)
             except ValueError as err:
                 self.fail('Unexpected exception: %s' % err)
 
@@ -4019,11 +4125,10 @@ class TestModuleFunctions(unittest.TestCase):
 
     def test_validate_version_bad(self):
         def do_test(version):
-            with self.assertRaises(ValueError) as cm:
-                object_versioning.validate_version(version)
-            self.assertEqual('Invalid version: %s' % version,
-                             str(cm.exception))
-        do_test('null')
+            with self.assertRaises(swob.HTTPException) as cm:
+                object_versioning.validate_version(Request({}), version)
+            self.assertEqual('400 Bad Request', str(cm.exception))
+
         do_test('-123.4')
         do_test(None)
 
@@ -4047,6 +4152,21 @@ class TestModuleFunctions(unittest.TestCase):
         self.assertEqual('not-versions',
                          object_versioning.split_versions_container_name(
                              'not-versions'))
+
+    def test_timestamp_to_version(self):
+        ts = Timestamp.now()
+        self.assertEqual(ts.internal, timestamp_to_version(ts))
+        self.assertEqual(ts.internal, timestamp_to_version(ts.internal))
+
+    def test_timestamp_to_version_ignores_offset(self):
+        ts = Timestamp.now(offset=123)
+        self.assertNotEqual(ts.internal, timestamp_to_version(ts))
+        self.assertNotEqual(ts.internal, timestamp_to_version(ts.internal))
+        ts_no_offset = Timestamp(ts)
+        ts_no_offset.offset = 0
+        self.assertEqual(ts_no_offset.internal, timestamp_to_version(ts))
+        self.assertEqual(ts_no_offset.internal,
+                         timestamp_to_version(ts.internal))
 
 
 class TestObjectContext(BaseUnitTestCase):
@@ -4096,7 +4216,7 @@ class TestObjectContext(BaseUnitTestCase):
                    'x-timestamp': ts.normal,
                    'x-backend-data-timestamp': ts_backend.internal}
         resp = Response(headers=headers)
-        self.assertEqual(ts_backend.internal,
+        self.assertEqual(ts_backend.normal,
                          self.obj_context.get_null_version(resp))
 
 

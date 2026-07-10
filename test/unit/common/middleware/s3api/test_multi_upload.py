@@ -273,7 +273,7 @@ class BaseS3ApiMultiUpload(object):
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
 
-        status, haeaders, body = self.call_s3api(req)
+        status, headers, body = self.call_s3api(req)
 
         self.assertEqual(status.split()[0], '200')
         elem = fromstring(body, 'ListMultipartUploadsResult')
@@ -295,7 +295,7 @@ class BaseS3ApiMultiUpload(object):
                             environ={'REQUEST_METHOD': 'GET'},
                             headers={'Authorization': 'AWS test:tester:hmac',
                                      'Date': self.get_date_header()})
-        status, haeaders, body = self.call_s3api(req)
+        status, headers, body = self.call_s3api(req)
         self.assertEqual(status.split()[0], '404')
         self.assertEqual(self._get_error_code(body), 'NoSuchBucket')
 

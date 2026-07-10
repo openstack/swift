@@ -203,6 +203,8 @@ class ObjectController(Controller):
         old_versions = json.loads(resp.body)
         resp = None
         for item in old_versions:
+            if item['name'] != req.object_name:
+                break
             if item['content_type'] == DELETE_MARKER_CONTENT_TYPE:
                 resp = None
                 break
@@ -333,7 +335,7 @@ class ObjectController(Controller):
                     pass  # drain the bulk-deleter response
                 resp.status = HTTP_NO_CONTENT
                 resp.body = b''
-            if resp.sw_headers.get('X-Object-Current-Version-Id') == 'none':
+            if resp.sw_headers.get('X-Object-Current-Version-Id') == 'null':
                 new_resp = self._restore_on_delete(req)
                 if new_resp:
                     resp = new_resp

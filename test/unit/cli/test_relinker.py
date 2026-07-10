@@ -20,7 +20,6 @@ from textwrap import dedent
 
 from unittest import mock
 import os
-import pickle
 import shutil
 import tempfile
 import time
@@ -36,7 +35,9 @@ from swift.common.exceptions import PathNotDir
 from swift.common.storage_policy import (
     StoragePolicy, StoragePolicyCollection, POLICIES, ECStoragePolicy,
     get_policy_string)
+from swift.common.concurrency import Timeout
 from swift.common.utils.logs import get_prefixed_swift_logger
+from swift.common.utils.pickle import unpickle
 
 from swift.obj.diskfile import write_metadata, DiskFileRouter, \
     DiskFileManager, relink_paths, BaseDiskFileManager
@@ -368,6 +369,57 @@ class TestRelinker(unittest.TestCase):
             ('run', ['sda5']),
             ('exit', 0),
         ], calls)
+
+    @mock.patch('os.getpid', return_value=100)
+    def test_relink_catches_unhandled_exception(self, mock_getpid):
+        logger = get_prefixed_swift_logger(
+            self.logger, '[step=relink] ')
+        r = relinker.Relinker(
+            {'devices': self.devices,
+             'recon_cache_path': self.recon_cache_path},
+            logger, [self.existing_device], do_cleanup=False)
+
+        with mock.patch.object(
+                r, '_run', side_effect=OSError(errno.EIO, 'bad disk')):
+            self.assertEqual(relinker.EXIT_ERROR, r.run())
+
+        recon_progress = utils.load_recon_cache(self.recon_cache)
+        self.assertEqual({
+            'workers': {'100': {'devices': ['sda1'],
+                                'return_code': relinker.EXIT_ERROR,
+                                'timestamp': mock.ANY}}},
+            recon_progress)
+        self.assertEqual(
+            ['[step=relink] Unhandled exception in relinker worker'],
+            self.logger.get_lines_for_level('error'))
+        formatted_errors = '\n'.join(self.logger.records['ERROR'])
+        self.assertIn('Traceback (most recent call last):', formatted_errors)
+        self.assertIn('OSError: [Errno 5] bad disk', formatted_errors)
+
+    @mock.patch('os.getpid', return_value=100)
+    def test_cleanup_catches_unhandled_timeout(self, mock_getpid):
+        logger = get_prefixed_swift_logger(
+            self.logger, '[step=cleanup] ')
+        r = relinker.Relinker(
+            {'devices': self.devices,
+             'recon_cache_path': self.recon_cache_path},
+            logger, [self.existing_device], do_cleanup=True)
+
+        with mock.patch.object(r, '_run', side_effect=Timeout()):
+            self.assertEqual(relinker.EXIT_ERROR, r.run())
+
+        recon_progress = utils.load_recon_cache(self.recon_cache)
+        self.assertEqual({
+            'workers': {'100': {'devices': ['sda1'],
+                                'return_code': relinker.EXIT_ERROR,
+                                'timestamp': mock.ANY}}},
+            recon_progress)
+        self.assertEqual(
+            ['[step=cleanup] Unhandled exception in relinker worker'],
+            self.logger.get_lines_for_level('error'))
+        formatted_errors = '\n'.join(self.logger.records['ERROR'])
+        self.assertIn('Traceback (most recent call last):', formatted_errors)
+        self.assertIn('eventlet.timeout.Timeout', formatted_errors)
 
     def _do_test_relinker_drop_privileges(self, command):
         @contextmanager
@@ -885,7 +937,7 @@ class TestRelinker(unittest.TestCase):
         with open(os.path.join(self.next_part_dir, 'hashes.invalid')) as fp:
             self.assertEqual(fp.read(), '')
         with open(os.path.join(self.next_part_dir, 'hashes.pkl'), 'rb') as fp:
-            hashes = pickle.load(fp)
+            hashes = unpickle(fp)
         self.assertIn(self._hash[-3:], hashes)
         self.assertEqual('foo', hashes[self._hash[-3:]])
         self.assertFalse(os.path.exists(
@@ -2456,7 +2508,7 @@ class TestRelinker(unittest.TestCase):
         with open(os.path.join(self.next_part_dir, 'hashes.invalid')) as fp:
             self.assertEqual(fp.read(), '')
         with open(os.path.join(self.next_part_dir, 'hashes.pkl'), 'rb') as fp:
-            hashes = pickle.load(fp)
+            hashes = unpickle(fp)
         self.assertIn(self._hash[-3:], hashes)
 
         # create an object in a first quartile partition and pretend it should
@@ -2515,7 +2567,7 @@ class TestRelinker(unittest.TestCase):
             self.assertEqual(fp.read(), '')
         with open(os.path.join(self.objects, str(self.next_part),
                                'hashes.pkl'), 'rb') as fp:
-            hashes = pickle.load(fp)
+            hashes = unpickle(fp)
         self.assertIn(self._hash[-3:], hashes)
 
     def test_cleanup_no_applicable_policy(self):
@@ -2627,6 +2679,89 @@ class TestRelinker(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(objdir2, fname2)))
         self.assertTrue(os.path.isfile(path1))
         self.assertTrue(os.path.isfile(path2))
+
+    def test_cleanup_noops_rate_limiter(self):
+        hash1 = "027ecbf9027e96e1fe83e6154e1a8380"
+        hash2 = "024f19a8347495adc3cfa845f725e380"
+        self.assertNotEqual(hash1, hash2)
+        self.assertEqual(hash1[-3:], hash2[-3:])
+
+        self.rb.prepare_increase_partition_power()
+        self.rb.increase_partition_power()
+        self._save_ring()
+
+        part1 = utils.get_partition_for_hash(hash1, self.rb.part_power)
+        part2 = utils.get_partition_for_hash(hash2, self.rb.part_power)
+        self.assertEqual(part1, part2)
+        self.assertLess(part1, 2 ** (self.rb.part_power - 1))
+
+        # objects are created in the partition they are expected to be in so
+        # so they are not actually selected for cleanup
+        policy = 0
+        self._recreate_objects_dir(policy)
+        objdir1, fname1, _ = self._create_object(policy, part1, hash1)
+        objdir2, fname2, _ = self._create_object(policy, part2, hash2)
+
+        captured = list()
+
+        def rate_limiter_tracker(locations, elements_per_second):
+            for loc in locations:
+                captured.append(loc)
+                yield loc
+
+        with mock.patch('swift.cli.relinker.RateLimitedIterator',
+                        side_effect=rate_limiter_tracker), \
+                self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'cleanup',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--device', self.existing_device,
+                '--files-per-second', '1',  # Enable rate limiting
+            ]))
+
+        self.assertEqual(list(), captured)
+
+    def test_relink_noops_rate_limiter(self):
+        hash1 = "027ecbf9027e96e1fe83e6154e1a8380"
+        hash2 = "024f19a8347495adc3cfa845f725e380"
+        self.assertNotEqual(hash1, hash2)
+        self.assertEqual(hash1[-3:], hash2[-3:])
+
+        part1 = utils.get_partition_for_hash(hash1, self.rb.part_power + 1)
+        part2 = utils.get_partition_for_hash(hash2, self.rb.part_power + 1)
+        self.assertEqual(part1, part2)
+        self.assertLess(part1, 2 ** self.rb.part_power)
+
+        policy = 0
+        self._recreate_objects_dir(policy)
+        self._create_object(policy, part1, hash1)
+        self._create_object(policy, part2, hash2)
+
+        self.rb.prepare_increase_partition_power()
+        self._save_ring()
+
+        captured = list()
+
+        def rate_limiter_tracker(locations, elements_per_second):
+            for loc in locations:
+                captured.append(loc)
+                yield loc
+
+        with mock.patch('swift.cli.relinker.RateLimitedIterator',
+                        side_effect=rate_limiter_tracker), \
+                self._mock_relinker():
+            self.assertEqual(0, relinker.main([
+                'relink',
+                '--swift-dir', self.testdir,
+                '--devices', self.devices,
+                '--skip-mount',
+                '--device', self.existing_device,
+                '--files-per-second', '1',  # Enable rate limiting
+            ]))
+
+        self.assertEqual(list(), captured)
 
     def test_cleanup_consecutive_in_suffix_dir(self):
         # Both hashes are:

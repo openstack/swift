@@ -17,7 +17,7 @@
 import unittest
 
 from contextlib import contextmanager
-import eventlet
+from swift.common.concurrency import eventlet
 import json
 import os
 import random

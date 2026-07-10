@@ -24,7 +24,7 @@ import os
 from tempfile import mkdtemp
 import warnings
 
-from eventlet import spawn, wsgi
+from swift.common.concurrency import spawn, wsgi
 from unittest import mock
 from shutil import rmtree
 

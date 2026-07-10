@@ -15,10 +15,16 @@
 # limitations under the License.
 import unittest
 
+import base64
 import calendar
 import email.parser
 from email.utils import formatdate, parsedate
+import os
+import struct
 from time import mktime
+from zlib import crc32
+
+import boto3
 
 import test.functional as tf
 from swift.common import utils, swob
@@ -42,6 +48,43 @@ def setUpModule():
 
 def tearDownModule():
     tf.teardown_package()
+
+
+class ShortFileLike:
+    """
+    Act like fully compatible seekable/readable, but after some captured
+    sequence of read calls on one specific "magic" invocation of read return a
+    little bit of garbage.
+    """
+
+    # Found through trial and error, the magic number for the start of the full
+    # read which happens to be the actual upload.
+    MAGIC_NUMBER = 4
+
+    def __init__(self, size):
+        self.calls = []
+        self._size = size
+        self._pos = 0
+
+    def tell(self, *args, **kwargs):
+        self.calls.append(('tell', args, kwargs))
+        return self._pos
+
+    def seek(self, pos=0, whence=os.SEEK_SET):
+        self.calls.append(('seek', (pos, whence)))
+        if whence == os.SEEK_END:
+            self._pos = self._size - pos
+        else:
+            self._pos = pos
+
+    def read(self, *args, **kwargs):
+        self.calls.append(('read', args, kwargs))
+        buff = b'a' * (self._size - self._pos)
+        self._pos += len(buff)
+        num_reads = len([c for c in self.calls if c[0] == 'read'])
+        if num_reads == self.MAGIC_NUMBER:
+            return b'bbb'
+        return buff
 
 
 class TestS3ApiObjectBoto3(S3ApiBaseBoto3):
@@ -79,6 +122,48 @@ class TestS3ApiObjectBoto3(S3ApiBaseBoto3):
         resp = self.conn.get_object(Bucket=self.bucket, Key='obj')
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual(body, resp['Body'].read())
+
+    def test_put_object_request_timeout(self):
+        if not tf.in_process:
+            raise unittest.SkipTest(
+                'in-process functests required for '
+                'predictable client_timeout')
+
+        obj = 'object'
+        body = ShortFileLike(10)
+        crc_int = crc32(body.read())
+        body.seek()
+        digest = struct.pack('!I', crc_int)
+        b64_bytes = base64.b64encode(digest)
+        config = boto3.session.Config(
+            s3={'addressing_style': 'path'},
+            retries={
+                'mode': 'standard',
+                'total_max_attempts': 1,
+            },
+        )
+        endpoint_url = tf.config['s3_storage_url']
+        conn = boto3.client(
+            's3',
+            aws_access_key_id=tf.config['s3_access_key'],
+            aws_secret_access_key=tf.config['s3_secret_key'],
+            config=config,
+            region_name=tf.config.get('s3_region', 'us-east-1'),
+            use_ssl=endpoint_url.startswith('https:'),
+            endpoint_url=endpoint_url,
+        )
+        try:
+            resp = conn.put_object(
+                Bucket=self.bucket, Key=obj, Body=body,
+                ChecksumCRC32=b64_bytes.decode('utf8'))
+        except boto3.exceptions.botocore.exceptions.ClientError as e:
+            resp = e.response
+        else:
+            self.fail('ShortFileLike upload worked!?', resp)
+        self.assertEqual('RequestTimeout', resp['Error']['Code'])
+        self.assertEqual(400, resp['ResponseMetadata']['HTTPStatusCode'])
+        headers = resp['ResponseMetadata']['HTTPHeaders']
+        self.assertEqual('close', headers['connection'])
 
 
 class TestS3ApiObject(S3ApiBase):

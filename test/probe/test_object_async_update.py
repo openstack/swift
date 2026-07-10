@@ -438,7 +438,7 @@ class UpdaterStatsMixIn(object):
             # No node should find MORE unique ac than we created
             self.assertLessEqual(found_count, len(ac_pairs))
             # and generally we'd expect them to have "at least" one from
-            # significanly MORE than the "majority" of ac_pairs
+            # significantly MORE than the "majority" of ac_pairs
             self.assertGreaterEqual(found_count, len(ac_pairs) / 2)
 
             oldest_count = updater_stats[

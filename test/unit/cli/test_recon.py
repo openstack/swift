@@ -25,7 +25,7 @@ import shutil
 import string
 import sys
 
-from eventlet.green import socket
+from swift.common.concurrency import socket, urllib_request
 from io import StringIO
 import urllib
 
@@ -35,8 +35,6 @@ from swift.common.ring import builder
 from swift.common.ring import utils as ring_utils
 from swift.common.storage_policy import StoragePolicy, POLICIES
 from test.unit import patch_policies
-
-from eventlet.green.urllib import request as urllib_request
 GREEN_URLLIB_URLOPEN = 'eventlet.green.urllib.request.urlopen'
 
 

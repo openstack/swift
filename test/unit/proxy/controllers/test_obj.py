@@ -26,9 +26,7 @@ from contextlib import contextmanager
 import json
 
 from unittest import mock
-import eventlet
-from eventlet import Timeout, sleep
-from eventlet.queue import Empty
+from swift.common.concurrency import eventlet, Timeout, sleep, Empty
 
 from io import StringIO
 from urllib.parse import quote, parse_qsl
@@ -2672,8 +2670,8 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
                          node_error_counts(self.app, self.obj_ring.devs))
 
     def test_HEAD_error_limit_supression_count(self):
-        def do_test(primary_codes, expected, clear_stats=True):
-            if clear_stats:
+        def do_test(primary_codes, expected, keep_errors=False):
+            if not keep_errors:
                 self.app.error_limiter.stats.clear()
             random.shuffle(primary_codes)
             handoff_codes = [404] * self.obj_ring.max_more_nodes
@@ -2684,17 +2682,62 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             self.assertEqual(resp.status_int, expected)
 
         policy_opts = self.app.get_policy_options(None)
-        policy_opts.rebalance_missing_suppression_count = 1
-        # even with disks unmounted you can run with suppression_count = 1
-        do_test([507, 404, 404], 404)
-        # error limiting can make things wonky
-        do_test([404, 404], 404, clear_stats=False)
-        # and it gets a little dicy rebooting nodes
-        do_test([Timeout(), 404], 503, clear_stats=False)
-        do_test([507, Timeout(), 404], 503)
-        # unless you turn it off
+
+        # A 404 response to "does not exist" with default suppression_count=0
+        # even in the face of multiple primary failures was and is correct.
         policy_opts.rebalance_missing_suppression_count = 0
         do_test([507, Timeout(), 404], 404)
+        do_test([Timeout(), Timeout(), 404], 404)
+        # ^ how can we get this back by default EVEN in the face of rebalance?
+
+        # XXX 503 on double-507 is dumb, it should be even MORE justifiable to
+        # 404 too, since data would rebuild to handoffs!
+        do_test([507, 507, 404], 503)
+        # IMHO quorum_size = self._quorum_size(len(statuses)) was always a bad
+        # idea despite giving the "right" answer for 404 w/ Timeout()
+        do_test([507, 503, 404], 503)
+        do_test([503, 503, 404], 503)
+
+        # The more strict suppression_count=1 behavior ONLY makes sense when
+        # a) the 404 primary was only recently assigned and
+        # b) the proxy can't look at the old primary
+        policy_opts.rebalance_missing_suppression_count = 1
+        # this has VERY serious implications to availability: with
+        # suppression_count=1 multiple primary failures will is *always* 503
+        # the whole part for "does not exist" requests
+        do_test([507, Timeout(), 404], 503)
+        do_test([Timeout(), Timeout(), 404], 503)
+        do_test([507, 507, 404], 503)
+
+        # yet despite being needlessly strict for normal operations, ops tends
+        # to leave suppression_count=1, even when not rebalancing, because
+        # multiple-primary-failure is still quite rare even at scale; and you
+        # can still reboot nodes or unmount failed disks
+        do_test([Timeout(), 404, 404], 404)
+        do_test([507, 404, 404], 404)
+        # But any unmount becomes particularly risky b/c the previous 507 will
+        # take that node out of the iter, ... which makes rebooting nodes dicey
+        do_test([Timeout(), 404], 503, keep_errors=True)
+        # ... although somewhat transient
+        do_test([404, 404], 404, keep_errors=True)
+
+    def test_multiple_failure_supression_count_with_deleted_timestamp(self):
+        policy_opts = self.app.get_policy_options(None)
+        policy_opts.rebalance_missing_suppression_count = 1
+        # even with rebalance_missing_suppression_count=1 it's trivially easy
+        # to justify 404 from a *single* primary response when the object was
+        # DELETED, the "does not exist" case is *specifically* susceptible to
+        # *rebalance* - what we want is an *alternative* solution to "the
+        # rebalance problem" which returns the availability of "does not exist"
+        # back to the level we had w/ rebalance_missing_suppression_count=0
+        headers = {'x-backend-timestamp': self.ts().internal}
+        primary_codes = [507, 507, 404]
+        handoff_codes = [404] * self.obj_ring.max_more_nodes
+        with mocked_http_conn(*primary_codes + handoff_codes, headers=headers):
+            req = swift.common.swob.Request.blank(
+                '/v1/a/c/o', method='HEAD')
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
 
     def test_GET_primaries_error_during_rebalance(self):
         def do_test(primary_codes, expected, include_timestamp=False):

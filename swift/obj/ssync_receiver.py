@@ -13,10 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import eventlet.greenio
-import eventlet.wsgi
-from eventlet import sleep, Timeout
+from swift.common.concurrency import eventlet, sleep, Timeout
 import urllib
 
 from swift.common import exceptions
@@ -191,6 +188,44 @@ class SsyncInputProxy:
         return utils.FileLikeIter(subreq_iter())
 
 
+class SsyncAnnotatedLogger:
+    """
+    Annotates log messages with ssync request details.
+    """
+    def __init__(self, logger, ssync_receiver):
+        """
+        :param logger: logger object
+        :param ssync_receiver: an instance of ``Receiver``
+        """
+        self.logger = logger
+        self.ssync_receiver = ssync_receiver
+
+    def _format_log_msg(self, msg):
+        return 'ssync receiver (remote_addr: %s, path: %s/%s) %s' % (
+            self.ssync_receiver.request.remote_addr,
+            self.ssync_receiver.device,
+            self.ssync_receiver.partition,
+            msg)
+
+    def debug(self, msg, *args, **kwargs):
+        self.logger.debug(self._format_log_msg(msg), *args, **kwargs)
+
+    def warning(self, msg, *args, **kwargs):
+        self.logger.warning(self._format_log_msg(msg), *args, **kwargs)
+
+    def error(self, msg, *args, **kwargs):
+        self.logger.error(self._format_log_msg(msg), *args, **kwargs)
+
+    def exception(self, msg, *args, **kwargs):
+        self.logger.exception(self._format_log_msg(msg), *args, **kwargs)
+
+    def safe_exception(self, msg, *args, **kwargs):
+        try:
+            self.logger.exception(self._format_log_msg(msg), *args, **kwargs)
+        except Exception:  # noqa
+            self.logger.exception(msg, *args, **kwargs)
+
+
 class Receiver(object):
     """
     Handles incoming SSYNC requests to the object server.
@@ -235,6 +270,7 @@ class Receiver(object):
         # quite some time before realizing it was all in vain.
         self.disconnect = True
         self.initialize_request()
+        self.req_logger = SsyncAnnotatedLogger(app.logger, self)
 
     def __call__(self):
         """
@@ -278,25 +314,17 @@ class Receiver(object):
                     if self.app.replication_semaphore:
                         self.app.replication_semaphore.release()
             except SsyncClientDisconnected:
-                self.app.logger.error('ssync client disconnected')
+                self.req_logger.error('client disconnected')
                 self.disconnect = True
             except exceptions.LockTimeout as err:
-                self.app.logger.debug(
-                    '%s/%s/%s SSYNC LOCK TIMEOUT: %s' % (
-                        self.request.remote_addr, self.device, self.partition,
-                        err))
+                self.req_logger.debug('LOCK TIMEOUT: %s' % err)
                 yield (':ERROR: %d %r\n' % (0, str(err))).encode('utf8')
             except exceptions.MessageTimeout as err:
-                self.app.logger.error(
-                    '%s/%s/%s TIMEOUT in ssync.Receiver: %s' % (
-                        self.request.remote_addr, self.device, self.partition,
-                        err))
+                self.req_logger.error('TIMEOUT: %s' % err)
                 yield (':ERROR: %d %r\n' % (408, str(err))).encode('utf8')
             except exceptions.ChunkReadError as err:
-                self.app.logger.error(
-                    '%s/%s/%s read failed in ssync.Receiver: %s' % (
-                        self.request.remote_addr, self.device, self.partition,
-                        err))
+                self.req_logger.error(
+                    'read failed: %s' % err)
                 # Since the client (presumably) hung up, no point in trying to
                 # send anything about the error
             except swob.HTTPException as err:
@@ -304,12 +332,10 @@ class Receiver(object):
                 yield (':ERROR: %d %r\n' % (
                     err.status_int, body)).encode('utf8')
             except Exception as err:
-                self.app.logger.exception(
-                    '%s/%s/%s EXCEPTION in ssync.Receiver' %
-                    (self.request.remote_addr, self.device, self.partition))
+                self.req_logger.exception('EXCEPTION')
                 yield (':ERROR: %d %r\n' % (0, str(err))).encode('utf8')
         except Exception:
-            self.app.logger.exception('EXCEPTION in ssync.Receiver')
+            self.req_logger.safe_exception('EXCEPTION')
         if self.disconnect:
             # This makes the socket close early so the remote side doesn't have
             # to send its whole request while the lower Eventlet-level just
@@ -398,11 +424,9 @@ class Receiver(object):
                     except Exception:
                         # if commit fails then log exception and fall back to
                         # wanting a full update
-                        self.app.logger.exception(
-                            '%s/%s/%s EXCEPTION in ssync.Receiver while '
-                            'attempting commit of %s'
-                            % (self.request.remote_addr, self.device,
-                               self.partition, df._datadir))
+                        self.req_logger.exception(
+                            'EXCEPTION while attempting commit of %s'
+                            % df._datadir)
             else:
                 # We have the non-durable frag that is on offer, but our
                 # ts_data may currently be set to an older durable frag, so
@@ -599,8 +623,8 @@ class Receiver(object):
                     resp.status_int == http.HTTP_NOT_FOUND:
                 successes += 1
             else:
-                self.app.logger.warning(
-                    'ssync subrequest failed with %s: %s (%s)' %
+                self.req_logger.warning(
+                    'subrequest failed with %s: %s (%s)' %
                     (resp.status_int, context, resp.body))
                 failures += 1
             if failures >= self.app.replication_failure_threshold and (

@@ -21,7 +21,7 @@ import re
 from contextlib import closing
 from random import random
 
-from eventlet.green import socket
+from swift.common.concurrency import socket
 
 from swift.common.utils.config import config_true_value
 

@@ -23,7 +23,7 @@ import socket
 import sys
 import time
 import unittest
-import eventlet
+from swift.common.concurrency import eventlet, green_http_client
 import functools
 from unittest import mock
 
@@ -34,8 +34,6 @@ from test.unit import with_tempdir
 from test.unit import quiet_eventlet_exceptions
 from test.unit.common.test_utils import MockOs, MockSys
 from swift.common.exceptions import Timeout, MessageTimeout, ConnectionTimeout
-
-import eventlet.green.http.client as green_http_client
 
 from swift.common import utils
 

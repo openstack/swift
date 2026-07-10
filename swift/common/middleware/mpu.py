@@ -1218,7 +1218,7 @@ class MPUObjHandler(BaseMPUHandler):
             op = self.req.method
         elif version_id:
             # this is a new event in a specific version's history
-            validate_version(version_id)
+            validate_version(self.req, version_id)
             history_id = HistoryId(version_id)
             op = self.req.method
         elif is_versioning:

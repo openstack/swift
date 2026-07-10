@@ -16,7 +16,6 @@
 
 """Tests for swift.obj.server"""
 
-import pickle
 import datetime
 import json
 import errno
@@ -35,8 +34,10 @@ from collections import defaultdict
 from contextlib import contextmanager
 from textwrap import dedent
 
-from eventlet import sleep, spawn, wsgi, Timeout, tpool, greenthread
-from eventlet.green.http import client as http_client
+from swift.common.concurrency import (
+    sleep, spawn, wsgi, Timeout, tpool, greenthread,
+    green_http_client as http_client
+)
 
 from swift import __version__ as swift_version
 from swift.common.http import is_success
@@ -49,13 +50,15 @@ from test.debug_logger import debug_logger, FakeStatsdClient, \
 from test.unit import mocked_http_conn, \
     make_timestamp_iter, DEFAULT_TEST_EC_TYPE, skip_if_no_xattrs, \
     connect_tcp, readuntil2crlfs, patch_policies, encode_frag_archive_bodies, \
-    mock_check_drive, FakeRing, BaseUnitTestCase
+    mock_check_drive, FakeRing, BaseUnitTestCase, mock_timestamp_now
 from swift.obj import server as object_server
 from swift.obj import updater, diskfile
 from swift.common import utils, bufferedhttp, http_protocol
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.utils import hash_path, mkdirs, NullLogger, \
-    storage_directory, public, replication, encode_timestamps, Timestamp, md5
+    storage_directory, public, replication, encode_timestamps, md5
+from swift.common.utils.pickle import unpickle
+from swift.common.utils.timestamp import Timestamp
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
 from swift.common.statsd_client import LabeledStatsdClient
@@ -65,7 +68,9 @@ from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          POLICIES, EC_POLICY)
 from swift.common.exceptions import DiskFileDeviceUnavailable, \
-    DiskFileNoSpace, DiskFileQuarantined
+    DiskFileNoSpace, DiskFileQuarantined, DiskFileStateChanged, \
+    DiskFileXattrNotSupported, DiskFileExpired, DiskFileDeleted, \
+    DiskFileNotExist
 from swift.common.wsgi import init_request_processor
 
 
@@ -1520,7 +1525,7 @@ class TestObjectController(BaseUnitTestCase):
         if policy.policy_type == EC_POLICY:
             expected_put_headers['X-Etag'] = update_etag
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_put, 'rb')),
+            unpickle(open(async_pending_file_put, 'rb')),
             {'headers': expected_put_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1551,7 +1556,7 @@ class TestObjectController(BaseUnitTestCase):
         self.maxDiff = None
         # check async pending file for PUT is still intact
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_put, 'rb')),
+            unpickle(open(async_pending_file_put, 'rb')),
             {'headers': expected_put_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1578,7 +1583,7 @@ class TestObjectController(BaseUnitTestCase):
         if policy.policy_type == EC_POLICY:
             expected_post_headers['X-Etag'] = update_etag
         self.assertDictEqual(
-            pickle.load(open(async_pending_file_post, 'rb')),
+            unpickle(open(async_pending_file_post, 'rb')),
             {'headers': expected_post_headers,
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'db_state': 'unsharded'})
@@ -1694,7 +1699,7 @@ class TestObjectController(BaseUnitTestCase):
              'account': 'a', 'container': 'c', 'obj': 'o', 'op': 'PUT',
              'container_path': '.sharded_a/c_shard_1',
              'db_state': 'sharded' if container_path else 'unsharded'},
-            pickle.load(open(async_pending_file_put, 'rb')))
+            unpickle(open(async_pending_file_put, 'rb')))
 
         # when updater is run its first request will be to the redirect
         # location that is persisted in the async pending file
@@ -1903,7 +1908,7 @@ class TestObjectController(BaseUnitTestCase):
                            'op': 'PUT',
                            'db_state': None}
         self.assertEqual(expected_update,
-                         pickle.load(open(exp_async_pending_path, 'rb')))
+                         unpickle(open(exp_async_pending_path, 'rb')))
         warnings = self.logger.get_lines_for_level('warning')
         self.assertEqual(1, len(warnings))
         self.assertIn("Custom container update without target", warnings[0])
@@ -4093,6 +4098,27 @@ class TestObjectController(BaseUnitTestCase):
         self.assertEqual(resp.headers['X-Backend-Timestamp'],
                          utils.Timestamp(timestamp).internal)
 
+    def test_GET_invalid_timestamp(self):
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'X-Timestamp': 'bad'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(
+            b"X-Timestamp should be a UNIX timestamp float value; was 'bad'",
+            resp.body)
+
+        req = Request.blank(
+            '/sda1/p/a/c/o',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'X-Timestamp': '1234567890.12345_0000000000000001_1'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+        self.assertEqual(
+            b"X-Timestamp should be a UNIX timestamp float value; "
+            b"was '1234567890.12345_0000000000000001_1'",
+            resp.body)
+
     def test_GET_range_zero_byte_object(self):
         timestamp = self.ts().internal
         req = Request.blank('/sda1/p/a/c/zero-byte',
@@ -5761,7 +5787,7 @@ class TestObjectController(BaseUnitTestCase):
         try:
             # The following request should return 409 (HTTP Conflict). A
             # tombstone file should not have been created with this timestamp.
-            timestamp = utils.Timestamp(start - 0.00001)
+            timestamp = utils.Timestamp(start - 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5782,7 +5808,7 @@ class TestObjectController(BaseUnitTestCase):
             # be truly deleted (container update is performed) because this
             # timestamp is newer. A tombstone file should have been created
             # with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00001)
+            timestamp = utils.Timestamp(start + 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5802,7 +5828,7 @@ class TestObjectController(BaseUnitTestCase):
             # already have been deleted, but it should have also performed a
             # container update because the timestamp is newer, and a tombstone
             # file should also exist with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00002)
+            timestamp = utils.Timestamp(start + 0.00004)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5821,7 +5847,7 @@ class TestObjectController(BaseUnitTestCase):
             # already have been deleted, and it should not have performed a
             # container update because the timestamp is older, or created a
             # tombstone file with this timestamp.
-            timestamp = utils.Timestamp(start + 0.00001)
+            timestamp = utils.Timestamp(start + 0.00002)
             req = Request.blank('/sda1/p/a/c/o',
                                 environ={'REQUEST_METHOD': 'DELETE'},
                                 headers={'X-Timestamp': timestamp.internal})
@@ -5860,6 +5886,179 @@ class TestObjectController(BaseUnitTestCase):
                                 headers={'X-Timestamp': t_delete.internal})
             resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 507)
+
+    def test_DELETE_fast_request_no_log(self):
+        # Test with a normal-speed DELETE. It shouldn't log a warning.
+        req = Request.blank('/sda1/p/a/c/o_fast',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': '999',
+                                     'Content-Type': 'text/plain'},
+                            body=b'foo')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        req = Request.blank('/sda1/p/a/c/o_fast',
+                            environ={'REQUEST_METHOD': 'DELETE'},
+                            headers={'X-Timestamp': '1000'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 204)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(len(error_lines), 0)
+
+        # Test with a slower DELETE but still fast enough to not log.
+        req = Request.blank('/sda1/p/a/c/o_slow',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': '1001',
+                                     'Content-Type': 'text/plain'},
+                            body=b'bar')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        self.assertEqual(self.object_controller.slow_delete_log_threshold, 120)
+        now = time()
+        with mock.patch('time.time', side_effect=[now] * 5 +
+                        [now + 40.0] + [now + 50.0] + [now + 100.0] +
+                        [now + 110.0] + [now + 115.0] + [now + 119.9] * 6):
+            req = Request.blank('/sda1/p/a/c/o_slow',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': '1002'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 204)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(len(error_lines), 0)
+
+    def test_DELETE_slow_request_log(self):
+        # Test with a slow DELETE
+        self.assertEqual(self.object_controller.slow_delete_log_threshold, 120)
+        req = Request.blank('/sda1/p/a/c/o_slow',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': '1001',
+                                     'Content-Type': 'text/plain'},
+                            body=b'bar')
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        now = 1000.0
+        with mock.patch('time.time', side_effect=[now] * 5 +
+                        [now + 40.0] + [now + 50.0] + [now + 100.0] +
+                        [now + 110.0] + [now + 115.0] + [now + 120.1] * 6):
+            req = Request.blank('/sda1/p/a/c/o_slow',
+                                environ={'REQUEST_METHOD': 'DELETE'},
+                                headers={'X-Timestamp': '1002'})
+            resp = req.get_response(self.object_controller)
+            self.assertEqual(resp.status_int, 204)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(1, len(error_lines))
+        self.assertEqual('Slow DELETE (120.100s) for /sda1/p/a/c/o_slow, '
+                         'status 204, start_time=1000.000, '
+                         'diskfile_acquisition=0.000s, metadata_read=40.000s, '
+                         'delete_at_update=10.000s, tpool_scheduling=50.000s, '
+                         'tombstone_write=15.000s, container_update=5.100s',
+                         error_lines[0])
+
+    def _do_test_DELETE_log_slow_metadata_read_exception(
+            self, exc, exp_status, start_time=None):
+
+        def mock_read_metadata(self, current_time):
+            raise exc
+
+        t_put = utils.Timestamp.now()
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': t_put.internal,
+                                     'Content-Length': 0,
+                                     'Content-Type': 'plain/text'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        self.assertEqual(self.object_controller.slow_delete_log_threshold, 120)
+        now = start_time if start_time else time()
+        with mock.patch('time.time', side_effect=[now] * 5 +
+                        [now + 10.0] + [now + 50.0] + [now + 121.0] +
+                        [now + 124.0] + [now + 130.0] + [now + 140.0] * 7):
+            with mock.patch('swift.obj.diskfile.BaseDiskFile.read_metadata',
+                            mock_read_metadata):
+                t_delete = utils.Timestamp.now()
+                req = Request.blank('/sda1/p/a/c/o',
+                                    environ={'REQUEST_METHOD': 'DELETE'},
+                                    headers={'X-Timestamp': t_delete.internal})
+                resp = req.get_response(self.object_controller)
+        error_lines = self.object_controller.logger.get_lines_for_level(
+            'warning')
+        self.assertEqual(1, len(error_lines))
+        return resp, error_lines[0]
+
+    def test_DELETE_log_slow_xattr_not_supported(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileXattrNotSupported(), 507, start_time)
+        self.assertEqual(resp.status_int, 507)
+        self.assertEqual('Slow DELETE (121.000s) for /sda1/p/a/c/o, '
+                         'status 507, start_time=1000.000, '
+                         'diskfile_acquisition=10.000s, '
+                         'metadata_read=40.000s', error)
+
+    def test_DELETE_log_slow_expired(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileExpired(), 404, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_deleted(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileDeleted(), 404, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_not_exist(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileNotExist(), 404, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_quarantined(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileQuarantined(), 507, start_time)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(
+            'Slow DELETE (140.000s) for /sda1/p/a/c/o, status 404, '
+            'start_time=1000.000, diskfile_acquisition=10.000s, '
+            'metadata_read=40.000s, delete_at_update=71.000s, '
+            'tpool_scheduling=3.000s, tombstone_write=6.000s, '
+            'container_update=10.000s', error)
+
+    def test_DELETE_log_slow_state_changed(self):
+        start_time = 1000.0
+        resp, error = self._do_test_DELETE_log_slow_metadata_read_exception(
+            DiskFileStateChanged(), 503, start_time)
+        self.assertEqual(resp.status_int, 503)
+        self.assertEqual('Slow DELETE (121.000s) for /sda1/p/a/c/o, '
+                         'status 503, start_time=1000.000, '
+                         'diskfile_acquisition=10.000s, '
+                         'metadata_read=40.000s',
+                         error)
 
     def test_object_update_with_offset(self):
         container_updates = []
@@ -6738,7 +6937,7 @@ class TestObjectController(BaseUnitTestCase):
             for f in files:
                 async_file = os.path.join(root, f)
                 found_files.append(async_file)
-                data = pickle.load(open(async_file, 'rb'))
+                data = unpickle(open(async_file, 'rb'))
                 if data['account'] == 'a':
                     self.assertEqual(
                         int(data['headers']
@@ -6774,7 +6973,7 @@ class TestObjectController(BaseUnitTestCase):
             utils.HASH_PATH_PREFIX = _prefix
         async_dir = diskfile.get_async_dir(policy)
         self.assertEqual(
-            pickle.load(open(os.path.join(
+            unpickle(open(os.path.join(
                 self.testdir, 'sda1', async_dir, 'a83',
                 '06fbf0b514e5199dfc4e00f42eb5ea83-%s' % timestamp.internal),
                 'rb')),
@@ -6817,7 +7016,7 @@ class TestObjectController(BaseUnitTestCase):
                     'sda1', policy, db_state='unsharded')
                 async_dir = diskfile.get_async_dir(policy)
                 self.assertEqual(
-                    pickle.load(open(os.path.join(
+                    unpickle(open(os.path.join(
                         self.testdir, 'sda1', async_dir, 'a83',
                         '06fbf0b514e5199dfc4e00f42eb5ea83-%s' %
                         timestamp.internal), 'rb')),
@@ -7985,6 +8184,42 @@ class TestObjectController(BaseUnitTestCase):
         self.assertEqual(resp.status_int, 200)
         self.assertEqual(b'TEST', resp.body)
 
+    def test_GET_but_expired_server_provides_x_timestamp(self):
+        # Verify that object server provides x-timestamp if it is missing from
+        # the GET request
+        ts_now = self.ts()
+        delete_at_seconds = int(ts_now) + 100
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
+            headers=self._update_delete_at_headers({
+                'X-Timestamp': ts_now.internal,
+                'X-Delete-At': delete_at_seconds,
+                'Content-Length': '4',
+                'Content-Type': 'application/octet-stream'}))
+        req.body = 'TEST'
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 201)
+
+        # not yet expired...
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={})
+        ts_req = Timestamp(float(ts_now), delta=99 * 1e5)
+        with mock_timestamp_now(ts_req):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 200)
+        self.assertEqual(ts_req, req.timestamp)
+
+        # expired...
+        req = Request.blank(
+            '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'GET'},
+            headers={})
+        ts_req = Timestamp(float(ts_now), delta=101 * 1e5)
+        with mock_timestamp_now(ts_req):
+            resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(ts_req, req.timestamp)
+
     def test_HEAD_but_expired(self):
         # We have an object that expires in the future
         ts_now = Timestamp.now()
@@ -8850,7 +9085,7 @@ class TestObjectController(BaseUnitTestCase):
         async_updates = []
         for pending_file in async_pendings:
             with open(pending_file, 'rb') as fh:
-                async_pending = pickle.load(fh)
+                async_pending = unpickle(fh)
                 async_updates.append(async_pending)
         self.assertEqual([{
             'op': 'DELETE',
@@ -8998,7 +9233,7 @@ class TestObjectController(BaseUnitTestCase):
         async_pending_ops = []
         for pending_file in async_pendings:
             with open(pending_file, 'rb') as fh:
-                async_pending = pickle.load(fh)
+                async_pending = unpickle(fh)
                 async_pending_ops.append(async_pending['op'])
         self.assertEqual(async_pending_ops, ['PUT'])
 
@@ -9122,7 +9357,7 @@ class TestObjectController(BaseUnitTestCase):
                                 headers={})
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            p_data = pickle.loads(resp.body)
+            p_data = unpickle(resp.body)
             self.assertEqual(p_data, {1: 2})
 
     def test_REPLICATE_pickle_protocol(self):
@@ -9200,7 +9435,7 @@ class TestObjectController(BaseUnitTestCase):
                 })
             resp = req.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            suffixes = list(pickle.loads(resp.body).keys())
+            suffixes = list(unpickle(resp.body).keys())
             self.assertEqual(1, len(suffixes),
                              'Expected just one suffix; got %r' % (suffixes,))
             suffix = suffixes[0]
@@ -9219,7 +9454,7 @@ class TestObjectController(BaseUnitTestCase):
                             return_value=time() + 200):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual(None, pickle.loads(resp.body))
+            self.assertEqual(None, unpickle(resp.body))
             # no rehash means tombstone still exists...
             self.assertTrue(os.path.exists(tombstone_file))
 
@@ -9233,7 +9468,7 @@ class TestObjectController(BaseUnitTestCase):
                             return_value=time() + 200):
                 resp = replicate_request.get_response(self.object_controller)
             self.assertEqual(resp.status_int, 200)
-            self.assertEqual({}, pickle.loads(resp.body))
+            self.assertEqual({}, unpickle(resp.body))
             # and tombstone is reaped!
             self.assertFalse(os.path.exists(tombstone_file))
 

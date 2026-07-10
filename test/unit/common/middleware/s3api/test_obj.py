@@ -15,6 +15,7 @@
 
 import binascii
 from datetime import datetime
+import io
 import unittest
 import functools
 from hashlib import sha256
@@ -696,6 +697,21 @@ class BaseS3ApiObj(object):
                                        {})
         self.assertEqual(code, 'RequestTimeout')
 
+    def test_object_PUT_request_timeout_connection_close(self):
+        # RequestTimeout asks client to close connection to avoid framing
+        # issues when client retries on the same connection
+        self.swift.register('PUT', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPRequestTimeout, {}, None)
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body), 'RequestTimeout')
+        self.assertEqual(headers.get('Connection'), 'close')
+
     def test_object_PUT(self):
         etag = self.response_headers['etag']
         content_md5 = binascii.b2a_base64(
@@ -846,6 +862,57 @@ class BaseS3ApiObj(object):
         self.assertEqual(req.environ['swift.access_logging']['user_id'],
                          'test:tester')
         self.assertNotIn('X-Timestamp', sw_headers)
+
+    def test_object_PUT_v4_aws_chunked_client_disconnect_mid_chunk(self):
+        class EndOfLine(BaseException):
+            pass
+
+        class DisconnectingBody(io.BytesIO):
+            def __init__(self, body):
+                super(DisconnectingBody, self).__init__(body)
+                self.seen_eof = False
+
+            def read(self, size=-1):
+                if self.seen_eof:
+                    raise EndOfLine
+                chunk = super(DisconnectingBody, self).read(size)
+                if not chunk:
+                    self.seen_eof = True
+                return chunk
+
+        # One aws-chunked chunk declaring a 9-byte payload, followed by only
+        # 3 bytes of payload data before client EOF.
+        body = b'9\r\nabc'
+        wsgi_input = DisconnectingBody(body)
+        amz_date = self.get_v4_amz_date_header()
+        req = Request.blank(
+            '/bucket/object',
+            environ={'REQUEST_METHOD': 'PUT',
+                     'wsgi.input': wsgi_input},
+            headers={
+                'Authorization':
+                    'AWS4-HMAC-SHA256 '
+                    'Credential=test:tester/%s/us-east-1/s3/aws4_request, '
+                    'SignedHeaders=content-encoding;content-length;host;'
+                    'x-amz-content-sha256;x-amz-date;'
+                    'x-amz-decoded-content-length, '
+                    'Signature=hmac' % amz_date.split('T', 1)[0],
+                'Content-Encoding': 'aws-chunked',
+                'Content-Length': str(len(body)),
+                'Date': self.get_date_header(),
+                'X-Amz-Content-SHA256':
+                    'STREAMING-UNSIGNED-PAYLOAD-TRAILER',
+                'X-Amz-Date': amz_date,
+                'X-Amz-Decoded-Content-Length': '9',
+            })
+
+        try:
+            resp = req.get_response(self.s3api)
+        except EndOfLine:
+            self.fail('read after eof')
+
+        self.assertEqual(400, resp.status_int)
+        self.assertEqual('IncompleteBody', self._get_error_code(resp.body))
 
     def test_object_PUT_v4_bad_hash(self):
         orig_app = self.s3api.app
@@ -1489,8 +1556,8 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
              '?symlink=get&version-id=1574358170.12293')
         ], self.swift.calls)
 
-    def test_object_DELETE_current_version_id(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'none'}
+    def test_object_DELETE_current_version_id_restores_next_oldest(self):
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1530,6 +1597,43 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             (method, path, headers.get('content-length'))
             for method, path, headers in self.swift.calls_with_headers])
 
+    def test_object_DELETE_current_version_id_nothing_to_restore(self):
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
+                            '?symlink=get&version-id=1574358170.12293',
+                            swob.HTTPNoContent, resp_headers, None)
+        # prefix listing to find older versions of object may include an
+        # unrelated object...
+        prefix_listing = [{
+            'name': 'object-unrelated-suffix',
+            'version_id': '1574341899.21751',
+            'content_type': 'application/found',
+        }]
+        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
+                            json.dumps(prefix_listing))
+        req = Request.blank('/bucket/object?versionId=1574358170.12293',
+                            method='DELETE', headers={
+                                'Authorization': 'AWS test:tester:hmac',
+                                'Date': self.get_date_header()})
+        fake_info = {
+            'status': 204,
+            'sysmeta': {
+                'versions-container': '\x00versions\x00bucket',
+            }
+        }
+        with patch('swift.common.middleware.s3api.s3request.'
+                   'get_container_info', return_value=fake_info):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204')
+        self.assertEqual([
+            ('DELETE', '/v1/AUTH_test/bucket/object'
+             '?symlink=get&version-id=1574358170.12293', None),
+            ('GET', '/v1/AUTH_test/bucket'
+             '?prefix=object&versions=True', '0'),
+        ], [
+            (method, path, headers.get('content-length'))
+            for method, path, headers in self.swift.calls_with_headers])
+
     def test_object_DELETE_version_id_not_implemented(self):
         req = Request.blank('/bucket/object?versionId=1574358170.12293',
                             method='DELETE', headers={
@@ -1542,7 +1646,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             self.assertEqual(status.split()[0], '501', body)
 
     def test_object_DELETE_current_version_id_is_delete_marker(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'none'}
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1575,7 +1679,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         ], self.swift.calls)
 
     def test_object_DELETE_current_version_id_is_missing(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'none'}
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1622,7 +1726,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         ], self.swift.calls)
 
     def test_object_DELETE_current_version_id_GET_error(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'none'}
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1650,7 +1754,7 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         ], self.swift.calls)
 
     def test_object_DELETE_current_version_id_PUT_error(self):
-        resp_headers = {'X-Object-Current-Version-Id': 'none'}
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
         self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
                             '?symlink=get&version-id=1574358170.12293',
                             swob.HTTPNoContent, resp_headers, None)
@@ -1909,6 +2013,120 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             'expiry-date="Thu, 22 Jan 2026 20:42:46 GMT", '
             'rule-id="swift-object-expiration"',
             headers['x-amz-expiration'])
+
+    def test_object_GET_x_server_side_encryption(self):
+        # Test that x-amz-server-side-encryption is included in the
+        # response headers in GET method.
+
+        class TestCryptoMiddleware(object):
+            def __init__(self, app, cipher='AES_CTR_256'):
+                self.app = app
+                self.cipher = cipher
+
+            def __call__(self, env, start_response):
+                def crypto_start_response(status, headers, exc_info=None):
+                    headers = list(headers)
+                    headers.append(('X-Backend-Crypto-Cipher', self.cipher))
+                    return start_response(status, headers, exc_info)
+
+                return self.app(env, crypto_start_response)
+
+        orig_app = self.s3api.app
+        self.s3api.app = TestCryptoMiddleware(orig_app, 'AES_CTR_256')
+        self.addCleanup(setattr, self.s3api, 'app', orig_app)
+
+        self.swift.register(
+            'GET', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn('x-amz-server-side-encryption', headers)
+        self.assertEqual(
+            'AES256',
+            headers['x-amz-server-side-encryption'])
+
+    def test_object_HEAD_x_server_side_encryption(self):
+        # Test that x-amz-server-side-encryption is included in the
+        # response headers in HEAD method.
+
+        class TestCryptoMiddleware(object):
+            def __init__(self, app, cipher='AES_CTR_256'):
+                self.app = app
+                self.cipher = cipher
+
+            def __call__(self, env, start_response):
+                def crypto_start_response(status, headers, exc_info=None):
+                    headers = list(headers)
+                    headers.append(('X-Backend-Crypto-Cipher', self.cipher))
+                    return start_response(status, headers, exc_info)
+
+                return self.app(env, crypto_start_response)
+
+        orig_app = self.s3api.app
+        self.s3api.app = TestCryptoMiddleware(orig_app, 'AES_CTR_256')
+        self.addCleanup(setattr, self.s3api, 'app', orig_app)
+
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertIn('x-amz-server-side-encryption', headers)
+        self.assertEqual(
+            'AES256',
+            headers['x-amz-server-side-encryption'])
+
+    def test_object_GET_x_server_side_encryption_no_encryption(self):
+        # Test that x-amz-server-side-encryption is not included in the
+        # response headers if the object is not encrypted in GET method.
+
+        self.swift.register(
+            'GET', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'GET'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Body-Meta', headers)
+        self.assertNotIn('x-amz-server-side-encryption', headers)
+
+    def test_object_HEAD_x_server_side_encryption_no_encryption(self):
+        # Test that x-amz-server-side-encryption is not included in the
+        # response headers if the object is not encrypted in HEAD method.
+
+        self.swift.register(
+            'HEAD', '/v1/AUTH_test/bucket/test-object', swob.HTTPOk,
+            self.response_headers, self.object_body)
+
+        req = Request.blank(
+            '/bucket/test-object',
+            environ={'REQUEST_METHOD': 'HEAD'},
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertNotIn('X-Object-Sysmeta-Crypto-Body-Meta', headers)
+        self.assertNotIn('x-amz-server-side-encryption', headers)
 
 
 class TestS3ApiObjNonUTC(TestS3ApiObj):

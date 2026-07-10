@@ -26,8 +26,7 @@ from contextlib import contextmanager
 from collections import defaultdict
 from errno import ENOENT, ENOTEMPTY, ENOTDIR
 
-from eventlet.green import subprocess
-from eventlet import Timeout, sleep
+from swift.common.concurrency import subprocess, Timeout, sleep
 
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, mocked_http_conn, mock_check_drive,

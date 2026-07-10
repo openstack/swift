@@ -22,7 +22,7 @@ from uuid import uuid4
 
 from urllib.parse import unquote
 import sqlite3
-from eventlet import tpool
+from swift.common.concurrency import tpool
 
 from swift.common.constraints import CONTAINER_LISTING_LIMIT
 from swift.common.exceptions import LockTimeout
@@ -478,6 +478,8 @@ class ContainerBroker(DatabaseBroker):
         Reloads the cached list of valid on disk db files for this broker.
         """
         # reset connection so the next access will use the correct DB file
+        if self.conn:
+            self.conn.close()
         self.conn = None
         self._db_files = get_db_files(self._init_db_file)
 
@@ -739,8 +741,10 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: True if the database has no active objects, False otherwise
         """
-        if not all(broker._empty() for broker in self.get_brokers()):
-            return False
+        for broker in self.get_brokers():
+            with broker:
+                if not broker._empty():
+                    return False
         if self.is_root_container() and self.sharding_initiated():
             # sharded shards don't get updates from their shards so their shard
             # usage should not be relied upon
@@ -752,7 +756,8 @@ class ContainerBroker(DatabaseBroker):
         Mark an object deleted.
 
         :param name: object name to be deleted
-        :param timestamp: timestamp when the object was marked as deleted
+        :param timestamp: string representation of the timestamp when the
+            object was marked as deleted
         :param storage_policy_index: the storage policy index for the object
         """
         self.put_object(name, timestamp, 0, 'application/deleted', 'noetag',
@@ -773,16 +778,18 @@ class ContainerBroker(DatabaseBroker):
         Creates an object in the DB with its metadata.
 
         :param name: object name to be created
-        :param timestamp: timestamp of when the object was created
+        :param timestamp: string representation of the timestamp when the
+            object was created
         :param size: object size
         :param content_type: object content-type
         :param etag: object etag
         :param deleted: if True, marks the object as deleted and sets the
                         deleted_at timestamp to timestamp
         :param storage_policy_index: the storage policy index for the object
-        :param ctype_timestamp: timestamp of when content_type was last
-                                updated
-        :param meta_timestamp: timestamp of when metadata was last updated
+        :param ctype_timestamp: string representation of the timestamp when
+            content_type was last updated, or None
+        :param meta_timestamp: string representation of the timestamp when
+            metadata was last updated, or None
         :param systags: optional internal metadata for the object
         """
         record = {'name': name, 'created_at': timestamp, 'size': size,
@@ -950,7 +957,8 @@ class ContainerBroker(DatabaseBroker):
     def _get_alternate_object_stats(self):
         db_state = self.get_db_state()
         if db_state == SHARDING:
-            other_info = self.get_brokers()[0]._get_info()
+            with self.get_brokers()[0] as sub_broker:
+                other_info = sub_broker._get_info()
             stats = {'object_count': other_info['object_count'],
                      'bytes_used': other_info['bytes_used']}
         elif db_state == SHARDED and self.is_root_container():
@@ -2586,7 +2594,18 @@ class ContainerBroker(DatabaseBroker):
             last_shard_upper = own_shard_range.lower
 
         found_ranges = []
-        sub_broker = self.get_brokers()[0]
+        with self.get_brokers()[0] as sub_broker:
+            return self._find_shard_ranges(progress, progress_reliable,
+                                           found_ranges, existing_ranges,
+                                           limit, shard_size,
+                                           minimum_shard_size, object_count,
+                                           sub_broker, last_shard_upper,
+                                           own_shard_range, delimiter)
+
+    def _find_shard_ranges(self, progress, progress_reliable, found_ranges,
+                           existing_ranges, limit, shard_size,
+                           minimum_shard_size, object_count, sub_broker,
+                           last_shard_upper, own_shard_range, delimiter):
         index = len(existing_ranges)
         while limit is None or limit < 0 or len(found_ranges) < limit:
             actual_size = shard_size  # default assumption

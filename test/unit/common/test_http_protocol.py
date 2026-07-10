@@ -19,7 +19,7 @@ import json
 from unittest import mock
 import types
 import unittest
-import eventlet.wsgi as wsgi
+from swift.common.concurrency import wsgi
 
 from test.debug_logger import debug_logger
 from swift.common import http_protocol, swob
