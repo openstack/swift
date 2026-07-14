@@ -476,11 +476,12 @@ class ObjectReplicator(Daemon):
         if success or not job['delete']:
             headers = dict(self.default_headers)
             headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-            with Timeout(self.http_timeout):
+            with Timeout(self.conn_timeout):
                 conn = http_connect(
                     node['replication_ip'], node['replication_port'],
                     node['device'], job['partition'], 'REPLICATE',
                     '/' + '-'.join(suffixes), headers=headers)
+            with Timeout(self.http_timeout):
                 try:
                     conn.getresponse().read()
                 finally:
@@ -687,11 +688,12 @@ class ObjectReplicator(Daemon):
                 if node['region'] in synced_remote_regions:
                     continue
                 try:
-                    with Timeout(self.http_timeout):
+                    with Timeout(self.conn_timeout):
                         conn = http_connect(
                             node['replication_ip'], node['replication_port'],
                             node['device'], job['partition'], 'REPLICATE',
                             '', headers=headers)
+                    with Timeout(self.http_timeout):
                         try:
                             resp = conn.getresponse()
                             if resp.status == HTTP_INSUFFICIENT_STORAGE:
