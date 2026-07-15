@@ -67,7 +67,7 @@ import time
 
 from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
-    wsgi_to_str, parse_date_header
+    wsgi_quote, wsgi_to_str, parse_date_header
 from swift.common.utils import json, public, reiterate, md5
 from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.common.request_helpers import get_container_update_override_key, \
@@ -261,6 +261,18 @@ class UploadsController(Controller):
 
     Those APIs are logged as UPLOADS operations in the S3 server log.
     """
+
+    def _validated_utf8_param(self, req, name, default=None):
+        """
+        Return a request parameter or raise an S3 InvalidArgument error.
+        """
+        value = wsgi_to_str(req.params.get(name, default))
+        if value is None:
+            return None
+        if value and not constraints.check_utf8(value):
+            raise InvalidArgument(name, wsgi_quote(req.params[name]))
+        return value
+
     @public
     @bucket_operation(err_resp=InvalidRequest,
                       err_msg="Key is not expected for the GET method "
@@ -304,13 +316,15 @@ class UploadsController(Controller):
                     non_delimited_uploads.append(upload)
             return non_delimited_uploads, sorted(common_prefixes)
 
-        encoding_type = get_param(req, 'encoding-type')
+        encoding_type = self._validated_utf8_param(req, 'encoding-type')
         if encoding_type is not None and encoding_type != 'url':
             err_msg = 'Invalid Encoding Method specified in Request'
             raise InvalidArgument('encoding-type', encoding_type, err_msg)
 
-        keymarker = get_param(req, 'key-marker', '')
-        uploadid = get_param(req, 'upload-id-marker', '')
+        keymarker = self._validated_utf8_param(req, 'key-marker', '')
+        uploadid = self._validated_utf8_param(req, 'upload-id-marker', '')
+        prefix = self._validated_utf8_param(req, 'prefix', '')
+        delimiter = self._validated_utf8_param(req, 'delimiter')
         maxuploads = req.get_validated_param(
             'max-uploads', DEFAULT_MAX_UPLOADS, DEFAULT_MAX_UPLOADS)
 
@@ -324,7 +338,7 @@ class UploadsController(Controller):
         elif keymarker:
             query.update({'marker': '%s/~' % (keymarker)})
         if 'prefix' in req.params:
-            query.update({'prefix': get_param(req, 'prefix')})
+            query.update({'prefix': prefix})
 
         container = req.container_name + MULTIUPLOAD_SUFFIX
         uploads = []
@@ -354,8 +368,6 @@ class UploadsController(Controller):
                            if not is_segment.match(obj.get('name', ''))]
             new_prefixes = []
             if 'delimiter' in req.params:
-                prefix = get_param(req, 'prefix', '')
-                delimiter = get_param(req, 'delimiter')
                 new_uploads, new_prefixes = separate_uploads(
                     new_uploads, prefix, delimiter)
             uploads.extend(new_uploads)
@@ -379,10 +391,9 @@ class UploadsController(Controller):
         SubElement(result_elem, 'NextKeyMarker').text = nextkeymarker
         SubElement(result_elem, 'NextUploadIdMarker').text = nextuploadmarker
         if 'delimiter' in req.params:
-            SubElement(result_elem, 'Delimiter').text = \
-                get_param(req, 'delimiter')
+            SubElement(result_elem, 'Delimiter').text = delimiter
         if 'prefix' in req.params:
-            SubElement(result_elem, 'Prefix').text = get_param(req, 'prefix')
+            SubElement(result_elem, 'Prefix').text = prefix
         SubElement(result_elem, 'MaxUploads').text = str(maxuploads)
         if encoding_type is not None:
             SubElement(result_elem, 'EncodingType').text = encoding_type
