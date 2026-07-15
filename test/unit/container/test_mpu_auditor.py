@@ -28,6 +28,8 @@ from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_SESSION_COMPLETED_CONTENT_TYPE, MPU_SESSION_ABORTED_CONTENT_TYPE, \
     MPU_SESSION_COMPLETING_CONTENT_TYPE, normalize_part_number, MPUItem
 from swift.common.middleware.s3api.utils import unique_id
+from swift.common.middleware.versioned_writes.object_versioning import \
+    build_versions_object_name
 from swift.common.object_ref import HistoryId, ObjectRef, UploadId
 from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
@@ -397,6 +399,8 @@ class TestMpuHistoryAuditor(BaseTestMpuAuditor):
         super().setUp()
         self.parts_container = get_reserved_name(
             'mpu_parts', self.user_container)
+        self.versions_container = get_reserved_name(
+            'versions', self.user_container)
 
     def _create_history_item(self, name, timestamp, systags=None, state=0):
         return self._create_item(
@@ -465,12 +469,19 @@ class TestMpuHistoryAuditor(BaseTestMpuAuditor):
         self._check_action_rows(exp_action_items, include_states={0})
 
         # when the auditor runs each relic generates a parts delete marker...
-        registered_calls = [
-            ('DELETE', '/v1/a/%s/%s/%s/'
-             % (self.parts_container, self.obj_name, upload_id),
-             HTTPNoContent, {})
-            for upload_id in older_upload_ids
-        ]
+        registered_calls = []
+        for upload_id in older_upload_ids:
+            registered_calls.extend([
+                ('HEAD', '/v1/a/%s/%s'
+                 % (self.versions_container,
+                    build_versions_object_name(self.obj_name,
+                                               upload_id.timestamp.internal)),
+                 HTTPNotFound, {}),
+                ('DELETE', '/v1/a/%s/%s/%s/'
+                 % (self.parts_container, self.obj_name, upload_id),
+                 HTTPNoContent, {})
+            ])
+
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
@@ -499,6 +510,7 @@ class TestMpuHistoryAuditor(BaseTestMpuAuditor):
 
     def test_audit_retained_versions(self):
         # verify cleanup with versioned object names
+        self.broker = self._make_broker(self.versions_container)
         ts_vers = next(self.ts_iter)
         upload_id = UploadId(ts_vers)
         vers_name = '\x00%s\x00%s' % (self.obj_name, (~(ts_vers)).normal)

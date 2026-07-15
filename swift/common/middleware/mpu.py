@@ -1100,6 +1100,9 @@ class MPUSessionHandler(BaseMPUHandler):
         # create manifest in user container
         offset = self.req.timestamp.raw - session.data_timestamp.raw
         offset += session.data_timestamp.offset
+        # TODO: using offset to resolve concurrent completes is no longer
+        # appropriate
+        # offset = 0
         ts_complete = Timestamp(session.data_timestamp, offset=offset)
         # if is_versioning_enabled(self.user_container_info):
         #     manifest_systags['version'] = 'true'

@@ -66,7 +66,7 @@ class BaseTestMPU(ReplProbeTest):
     def setUp(self):
         self.tempdir = mkdtemp()
         super().setUp()
-        self.bucket_name = 'bucket-%s' % uuid.uuid4()
+        self.bucket_name = 'tempbucket'  # 'bucket-%s' % uuid.uuid4()
         self.mpu_name = 'mpu-%s' % uuid.uuid4()
 
     def make_file(self, chunksize, num_chunks):
@@ -331,6 +331,8 @@ class BaseTestNativeMPU(BaseTestMPU):
         del conf['__file__']
         conf.setdefault('DEFAULT', {})
         conf['DEFAULT']['swift_dir'] = '/etc/swift'
+        conf['DEFAULT']['log_name'] = 'internal-client'
+        conf['DEFAULT']['log_level'] = 'DEBUG'
         pipeline = conf['pipeline:main']['pipeline'].split(' ')
 
         # TODO: remove slo when no longer required
@@ -341,18 +343,13 @@ class BaseTestNativeMPU(BaseTestMPU):
                        'catch_errors', 'gatekeeper', 'cache', 'proxy-logging'])
 
         conf.setdefault('filter:mpu',
-                        {'use': 'egg:swift#mpu',
-                         'log_name': 'internal-client-mpu',
-                         'log_level': 'DEBUG'})
+                        {'use': 'egg:swift#mpu'})
         insert_filter(pipeline, 'mpu',
                       ['copy', 'staticweb', 'tempauth', 'keystoneauth',
                        'catch_errors', 'gatekeeper', 'cache', 'proxy-logging'])
 
         conf.setdefault('filter:proxy-logging',
                         {'use': 'egg:swift#proxy_logging'})
-        conf['filter:proxy-logging'].update(
-            {'log_name': 'internal-client-proxy',
-             'log_level': 'DEBUG'})
         insert_filter(pipeline, 'proxy-logging',
                       ['catch_errors', 'gatekeeper'])
 
@@ -1044,6 +1041,8 @@ class TestNativeMPU(BaseTestNativeMPU):
         orig_put_manifest = MPUSessionHandler._put_manifest
         completes = 0
         downloads = []
+        ts0 = Timestamp.now()
+        ts1 = Timestamp(ts0, delta=1)
 
         def mock_put_manifest(*args, **kwargs):
             # each completeUpload writes manifest to a different set of nodes
@@ -1070,12 +1069,15 @@ class TestNativeMPU(BaseTestNativeMPU):
                 body = json.dumps(manifest).encode('ascii')
                 resp = self.mpu_internal_client.make_request(
                     'POST', mpu_path,
-                    headers={'Content-Length': str(len(body))},
+                    headers={'x-timestamp': ts1.internal,
+                             'Content-Length': str(len(body))},
                     acceptable_statuses=[202],
                     body_file=BytesIO(body),
                     params={'upload-id': upload_id})
+                self.assertEqual('202 Accepted', resp.status)
                 body_dict = json.loads(resp.body)
-                self.assertEqual('201 Created', body_dict['Response Status'])
+                self.assertEqual('201 Created', body_dict['Response Status'],
+                                 body_dict)
             return orig_post_session_completed(*args, **kwargs)
 
         with mock.patch(
@@ -1088,10 +1090,12 @@ class TestNativeMPU(BaseTestNativeMPU):
             body = json.dumps(manifest).encode('ascii')
             resp = self.mpu_internal_client.make_request(
                 'POST', mpu_path,
-                headers={'Content-Length': str(len(body))},
+                headers={'Content-Length': str(len(body)),
+                         'x-timestamp': ts0.internal},
                 acceptable_statuses=[202],
                 body_file=BytesIO(body),
                 params={'upload-id': upload_id})
+            self.assertEqual('202 Accepted', resp.status)
             body_dict = json.loads(resp.body)
             self.assertEqual('201 Created', body_dict['Response Status'],
                              body_dict)
@@ -1157,8 +1161,7 @@ class TestNativeMPUUTF8(TestNativeMPU):
 
 class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
     def enable_versioning(self):
-        headers = {'x-s3-compatible-versions': 'true',
-                   'x-versions-enabled': 'true'}
+        headers = {'x-versions-enabled': 'true'}
         swiftclient.post_container(self.url, self.token, self.bucket_name,
                                    headers=headers)
 
@@ -1271,7 +1274,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         #   * PUT objects
         #   * enable versioning
         #   * disable versioning
-        #   * DELETE objects - no version is retained, delete markers written
+        #   * DELETE objects - no version retained, no delete markers written
 
         # put an mpu
         self._make_mpu()
@@ -1298,9 +1301,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
 
         # get listing with versions
         obj_versions = self.get_object_versions_from_listing(self.bucket_name,)
-        self.assertEqual({self.mpu_name: [('null', True)],
-                          obj_name: [('null', True)]},
-                         obj_versions)
+        self.assertFalse(obj_versions)
 
         # objects cannot be read
         with self.assertRaises(ClientException) as cm:
@@ -1364,9 +1365,11 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         # get listing with versions
         Manager(['container-replicator']).once()
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual({self.mpu_name: [(mock.ANY, False), ('null', False)]},
-                         obj_versions)
-        vers = obj_versions[self.mpu_name][0][0]
+        self.assertEqual(
+            {self.mpu_name: [(mock.ANY, False), (mock.ANY, False)]},
+            obj_versions)
+        vers_2 = obj_versions[self.mpu_name][0][0]
+        vers_1 = obj_versions[self.mpu_name][1][0]
 
         # run the auditor - nothing to clean up
         for i in range(2):
@@ -1381,39 +1384,39 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         # both versions exist
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=null')
+            query_string='version-id=%s' % quote(vers_2))
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % quote(vers))
+            query_string='version-id=%s' % quote(vers_1))
 
         # delete the obj - null version delete marker should be written
         swiftclient.delete_object(
             self.url, self.token, self.bucket_name, self.mpu_name)
 
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual({self.mpu_name: [('null', True), (vers, False)]},
+        self.assertEqual({self.mpu_name: [(vers_2, False),
+                                          (vers_1, False)]},
                          obj_versions)
 
         # retained version still exists
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % quote(vers))
-        # but not the deleted null version
-        with self.assertRaises(ClientException) as cm:
-            swiftclient.get_object(
-                self.url, self.token, self.bucket_name, self.mpu_name,
-                query_string='version-id=null')
-        self.assertEqual(404, cm.exception.http_status)
+            query_string='version-id=%s' % quote(vers_2))
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % quote(vers_1))
 
-        # run auditor - original null version parts should be cleaned up
+        # run auditor - parts not cleaned up
         for i in range(2):
             Manager(['container-auditor']).once()
-        self.assertFalse(self.get_mpu_parts())
 
         # retained version still exists
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=%s' % quote(vers))
+            query_string='version-id=%s' % quote(vers_2))
+        swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % quote(vers_1))
 
     def test_null_version_overwritten_while_versioning_suspended(self):
         #   * PUT mpu (null version)
@@ -1450,13 +1453,15 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         # get listing with versions
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
         self.assertEqual({self.mpu_name: [(mock.ANY, False),
-                                          ('null', False)]},
+                                          (mock.ANY, False)]},
                          obj_versions)
-        vers_1 = obj_versions[self.mpu_name][0][0]
+        vers_2 = obj_versions[self.mpu_name][0][0]
+        vers_1 = obj_versions[self.mpu_name][1][0]
+
         # objects exist
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=null')
+            query_string='version-id=%s' % quote(vers_2))
         swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
             query_string='version-id=%s' % quote(vers_1))
@@ -1472,29 +1477,32 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
             '%s/%s/%s' % (self.mpu_name, upload_id3, tail)
             for tail in ('', '000001', '000002', '000003')
         ]
-        # the earlier null version is not listed
+        # the earlier null version is listed (s3-non-compat)
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
         self.assertEqual({self.mpu_name: [('null', False),
+                                          (vers_2, False),
                                           (vers_1, False)]},
                          obj_versions)
-        # run auditor and the parts for the earlier null version are cleaned up
+        # run auditor; parts for the earlier null version are not cleaned up
         self.assertEqual(sorted(exp_parts1 + exp_parts2 + exp_parts3),
                          sorted([p['name'] for p in self.get_mpu_parts()]))
         for i in range(2):
             Manager(['container-auditor']).once()
-        self.assertEqual(sorted(exp_parts2 + exp_parts3),
+        self.assertEqual(sorted(exp_parts1 + exp_parts2 + exp_parts3),
                          sorted([p['name'] for p in self.get_mpu_parts()]))
 
-        # we can get the latest null version
+        # we can get the null and the retained versions
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name)
+        self.assert_etag(etag3, headers.get('etag'))
         headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=null')
-        self.assert_etag(etag3, headers.get('etag'))
-        # and the retained version
+            query_string='version-id=%s' % quote(vers_2))
+        self.assert_etag(etag2, headers.get('etag'))
         headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
             query_string='version-id=%s' % quote(vers_1))
-        self.assert_etag(etag2, headers.get('etag'))
+        self.assert_etag(etag1, headers.get('etag'))
 
         # rinse and repeat...
         self.enable_versioning()
@@ -1509,20 +1517,29 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         # the null version is replaced by the latest null version
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
         self.assertEqual({self.mpu_name: [(mock.ANY, False),
-                                          ('null', False),
+                                          (mock.ANY, False),
+                                          (vers_2, False),
                                           (vers_1, False)]},
                          obj_versions)
-        vers_2 = obj_versions[self.mpu_name][0][0]
+        vers_4 = obj_versions[self.mpu_name][0][0]
+        vers_3 = obj_versions[self.mpu_name][1][0]
         # nothing to clean up...
-        self.assertEqual(sorted(exp_parts2 + exp_parts3 + exp_parts4),
-                         sorted([p['name'] for p in self.get_mpu_parts()]))
+        self.assertEqual(
+            sorted(exp_parts1 + exp_parts2 + exp_parts3 + exp_parts4),
+            sorted([p['name'] for p in self.get_mpu_parts()]))
         for i in range(2):
             Manager(['container-auditor']).once()
-        self.assertEqual(sorted(exp_parts2 + exp_parts3 + exp_parts4),
-                         sorted([p['name'] for p in self.get_mpu_parts()]))
+        self.assertEqual(
+            sorted(exp_parts1 + exp_parts2 + exp_parts3 + exp_parts4),
+            sorted([p['name'] for p in self.get_mpu_parts()]))
+        # TODO: add more get_object assertions checking all versions
         headers, body = swiftclient.get_object(
             self.url, self.token, self.bucket_name, self.mpu_name,
-            query_string='version-id=null')
+            query_string='version-id=%s' % quote(vers_4))
+        self.assert_etag(etag4, headers.get('etag'))
+        headers, body = swiftclient.get_object(
+            self.url, self.token, self.bucket_name, self.mpu_name,
+            query_string='version-id=%s' % quote(vers_3))
         self.assert_etag(etag3, headers.get('etag'))
 
         self.disable_versioning()
@@ -1536,16 +1553,20 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         ]
         # the previous null version is replaced by the latest null version
         obj_versions = self.get_object_versions_from_listing(self.bucket_name)
-        self.assertEqual({self.mpu_name: [('null', False),
+        self.assertEqual({self.mpu_name: [(mock.ANY, False),
+                                          (vers_4, False),
+                                          (vers_3, False),
                                           (vers_2, False),
                                           (vers_1, False)]},
                          obj_versions)
         # the previous null version parts are cleaned up...
         self.assertEqual(
-            sorted(exp_parts2 + exp_parts3 + exp_parts4 + exp_parts5),
+            sorted(exp_parts1 + exp_parts2 + exp_parts3 + exp_parts4
+                   + exp_parts5),
             sorted([p['name'] for p in self.get_mpu_parts()]))
         for i in range(2):
             Manager(['container-auditor']).once()
         self.assertEqual(
-            sorted(exp_parts2 + exp_parts4 + exp_parts5),
+            sorted(exp_parts1 + exp_parts2 + exp_parts3 + exp_parts4
+                   + exp_parts5),
             sorted([p['name'] for p in self.get_mpu_parts()]))

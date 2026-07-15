@@ -72,7 +72,7 @@ class UploadId(BaseObjectId):
 
     def serialize(self, **kwargs):
         return self.PARAM_SEPARATOR.join(
-            (self.timestamp.normal, self.SHARD_ALIGNMENT_CHARACTER))
+            (self.timestamp.internal, self.SHARD_ALIGNMENT_CHARACTER))
 
     @classmethod
     def _parse(cls, value):

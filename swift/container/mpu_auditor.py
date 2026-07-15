@@ -21,7 +21,9 @@ from collections import defaultdict
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPUSession, MPUItem, \
     MPU_SYSMETA_UPLOAD_ID_KEY
-from swift.common.object_ref import ObjectRef
+from swift.common.middleware.versioned_writes.object_versioning import \
+    build_versions_container_name, build_versions_object_name
+from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.request_helpers import split_reserved_name, get_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
     non_negative_int, config_positive_int_value
@@ -137,6 +139,7 @@ class BaseMpuAuditor:
         self.broker = broker
         self.user_container = user_container
         # TODO: parts container may vary per mpu w.r.t. policy
+        self.user_account = self.broker.account.lstrip('.')
         self.parts_container = get_reserved_name('mpu_parts',
                                                  self.user_container)
         self.statsd_client = logger.logger.statsd_client
@@ -279,8 +282,38 @@ class MpuHistoryAuditor(BaseMpuAuditor):
         else:
             self._complete_item(item, self.ts_audit)
 
+    def _item_has_version(self, item):
+        if self.broker.container.startswith('\x00') and \
+                not self.broker.container.startswith('\x00history'):
+            self.debug('skip version check for %s', item.name)
+            return False
+
+        versions_container = build_versions_container_name(self.user_container)
+        # TODO: we need to be more explicit about the expected version id
+        obj_name, upload_id = item.name.split('\x00')
+        version_id = UploadId.parse(upload_id).timestamp.internal
+        version_name = build_versions_object_name(obj_name, version_id)
+
+        try:
+            self.client.get_object_metadata(
+                self.user_account,
+                versions_container,
+                version_name,
+                headers={'X-Newest': 'true'},
+                acceptable_statuses=(404,)
+            )
+        except UnexpectedResponse as err:
+            self.debug('version check for %s (%s/%s) returned %s',
+                       item, versions_container, version_name,
+                       err.resp.status)
+            return True
+        else:
+            self.debug('version check for %s (%s/%s) returned 404',
+                       item, versions_container, version_name)
+            return False
+
     def _audit_item(self, item):
-        if item.systags.get('child'):
+        if item.systags.get('child') and not self._item_has_version(item):
             return self._cleanup_obsolete_item(item)
         else:
             self.increment('noop')
@@ -401,12 +434,11 @@ class MpuSessionAuditor(BaseMpuAuditor):
         if ctype_age > self.config.purge_delay:
             # time to clean-up everything
             try:
-                self.debug('deleting aborted session %s', session.name)
                 lifeline_name = '%s/%s/' % (obj_ref.user_name, obj_ref.obj_id)
-                # TODO: get parts account from session meta
-                account = self.broker.account
+                self.debug('deleting aborted session %s, lifeline=%s',
+                           session.name, lifeline_name)
                 self.client.delete_object(
-                    account, self.parts_container, lifeline_name)
+                    self.broker.account, self.parts_container, lifeline_name)
                 self._delete_session(session)
             except Exception as err:  # noqa
                 self.warning('Failed to delete aborted session %s: %s',
