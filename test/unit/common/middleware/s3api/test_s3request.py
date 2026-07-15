@@ -2540,15 +2540,16 @@ class TestSigV4Request(S3ApiTestCase):
                                 params=params)
             return SigV4Request(req.environ, None, config)
 
-        s3req = make_s3req(Config(), '/bkt', {'partNumber': '3'})
+        s3_conf = Config({'enable_native_multipart_uploads': False})
+        s3req = make_s3req(s3_conf, '/bkt', {'partNumber': '3'})
         self.assertEqual(controllers.ObjectController,
                          s3req.controller)
 
-        s3req = make_s3req(Config(), '/bkt', {'uploadId': '4'})
+        s3req = make_s3req(s3_conf, '/bkt', {'uploadId': '4'})
         self.assertEqual(controllers.multi_upload.UploadController,
                          s3req.controller)
 
-        s3req = make_s3req(Config(), '/bkt', {'uploads': '99'})
+        s3req = make_s3req(s3_conf, '/bkt', {'uploads': '99'})
         self.assertEqual(controllers.multi_upload.UploadsController,
                          s3req.controller)
 
@@ -2592,18 +2593,19 @@ class TestSigV4Request(S3ApiTestCase):
                                 params=params)
             return SigV4Request(req.environ, None, config)
 
-        s3req = make_s3req(Config(), '/bkt', {'partNumber': '3',
-                                              'uploadId': '4'})
+        s3_conf = Config({'enable_native_multipart_uploads': False})
+        s3req = make_s3req(s3_conf, '/bkt', {'partNumber': '3',
+                                             'uploadId': '4'})
         self.assertEqual(controllers.multi_upload.PartController,
                          s3req.controller)
 
-        s3req = make_s3req(Config(), '/bkt', {'partNumber': '3'})
+        s3req = make_s3req(s3_conf, '/bkt', {'partNumber': '3'})
         self.assertEqual(controllers.multi_upload.PartController,
                          s3req.controller)
 
-        s3req = make_s3req(Config(), '/bkt', {'uploadId': '4',
-                                              'partNumber': '3',
-                                              'copySource': 'bkt2/obj2'})
+        s3req = make_s3req(s3_conf, '/bkt', {'uploadId': '4',
+                                             'partNumber': '3',
+                                             'copySource': 'bkt2/obj2'})
         self.assertEqual(controllers.multi_upload.PartController,
                          s3req.controller)
 

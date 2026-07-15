@@ -396,6 +396,7 @@ class TestConfig(unittest.TestCase):
         del conf.force_swift_request_proxy_log
         del conf.dns_compliant_bucket_names
         del conf.allow_multipart_uploads
+        del conf.enable_native_multipart_uploads
         del conf.allow_no_owner
         del conf.allowable_clock_skew
         del conf.ratelimit_as_client_error

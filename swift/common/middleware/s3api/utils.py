@@ -354,6 +354,7 @@ class Config(dict):
         'force_swift_request_proxy_log': False,
         'dns_compliant_bucket_names': True,
         'allow_multipart_uploads': True,
+        'enable_native_multipart_uploads': True,
         'allow_no_owner': False,
         'allowable_clock_skew': 900,
         'ratelimit_as_client_error': False,

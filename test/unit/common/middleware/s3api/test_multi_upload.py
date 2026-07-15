@@ -95,7 +95,6 @@ S3_ETAG = '"%s-2"' % md5(binascii.a2b_hex(
 class BaseS3ApiMultiUpload(object):
 
     def setUp(self):
-        raise unittest.SkipTest('fixme: migrate tests to native mpu impl')
         super(BaseS3ApiMultiUpload, self).setUp()
 
         self.segment_bucket = '/v1/AUTH_test/bucket+segments'
@@ -106,6 +105,7 @@ class BaseS3ApiMultiUpload(object):
                        'last-modified': self.last_modified}
 
         self.s3api.conf.min_segment_size = 1
+        self.s3api.conf.enable_native_multipart_uploads = False
 
         objects = [{'name': item[0], 'last_modified': item[1],
                     'hash': item[2], 'bytes': item[3]}

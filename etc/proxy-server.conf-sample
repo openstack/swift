@@ -718,6 +718,9 @@ use = egg:swift#s3api
 # effect.
 # allow_multipart_uploads = True
 #
+# Select native mpu versus legacy. Requires allow_multipart_uploads to be true.
+# enable_native_multipart_uploads = True
+#
 # Set the maximum number of parts for Upload Part operation.(default: 1000)
 # When setting it to be larger than the default value in order to match the
 # specification of S3, set to be larger max_manifest_segments for slo
