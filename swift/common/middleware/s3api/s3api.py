@@ -536,6 +536,16 @@ class S3ApiMiddleware(object):
                                 'to support multi-part upload, please add it '
                                 'in pipeline')
 
+        # Check mpu middleware
+        if self.conf.allow_multipart_uploads \
+                and self.conf.enable_native_multipart_uploads \
+                and 'mpu' not in auth_pipeline:
+            self.conf.allow_multipart_uploads = False
+            self.logger.warning(
+                's3api middleware requires mpu middleware '
+                'to support native multi-part upload, please add it '
+                'in pipeline')
+
         if not self.conf.auth_pipeline_check:
             self.logger.debug('Skip pipeline auth check.')
             return

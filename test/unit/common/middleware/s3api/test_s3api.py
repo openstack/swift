@@ -1218,6 +1218,69 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             with self.assertRaises(ValueError):
                 self.s3api.check_pipeline(self.conf)
 
+    def _do_test_check_pipeline(self, pipeline_str):
+        # Helper: run check_pipeline with a given pipeline string and return
+        # (allow_multipart_uploads, warning_lines).
+        self.logger.clear()
+        with patch("swift.common.middleware.s3api.s3api.loadcontext"), \
+                patch("swift.common.middleware.s3api.s3api.PipelineWrapper",
+                      return_value=pipeline_str):
+            self.conf['__file__'] = ''
+            self.s3api.conf.auth_pipeline_check = False
+            self.s3api.check_pipeline(self.conf)
+        return (self.s3api.conf.allow_multipart_uploads,
+                self.logger.get_lines_for_level('warning'))
+
+    def test_check_pipeline_slo_present(self):
+        # slo in pipeline: allow_multipart_uploads True, no slo warning
+        self.s3api.conf.allow_multipart_uploads = True
+        self.s3api.conf.enable_native_multipart_uploads = False
+        enabled, warnings = self._do_test_check_pipeline(
+            's3api tempauth slo proxy-server')
+        self.assertTrue(enabled)
+        self.assertNotIn('s3api middleware requires SLO middleware',
+                         ' '.join(warnings))
+
+    def test_check_pipeline_slo_absent(self):
+        # slo missing: allow_multipart_uploads disabled, slo warning logged
+        self.s3api.conf.allow_multipart_uploads = True
+        self.s3api.conf.enable_native_multipart_uploads = False
+        enabled, warnings = self._do_test_check_pipeline(
+            's3api tempauth proxy-server')
+        self.assertFalse(enabled)
+        self.assertIn('s3api middleware requires SLO middleware',
+                      ' '.join(warnings))
+
+    def test_check_pipeline_mpu_present(self):
+        # mpu in pipeline with native uploads enabled: no mpu warning
+        self.s3api.conf.allow_multipart_uploads = True
+        self.s3api.conf.enable_native_multipart_uploads = True
+        enabled, warnings = self._do_test_check_pipeline(
+            's3api tempauth mpu slo proxy-server')
+        self.assertTrue(enabled)
+        self.assertNotIn('s3api middleware requires mpu middleware',
+                         ' '.join(warnings))
+
+    def test_check_pipeline_mpu_absent(self):
+        # mpu missing with native uploads enabled: disabled, mpu warning logged
+        self.s3api.conf.allow_multipart_uploads = True
+        self.s3api.conf.enable_native_multipart_uploads = True
+        enabled, warnings = self._do_test_check_pipeline(
+            's3api tempauth slo proxy-server')
+        self.assertFalse(enabled)
+        self.assertIn('s3api middleware requires mpu middleware',
+                      ' '.join(warnings))
+
+    def test_check_pipeline_mpu_not_checked_when_native_disabled(self):
+        # mpu missing but native uploads disabled: no mpu warning
+        self.s3api.conf.allow_multipart_uploads = True
+        self.s3api.conf.enable_native_multipart_uploads = False
+        enabled, warnings = self._do_test_check_pipeline(
+            's3api tempauth slo proxy-server')
+        self.assertTrue(enabled)
+        self.assertNotIn('s3api middleware requires mpu middleware',
+                         ' '.join(warnings))
+
     def test_signature_v4(self):
         environ = {
             'REQUEST_METHOD': 'GET'}
