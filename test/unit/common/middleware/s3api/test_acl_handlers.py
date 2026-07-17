@@ -15,23 +15,55 @@
 
 import unittest
 
-from swift.common.middleware.s3api.acl_handlers import S3AclHandler, \
-    BucketAclHandler, ObjectAclHandler, BaseAclHandler, PartAclHandler, \
-    UploadAclHandler, UploadsAclHandler, get_acl_handler
+from swift.common.middleware.s3api import acl_handlers
+from swift.common.middleware.s3api import controllers
 
 
 class TestAclHandlers(unittest.TestCase):
-    def test_get_acl_handler(self):
-        expected_handlers = (('Bucket', BucketAclHandler),
-                             ('Object', ObjectAclHandler),
-                             ('S3Acl', S3AclHandler),
-                             ('Part', PartAclHandler),
-                             ('Upload', UploadAclHandler),
-                             ('Uploads', UploadsAclHandler),
-                             ('Foo', BaseAclHandler))
-        for name, expected in expected_handlers:
-            handler = get_acl_handler(name)
-            self.assertTrue(issubclass(handler, expected))
+    def test_get_acl_handlers(self):
+        class FooController(controllers.Controller):
+            pass
+
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(controllers.BucketController),
+                acl_handlers.BucketAclHandler))
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(controllers.ObjectController),
+                acl_handlers.ObjectAclHandler))
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(controllers.S3AclController),
+                acl_handlers.S3AclHandler))
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(controllers.PartController),
+                acl_handlers.PartAclHandler))
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(controllers.UploadController),
+                acl_handlers.UploadAclHandler))
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(controllers.UploadsController),
+                acl_handlers.UploadsAclHandler))
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(controllers.NativePartController),
+                acl_handlers.NativePartAclHandler))
+        self.assertTrue(
+            issubclass(
+                acl_handlers.get_acl_handler(
+                    controllers.NativeUploadController),
+                acl_handlers.NativeUploadAclHandler))
+        self.assertTrue(
+            issubclass(acl_handlers.get_acl_handler(
+                controllers.NativeUploadsController),
+                acl_handlers.NativeUploadsAclHandler))
+        self.assertTrue(
+            issubclass(acl_handlers.get_acl_handler(FooController),
+                       acl_handlers.BaseAclHandler))
 
     def test_handle_acl(self):
         # we have already have tests for s3_acl checking at test_s3_acl.py

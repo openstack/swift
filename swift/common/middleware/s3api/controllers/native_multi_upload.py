@@ -98,6 +98,11 @@ class NativePartController(Controller):
 
     Those APIs are logged as PART operations in the S3 server log.
     """
+    @classmethod
+    def name(cls):
+        # override superclass to normalise with legacy multi_upload.py
+        # controller names
+        return 'Part'
 
     def _check_copy_source_range(self, req):
         source_resp = req.check_copy_source(self.app)
@@ -175,6 +180,12 @@ class NativeUploadsController(Controller):
 
     Those APIs are logged as UPLOADS operations in the S3 server log.
     """
+    @classmethod
+    def name(cls):
+        # override superclass to normalise with legacy multi_upload.py
+        # controller names
+        return 'Uploads'
+
     @public
     @bucket_operation(err_resp=InvalidRequest,
                       err_msg="Key is not expected for the GET method "
@@ -356,6 +367,12 @@ class NativeUploadController(Controller):
 
     Those APIs are logged as UPLOAD operations in the S3 server log.
     """
+    @classmethod
+    def name(cls):
+        # override superclass to normalise with legacy multi_upload.py
+        # controller names
+        return 'Upload'
+
     @public
     @object_operation
     @check_container_existence

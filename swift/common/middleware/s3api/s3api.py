@@ -495,7 +495,7 @@ class S3ApiMiddleware(object):
             self.logger.warning('multipart: No SLO middleware in pipeline')
             raise
 
-        acl_handler = get_acl_handler(req.controller_name)(req, self.logger)
+        acl_handler = get_acl_handler(req.controller)(req, self.logger)
         req.set_acl_handler(acl_handler)
 
         if hasattr(controller, req.method):

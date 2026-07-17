@@ -58,15 +58,16 @@ from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
     sysmeta_header
 
 
-def get_acl_handler(controller_name):
+def get_acl_handler(controller):
+    """
+    Get an ACL handler class for the given controller class.
+    """
     for base_klass in [BaseAclHandler,
                        MultiUploadAclHandler,
                        NativeMultiUploadAclHandler]:
         # pylint: disable-msg=E1101
         for handler in base_klass.__subclasses__():
-            handler_suffix_len = len('AclHandler') \
-                if not handler.__name__ == 'S3AclHandler' else len('Handler')
-            if handler.__name__[:-handler_suffix_len] == controller_name:
+            if handler.__name__ == controller.acl_handler():
                 return handler
     return BaseAclHandler
 
@@ -429,8 +430,6 @@ class UploadAclHandler(MultiUploadAclHandler):
 
 
 class NativeMultiUploadAclHandler(BaseAclHandler):
-    # TODO: check the function of the acl handlers now that s3api delegates to
-    #  mpu middleware
     """
     MultiUpload stuff requires acl checking just once for BASE container
     so that MultiUploadAclHandler extends BaseAclHandler to check acl only
@@ -453,6 +452,8 @@ class NativeMultiUploadAclHandler(BaseAclHandler):
     ========== ====== ============= ==========
 
     """
+    # TODO: check the function of the acl handlers now that s3api delegates to
+    #  mpu middleware
     def __init__(self, req, logger, **kwargs):
         super().__init__(req, logger, **kwargs)
         self.acl_checked = False

@@ -84,12 +84,24 @@ class Controller(object):
         self.logger = logger
 
     @classmethod
+    def name(cls):
+        return cls.__name__[:-len('Controller')]
+
+    @classmethod
     def resource_type(cls):
         """
         Returns the target resource type of this controller.
         """
-        name = cls.__name__[:-len('Controller')]
-        return camel_to_snake(name).upper()
+        return camel_to_snake(cls.name()).upper()
+
+    @classmethod
+    def acl_handler(cls):
+        """
+        Returns the name of ACL handler class to be used for this controller.
+        """
+        # note: don't be tempted to use cls.name() here because subclasses may
+        # override that
+        return cls.__name__[:-len('Controller')] + 'AclHandler'
 
 
 class UnsupportedController(Controller):
