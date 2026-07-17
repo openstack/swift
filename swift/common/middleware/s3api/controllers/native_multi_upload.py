@@ -1,4 +1,4 @@
-# Copyright (c) 2010-2014 OpenStack Foundation.
+# Copyright (c) 2026 OpenStack Foundation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,133 +15,35 @@
 """
 Implementation of S3 Multipart Upload.
 
-This module implements S3 Multipart Upload APIs with the Swift SLO feature.
-The following explains how S3api uses swift container and objects to store S3
-upload information:
-
------------------
-[bucket]+segments
------------------
-
-A container to store upload information. [bucket] is the original bucket
-where multipart upload is initiated.
-
------------------------------
-[bucket]+segments/[upload_id]
------------------------------
-
-An object of the ongoing upload id. The object is empty and used for
-checking the target upload status. If the object exists, it means that the
-upload is initiated but not either completed or aborted.
-
--------------------------------------------
-[bucket]+segments/[upload_id]/[part_number]
--------------------------------------------
-
-The last suffix is the part number under the upload id. When the client uploads
-the parts, they will be stored in the namespace with
-[bucket]+segments/[upload_id]/[part_number].
-
-Example listing result in the [bucket]+segments container::
-
-  [bucket]+segments/[upload_id1]  # upload id object for upload_id1
-  [bucket]+segments/[upload_id1]/1  # part object for upload_id1
-  [bucket]+segments/[upload_id1]/2  # part object for upload_id1
-  [bucket]+segments/[upload_id1]/3  # part object for upload_id1
-  [bucket]+segments/[upload_id2]  # upload id object for upload_id2
-  [bucket]+segments/[upload_id2]/1  # part object for upload_id2
-  [bucket]+segments/[upload_id2]/2  # part object for upload_id2
-     .
-     .
-
-Those part objects are directly used as segments of a Swift
-Static Large Object when the multipart upload is completed.
-
+This module implements S3 Multipart Upload APIs with the Swift MPU feature.
 """
 
 import binascii
-import copy
-import os
-import re
 import time
-
-from swift.common import constraints
-from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
-    wsgi_to_str, parse_date_header
-from swift.common.utils import json, public, reiterate, md5
-from swift.common.utils.timestamp import Timestamp, NormalTimestamp
-from swift.common.request_helpers import get_container_update_override_key, \
-    get_param
-
 from urllib.parse import quote, urlparse
 
+
+from swift.common import constraints
+from swift.common.middleware.mpu import parse_external_upload_id
+from swift.common.swob import Range, normalize_etag, wsgi_to_str, \
+    parse_date_header
+from swift.common.utils import json, public, reiterate, md5
+from swift.common.request_helpers import get_container_update_override_key, \
+    get_param
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     ErrorResponse, MalformedXML, KeyTooLongError, InvalidPart, \
-    BucketAlreadyExists, EntityTooSmall, InvalidPartOrder, InvalidRequest, \
-    HTTPOk, HTTPNoContent, NoSuchKey, NoSuchUpload, NoSuchBucket, \
-    BucketAlreadyOwnedByYou, ServiceUnavailable, PreconditionFailed, \
-    S3NotImplemented
-from swift.common.middleware.s3api.utils import unique_id, \
-    MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
+    EntityTooSmall, InvalidPartOrder, InvalidRequest, HTTPOk, \
+    NoSuchUpload, NoSuchBucket, PreconditionFailed, S3NotImplemented
+from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
-from swift.common.storage_policy import POLICIES
 
 DEFAULT_MAX_PARTS_LISTING = 1000
 DEFAULT_MAX_UPLOADS = 1000
 
 MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
-
-
-def _get_upload_info(req, app, upload_id):
-    """
-    Make a HEAD request for existing upload object metadata. Tries the upload
-    marker first, and then falls back to the manifest object.
-
-    :param req: an S3Request object.
-    :param app: the wsgi app.
-    :param upload_id: the upload id.
-    :returns: a tuple of (S3Response, boolean) where the boolean is True if the
-        response is from the upload marker and False otherwise.
-    :raises: NoSuchUpload if neither the marker nor the manifest were found.
-    """
-
-    container = req.container_name + MULTIUPLOAD_SUFFIX
-    obj = '%s/%s' % (req.object_name, upload_id)
-
-    # XXX: if we leave the copy-source header, somewhere later we might
-    # drop in a ?version-id=... query string that's utterly inappropriate
-    # for the upload marker. Until we get around to fixing that, just pop
-    # it off for now...
-    copy_source = req.headers.pop('X-Amz-Copy-Source', None)
-    try:
-        resp = req.get_response(app, 'HEAD', container=container, obj=obj)
-        return resp, True
-    except NoSuchKey:
-        # ensure consistent path and policy are logged despite manifest HEAD
-        upload_marker_path = req.environ.get('s3api.backend_path')
-        policy_index = req.policy_index
-        try:
-            resp = req.get_response(app, 'HEAD')
-            if resp.sysmeta_headers.get(sysmeta_header(
-                    'object', 'upload-id')) == upload_id:
-                return resp, False
-        except NoSuchKey:
-            pass
-        finally:
-            # Ops often find it more useful for us to log the upload marker
-            # path, so put it back
-            if upload_marker_path is not None:
-                req.environ['s3api.backend_path'] = upload_marker_path
-            if policy_index is not None:
-                req.policy_index = policy_index
-        raise NoSuchUpload(upload_id=upload_id)
-    finally:
-        # ...making sure to restore any copy-source before returning
-        if copy_source is not None:
-            req.headers['X-Amz-Copy-Source'] = copy_source
 
 
 def _make_complete_body(req, s3_etag, yielded_anything):
@@ -174,7 +76,20 @@ def _make_complete_body(req, s3_etag, yielded_anything):
     return body
 
 
-class PartController(Controller):
+def get_valid_upload_id(req):
+    upload_id_str = get_param(req, 'uploadId')
+    try:
+        # Check validity of the given upload-id
+        # NB: we cannot check that the upload id is valid *for the path*
+        # because we don't yet have the complete backend path with the account;
+        # mpu middleware will check the upload-id is valid for the path.
+        parse_external_upload_id(upload_id_str)
+        return upload_id_str
+    except ValueError:
+        raise NoSuchUpload(upload_id=upload_id_str)
+
+
+class NativePartController(Controller):
     """
     Handles the following APIs:
 
@@ -183,27 +98,8 @@ class PartController(Controller):
 
     Those APIs are logged as PART operations in the S3 server log.
     """
-    @public
-    @object_operation
-    @check_container_existence
-    def PUT(self, req):
-        """
-        Handles Upload Part and Upload Part Copy.
-        """
 
-        if 'uploadId' not in req.params:
-            raise InvalidArgument('ResourceType', 'partNumber',
-                                  'Unexpected query string parameter')
-
-        part_number = req.validate_part_number()
-
-        upload_id = get_param(req, 'uploadId')
-        _get_upload_info(req, self.app, upload_id)
-
-        req.container_name += MULTIUPLOAD_SUFFIX
-        req.object_name = '%s/%s/%d' % (req.object_name, upload_id,
-                                        part_number)
-
+    def _check_copy_source_range(self, req):
         source_resp = req.check_copy_source(self.app)
         if 'X-Amz-Copy-Source' in req.headers and \
                 'X-Amz-Copy-Source-Range' in req.headers:
@@ -240,7 +136,25 @@ class PartController(Controller):
                 'X-Object-Sysmeta-Slo-Size': '',
                 get_container_update_override_key('etag'): '',
             })
-        resp = req.get_response(self.app)
+
+    @public
+    @object_operation
+    @check_container_existence
+    def PUT(self, req):
+        """
+        Handles Upload Part and Upload Part Copy.
+        """
+
+        if 'uploadId' not in req.params:
+            raise InvalidArgument('ResourceType', 'partNumber',
+                                  'Unexpected query string parameter')
+
+        part_number = req.validate_part_number()
+        upload_id = get_valid_upload_id(req)
+        self._check_copy_source_range(req)
+        query = {'upload-id': upload_id,
+                 'part-number': part_number}
+        resp = req.get_response(self.app, query=query)
 
         if 'X-Amz-Copy-Source' in req.headers:
             last_modified_ts = S3Timestamp(
@@ -252,7 +166,7 @@ class PartController(Controller):
         return resp
 
 
-class UploadsController(Controller):
+class NativeUploadsController(Controller):
     """
     Handles the following APIs:
 
@@ -271,6 +185,7 @@ class UploadsController(Controller):
         Handles List Multipart Uploads
         """
 
+        # TODO: shift this into mpu middleware?
         def separate_uploads(uploads, prefix, delimiter):
             """
             separate_uploads will separate uploads into non_delimited_uploads
@@ -309,40 +224,26 @@ class UploadsController(Controller):
             err_msg = 'Invalid Encoding Method specified in Request'
             raise InvalidArgument('encoding-type', encoding_type, err_msg)
 
-        keymarker = get_param(req, 'key-marker', '')
-        uploadid = get_param(req, 'upload-id-marker', '')
-        maxuploads = req.get_validated_param(
-            'max-uploads', DEFAULT_MAX_UPLOADS, DEFAULT_MAX_UPLOADS)
-
         query = {
+            'uploads': 'true',
             'format': 'json',
-            'marker': '',
         }
-
-        if uploadid and keymarker:
-            query.update({'marker': '%s/%s' % (keymarker, uploadid)})
-        elif keymarker:
-            query.update({'marker': '%s/~' % (keymarker)})
+        key_marker = get_param(req, 'key-marker', '')
+        upload_id_marker = get_param(req, 'upload-id-marker', '')
+        if key_marker:
+            query['marker'] = key_marker
+            if upload_id_marker:
+                query['upload-id-marker'] = upload_id_marker
         if 'prefix' in req.params:
-            query.update({'prefix': get_param(req, 'prefix')})
+            query['prefix'] = get_param(req, 'prefix')
 
-        container = req.container_name + MULTIUPLOAD_SUFFIX
         uploads = []
         prefixes = []
-
-        def object_to_upload(object_info):
-            obj, upid = object_info['name'].rsplit('/', 1)
-            obj_dict = {'key': obj,
-                        'upload_id': upid,
-                        'last_modified': object_info['last_modified']}
-            return obj_dict
-
-        is_segment = re.compile('.*/[0-9]+$')
-
-        while len(uploads) < maxuploads:
+        max_uploads = req.get_validated_param(
+            'max-uploads', DEFAULT_MAX_UPLOADS, DEFAULT_MAX_UPLOADS)
+        while len(uploads) < max_uploads:
             try:
-                resp = req.get_response(self.app, container=container,
-                                        query=query)
+                resp = req.get_response(self.app, query=query)
                 objects = json.loads(resp.body)
             except NoSuchBucket:
                 # Assume NoSuchBucket as no uploads
@@ -350,8 +251,10 @@ class UploadsController(Controller):
             if not objects:
                 break
 
-            new_uploads = [object_to_upload(obj) for obj in objects
-                           if not is_segment.match(obj.get('name', ''))]
+            new_uploads = [{'key': obj['name'],
+                            'upload_id': obj['upload_id'],
+                            'last_modified': obj['last_modified']}
+                           for obj in objects]
             new_prefixes = []
             if 'delimiter' in req.params:
                 prefix = get_param(req, 'prefix', '')
@@ -361,29 +264,31 @@ class UploadsController(Controller):
             uploads.extend(new_uploads)
             prefixes.extend(new_prefixes)
             query['marker'] = objects[-1]['name']
+            query['upload-id-marker'] = objects[-1]['upload_id']
 
-        truncated = len(uploads) >= maxuploads
-        if len(uploads) > maxuploads:
-            uploads = uploads[:maxuploads]
+        truncated = len(uploads) >= max_uploads
+        if len(uploads) > max_uploads:
+            uploads = uploads[:max_uploads]
 
-        nextkeymarker = ''
-        nextuploadmarker = ''
+        next_key_marker = ''
+        next_upload_id_marker = ''
         if len(uploads) > 1:
-            nextuploadmarker = uploads[-1]['upload_id']
-            nextkeymarker = uploads[-1]['key']
+            next_upload_id_marker = uploads[-1]['upload_id']
+            next_key_marker = uploads[-1]['key']
 
         result_elem = Element('ListMultipartUploadsResult')
         SubElement(result_elem, 'Bucket').text = req.container_name
-        SubElement(result_elem, 'KeyMarker').text = keymarker
-        SubElement(result_elem, 'UploadIdMarker').text = uploadid
-        SubElement(result_elem, 'NextKeyMarker').text = nextkeymarker
-        SubElement(result_elem, 'NextUploadIdMarker').text = nextuploadmarker
+        SubElement(result_elem, 'KeyMarker').text = key_marker
+        SubElement(result_elem, 'UploadIdMarker').text = upload_id_marker
+        SubElement(result_elem, 'NextKeyMarker').text = next_key_marker
+        SubElement(result_elem,
+                   'NextUploadIdMarker').text = next_upload_id_marker
         if 'delimiter' in req.params:
             SubElement(result_elem, 'Delimiter').text = \
                 get_param(req, 'delimiter')
         if 'prefix' in req.params:
             SubElement(result_elem, 'Prefix').text = get_param(req, 'prefix')
-        SubElement(result_elem, 'MaxUploads').text = str(maxuploads)
+        SubElement(result_elem, 'MaxUploads').text = str(max_uploads)
         if encoding_type is not None:
             SubElement(result_elem, 'EncodingType').text = encoding_type
         SubElement(result_elem, 'IsTruncated').text = \
@@ -428,58 +333,20 @@ class UploadsController(Controller):
             # within the limit, which means the segment names will go over
             raise KeyTooLongError()
 
-        # Create a unique S3 upload id from UUID to avoid duplicates.
-        upload_id = unique_id()
-
-        seg_container = req.container_name + MULTIUPLOAD_SUFFIX
-        content_type = req.headers.get('Content-Type')
-        if content_type:
-            req.headers[sysmeta_header('object', 'has-content-type')] = 'yes'
-            req.headers[
-                sysmeta_header('object', 'content-type')] = content_type
-        else:
-            req.headers[sysmeta_header('object', 'has-content-type')] = 'no'
-        req.headers['Content-Type'] = 'application/directory'
-
-        try:
-            seg_req = copy.copy(req)
-            seg_req.environ = copy.copy(req.environ)
-            seg_req.container_name = seg_container
-            seg_req.get_container_info(self.app)
-        except NoSuchBucket:
-            try:
-                # multi-upload bucket doesn't exist, create one with
-                # same storage policy and acls as the primary bucket
-                info = req.get_container_info(self.app)
-                policy_name = POLICIES[info['storage_policy']].name
-                hdrs = {'X-Storage-Policy': policy_name}
-                if info.get('read_acl'):
-                    hdrs['X-Container-Read'] = info['read_acl']
-                if info.get('write_acl'):
-                    hdrs['X-Container-Write'] = info['write_acl']
-                seg_req.get_response(self.app, 'PUT', seg_container, '',
-                                     headers=hdrs)
-            except (BucketAlreadyExists, BucketAlreadyOwnedByYou):
-                pass
-
-        obj = '%s/%s' % (req.object_name, upload_id)
-
-        req.headers.pop('Etag', None)
-        req.headers.pop('Content-Md5', None)
-
-        req.get_response(self.app, 'PUT', seg_container, obj, body='')
+        query = {'uploads': 'true'}
+        resp = req.get_response(self.app, query=query)
+        upload_id = resp.sw_headers.get('X-Upload-Id')
 
         result_elem = Element('InitiateMultipartUploadResult')
         SubElement(result_elem, 'Bucket').text = req.container_name
         SubElement(result_elem, 'Key').text = wsgi_to_str(req.object_name)
         SubElement(result_elem, 'UploadId').text = upload_id
-
         body = tostring(result_elem)
 
         return HTTPOk(body=body, content_type='application/xml')
 
 
-class UploadController(Controller):
+class NativeUploadController(Controller):
     """
     Handles the following APIs:
 
@@ -496,20 +363,12 @@ class UploadController(Controller):
         """
         Handles List Parts.
         """
-        def filter_part_num_marker(o):
-            try:
-                num = int(os.path.basename(o['name']))
-                return num > part_num_marker
-            except ValueError:
-                return False
-
         encoding_type = get_param(req, 'encoding-type')
         if encoding_type is not None and encoding_type != 'url':
             err_msg = 'Invalid Encoding Method specified in Request'
             raise InvalidArgument('encoding-type', encoding_type, err_msg)
 
-        upload_id = get_param(req, 'uploadId')
-        _get_upload_info(req, self.app, upload_id)
+        upload_id = get_valid_upload_id(req)
 
         maxparts = req.get_validated_param(
             'max-parts', DEFAULT_MAX_PARTS_LISTING,
@@ -520,35 +379,17 @@ class UploadController(Controller):
         object_name = wsgi_to_str(req.object_name)
         query = {
             'format': 'json',
-            'prefix': '%s/%s/' % (object_name, upload_id),
-            'delimiter': '/',
-            'marker': '',
+            'upload-id': upload_id,
         }
+        if part_num_marker:
+            query['part-number-marker'] = str(part_num_marker)
 
-        container = req.container_name + MULTIUPLOAD_SUFFIX
-        # Because the parts are out of order in Swift, we list up to the
-        # maximum number of parts and then apply the marker and limit options.
-        objects = []
-        while True:
-            resp = req.get_response(self.app, container=container, obj='',
-                                    query=query)
-            new_objects = json.loads(resp.body)
-            if not new_objects:
-                break
-            objects.extend(new_objects)
-            query['marker'] = new_objects[-1]['name']
-
+        resp = req.get_response(self.app, query=query)
+        objects = json.loads(resp.body)
         last_part = 0
 
-        # If the caller requested a list starting at a specific part number,
-        # construct a sub-set of the object list.
-        objList = [obj for obj in objects if filter_part_num_marker(obj)]
-
-        # pylint: disable-msg=E1103
-        objList.sort(key=lambda o: int(o['name'].split('/')[-1]))
-
-        if len(objList) > maxparts:
-            objList = objList[:maxparts]
+        if len(objects) > maxparts:
+            objects = objects[:maxparts]
             truncated = True
         else:
             truncated = False
@@ -556,9 +397,9 @@ class UploadController(Controller):
         # and some objects filtered by invalid name because there could be no
         # enough objects for limit defined by maxparts.
 
-        if objList:
-            o = objList[-1]
-            last_part = os.path.basename(o['name'])
+        if objects:
+            o = objects[-1]
+            last_part = int(o['name'].split('/')[-1])
 
         result_elem = Element('ListPartsResult')
         SubElement(result_elem, 'Bucket').text = req.container_name
@@ -584,9 +425,10 @@ class UploadController(Controller):
         SubElement(result_elem, 'IsTruncated').text = \
             'true' if truncated else 'false'
 
-        for i in objList:
+        for i in objects:
             part_elem = SubElement(result_elem, 'Part')
-            SubElement(part_elem, 'PartNumber').text = i['name'].split('/')[-1]
+            part_num = str(int(i['name'].split('/')[-1]))
+            SubElement(part_elem, 'PartNumber').text = part_num
             SubElement(part_elem, 'LastModified').text = \
                 S3Timestamp.from_isoformat(i['last_modified']).s3xmlformat
             SubElement(part_elem, 'ETag').text = '"%s"' % i['hash']
@@ -603,98 +445,11 @@ class UploadController(Controller):
         """
         Handles Abort Multipart Upload.
         """
-        upload_id = get_param(req, 'uploadId')
-        _get_upload_info(req, self.app, upload_id)
+        upload_id = get_valid_upload_id(req)
+        query = {'upload-id': upload_id}
+        return req.get_response(self.app, query=query)
 
-        # First check to see if this multi-part upload was already
-        # completed.  Look in the primary container, if the object exists,
-        # then it was completed and we return an error here.
-        container = req.container_name + MULTIUPLOAD_SUFFIX
-        obj = '%s/%s' % (req.object_name, upload_id)
-        req.get_response(self.app, container=container, obj=obj)
-
-        # The completed object was not found so this
-        # must be a multipart upload abort.
-        # We must delete any uploaded segments for this UploadID and then
-        # delete the object in the main container as well
-        object_name = wsgi_to_str(req.object_name)
-        query = {
-            'format': 'json',
-            'prefix': '%s/%s/' % (object_name, upload_id),
-            'delimiter': '/',
-        }
-
-        resp = req.get_response(self.app, 'GET', container, '', query=query)
-
-        #  Iterate over the segment objects and delete them individually
-        objects = json.loads(resp.body)
-        while objects:
-            for o in objects:
-                container = req.container_name + MULTIUPLOAD_SUFFIX
-                obj = bytes_to_wsgi(o['name'].encode('utf-8'))
-                req.get_response(self.app, container=container, obj=obj)
-            query['marker'] = objects[-1]['name']
-            resp = req.get_response(self.app, 'GET', container, '',
-                                    query=query)
-            objects = json.loads(resp.body)
-
-        return HTTPNoContent()
-
-    @public
-    @object_operation
-    @check_container_existence
-    def POST(self, req):
-        """
-        Handles Complete Multipart Upload.
-        """
-        upload_id = get_param(req, 'uploadId')
-        # Check for conditional requests before getting upload info so the
-        # headers can't bleed into the HEAD
-        if req.headers.get('If-None-Match', '*') != '*' or any(
-                h in req.headers for h in (
-                    'If-Match', 'If-Modified-Since', 'If-Unmodified-Since')):
-            raise S3NotImplemented(
-                'Conditional uploads are not supported.')
-
-        resp, is_marker = _get_upload_info(req, self.app, upload_id)
-        marker_delta = (
-            float(Timestamp(resp.sw_headers.get('X-Backend-Timestamp', '0')))
-            - float(NormalTimestamp.now()))
-        if is_marker and marker_delta >= 0:
-            # Somehow the marker was created in the future w.r.t. this thread's
-            # clock. The manifest PUT may succeed but the subsequent marker
-            # DELETE will fail, so don't attempt either.
-            self.logger.error('Unable to Complete Multipart Upload,'
-                              ' marker is %0.5fs newer', marker_delta)
-            raise ServiceUnavailable(reason='mpu_clock_skew')
-
-        headers = {'Accept': 'application/json',
-                   sysmeta_header('object', 'upload-id'): upload_id}
-        for key, val in resp.headers.items():
-            _key = key.lower()
-            if _key.startswith('x-amz-meta-'):
-                headers['x-object-meta-' + _key[11:]] = val
-            elif _key in ('content-encoding', 'content-language',
-                          'content-disposition', 'expires', 'cache-control'):
-                headers[key] = val
-
-        hct_header = sysmeta_header('object', 'has-content-type')
-        if resp.sysmeta_headers.get(hct_header) == 'yes':
-            content_type = resp.sysmeta_headers.get(
-                sysmeta_header('object', 'content-type'))
-        elif hct_header in resp.sysmeta_headers:
-            # has-content-type is present but false, so no content type was
-            # set on initial upload. In that case, we won't set one on our
-            # PUT request. Swift will end up guessing one based on the
-            # object name.
-            content_type = None
-        else:
-            content_type = resp.headers.get('Content-Type')
-
-        if content_type:
-            headers['Content-Type'] = content_type
-
-        container = req.container_name + MULTIUPLOAD_SUFFIX
+    def _parse_user_manifest(self, req, upload_id):
         s3_etag_hasher = md5(usedforsecurity=False)
         manifest = []
         previous_number = 0
@@ -715,6 +470,7 @@ class UploadController(Controller):
                 part_number = int(part_elem.find('./PartNumber').text)
 
                 if part_number <= previous_number:
+                    # duplicates check in mpu middleware
                     raise InvalidPartOrder(upload_id=upload_id)
                 previous_number = part_number
 
@@ -729,9 +485,7 @@ class UploadController(Controller):
                                       part_number=part_number,
                                       e_tag=etag)
                 manifest.append({
-                    'path': '/%s/%s/%s/%d' % (
-                        wsgi_to_str(container), wsgi_to_str(req.object_name),
-                        upload_id, part_number),
+                    'part_number': part_number,
                     'etag': etag})
                 s3_etag_hasher.update(binascii.a2b_hex(etag))
         except (XMLSyntaxError, DocumentInvalid):
@@ -744,37 +498,41 @@ class UploadController(Controller):
             raise
 
         s3_etag = '%s-%d' % (s3_etag_hasher.hexdigest(), len(manifest))
-        s3_etag_header = sysmeta_header('object', 'etag')
-        # This header should only already be present if the upload marker
-        # has been cleaned up and the current target uses the same upload-id
-        already_uploaded_s3_etag = resp.sysmeta_headers.get(s3_etag_header)
-        if already_uploaded_s3_etag == s3_etag:
-            # If the segments to use haven't changed, the work is already done
-            return HTTPOk(body=_make_complete_body(req, s3_etag, False),
-                          content_type='application/xml')
-        elif already_uploaded_s3_etag:
-            # If the header's present but *doesn't* match, upload-id is
-            # no longer valid
-            raise NoSuchUpload(upload_id=upload_id)
-        headers[s3_etag_header] = s3_etag
-        # Leave base header value blank; SLO will populate
-        c_etag = '; s3_etag=%s' % s3_etag
-        headers[get_container_update_override_key('etag')] = c_etag
+        return manifest, s3_etag
 
-        too_small_message = ('s3api requires that each segment be at least '
-                             '%d bytes' % self.conf.min_segment_size)
+    @public
+    @object_operation
+    @check_container_existence
+    def POST(self, req):
+        """
+        Handles Complete Multipart Upload.
+        """
+        upload_id = get_valid_upload_id(req)
+        # Check for conditional requests before getting upload info so the
+        # headers can't bleed into the HEAD
+        if req.headers.get('If-None-Match', '*') != '*' or any(
+                h in req.headers for h in (
+                    'If-Match', 'If-Modified-Since', 'If-Unmodified-Since')):
+            raise S3NotImplemented(
+                'Conditional uploads are not supported.')
+        manifest, s3_etag = self._parse_user_manifest(req, upload_id)
 
-        def size_checker(manifest):
-            # Check the size of each segment except the last and make sure
-            # they are all more than the minimum upload chunk size.
-            # Note that we need to use the *internal* keys, since we're
-            # looking at the manifest that's about to be written.
-            return [
-                (item['name'], too_small_message)
-                for item in manifest[:-1]
-                if item and item['bytes'] < self.conf.min_segment_size]
-
-        req.environ['swift.callback.slo_manifest_hook'] = size_checker
+        # TODO: do we want to have independent size checking for s3api vs
+        #   native mpu? if so, we'll need mpu to pass on the callback from slo
+        # too_small_message = ('s3api requires that each segment be at least '
+        #                      '%d bytes' % self.conf.min_segment_size)
+        #
+        # def size_checker(manifest):
+        #     # Check the size of each segment except the last and make sure
+        #     # they are all more than the minimum upload chunk size.
+        #     # Note that we need to use the *internal* keys, since we're
+        #     # looking at the manifest that's about to be written.
+        #     return [
+        #         (item['name'], too_small_message)
+        #         for item in manifest[:-1]
+        #         if item and item['bytes'] < self.conf.min_segment_size]
+        #
+        # req.environ['swift.callback.slo_manifest_hook'] = size_checker
         start_time = time.time()
 
         def response_iter():
@@ -788,15 +546,13 @@ class UploadController(Controller):
             try:
                 try:
                     # TODO: add support for versioning
-                    put_resp = req.get_response(
-                        self.app, 'PUT', body=json.dumps(manifest),
-                        query={'multipart-manifest': 'put',
-                               'heartbeat': 'on'},
-                        headers=headers)
-                    if put_resp.status_int == 202:
+                    post_resp = req.get_response(
+                        self.app, 'POST', body=json.dumps(manifest),
+                        query={'upload-id': upload_id})
+                    if post_resp.status_int == 202:
                         body = []
-                        put_resp.fix_conditional_response()
-                        for chunk in put_resp.response_iter:
+                        post_resp.fix_conditional_response()
+                        for chunk in post_resp.response_iter:
                             if not chunk.strip():
                                 if time.time() - start_time < 10:
                                     # Include some grace period to keep
@@ -813,9 +569,13 @@ class UploadController(Controller):
                         if body['Response Status'] == \
                                 '412 Precondition Failed':
                             raise PreconditionFailed
-                        elif body['Response Status'] != '201 Created':
+                        elif body['Response Status'] not in ('201 Created',
+                                                             '202 Accepted'):
+                            # swift will return 202 if the backends respond 409
+                            # to the mpu PUT e.g. if the mpu PUT timestamp is
+                            # older than on-disk state
                             for seg, err in body['Errors']:
-                                if err == too_small_message:
+                                if 'Upload part too small' in err:
                                     raise EntityTooSmall()
                                 elif err in ('Etag Mismatch', '404 Not Found'):
                                     raise InvalidPart(upload_id=upload_id)
@@ -825,7 +585,7 @@ class UploadController(Controller):
                                               for err in body['Errors']))
                 except InvalidRequest as err_resp:
                     msg = err_resp._msg
-                    if too_small_message in msg:
+                    if 'Upload part too small' in msg:
                         raise EntityTooSmall(msg)
                     elif ', Etag Mismatch' in msg:
                         raise InvalidPart(upload_id=upload_id)
@@ -833,17 +593,6 @@ class UploadController(Controller):
                         raise InvalidPart(upload_id=upload_id)
                     else:
                         raise
-
-                # clean up the multipart-upload record
-                obj = '%s/%s' % (req.object_name, upload_id)
-                try:
-                    req.get_response(self.app, 'DELETE', container, obj)
-                except NoSuchKey:
-                    # The important thing is that we wrote out a tombstone to
-                    # make sure the marker got cleaned up. If it's already
-                    # gone (e.g., because of concurrent completes or a retried
-                    # complete), so much the better.
-                    pass
 
                 yield _make_complete_body(req, s3_etag, yielded_anything)
             except ErrorResponse as err_resp:

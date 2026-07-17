@@ -25,6 +25,8 @@ from swift.common.middleware.s3api.controllers.multi_delete import \
     MultiObjectDeleteController
 from swift.common.middleware.s3api.controllers.multi_upload import \
     UploadController, PartController, UploadsController
+from swift.common.middleware.s3api.controllers.native_multi_upload import \
+    NativeUploadController, NativePartController, NativeUploadsController
 from swift.common.middleware.s3api.controllers.location import \
     LocationController
 from swift.common.middleware.s3api.controllers.logging import \
@@ -48,6 +50,9 @@ __all__ = [
     'PartController',
     'UploadsController',
     'UploadController',
+    'NativePartController',
+    'NativeUploadsController',
+    'NativeUploadController',
     'LocationController',
     'LoggingStatusController',
     'VersioningController',

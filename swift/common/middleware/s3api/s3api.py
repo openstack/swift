@@ -318,6 +318,10 @@ class S3ApiMiddleware(object):
             wsgi_conf.get('force_swift_request_proxy_log', False))
         self.conf.allow_multipart_uploads = config_true_value(
             wsgi_conf.get('allow_multipart_uploads', True))
+        self.conf.enable_native_multipart_uploads = config_true_value(
+            wsgi_conf.get(
+                'enable_native_multipart_uploads',
+                Config.DEFAULTS['enable_native_multipart_uploads']))
         self.conf.min_segment_size = config_positive_int_value(
             wsgi_conf.get('min_segment_size', 5242880))
         self.conf.allowable_clock_skew = config_positive_int_value(
@@ -586,6 +590,9 @@ def filter_factory(global_conf, **local_conf):
             conf.get('max_multi_delete_objects', 1000)),
         allow_multipart_uploads=config_true_value(
             conf.get('allow_multipart_uploads', True)),
+        enable_native_multipart_uploads=config_true_value(
+            conf.get('enable_native_multipart_uploads',
+                     Config.DEFAULTS['enable_native_multipart_uploads'])),
         min_segment_size=int(conf.get('min_segment_size', 5242880)),
         s3_acl=config_true_value(conf.get('s3_acl', False)),
     )

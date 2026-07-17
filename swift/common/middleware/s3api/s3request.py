@@ -28,6 +28,8 @@ import string
 
 from swift.common.middleware.mpu import MPU_INVALID_UPLOAD_ID_MSG, \
     MPU_NO_SUCH_UPLOAD_ID_MSG
+from swift.common.middleware.s3api.controllers.native_multi_upload import \
+    NativePartController, NativeUploadController, NativeUploadsController
 from swift.common.utils import split_path, json, md5, streq_const_time, \
     close_if_possible, InputProxy, get_policy_index, list_from_csv, \
     strict_b64decode, base64_str, checksum
@@ -70,7 +72,7 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
     S3InputSHA256Mismatch, S3InputChecksumMismatch, \
     S3InputChecksumTrailerInvalid
 from swift.common.middleware.s3api.utils import utf8encode, \
-    S3Timestamp, mktime
+    S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
     parse_host, parse_path, Config
@@ -1840,6 +1842,15 @@ class S3Request(swob.Request):
             if len([p for p in multi_part if p in self.params]):
                 raise S3NotImplemented("Multi-part feature isn't support")
 
+        if self.conf.enable_native_multipart_uploads:
+            upload_controller = NativeUploadController
+            uploads_controller = NativeUploadsController
+            part_controller = NativePartController
+        else:
+            upload_controller = UploadController
+            uploads_controller = UploadsController
+            part_controller = PartController
+
         if 'acl' in self.params:
             return AclController
         if 'delete' in self.params:
@@ -1850,13 +1861,13 @@ class S3Request(swob.Request):
             return LoggingStatusController
         if 'partNumber' in self.params:
             if self.method == 'PUT':
-                return PartController
+                return part_controller
             else:
                 return ObjectController
         if 'uploadId' in self.params:
-            return UploadController
+            return upload_controller
         if 'uploads' in self.params:
-            return UploadsController
+            return uploads_controller
         if 'versioning' in self.params:
             return VersioningController
         if 'tagging' in self.params:
@@ -2104,8 +2115,9 @@ class S3Request(swob.Request):
             # multi-part uploads, and get_container_info should be pulling
             # from the env cache
             def not_found_handler():
-                if is_success(get_container_info(
-                              env, app, swift_source='S3').get('status')):
+                if container.endswith(MULTIUPLOAD_SUFFIX) or \
+                        is_success(get_container_info(
+                            env, app, swift_source='S3').get('status')):
                     version_id = self.params.get('versionId')
                     if version_id:
                         return NoSuchVersion(obj, version_id)

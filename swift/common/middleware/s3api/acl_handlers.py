@@ -54,11 +54,14 @@ from swift.common.middleware.s3api.s3response import MissingSecurityHeader, \
     MalformedACLError, UnexpectedContent, AccessDenied
 from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid
-from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX
+from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
+    sysmeta_header
 
 
 def get_acl_handler(controller_name):
-    for base_klass in [BaseAclHandler, MultiUploadAclHandler]:
+    for base_klass in [BaseAclHandler,
+                       MultiUploadAclHandler,
+                       NativeMultiUploadAclHandler]:
         # pylint: disable-msg=E1101
         for handler in base_klass.__subclasses__():
             handler_suffix_len = len('AclHandler') \
@@ -365,13 +368,124 @@ class PartAclHandler(MultiUploadAclHandler):
         super(MultiUploadAclHandler, self).__init__(req, logger, **kwargs)
 
     def HEAD(self, app):
-        # For check_copy_source
-        return self._handle_acl(app, 'HEAD', self.container, self.obj)
+        if self.container.endswith(MULTIUPLOAD_SUFFIX):
+            # For _check_upload_info
+            container = self.container[:-len(MULTIUPLOAD_SUFFIX)]
+            self._handle_acl(app, 'HEAD', container, '')
+        else:
+            # For check_copy_source
+            return self._handle_acl(app, 'HEAD', self.container, self.obj)
 
 
 class UploadsAclHandler(MultiUploadAclHandler):
     """
     UploadsAclHandler: Handler for UploadsController
+    """
+    def handle_acl(self, app, method, *args, **kwargs):
+        method = method or self.method
+        if hasattr(self, method):
+            return getattr(self, method)(app)
+        else:
+            pass
+
+    def GET(self, app):
+        # List Multipart Upload
+        self._handle_acl(app, 'GET', self.container, '')
+
+    def PUT(self, app):
+        if not self.acl_checked:
+            resp = self._handle_acl(app, 'HEAD', obj='')
+            req_acl = ACL.from_headers(self.req.headers,
+                                       resp.bucket_acl.owner,
+                                       Owner(self.user_id, self.user_id))
+            acl_headers = encode_acl('object', req_acl)
+            self.req.headers[sysmeta_header('object', 'tmpacl')] = \
+                acl_headers[sysmeta_header('object', 'acl')]
+            self.acl_checked = True
+
+
+class UploadAclHandler(MultiUploadAclHandler):
+    """
+    UploadAclHandler: Handler for UploadController
+    """
+    def handle_acl(self, app, method, *args, **kwargs):
+        method = method or self.method
+        if hasattr(self, method):
+            return getattr(self, method)(app)
+        else:
+            pass
+
+    def HEAD(self, app):
+        # FIXME: GET HEAD case conflicts with GET service
+        method = 'GET' if self.method == 'GET' else 'HEAD'
+        self._handle_acl(app, method, self.container, '')
+
+    def PUT(self, app):
+        container = self.req.container_name + MULTIUPLOAD_SUFFIX
+        obj = '%s/%s' % (self.obj, self.req.params['uploadId'])
+        resp = self.req._get_response(app, 'HEAD', container, obj)
+        self.req.headers[sysmeta_header('object', 'acl')] = \
+            resp.sysmeta_headers.get(sysmeta_header('object', 'tmpacl'))
+
+
+class NativeMultiUploadAclHandler(BaseAclHandler):
+    # TODO: check the function of the acl handlers now that s3api delegates to
+    #  mpu middleware
+    """
+    MultiUpload stuff requires acl checking just once for BASE container
+    so that MultiUploadAclHandler extends BaseAclHandler to check acl only
+    when the verb defined. We should define the verb as the first step to
+    request to backend Swift at incoming request.
+
+    Basic Rules:
+      - BASE container name is always user-namespace container
+      - Any check timing is ok but we should check it as soon as possible.
+
+    ========== ====== ============= ==========
+    Controller Verb   CheckResource Permission
+    ========== ====== ============= ==========
+    Part       PUT    Container     WRITE
+    Uploads    GET    Container     READ
+    Uploads    POST   Container     WRITE
+    Upload     GET    Container     READ
+    Upload     DELETE Container     WRITE
+    Upload     POST   Container     WRITE
+    ========== ====== ============= ==========
+
+    """
+    def __init__(self, req, logger, **kwargs):
+        super().__init__(req, logger, **kwargs)
+        self.acl_checked = False
+
+    def handle_acl(self, app, method, container=None, obj=None, headers=None):
+        method = method or self.method
+        ah = self.request_with(container, obj, headers)
+        # MultiUpload stuffs don't need acl check basically.
+        if hasattr(ah, method):
+            return getattr(ah, method)(app)
+
+    def HEAD(self, app):
+        # For _check_upload_info
+        self._handle_acl(app, 'HEAD', self.container, '')
+
+
+class NativePartAclHandler(NativeMultiUploadAclHandler):
+    """
+    NativePartAclHandler: Handler for NativePartController
+    """
+    def __init__(self, req, logger, **kwargs):
+        # pylint: disable-msg=E1003
+        super(NativeMultiUploadAclHandler, self).__init__(
+            req, logger, **kwargs)
+
+    def HEAD(self, app):
+        # For check_copy_source
+        return self._handle_acl(app, 'HEAD', self.container, self.obj)
+
+
+class NativeUploadsAclHandler(NativeMultiUploadAclHandler):
+    """
+    NativeUploadsAclHandler: Handler for NativeUploadsController
     """
     def handle_acl(self, app, method, *args, **kwargs):
         method = method or self.method
@@ -395,9 +509,9 @@ class UploadsAclHandler(MultiUploadAclHandler):
             self.acl_checked = True
 
 
-class UploadAclHandler(MultiUploadAclHandler):
+class NativeUploadAclHandler(NativeMultiUploadAclHandler):
     """
-    UploadAclHandler: Handler for UploadController
+    NativeUploadAclHandler: Handler for NativeUploadController
     """
     def handle_acl(self, app, method, *args, **kwargs):
         method = method or self.method

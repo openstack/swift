@@ -144,6 +144,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
             'force_swift_request_proxy_log': True,
             'dns_compliant_bucket_names': False,
             'allow_multipart_uploads': False,
+            'enable_native_multipart_uploads': True,
             'allow_no_owner': True,
             'allowable_clock_skew': 300,
             'auth_pipeline_check': False,
@@ -1146,7 +1147,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         registered_keys = [
             'max_bucket_listing', 'max_parts_listing', 'max_upload_part_num',
             'max_multi_delete_objects', 'allow_multipart_uploads',
-            'min_segment_size', 's3_acl']
+            'enable_native_multipart_uploads', 'min_segment_size', 's3_acl']
         expected = dict((k, self.conf[k]) for k in registered_keys)
         self.assertEqual(expected, swift_info['s3api'])
 

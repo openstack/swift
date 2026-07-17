@@ -111,6 +111,7 @@ class S3ApiTestCase(BaseUnitTestCase):
             'check_bucket_owner': False,
             'force_swift_request_proxy_log': False,
             'allow_multipart_uploads': True,
+            'enable_native_multipart_uploads': True,
             'min_segment_size': 5242880,
             'log_level': 'debug'
         }
