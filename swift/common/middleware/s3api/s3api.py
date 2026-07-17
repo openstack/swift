@@ -158,7 +158,7 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
     InvalidSubresource
 from swift.common.middleware.s3api import s3request
 from swift.common.middleware.s3api.s3response import ErrorResponse, \
-    InternalError, MethodNotAllowed, S3ResponseBase, S3NotImplemented
+    InternalError, MethodNotAllowed, S3ResponseBase
 from swift.common.utils import get_logger, config_true_value, \
     config_positive_int_value, split_path, closing_if_possible, \
     list_from_csv, parse_header, checksum
@@ -483,16 +483,9 @@ class S3ApiMiddleware(object):
         return resp(env, start_response)
 
     def handle_request(self, req):
-        self.logger.debug('Calling S3Api Middleware')
-        try:
-            controller = req.controller(self.app, self.conf, self.logger)
-        except S3NotImplemented:
-            # TODO: Probably we should distinct the error to log this warning
-            self.logger.warning('multipart: No SLO middleware in pipeline')
-            raise
-
-        acl_handler = get_acl_handler(req.controller_name)(req, self.logger)
-        req.set_acl_handler(acl_handler)
+        controller = req.controller(self.app, self.conf, self.logger)
+        req.set_acl_handler(
+            get_acl_handler(req.controller_name)(req, self.logger))
 
         if hasattr(controller, req.method):
             handler = getattr(controller, req.method)
