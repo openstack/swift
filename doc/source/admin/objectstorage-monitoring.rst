@@ -4,9 +4,9 @@ Object Storage monitoring
 
 .. note::
 
-   This section was excerpted from a `blog post by Darrell
-   Bishop <https://swiftstack.com/blog/2012/04/11/swift-monitoring-with-statsd>`_ and
-   has since been edited.
+   This section was excerpted from a `blog post by Darrell Bishop
+   <https://web.archive.org/web/20190721104553/https://www.swiftstack.com/blog/2012/04/11/swift-monitoring-with-statsd/>`_
+   and has since been edited.
 
 An OpenStack Object Storage cluster is a collection of many daemons that
 work together across many nodes. With so many different components, you
@@ -45,69 +45,6 @@ process that feeds meters to your statistics system, such as
 ``collectd`` and ``gmond``, should already run on the storage node.
 You can choose to either talk to Swift Recon or collect the meters
 directly.
-
-Swift-Informant
-~~~~~~~~~~~~~~~
-
-Swift-Informant middleware (see
-`swift-informant <https://github.com/pandemicsyn/swift-informant>`_) has
-real-time visibility into Object Storage client requests. It sits in the
-pipeline for the proxy server, and after each request to the proxy server it
-sends three meters to a ``StatsD`` server:
-
--  A counter increment for a meter like ``obj.GET.200`` or
-   ``cont.PUT.404``.
-
--  Timing data for a meter like ``acct.GET.200`` or ``obj.GET.200``.
-   [The README says the meters look like ``duration.acct.GET.200``, but
-   I do not see the ``duration`` in the code. I am not sure what the
-   Etsy server does but our StatsD server turns timing meters into five
-   derivative meters with new segments appended, so it probably works as
-   coded. The first meter turns into ``acct.GET.200.lower``,
-   ``acct.GET.200.upper``, ``acct.GET.200.mean``,
-   ``acct.GET.200.upper_90``, and ``acct.GET.200.count``].
-
--  A counter increase by the bytes transferred for a meter like
-   ``tfer.obj.PUT.201``.
-
-This is used for receiving information on the quality of service clients
-experience with the timing meters, as well as sensing the volume of the
-various modifications of a request server type, command, and response
-code. Swift-Informant requires no change to core Object
-Storage code because it is implemented as middleware. However, it gives
-no insight into the workings of the cluster past the proxy server.
-If the responsiveness of one storage node degrades, you can only see
-that some of the requests are bad, either as high latency or error
-status codes.
-
-Statsdlog
-~~~~~~~~~
-
-The `Statsdlog <https://github.com/pandemicsyn/statsdlog>`_
-project increments StatsD counters based on logged events. Like
-Swift-Informant, it is also non-intrusive, however statsdlog can track
-events from all Object Storage daemons, not just proxy-server. The
-daemon listens to a UDP stream of syslog messages, and StatsD counters
-are incremented when a log line matches a regular expression. Meter
-names are mapped to regex match patterns in a JSON file, allowing
-flexible configuration of what meters are extracted from the log stream.
-
-Currently, only the first matching regex triggers a StatsD counter
-increment, and the counter is always incremented by one. There is no way
-to increment a counter by more than one or send timing data to StatsD
-based on the log line content. The tool could be extended to handle more
-meters for each line and data extraction, including timing data. But a
-coupling would still exist between the log textual format and the log
-parsing regexes, which would themselves be more complex to support
-multiple matches for each line and data extraction. Also, log processing
-introduces a delay between the triggering event and sending the data to
-StatsD. It would be preferable to increment error counters where they
-occur and send timing data as soon as it is known to avoid coupling
-between a log string and a parsing regex and prevent a time delay
-between events and sending data to StatsD.
-
-The next section describes another method for gathering Object Storage
-operational meters.
 
 Swift StatsD logging
 ~~~~~~~~~~~~~~~~~~~~
