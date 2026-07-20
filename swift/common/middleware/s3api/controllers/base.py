@@ -78,23 +78,36 @@ class Controller(object):
     """
     Base WSGI controller class for the middleware
     """
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if 'acl_handler' not in cls.__dict__:
+            raise TypeError(
+                '%s must define acl_handler on the controller class; '
+                'do not rely on inherited ACL handler lookup' %
+                cls.__name__)
+
     def __init__(self, app, conf, logger, **kwargs):
         self.app = app
         self.conf = conf
         self.logger = logger
 
     @classmethod
+    def name(cls):
+        return cls.__name__[:-len('Controller')]
+
+    @classmethod
     def resource_type(cls):
         """
         Returns the target resource type of this controller.
         """
-        name = cls.__name__[:-len('Controller')]
-        return camel_to_snake(name).upper()
+        return camel_to_snake(cls.name()).upper()
 
 
 class UnsupportedController(Controller):
     """
     Handles unsupported requests.
     """
+    acl_handler = None
+
     def __init__(self, app, conf, logger, **kwargs):
         raise S3NotImplemented('The requested resource is not implemented')

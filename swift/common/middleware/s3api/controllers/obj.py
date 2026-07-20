@@ -26,6 +26,7 @@ from swift.common.registry import get_swift_info
 
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
+from swift.common.middleware.s3api.acl_handlers import ObjectAclHandler
 from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
@@ -37,6 +38,8 @@ class ObjectController(Controller):
     """
     Handles requests on objects
     """
+    acl_handler = ObjectAclHandler
+
     def _gen_head_range_resp(self, req_range, resp):
         """
         Swift doesn't handle Range header for HEAD requests.

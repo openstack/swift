@@ -28,6 +28,7 @@ from swift.common.utils import json, public, config_true_value, Timestamp, \
     cap_length
 from swift.common.registry import get_swift_info
 
+from swift.common.middleware.s3api.acl_handlers import BucketAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     tostring, fromstring, XMLSyntaxError, DocumentInvalid
@@ -45,6 +46,8 @@ class BucketController(Controller):
     """
     Handles bucket request.
     """
+    acl_handler = BucketAclHandler
+
     @staticmethod
     def _validated_utf8_param(req, name):
         value = swob.wsgi_to_str(req.params.get(name))

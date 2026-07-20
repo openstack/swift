@@ -75,6 +75,8 @@ from swift.common.request_helpers import get_container_update_override_key, \
 
 from urllib.parse import quote, urlparse
 
+from swift.common.middleware.s3api.acl_handlers import PartAclHandler, \
+    UploadAclHandler, UploadsAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, object_operation, check_container_existence
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
@@ -183,6 +185,8 @@ class PartController(Controller):
 
     Those APIs are logged as PART operations in the S3 server log.
     """
+    acl_handler = PartAclHandler
+
     @public
     @object_operation
     @check_container_existence
@@ -261,6 +265,7 @@ class UploadsController(Controller):
 
     Those APIs are logged as UPLOADS operations in the S3 server log.
     """
+    acl_handler = UploadsAclHandler
 
     def _validated_utf8_param(self, req, name, default=None):
         """
@@ -500,6 +505,8 @@ class UploadController(Controller):
 
     Those APIs are logged as UPLOAD operations in the S3 server log.
     """
+    acl_handler = UploadAclHandler
+
     @public
     @object_operation
     @check_container_existence

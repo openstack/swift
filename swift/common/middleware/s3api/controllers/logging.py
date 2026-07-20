@@ -15,6 +15,7 @@
 
 from swift.common.utils import public
 
+from swift.common.middleware.s3api.acl_handlers import BaseAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, tostring
@@ -31,6 +32,8 @@ class LoggingStatusController(Controller):
 
     Those APIs are logged as LOGGING_STATUS operations in the S3 server log.
     """
+    acl_handler = BaseAclHandler
+
     @public
     @bucket_operation(err_resp=NoLoggingStatusForKey)
     def GET(self, req):

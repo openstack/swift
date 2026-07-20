@@ -16,6 +16,7 @@
 from swift.common.swob import bytes_to_wsgi
 from swift.common.utils import json, public
 
+from swift.common.middleware.s3api.acl_handlers import BaseAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 from swift.common.middleware.s3api.s3response import HTTPOk, AccessDenied, \
@@ -27,6 +28,8 @@ class ServiceController(Controller):
     """
     Handles account level requests.
     """
+    acl_handler = BaseAclHandler
+
     @public
     def GET(self, req):
         """

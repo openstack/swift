@@ -16,6 +16,7 @@
 from swift.common.utils import public, config_true_value
 from swift.common.registry import get_swift_info
 
+from swift.common.middleware.s3api.acl_handlers import BaseAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, tostring, \
@@ -35,6 +36,8 @@ class VersioningController(Controller):
 
     Those APIs are logged as VERSIONING operations in the S3 server log.
     """
+    acl_handler = BaseAclHandler
+
     @public
     @bucket_operation
     def GET(self, req):

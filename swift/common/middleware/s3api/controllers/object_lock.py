@@ -15,6 +15,7 @@
 
 from swift.common.utils import public
 
+from swift.common.middleware.s3api.acl_handlers import BaseAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation, S3NotImplemented
 from swift.common.middleware.s3api.s3response import \
@@ -26,6 +27,8 @@ class ObjectLockController(Controller):
     Handles GET object-lock request, which always returns
     <ObjectLockEnabled>Disabled</ObjectLockEnabled>
     """
+    acl_handler = BaseAclHandler
+
     @public
     @bucket_operation
     def GET(self, req):

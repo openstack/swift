@@ -15,6 +15,7 @@
 
 from swift.common.utils import public
 
+from swift.common.middleware.s3api.acl_handlers import BaseAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, tostring
@@ -26,6 +27,8 @@ class LocationController(Controller):
     Handles GET Bucket location, which is logged as a LOCATION operation in the
     S3 server log.
     """
+    acl_handler = BaseAclHandler
+
     @public
     @bucket_operation
     def GET(self, req):

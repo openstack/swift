@@ -164,7 +164,6 @@ from swift.common.utils import get_logger, config_true_value, \
     list_from_csv, parse_header, checksum
 from swift.common.middleware.s3api.utils import Config, \
     classify_checksum_header_value, make_header_label
-from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.registry import register_swift_info, \
     register_sensitive_header, register_sensitive_param
 
@@ -484,8 +483,7 @@ class S3ApiMiddleware(object):
 
     def handle_request(self, req):
         controller = req.controller(self.app, self.conf, self.logger)
-        req.set_acl_handler(
-            get_acl_handler(req.controller_name)(req, self.logger))
+        req.set_acl_handler(req.controller.acl_handler(req, self.logger))
 
         if hasattr(controller, req.method):
             handler = getattr(controller, req.method)

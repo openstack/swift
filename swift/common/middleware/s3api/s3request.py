@@ -1819,7 +1819,7 @@ class S3Request(swob.Request):
 
     @property
     def controller_name(self):
-        return self.controller.__name__[:-len('Controller')]
+        return self.controller.name()
 
     @property
     def controller(self):

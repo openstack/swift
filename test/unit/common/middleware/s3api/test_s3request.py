@@ -28,7 +28,6 @@ from swift.common.middleware.s3api import s3request, s3response, controllers
 from swift.common.middleware.s3api.exception import S3InputChecksumMismatch
 from swift.common.swob import Request, HTTPNoContent
 from swift.common.middleware.s3api.utils import mktime, Config, S3Timestamp
-from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
     Grant, encode_acl
 from swift.common.middleware.s3api.s3request import S3Request, \
@@ -134,7 +133,7 @@ class TestRequest(S3ApiTestCase):
                                      'Date': self.get_date_header()})
         s3_req = req_klass(req.environ, conf=self.s3api.conf)
         s3_req.set_acl_handler(
-            get_acl_handler(s3_req.controller_name)(s3_req, debug_logger()))
+            s3_req.controller.acl_handler(s3_req, debug_logger()))
         with patch('swift.common.middleware.s3api.s3request.S3Request.'
                    '_get_response') as mock_get_resp, \
                 patch('swift.common.middleware.s3api.subresource.ACL.'
