@@ -680,6 +680,16 @@ class ObjectController(BaseStorageServer):
         error_response = check_metadata(request, 'object')
         if error_response:
             return error_response
+        req_ctype_time = '0'
+        req_ctype = request.headers.get('Content-Type')
+        if req_ctype:
+            req_ctype_time = request.headers.get('Content-Type-Timestamp',
+                                                 req_timestamp.internal)
+        try:
+            req_ctype_timestamp = Timestamp(req_ctype_time)
+        except ValueError as err:
+            return HTTPBadRequest(body=str(err), request=request,
+                                  content_type='text/plain')
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
             disk_file = self.get_diskfile(
@@ -699,16 +709,6 @@ class ObjectController(BaseStorageServer):
         orig_timestamp = Timestamp(
             orig_metadata.get('X-Timestamp', Timestamp.zero()))
         orig_ctype_timestamp = disk_file.content_type_timestamp
-        req_ctype_time = '0'
-        req_ctype = request.headers.get('Content-Type')
-        if req_ctype:
-            req_ctype_time = request.headers.get('Content-Type-Timestamp',
-                                                 req_timestamp.internal)
-        try:
-            req_ctype_timestamp = Timestamp(req_ctype_time)
-        except ValueError as err:
-            return HTTPBadRequest(body=str(err), request=request,
-                                  content_type='text/plain')
         if orig_timestamp >= req_timestamp \
                 and orig_ctype_timestamp >= req_ctype_timestamp:
             return HTTPConflict(

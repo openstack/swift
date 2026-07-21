@@ -1120,6 +1120,15 @@ class TestObjectController(BaseUnitTestCase):
         resp = req.get_response(self.object_controller)
         self.assertEqual(resp.status_int, 400)
 
+    def test_POST_bad_content_type_timestamp_missing_object(self):
+        req = Request.blank('/sda1/p/a/c/does-not-exist',
+                            environ={'REQUEST_METHOD': 'POST'},
+                            headers={'X-Timestamp': self.ts().internal,
+                                     'Content-Type': 'text/plain',
+                                     'Content-Type-Timestamp': 'bad'})
+        resp = req.get_response(self.object_controller)
+        self.assertEqual(resp.status_int, 400)
+
     def test_POST_user_metadata_count_limit(self):
         req = Request.blank(
             '/sda1/p/a/c/o',
