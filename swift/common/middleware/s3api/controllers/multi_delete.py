@@ -39,6 +39,7 @@ class MultiObjectDeleteController(Controller):
     operation in the S3 server log.
     """
     acl_handler = MultiObjectDeleteAclHandler
+    resource_type = 'MULTI_OBJECT_DELETE'
 
     def _gen_error_body(self, error, elem, delete_list):
         for key, version in delete_list:

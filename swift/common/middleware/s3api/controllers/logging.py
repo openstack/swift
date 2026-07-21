@@ -33,6 +33,7 @@ class LoggingStatusController(Controller):
     Those APIs are logged as LOGGING_STATUS operations in the S3 server log.
     """
     acl_handler = BaseAclHandler
+    resource_type = 'LOGGING_STATUS'
 
     @public
     @bucket_operation(err_resp=NoLoggingStatusForKey)

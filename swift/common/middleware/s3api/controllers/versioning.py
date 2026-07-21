@@ -37,6 +37,7 @@ class VersioningController(Controller):
     Those APIs are logged as VERSIONING operations in the S3 server log.
     """
     acl_handler = BaseAclHandler
+    resource_type = 'VERSIONING'
 
     @public
     @bucket_operation

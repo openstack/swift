@@ -39,6 +39,7 @@ class ObjectController(Controller):
     Handles requests on objects
     """
     acl_handler = ObjectAclHandler
+    resource_type = 'OBJECT'
 
     def _gen_head_range_resp(self, req_range, resp):
         """
@@ -179,7 +180,7 @@ class ObjectController(Controller):
         if 'X-Amz-Copy-Source' in req.headers:
             last_modified_ts = S3Timestamp(
                 parse_date_header(resp.headers['Last-Modified']))
-            resp.append_copy_resp_body(req.controller_name,
+            resp.append_copy_resp_body('CopyObjectResult',
                                        last_modified_ts.s3xmlformat)
             # delete object metadata from response
             for key in list(resp.headers.keys()):

@@ -489,11 +489,11 @@ class S3ApiMiddleware(object):
             handler = getattr(controller, req.method)
             if not getattr(handler, 'publicly_accessible', False):
                 raise MethodNotAllowed(req.method,
-                                       req.controller.resource_type())
+                                       req.controller.resource_type)
             res = handler(req)
         else:
             raise MethodNotAllowed(req.method,
-                                   req.controller.resource_type())
+                                   req.controller.resource_type)
 
         if req.policy_index is not None:
             res.headers.setdefault('X-Backend-Storage-Policy-Index',

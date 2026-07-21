@@ -28,6 +28,7 @@ class LocationController(Controller):
     S3 server log.
     """
     acl_handler = BaseAclHandler
+    resource_type = 'LOCATION'
 
     @public
     @bucket_operation

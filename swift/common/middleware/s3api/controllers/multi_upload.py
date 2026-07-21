@@ -186,6 +186,7 @@ class PartController(Controller):
     Those APIs are logged as PART operations in the S3 server log.
     """
     acl_handler = PartAclHandler
+    resource_type = 'PART'
 
     @public
     @object_operation
@@ -249,7 +250,7 @@ class PartController(Controller):
         if 'X-Amz-Copy-Source' in req.headers:
             last_modified_ts = S3Timestamp(
                 parse_date_header(resp.headers['Last-Modified']))
-            resp.append_copy_resp_body(req.controller_name,
+            resp.append_copy_resp_body('CopyPartResult',
                                        last_modified_ts.s3xmlformat)
 
         resp.status = 200
@@ -266,6 +267,7 @@ class UploadsController(Controller):
     Those APIs are logged as UPLOADS operations in the S3 server log.
     """
     acl_handler = UploadsAclHandler
+    resource_type = 'UPLOADS'
 
     def _validated_utf8_param(self, req, name, default=None):
         """
@@ -506,6 +508,7 @@ class UploadController(Controller):
     Those APIs are logged as UPLOAD operations in the S3 server log.
     """
     acl_handler = UploadAclHandler
+    resource_type = 'UPLOAD'
 
     @public
     @object_operation

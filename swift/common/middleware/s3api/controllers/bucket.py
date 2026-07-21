@@ -47,6 +47,7 @@ class BucketController(Controller):
     Handles bucket request.
     """
     acl_handler = BucketAclHandler
+    resource_type = 'BUCKET'
 
     @staticmethod
     def _validated_utf8_param(req, name):

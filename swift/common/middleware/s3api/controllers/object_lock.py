@@ -28,6 +28,7 @@ class ObjectLockController(Controller):
     <ObjectLockEnabled>Disabled</ObjectLockEnabled>
     """
     acl_handler = BaseAclHandler
+    resource_type = 'OBJECT_LOCK'
 
     @public
     @bucket_operation

@@ -34,6 +34,7 @@ class S3AclController(Controller):
     Those APIs are logged as ACL operations in the S3 server log.
     """
     acl_handler = S3AclHandler
+    resource_type = 'S3_ACL'
 
     @public
     def GET(self, req):

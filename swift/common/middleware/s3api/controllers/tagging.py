@@ -33,6 +33,7 @@ class TaggingController(Controller):
 
     """
     acl_handler = BaseAclHandler
+    resource_type = 'TAGGING'
 
     @public
     def GET(self, req):

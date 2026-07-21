@@ -43,40 +43,41 @@ class TestAclHandlers(unittest.TestCase):
         for controller, expected in expected_handlers:
             self.assertIs(controller.acl_handler, expected)
 
-    def test_base_controller_has_no_acl_handler_default(self):
-        self.assertFalse(hasattr(controllers.Controller, 'acl_handler'))
+    def test_base_controller_has_no_controller_metadata_defaults(self):
+        for attr in ('acl_handler', 'resource_type'):
+            self.assertFalse(hasattr(controllers.Controller, attr))
 
     def test_controller_requires_acl_handler(self):
         with self.assertRaises(TypeError) as caught:
             class MissingAclHandlerController(controllers.Controller):
                 pass
         self.assertEqual(
-            'MissingAclHandlerController must define acl_handler on the '
-            'controller class; do not rely on inherited ACL handler lookup',
+            'MissingAclHandlerController must define acl_handler, '
+            'resource_type on the controller class; '
+            'do not rely on inherited controller metadata',
             str(caught.exception))
 
-    def test_controller_cannot_inherit_acl_handler(self):
+    def test_controller_cannot_inherit_metadata(self):
         class ParentController(controllers.Controller):
             acl_handler = acl_handlers.BaseAclHandler
+            resource_type = 'PARENT'
 
         with self.assertRaises(TypeError) as caught:
             class ChildController(ParentController):
                 pass
         self.assertEqual(
-            'ChildController must define acl_handler on the controller class; '
-            'do not rely on inherited ACL handler lookup',
+            'ChildController must define acl_handler, resource_type on the '
+            'controller class; do not rely on '
+            'inherited controller metadata',
             str(caught.exception))
 
-    def test_controller_resource_type_uses_custom_name(self):
+    def test_controller_uses_explicit_resource_type(self):
         class CopyObjectResultController(controllers.Controller):
             acl_handler = acl_handlers.BaseAclHandler
-
-            @classmethod
-            def name(cls):
-                return 'CopyObjectResult'
+            resource_type = 'COPY_OBJECT_RESULT'
 
         self.assertEqual('COPY_OBJECT_RESULT',
-                         CopyObjectResultController.resource_type())
+                         CopyObjectResultController.resource_type)
 
     def test_handle_acl(self):
         # we have already have tests for s3_acl checking at test_s3_acl.py

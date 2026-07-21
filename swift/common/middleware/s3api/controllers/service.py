@@ -29,6 +29,7 @@ class ServiceController(Controller):
     Handles account level requests.
     """
     acl_handler = BaseAclHandler
+    resource_type = 'SERVICE'
 
     @public
     def GET(self, req):
