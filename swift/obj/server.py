@@ -35,7 +35,7 @@ from swift.common.utils import public, get_logger, \
     config_auto_int_value, split_path, get_redirect_data, \
     md5, parse_options, CooperativeIterator, MD5_OF_EMPTY_STRING
 from swift.common.bufferedhttp import http_connect
-from swift.common.constraints import check_object_creation, \
+from swift.common.constraints import check_object_creation, check_metadata, \
     valid_timestamp, check_utf8, AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.exceptions import ConnectionTimeout, DiskFileQuarantined, \
     DiskFileNotExist, DiskFileCollision, DiskFileNoSpace, DiskFileDeleted, \
@@ -771,9 +771,27 @@ class ObjectController(BaseStorageServer):
         timing_stats_labels['policy'] = int(policy)
 
         req_timestamp = valid_timestamp(request)
-        new_delete_at = int(request.headers.get('X-Delete-At') or 0)
+        try:
+            new_delete_at = int(request.headers.get('X-Delete-At') or 0)
+        except ValueError:
+            return HTTPBadRequest(body='Non-integer X-Delete-At',
+                                  request=request,
+                                  content_type='text/plain')
         if new_delete_at and new_delete_at < req_timestamp:
             return HTTPBadRequest(body='X-Delete-At in past', request=request,
+                                  content_type='text/plain')
+        error_response = check_metadata(request, 'object')
+        if error_response:
+            return error_response
+        req_ctype_time = '0'
+        req_ctype = request.headers.get('Content-Type')
+        if req_ctype:
+            req_ctype_time = request.headers.get('Content-Type-Timestamp',
+                                                 req_timestamp.internal)
+        try:
+            req_ctype_timestamp = Timestamp(req_ctype_time)
+        except ValueError as err:
+            return HTTPBadRequest(body=str(err), request=request,
                                   content_type='text/plain')
         next_part_power = request.headers.get('X-Backend-Next-Part-Power')
         try:
@@ -794,12 +812,6 @@ class ObjectController(BaseStorageServer):
         orig_timestamp = Timestamp(
             orig_metadata.get('X-Timestamp', Timestamp.zero()))
         orig_ctype_timestamp = disk_file.content_type_timestamp
-        req_ctype_time = '0'
-        req_ctype = request.headers.get('Content-Type')
-        if req_ctype:
-            req_ctype_time = request.headers.get('Content-Type-Timestamp',
-                                                 req_timestamp.internal)
-        req_ctype_timestamp = Timestamp(req_ctype_time)
         if orig_timestamp >= req_timestamp \
                 and orig_ctype_timestamp >= req_ctype_timestamp:
             return HTTPConflict(

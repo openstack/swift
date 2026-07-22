@@ -17,7 +17,6 @@ import functools
 
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRequest
-from swift.common.middleware.s3api.utils import camel_to_snake
 
 
 def bucket_operation(func=None, err_resp=None, err_msg=None):
@@ -78,35 +77,28 @@ class Controller(object):
     """
     Base WSGI controller class for the middleware
     """
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        required_attrs = ('acl_handler', 'resource_type')
+        missing = [attr for attr in required_attrs if attr not in cls.__dict__]
+        if missing:
+            raise TypeError(
+                '%s must define %s on the controller class; '
+                'do not rely on inherited controller metadata' % (
+                    cls.__name__, ', '.join(sorted(missing))))
+
     def __init__(self, app, conf, logger, **kwargs):
         self.app = app
         self.conf = conf
         self.logger = logger
-
-    @classmethod
-    def name(cls):
-        return cls.__name__[:-len('Controller')]
-
-    @classmethod
-    def resource_type(cls):
-        """
-        Returns the target resource type of this controller.
-        """
-        return camel_to_snake(cls.name()).upper()
-
-    @classmethod
-    def acl_handler(cls):
-        """
-        Returns the name of ACL handler class to be used for this controller.
-        """
-        # note: don't be tempted to use cls.name() here because subclasses may
-        # override that
-        return cls.__name__[:-len('Controller')] + 'AclHandler'
 
 
 class UnsupportedController(Controller):
     """
     Handles unsupported requests.
     """
+    acl_handler = None
+    resource_type = 'UNSUPPORTED'
+
     def __init__(self, app, conf, logger, **kwargs):
         raise S3NotImplemented('The requested resource is not implemented')

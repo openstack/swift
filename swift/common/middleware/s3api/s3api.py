@@ -158,13 +158,12 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
     InvalidSubresource
 from swift.common.middleware.s3api import s3request
 from swift.common.middleware.s3api.s3response import ErrorResponse, \
-    InternalError, MethodNotAllowed, S3ResponseBase, S3NotImplemented
+    InternalError, MethodNotAllowed, S3ResponseBase
 from swift.common.utils import get_logger, config_true_value, \
     config_positive_int_value, split_path, closing_if_possible, \
     list_from_csv, parse_header, checksum
 from swift.common.middleware.s3api.utils import Config, \
     classify_checksum_header_value, make_header_label
-from swift.common.middleware.s3api.acl_handlers import get_acl_handler
 from swift.common.registry import register_swift_info, \
     register_sensitive_header, register_sensitive_param
 
@@ -487,26 +486,18 @@ class S3ApiMiddleware(object):
         return resp(env, start_response)
 
     def handle_request(self, req):
-        self.logger.debug('Calling S3Api Middleware')
-        try:
-            controller = req.controller(self.app, self.conf, self.logger)
-        except S3NotImplemented:
-            # TODO: Probably we should distinct the error to log this warning
-            self.logger.warning('multipart: No SLO middleware in pipeline')
-            raise
-
-        acl_handler = get_acl_handler(req.controller)(req, self.logger)
-        req.set_acl_handler(acl_handler)
+        controller = req.controller(self.app, self.conf, self.logger)
+        req.set_acl_handler(req.controller.acl_handler(req, self.logger))
 
         if hasattr(controller, req.method):
             handler = getattr(controller, req.method)
             if not getattr(handler, 'publicly_accessible', False):
                 raise MethodNotAllowed(req.method,
-                                       req.controller.resource_type())
+                                       req.controller.resource_type)
             res = handler(req)
         else:
             raise MethodNotAllowed(req.method,
-                                   req.controller.resource_type())
+                                   req.controller.resource_type)
 
         if req.policy_index is not None:
             res.headers.setdefault('X-Backend-Storage-Policy-Index',

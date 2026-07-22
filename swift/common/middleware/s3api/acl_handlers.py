@@ -33,9 +33,9 @@ BaseAclHandler wraps basic Acl handling.
 How to extend
 ^^^^^^^^^^^^^
 
-Make a handler with the name of the controller.
-(e.g. BucketAclHandler is for BucketController)
-It consists of method(s) for actual S3 method on controllers as follows.
+Add an ACL handler class and bind it to the controller with an explicit
+``acl_handler`` class attribute. It consists of method(s) for actual S3
+method on controllers as follows.
 
 Example::
 
@@ -56,20 +56,6 @@ from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid
 from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
     sysmeta_header
-
-
-def get_acl_handler(controller):
-    """
-    Get an ACL handler class for the given controller class.
-    """
-    for base_klass in [BaseAclHandler,
-                       MultiUploadAclHandler,
-                       NativeMultiUploadAclHandler]:
-        # pylint: disable-msg=E1101
-        for handler in base_klass.__subclasses__():
-            if handler.__name__ == controller.acl_handler():
-                return handler
-    return BaseAclHandler
 
 
 class BaseAclHandler(object):

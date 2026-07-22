@@ -20,50 +20,70 @@ from swift.common.middleware.s3api import controllers
 
 
 class TestAclHandlers(unittest.TestCase):
-    def test_get_acl_handlers(self):
-        class FooController(controllers.Controller):
-            pass
+    def test_controller_acl_handlers(self):
+        expected_handlers = (
+            (controllers.ServiceController, acl_handlers.BaseAclHandler),
+            (controllers.BucketController, acl_handlers.BucketAclHandler),
+            (controllers.ObjectController, acl_handlers.ObjectAclHandler),
+            (controllers.AclController, acl_handlers.BaseAclHandler),
+            (controllers.S3AclController, acl_handlers.S3AclHandler),
+            (controllers.MultiObjectDeleteController,
+             acl_handlers.MultiObjectDeleteAclHandler),
+            (controllers.PartController, acl_handlers.PartAclHandler),
+            (controllers.UploadController, acl_handlers.UploadAclHandler),
+            (controllers.UploadsController, acl_handlers.UploadsAclHandler),
+            (controllers.NativePartController,
+             acl_handlers.NativePartAclHandler),
+            (controllers.NativeUploadController,
+             acl_handlers.NativeUploadAclHandler),
+            (controllers.NativeUploadsController,
+             acl_handlers.NativeUploadsAclHandler),
+            (controllers.LocationController, acl_handlers.BaseAclHandler),
+            (controllers.LoggingStatusController,
+             acl_handlers.BaseAclHandler),
+            (controllers.VersioningController, acl_handlers.BaseAclHandler),
+            (controllers.TaggingController, acl_handlers.BaseAclHandler),
+            (controllers.ObjectLockController, acl_handlers.BaseAclHandler),
+            (controllers.UnsupportedController, None),
+        )
+        for controller, expected in expected_handlers:
+            self.assertIs(controller.acl_handler, expected)
 
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(controllers.BucketController),
-                acl_handlers.BucketAclHandler))
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(controllers.ObjectController),
-                acl_handlers.ObjectAclHandler))
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(controllers.S3AclController),
-                acl_handlers.S3AclHandler))
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(controllers.PartController),
-                acl_handlers.PartAclHandler))
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(controllers.UploadController),
-                acl_handlers.UploadAclHandler))
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(controllers.UploadsController),
-                acl_handlers.UploadsAclHandler))
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(controllers.NativePartController),
-                acl_handlers.NativePartAclHandler))
-        self.assertTrue(
-            issubclass(
-                acl_handlers.get_acl_handler(
-                    controllers.NativeUploadController),
-                acl_handlers.NativeUploadAclHandler))
-        self.assertTrue(
-            issubclass(acl_handlers.get_acl_handler(
-                controllers.NativeUploadsController),
-                acl_handlers.NativeUploadsAclHandler))
-        self.assertTrue(
-            issubclass(acl_handlers.get_acl_handler(FooController),
-                       acl_handlers.BaseAclHandler))
+    def test_base_controller_has_no_controller_metadata_defaults(self):
+        for attr in ('acl_handler', 'resource_type'):
+            self.assertFalse(hasattr(controllers.Controller, attr))
+
+    def test_controller_requires_acl_handler(self):
+        with self.assertRaises(TypeError) as caught:
+            class MissingAclHandlerController(controllers.Controller):
+                pass
+        self.assertEqual(
+            'MissingAclHandlerController must define acl_handler, '
+            'resource_type on the controller class; '
+            'do not rely on inherited controller metadata',
+            str(caught.exception))
+
+    def test_controller_cannot_inherit_metadata(self):
+        class ParentController(controllers.Controller):
+            acl_handler = acl_handlers.BaseAclHandler
+            resource_type = 'PARENT'
+
+        with self.assertRaises(TypeError) as caught:
+            class ChildController(ParentController):
+                pass
+        self.assertEqual(
+            'ChildController must define acl_handler, resource_type on the '
+            'controller class; do not rely on '
+            'inherited controller metadata',
+            str(caught.exception))
+
+    def test_controller_uses_explicit_resource_type(self):
+        class CopyObjectResultController(controllers.Controller):
+            acl_handler = acl_handlers.BaseAclHandler
+            resource_type = 'COPY_OBJECT_RESULT'
+
+        self.assertEqual('COPY_OBJECT_RESULT',
+                         CopyObjectResultController.resource_type)
 
     def test_handle_acl(self):
         # we have already have tests for s3_acl checking at test_s3_acl.py

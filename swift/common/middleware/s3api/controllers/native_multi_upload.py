@@ -25,6 +25,8 @@ from urllib.parse import quote, urlparse
 
 from swift.common import constraints
 from swift.common.middleware.mpu import parse_external_upload_id
+from swift.common.middleware.s3api.acl_handlers import NativePartAclHandler, \
+    NativeUploadAclHandler, NativeUploadsAclHandler
 from swift.common.swob import Range, normalize_etag, wsgi_to_str, \
     parse_date_header
 from swift.common.utils import json, public, reiterate, md5
@@ -98,11 +100,8 @@ class NativePartController(Controller):
 
     Those APIs are logged as PART operations in the S3 server log.
     """
-    @classmethod
-    def name(cls):
-        # override superclass to normalise with legacy multi_upload.py
-        # controller names
-        return 'Part'
+    acl_handler = NativePartAclHandler
+    resource_type = 'PART'
 
     def _check_copy_source_range(self, req):
         source_resp = req.check_copy_source(self.app)
@@ -164,7 +163,7 @@ class NativePartController(Controller):
         if 'X-Amz-Copy-Source' in req.headers:
             last_modified_ts = S3Timestamp(
                 parse_date_header(resp.headers['Last-Modified']))
-            resp.append_copy_resp_body(req.controller_name,
+            resp.append_copy_resp_body('CopyPartResult',
                                        last_modified_ts.s3xmlformat)
 
         resp.status = 200
@@ -180,11 +179,8 @@ class NativeUploadsController(Controller):
 
     Those APIs are logged as UPLOADS operations in the S3 server log.
     """
-    @classmethod
-    def name(cls):
-        # override superclass to normalise with legacy multi_upload.py
-        # controller names
-        return 'Uploads'
+    acl_handler = NativeUploadsAclHandler
+    resource_type = 'UPLOADS'
 
     @public
     @bucket_operation(err_resp=InvalidRequest,
@@ -367,11 +363,8 @@ class NativeUploadController(Controller):
 
     Those APIs are logged as UPLOAD operations in the S3 server log.
     """
-    @classmethod
-    def name(cls):
-        # override superclass to normalise with legacy multi_upload.py
-        # controller names
-        return 'Upload'
+    acl_handler = NativeUploadAclHandler
+    resource_type = 'UPLOAD'
 
     @public
     @object_operation

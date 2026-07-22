@@ -1823,10 +1823,6 @@ class S3Request(swob.Request):
         }
 
     @property
-    def controller_name(self):
-        return self.controller.name()
-
-    @property
     def controller(self):
         unsupported = ('notification', 'policy', 'publicAccessBlock',
                        'requestPayment', 'torrent', 'website', 'cors',

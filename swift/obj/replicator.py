@@ -476,11 +476,12 @@ class ObjectReplicator(Daemon):
         if success or not job['delete']:
             headers = dict(self.default_headers)
             headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
-            with Timeout(self.http_timeout):
+            with Timeout(self.conn_timeout):
                 conn = http_connect(
                     node['replication_ip'], node['replication_port'],
                     node['device'], job['partition'], 'REPLICATE',
                     '/' + '-'.join(suffixes), headers=headers)
+            with Timeout(self.http_timeout):
                 try:
                     conn.getresponse().read()
                 finally:
@@ -687,19 +688,34 @@ class ObjectReplicator(Daemon):
                 if node['region'] in synced_remote_regions:
                     continue
                 try:
-                    with Timeout(self.http_timeout):
+                    with Timeout(self.conn_timeout):
                         conn = http_connect(
                             node['replication_ip'], node['replication_port'],
                             node['device'], job['partition'], 'REPLICATE',
                             '', headers=headers)
+                    with Timeout(self.http_timeout):
                         try:
                             resp = conn.getresponse()
                             if resp.status == HTTP_INSUFFICIENT_STORAGE:
                                 self.logger.error('%s responded as unmounted',
                                                   node_str)
-                                attempts_left += 1
                                 failure_devs_info.add((node['replication_ip'],
                                                        node['device']))
+                                if self.handoff_delete:
+                                    # +1 for our copy
+                                    safe = 1 + len(target_devs_info -
+                                                   failure_devs_info)
+                                    hopefully_safe = safe + attempts_left
+                                    if hopefully_safe < self.handoff_delete:
+                                        # Even if all remaining attempts
+                                        # succeed, we still can't hit even the
+                                        # configured reduced-durability target;
+                                        # be willing to over-replicate
+                                        attempts_left += 1
+                                else:
+                                    # handoff_delete disabled; always be
+                                    # willing to over-replicate
+                                    attempts_left += 1
                                 continue
                             if resp.status != HTTP_OK:
                                 self.logger.error(

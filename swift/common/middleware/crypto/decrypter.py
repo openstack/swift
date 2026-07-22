@@ -437,14 +437,18 @@ class DecrypterContContext(BaseDecrypterContext):
                     obj_dict['hash'] = self.decrypt_value(
                         ciphertext, keys['container'], crypto_meta,
                         decoder=lambda x: x.decode('utf-8'))
-                except EncryptionException as err:
-                    if not isinstance(err, UnknownSecretIdError) or \
-                            err.args[0] not in bad_keys:
+                except (EncryptionException, UnicodeDecodeError) as err:
+                    if not isinstance(err, UnknownSecretIdError):
+                        self.logger.error(
+                            "Error decrypting container listing for "
+                            "%s/%s with key %s: %s",
+                            req.path_info.rstrip('/'), obj_dict['name'],
+                            crypto_meta['key_id'], err)
+                    elif err.args[0] not in bad_keys:
                         # Only warn about an unknown key once per listing
                         self.logger.error(
                             "Error decrypting container listing: %s",
                             err)
-                    if isinstance(err, UnknownSecretIdError):
                         bad_keys.add(err.args[0])
                     obj_dict['hash'] = '<unknown>'
         return obj_dict

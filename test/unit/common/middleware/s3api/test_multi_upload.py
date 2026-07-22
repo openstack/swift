@@ -305,6 +305,31 @@ class BaseS3ApiMultiUpload(object):
             self._test_bucket_multipart_uploads_GET(query)
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
 
+    def _assert_invalid_utf8_list_multipart_upload_param(
+            self, query_string, argument_name):
+        req = Request.blank('/bucket/?uploads&%s' % query_string,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('400 Bad Request', status)
+        elem = fromstring(body, 'Error')
+        self.assertEqual('InvalidArgument', elem.find('./Code').text)
+        self.assertEqual(argument_name, elem.find('./ArgumentName').text)
+        self.assertEqual('%98', elem.find('./ArgumentValue').text)
+
+    def test_bucket_multipart_uploads_GET_with_invalid_utf8_queries(self):
+        self._assert_invalid_utf8_list_multipart_upload_param(
+            'encoding-type=\x98', 'encoding-type')
+        self._assert_invalid_utf8_list_multipart_upload_param(
+            'key-marker=\x98', 'key-marker')
+        self._assert_invalid_utf8_list_multipart_upload_param(
+            'upload-id-marker=\x98', 'upload-id-marker')
+        self._assert_invalid_utf8_list_multipart_upload_param(
+            'prefix=\x98', 'prefix')
+        self._assert_invalid_utf8_list_multipart_upload_param(
+            'delimiter=\x98', 'delimiter')
+
     def test_bucket_multipart_uploads_GET_maxuploads(self):
         query = 'max-uploads=2'
         status, headers, body = \

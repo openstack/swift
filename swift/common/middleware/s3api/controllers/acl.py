@@ -18,6 +18,7 @@ from swift.common.middleware.acl import parse_acl, referrer_allowed
 from swift.common.utils import public
 
 from swift.common.middleware.s3api.exception import ACLError
+from swift.common.middleware.s3api.acl_handlers import BaseAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import (
     HTTPOk, S3NotImplemented, MalformedACLError, UnexpectedContent,
@@ -85,6 +86,9 @@ class AclController(Controller):
 
     Those APIs are logged as ACL operations in the S3 server log.
     """
+    acl_handler = BaseAclHandler
+    resource_type = 'ACL'
+
     @public
     def GET(self, req):
         """

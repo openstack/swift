@@ -16,6 +16,7 @@
 from urllib.parse import quote
 from swift.common.utils import public
 
+from swift.common.middleware.s3api.acl_handlers import S3AclHandler
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import HTTPOk
 from swift.common.middleware.s3api.etree import tostring
@@ -32,11 +33,8 @@ class S3AclController(Controller):
 
     Those APIs are logged as ACL operations in the S3 server log.
     """
-    @classmethod
-    def acl_handler(cls):
-        # override superclass for this special case so that we don't end up
-        # with S3AclAclHandler
-        return cls.__name__[:-len('Controller')] + 'Handler'
+    acl_handler = S3AclHandler
+    resource_type = 'S3_ACL'
 
     @public
     def GET(self, req):

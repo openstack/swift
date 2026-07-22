@@ -352,12 +352,13 @@ class _StaticWebContext(WSGIContext):
                 subdir = item['subdir']
                 if prefix:
                     subdir = subdir[len(wsgi_to_str(prefix)):]
-                body += '   <tr class="item subdir">\n' \
-                        '    <td class="colname"><a href="%s">%s</a></td>\n' \
-                        '    <td class="colsize">&nbsp;</td>\n' \
-                        '    <td class="coldate">&nbsp;</td>\n' \
-                        '   </tr>\n' % \
-                        (quote(subdir) + tempurl_qs, html.escape(subdir))
+                body += ('   <tr class="item subdir">\n'
+                         '    <td class="colname"><a href="./%s">%s</a></td>\n'
+                         '    <td class="colsize">&nbsp;</td>\n'
+                         '    <td class="coldate">&nbsp;</td>\n'
+                         '   </tr>\n' %
+                         (quote(subdir).replace('.', '%2E') + tempurl_qs,
+                          html.escape(subdir)))
         for item in listing:
             if 'name' in item:
                 name = item['name']
@@ -368,15 +369,15 @@ class _StaticWebContext(WSGIContext):
                 last_modified = (
                     html.escape(item['last_modified']).
                     split('.')[0].replace('T', ' '))
-                body += '   <tr class="item %s">\n' \
-                        '    <td class="colname"><a href="%s">%s</a></td>\n' \
-                        '    <td class="colsize">%s</td>\n' \
-                        '    <td class="coldate">%s</td>\n' \
-                        '   </tr>\n' % \
-                        (' '.join('type-' + html.escape(t.lower())
-                                  for t in content_type.split('/')),
-                         quote(name) + tempurl_qs, html.escape(name),
-                         bytes, last_modified)
+                body += ('   <tr class="item %s">\n'
+                         '    <td class="colname"><a href="./%s">%s</a></td>\n'
+                         '    <td class="colsize">%s</td>\n'
+                         '    <td class="coldate">%s</td>\n'
+                         '   </tr>\n' %
+                         (' '.join('type-' + html.escape(t.lower())
+                                   for t in content_type.split('/')),
+                          quote(name).replace('.', '%2E') + tempurl_qs,
+                          html.escape(name), bytes, last_modified))
         body += '  </table>\n' \
                 ' </body>\n' \
                 '</html>\n'

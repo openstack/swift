@@ -15,6 +15,7 @@
 
 from swift.common.utils import public
 
+from swift.common.middleware.s3api.acl_handlers import BaseAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller, \
     S3NotImplemented
 from swift.common.middleware.s3api.s3response import HTTPOk
@@ -31,6 +32,9 @@ class TaggingController(Controller):
     * DELETE Bucket and Object tagging
 
     """
+    acl_handler = BaseAclHandler
+    resource_type = 'TAGGING'
+
     @public
     def GET(self, req):
         """
