@@ -652,6 +652,8 @@
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-ec-py312:
             irrelevant-files: *functest-irrelevant-files
+        - swift-tox-func-py39-centos-9-stream:
+            irrelevant-files: *functest-irrelevant-files
 
         # Other tests
         - swift-func-cors:
