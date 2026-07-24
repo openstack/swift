@@ -694,12 +694,12 @@ class TestProxyLogging(BaseTestProxyLogging):
         app = proxy_logging.ProxyLoggingMiddleware(
             FakeApp(body=b'7 bytes'), {}, logger=self.logger)
         app.statsd = self.statsd
-        exp_labels = {'resource': 'UNKNOWN',
-                      'method': 'GET',
-                      'api': 'swift',
-                      'status': 200}
 
         def do_test(bad_path):
+            exp_labels = {'resource': None,
+                          'method': 'GET',
+                          'api': 'swift',
+                          'status': 200}
             self._clear()
             req = Request.blank(bad_path, environ={'REQUEST_METHOD': 'GET'})
             with mock.patch('time.time',
@@ -1832,10 +1832,6 @@ class TestProxyLogging(BaseTestProxyLogging):
 
     def _do_test_update_swift_base_labels_s3_request(self, req_hdrs):
         mw_conf = {}
-        req_hdrs = {
-            'Authorization': 'AWS test:tester:hmac',
-            'Date': email.utils.formatdate(time.time() + 0),
-        }
         self.assertEqual(
             {
                 'resource': 'container',
@@ -1958,8 +1954,8 @@ class TestProxyLogging(BaseTestProxyLogging):
         base_labels = self._do_test_base_labels_end_to_end('/info')
 
         self.assertEqual(
-            [{'method': 'PUT', 'api': 'swift', 'resource': 'UNKNOWN'},
-             {'method': 'PUT', 'api': 'swift', 'resource': 'UNKNOWN'}],
+            [{'method': 'PUT', 'api': 'swift', 'resource': None},
+             {'method': 'PUT', 'api': 'swift', 'resource': None}],
             base_labels)
 
     def test_base_labels_end_to_end_account(self):
@@ -3968,3 +3964,73 @@ class TestProxyLogging(BaseTestProxyLogging):
         log_parts = self._log_parts(app)
         self.assertEqual(log_parts[-1],
                          '{SMD5}14fe1612c332096e282486e4baa37e63')
+
+    def test_labeled_stats_resource_unknown(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = self.logger
+        app.statsd = self.statsd
+        req = Request.blank('/', method='GET')
+        now = time.time()
+        with mock.patch('swift.common.middleware.proxy_logging.time.time',
+                        return_value=now):
+            list(app(req.environ, start_response))
+        log_parts = self._log_parts(app)
+        self.assertEqual(['GET', '/', 'HTTP/1.0', '200'], log_parts[3:7])
+        exp_labels = {'resource': None,
+                      'api': 'swift',
+                      'method': 'GET',
+                      'status': 200}
+        self.assertLabeledTimingStats([
+            ('swift_proxy_server_request_ttfb', mock.ANY, exp_labels),
+            ('swift_proxy_server_request_timing', mock.ANY, exp_labels),
+        ])
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_server_request_body_bytes', 0, exp_labels),
+            ('swift_proxy_server_response_body_bytes', 8, exp_labels)
+        ])
+        # {'resource': None} is rendered as 'resource:' on the wire
+        exp_label_bytes = b'|#api:swift,method:GET,resource:,status:200'
+        self.assertEqual(
+            [b'swift_proxy_server_request_ttfb:0.0|ms' + exp_label_bytes,
+             b'swift_proxy_server_request_timing:0.0|ms' + exp_label_bytes,
+             b'swift_proxy_server_request_body_bytes:0|c' + exp_label_bytes,
+             b'swift_proxy_server_response_body_bytes:8|c' + exp_label_bytes],
+            [payload for payload, address in self.statsd.sendto_calls])
+        self.assertTiming('UNKNOWN.GET.200.timing', app)
+        self.assertTiming('UNKNOWN.GET.200.first-byte.timing', app)
+        self.assertUpdateStats([('UNKNOWN.GET.200.xfer', 8)], app)
+
+    def test_labeled_stats_resource_defaults_to_swift_source(self):
+        app = proxy_logging.ProxyLoggingMiddleware(FakeApp(), {})
+        app.access_logger = self.logger
+        app.statsd = self.statsd
+        req = Request.blank('/', method='GET',
+                            environ={'swift.source': 'SourcE'})
+        now = time.time()
+        with mock.patch('swift.common.middleware.proxy_logging.time.time',
+                        return_value=now):
+            list(app(req.environ, start_response))
+        log_parts = self._log_parts(app)
+        self.assertEqual(['GET', '/', 'HTTP/1.0', '200'], log_parts[3:7])
+        exp_labels = {'resource': 'SourcE',
+                      'api': 'swift',
+                      'method': 'GET',
+                      'status': 200}
+        self.assertLabeledTimingStats([
+            ('swift_proxy_server_request_ttfb', mock.ANY, exp_labels),
+            ('swift_proxy_server_request_timing', mock.ANY, exp_labels),
+        ])
+        self.assertLabeledUpdateStats([
+            ('swift_proxy_server_request_body_bytes', 0, exp_labels),
+            ('swift_proxy_server_response_body_bytes', 8, exp_labels)
+        ])
+        exp_label_bytes = b'|#api:swift,method:GET,resource:SourcE,status:200'
+        self.assertEqual(
+            [b'swift_proxy_server_request_ttfb:0.0|ms' + exp_label_bytes,
+             b'swift_proxy_server_request_timing:0.0|ms' + exp_label_bytes,
+             b'swift_proxy_server_request_body_bytes:0|c' + exp_label_bytes,
+             b'swift_proxy_server_response_body_bytes:8|c' + exp_label_bytes],
+            [payload for payload, address in self.statsd.sendto_calls])
+        self.assertTiming('SourcE.GET.200.timing', app)
+        self.assertTiming('SourcE.GET.200.first-byte.timing', app)
+        self.assertUpdateStats([('SourcE.GET.200.xfer', 8)], app)
