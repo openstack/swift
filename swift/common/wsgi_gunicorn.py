@@ -68,6 +68,7 @@ from swift.common.utils import capture_stdio, config_fallocate_value, \
 import gunicorn.util
 import gunicorn.sock
 import gunicorn.app.base
+from gunicorn import debug
 import gunicorn.http.message
 import gunicorn.http.wsgi
 import gunicorn.http.body
@@ -629,17 +630,31 @@ def _map_chunk_read_error(err):
 
 
 class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
-    def __init__(self, load_app, build_cfg):
+    def __init__(self, load_app, build_cfg, logger):
         self.load_app = load_app
         self.build_cfg = build_cfg
+        self.swift_logger = logger
         super().__init__()
 
     def load_config(self):
-        # Rebuild the full config on every (re)load. gunicorn's reload() calls
-        # load_default_config() first, resetting bind to its default
-        # 127.0.0.1:8000; a no-op here would lose our real bind/workers and
-        # reloaded masters would collide trying to rebind 8000.
+        # BaseApplication calls this only while creating the app. Keep a bad
+        # initial configuration fatal, rather than starting a broken service.
         self.cfg = self.build_cfg()
+
+    def reload(self):
+        # BaseApplication.reload() first replaces self.cfg with Gunicorn's
+        # defaults. Build the replacement before discarding the live config so
+        # a bad edit on SIGHUP leaves the running listener and worker settings
+        # intact instead of making the arbiter rebind its default address.
+        try:
+            cfg = self.build_cfg()
+        except Exception:
+            self.swift_logger.exception(
+                'Ignoring invalid configuration during Gunicorn reload')
+            return
+        self.cfg = cfg
+        if self.cfg.spew:
+            debug.spew()
 
     def load(self):
         return self.load_app()
@@ -1171,7 +1186,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     logger.notice('Starting gunicorn/gthread server on %s with %d workers',
                   bind, workers)
 
-    SwiftGunicornApp(load_app, build_cfg).run()
+    SwiftGunicornApp(load_app, build_cfg, logger).run()
 
     logger.notice('Exited (%s)', os.getpid())
     return 0

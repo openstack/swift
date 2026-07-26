@@ -354,3 +354,49 @@ class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
         # the callback never throws inside the thread pool
         fut = self._run(exc=ValueError('boom'))
         fut.result.assert_not_called()
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestSwiftGunicornApp(unittest.TestCase):
+    def _config(self):
+        config = MagicMock()
+        config.spew = False
+        return config
+
+    def test_initial_invalid_config_is_fatal(self):
+        logger = MagicMock()
+        build_cfg = MagicMock(side_effect=ValueError('bad thread count'))
+
+        with self.assertRaises(SystemExit) as caught:
+            wsgi_gunicorn.SwiftGunicornApp(MagicMock(), build_cfg, logger)
+
+        self.assertEqual(1, caught.exception.code)
+        logger.exception.assert_not_called()
+
+    def test_reload_keeps_last_good_config_after_error(self):
+        logger = MagicMock()
+        good_cfg = self._config()
+        build_cfg = MagicMock(
+            side_effect=[good_cfg, ValueError('bad thread count')])
+        app = wsgi_gunicorn.SwiftGunicornApp(
+            MagicMock(), build_cfg, logger)
+
+        app.reload()
+
+        self.assertIs(app.cfg, good_cfg)
+        self.assertEqual(2, build_cfg.call_count)
+        logger.exception.assert_called_once_with(
+            'Ignoring invalid configuration during Gunicorn reload')
+
+    def test_reload_replaces_config_after_success(self):
+        logger = MagicMock()
+        old_cfg = self._config()
+        new_cfg = self._config()
+        build_cfg = MagicMock(side_effect=[old_cfg, new_cfg])
+        app = wsgi_gunicorn.SwiftGunicornApp(
+            MagicMock(), build_cfg, logger)
+
+        app.reload()
+
+        self.assertIs(app.cfg, new_cfg)
+        logger.exception.assert_not_called()
