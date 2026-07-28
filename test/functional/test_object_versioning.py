@@ -1089,6 +1089,10 @@ class TestObjectVersioning(TestObjectVersioningBase):
         self.assertTrue(obj.write(b'version1'))
 
         with self.assertRaises(ResponseError) as cm:
+            obj.write(b'', parms={'version-id': 'null'})
+        self.assertEqual(400, cm.exception.status)
+
+        with self.assertRaises(ResponseError) as cm:
             obj.write(b'', parms={'version-id': 'bad'})
         self.assertEqual(400, cm.exception.status)
 

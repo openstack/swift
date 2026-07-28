@@ -153,7 +153,7 @@ from swift.common.http import is_success, is_client_error, HTTP_NOT_FOUND, \
     HTTP_CONFLICT
 from swift.common.request_helpers import get_sys_meta_prefix, \
     copy_header_subset, get_reserved_name, split_reserved_name, \
-    constrain_req_limit, update_systags
+    constrain_req_limit
 from swift.common.middleware import app_property
 from swift.common.middleware.symlink import TGT_OBJ_SYMLINK_HDR, \
     TGT_ETAG_SYSMETA_SYMLINK_HDR, SYMLOOP_EXTEND, ALLOW_RESERVED_NAMES, \
@@ -175,18 +175,21 @@ DELETE_MARKER_CONTENT_TYPE = 'application/x-deleted;swift_versions_deleted=1'
 CLIENT_VERSIONS_ENABLED = 'x-versions-enabled'
 SYSMETA_VERSIONS_ENABLED = \
     get_sys_meta_prefix('container') + 'versions-enabled'
-S3_COMPATIBLE_VERSIONS = 's3-compatible-versions'
-CLIENT_S3_COMPATIBLE_VERSIONS = 'x-' + S3_COMPATIBLE_VERSIONS
-SYSMETA_S3_COMPATIBLE_VERSIONS = \
-    get_sys_meta_prefix('container') + S3_COMPATIBLE_VERSIONS
 SYSMETA_VERSIONS_CONT = get_sys_meta_prefix('container') + 'versions-container'
 SYSMETA_PARENT_CONT = get_sys_meta_prefix('container') + 'parent-container'
 SYSMETA_VERSIONS_SYMLINK = get_sys_meta_prefix('object') + 'versions-symlink'
 
 
-def is_versioning_enabled(container_info):
-    return config_true_value(container_info.get(
-        'sysmeta', {}).get('versions-enabled'))
+def build_versions_object_prefix(object_name):
+    """
+    Get the reserved-namespace prefix for all version objects of
+    ``object_name``. Suitable as a listing ``marker`` or ``prefix``
+    parameter to page through versions.
+
+    :param object_name: (str) name of the user object
+    :return: reserved-namespace prefix string
+    """
+    return get_reserved_name(object_name, '')
 
 
 def build_versions_container_name(container_name):
@@ -199,12 +202,40 @@ def build_versions_container_name(container_name):
     return get_reserved_name('versions', container_name)
 
 
+def build_versions_object_name(object_name, version_id):
+    """
+    Get the name of the version object for given ``object_name`` and
+    ``version_id``.
+
+    :param object_name: (str) name of object
+    :param version_id: (str) version of object
+    :return: a version object name in the reserved namespace
+    """
+    inv = ~Timestamp(version_id)
+    return get_reserved_name(object_name, inv.internal)
+
+
+def parse_versions_object_name(versioned_name):
+    """
+    Parse a version object name into the user object name and the version_id.
+
+    :param versioned_name: version object name
+    :return: a tuple of strings: (user object name, version_id).
+    """
+    try:
+        name, inv = split_reserved_name(versioned_name)
+        version_id = (~Timestamp(inv)).internal
+    except ValueError:
+        return versioned_name, None
+    return name, version_id
+
+
 def split_versions_container_name(versions_container):
     """
     Extract the user namespace container name from a versions container name.
 
     :param versions_container: name of versions container
-    :return: the user namespace container
+    :return: the user namespace container name
     """
     try:
         versions, container_name = split_reserved_name(versions_container)
@@ -217,50 +248,7 @@ def split_versions_container_name(versions_container):
     return container_name
 
 
-def build_versions_object_name(object_name, version):
-    """
-    Get the name of the versions object for given ``object_name`` and
-    ``version``.
-
-    :param object_name: (str) name of object
-    :param version: (str) version of object
-    :return: a version name in the reserved namespace
-    """
-    if version != 'null':
-        version = (~Timestamp(version)).internal
-    return get_reserved_name(object_name, version)
-
-
-def build_versions_object_prefix(object_name):
-    return get_reserved_name(object_name, '')
-
-
-def parse_versions_object_name(versioned_name):
-    """
-    Parse a version name into the user object name and external representation
-    of the version.
-
-    :param versioned_name: version name
-    :return: a tuple of (user object name, version).
-    """
-    try:
-        name, suffix = split_reserved_name(versioned_name)
-        if suffix == 'null':
-            version = suffix
-        else:
-            version = (~Timestamp(suffix)).internal
-    except ValueError:
-        return versioned_name, None
-    return name, version
-
-
 def validate_version(req, version, allow_null=True):
-    """
-    Validate a version.
-
-    :param version: version string to validate
-    :raises ValueError: if the version is invalid
-    """
     if version != 'null' or not allow_null:
         try:
             Timestamp(version)
@@ -330,8 +318,10 @@ class ObjectVersioningContext(WSGIContext):
 
 class ObjectContext(ObjectVersioningContext):
     def __init__(self, wsgi_app, logger, api_version, account,
-                 container, obj, versions_cont, is_enabled, s3_compat):
+                 container, obj, versions_cont, is_enabled):
         """
+        Handle request to object resources.
+
         Note that account, container, obj should be unquoted by caller
         if the url path is under url encoding (e.g. %FF)
 
@@ -342,7 +332,7 @@ class ObjectContext(ObjectVersioningContext):
         :param container: container name string
         :param obj: object name string
         :param versions_cont: container holding versions of the requested obj
-        :param is_enabled: is versioning currently enabled
+        :param is_enabled: set True if versioning is currently enabled
         """
         super().__init__(wsgi_app, logger)
         self.api_version = api_version
@@ -351,36 +341,6 @@ class ObjectContext(ObjectVersioningContext):
         self.obj = obj
         self.versions_cont = versions_cont
         self.is_enabled = is_enabled
-        self.s3_compat = s3_compat
-
-    def get_version(self, req):
-        """
-        Get version to use for a client request.
-
-        :param: a swob.Request instance
-        :return: a version string
-        """
-        # Drop any offset from ts. Timestamp offsets are never exposed to
-        # clients, so Timestamp.normal is sufficient to define a version as
-        # perceived by clients.
-        return timestamp_to_version(req.timestamp)
-
-    def get_null_version(self, resp):
-        """
-        Get version to use when copying a null version from the user container
-        to the versions container.
-
-        :param: a swob.Response instance for the existing object GET
-        :return: a version string
-        """
-        timestamp_str = resp.headers.get(
-            'x-backend-data-timestamp',
-            resp.headers.get(
-                'x-backend-timestamp',
-                resp.headers.get(
-                    'x-timestamp',
-                    str(parse_date_header(resp.headers['last-modified'])))))
-        return timestamp_to_version(timestamp_str)
 
     def _get_source_object(self, req, path_info):
         # make a pre_auth request in case the user has write access
@@ -398,14 +358,31 @@ class ObjectContext(ObjectVersioningContext):
 
         return source_resp
 
-    def _put_versioned_obj(self, req, put_path_info, source_resp):
-        # Create a new Request object to PUT to the versions container.
+    def _put_versioned_obj_from_source(self, req, source_resp):
+        # Create a new Request object to PUT to the versions container, copying
+        # all headers from the source object apart from x-timestamp.
+        # Use the source x-backend-data-timestamp as the put timestamp because
+        # this is the time at which the version's *data* was created.
+        # TODO: the version object name needs to reflect the upload-id which
+        # may not be exactly the data timestamp
+        source_timestamp = source_resp.headers.get(
+            'x-backend-data-timestamp',
+            source_resp.headers.get(
+                'x-backend-timestamp',
+                source_resp.headers.get(
+                    'x-timestamp',
+                    str(parse_date_header(
+                        source_resp.headers['last-modified'])))))
+        vers_obj_name = build_versions_object_name(
+            self.obj, timestamp_to_version(source_timestamp))
+        put_path_info = "/%s/%s/%s/%s" % (
+            self.api_version, self.account, self.versions_cont, vers_obj_name)
         headers = {'X-Backend-Allow-Reserved-Names': 'true'}
         headers.update(source_resp.headers)
+        headers['X-Timestamp'] = source_timestamp
         put_req = make_pre_authed_request(
             req.environ, path=wsgi_quote(put_path_info), method='PUT',
             headers=headers, swift_source='OV')
-
         put_req.environ['wsgi.input'] = FileLikeIter(source_resp.app_iter)
         slo_size = put_req.headers.get('X-Object-Sysmeta-Slo-Size')
         if slo_size:
@@ -414,12 +391,12 @@ class ObjectContext(ObjectVersioningContext):
         put_resp = put_req.get_response(self.app)
         drain_and_close(put_resp)
         # the PUT should have already drained source_resp
-        # TODO: why are we trying to close an *iter*?
         close_if_possible(source_resp.app_iter)
         return put_resp
 
-    def _put_versioned_obj_from_client(self, req, version):
-        vers_obj_name = build_versions_object_name(self.obj, version)
+    def _put_versioned_obj_from_client(self, req):
+        vers_obj_name = build_versions_object_name(
+            self.obj, timestamp_to_version(req.timestamp))
         put_path_info = "/%s/%s/%s/%s" % (
             self.api_version, self.account, self.versions_cont, vers_obj_name)
         # Consciously *do not* set swift_source here -- this req is in charge
@@ -496,8 +473,6 @@ class ObjectContext(ObjectVersioningContext):
         for header in not_for_symlink_headers:
             req.headers.pop(header, None)
 
-        update_systags(req, {'version': 'yes'})
-
         # *do* set swift_source here; this PUT is an implementation detail
         req.environ['swift.source'] = 'OV'
         req.body = b''
@@ -559,16 +534,7 @@ class ObjectContext(ObjectVersioningContext):
             return
 
         # if there's an existing object, then copy it to the versions container
-        if self.s3_compat:
-            version = 'null'
-        else:
-            version = self.get_null_version(get_resp)
-            get_resp.headers.pop('x-timestamp', None)
-
-        vers_obj_name = build_versions_object_name(self.obj, version)
-        put_path_info = "/%s/%s/%s/%s" % (
-            self.api_version, self.account, self.versions_cont, vers_obj_name)
-        put_resp = self._put_versioned_obj(req, put_path_info, get_resp)
+        put_resp = self._put_versioned_obj_from_source(req, get_resp)
 
         if put_resp.status_int == HTTP_NOT_FOUND:
             raise HTTPInternalServerError(
@@ -589,23 +555,19 @@ class ObjectContext(ObjectVersioningContext):
         and add a static symlink in the versioned container.
 
         :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
         """
-        if self.is_enabled:
-            # attempt to copy current object to versions container
-            self._copy_current(req)
-            # then put to versions container
-            req.ensure_x_timestamp()
-            version = self.get_version(req)
-        elif self.s3_compat:
-            # put to versions container while versioning is suspended
-            version = 'null'
-        else:
+        if not self.is_enabled:
             # put to user container while versioning is suspended
             return req.get_response(self.app)
 
+        # attempt to copy current object to versions container
+        self._copy_current(req)
+
         # write client's put directly to versioned container
+        req.ensure_x_timestamp()
         put_resp, put_vers_obj_name, put_bytes, put_content_type = \
-            self._put_versioned_obj_from_client(req, version)
+            self._put_versioned_obj_from_client(req)
 
         # and add an static symlink to original container
         target_etag = put_resp.headers['Etag']
@@ -620,25 +582,19 @@ class ObjectContext(ObjectVersioningContext):
         delete marker before proceeding with original request.
 
         :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
         """
         # handle object request for a disabled versioned container.
-        if self.is_enabled:
-            # attempt to copy current object to versions container
-            self._copy_current(req)
-            # then put to versions container
-            req.ensure_x_timestamp()
-            version = self.get_version(req)
-            systags = {'version': 'yes'}
-        elif self.s3_compat:
-            # put to versions container while versioning is suspended
-            req.ensure_x_timestamp()
-            version = 'null'
-            systags = {}
-        else:
+        if not self.is_enabled:
             # put to user container while versioning is suspended
             return req.get_response(self.app)
 
-        marker_name = build_versions_object_name(self.obj, version)
+        # attempt to copy current object to versions container
+        self._copy_current(req)
+        # then put to versions container
+        req.ensure_x_timestamp()
+        marker_name = build_versions_object_name(
+            self.obj, timestamp_to_version(req.timestamp))
         marker_path = "/%s/%s/%s/%s" % (
             self.api_version, self.account, self.versions_cont, marker_name)
         marker_headers = {
@@ -660,9 +616,7 @@ class ObjectContext(ObjectVersioningContext):
         self._check_response_error(req, marker_resp)
         drain_and_close(marker_resp)
 
-        # successfully copied and created delete marker in versions container;
-        # safe to delete in the user container...
-        update_systags(req, systags)
+        # successfully copied and created delete marker; safe to delete
         resp = req.get_response(self.app)
         if resp.is_success or resp.status_int == 404:
             resp.headers['X-Object-Version-Id'] = \
@@ -679,6 +633,7 @@ class ObjectContext(ObjectVersioningContext):
         follow the symlink and send the request to the versioned object
 
         :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
         """
         # create eventual post request before
         # encryption middleware changes the request headers
@@ -704,6 +659,42 @@ class ObjectContext(ObjectVersioningContext):
                 resp = post_req.get_response(self.app)
         return resp
 
+    def handle_get_head_options(self, req):
+        """
+        Handle a GET, HEAD or OPTIONS request.
+
+        :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
+        """
+        # GET, HEAD, OPTIONS: pass through and annotate with version-id
+        resp = req.get_response(self.app)
+
+        resp.headers['X-Object-Version-Id'] = 'null'
+        # Check for a "real" version
+        loc = wsgi_unquote(resp.headers.get('Content-Location', ''))
+        if loc:
+            _, acct, cont, version_obj = split_path(loc, 4, 4, True)
+            if acct == self.account and cont == self.versions_cont:
+                _, version_id = parse_versions_object_name(version_obj)
+                if version_id is not None:
+                    resp.headers['X-Object-Version-Id'] = version_id
+                    content_loc = wsgi_quote('/%s/%s/%s/%s' % (
+                        self.api_version, self.account, self.container,
+                        self.obj)) + '?version-id=%s' % version_id
+                    resp.headers['Content-Location'] = content_loc
+        symlink_target = wsgi_unquote(resp.headers.get('X-Symlink-Target', ''))
+        if symlink_target:
+            cont, version_obj = split_path('/%s' % symlink_target, 2, 2, True)
+            if cont == self.versions_cont:
+                _, version_id = parse_versions_object_name(version_obj)
+                if version_id is not None:
+                    resp.headers['X-Object-Version-Id'] = version_id
+                    symlink_target = wsgi_quote(
+                        '%s/%s' % (self.container, self.obj)) + \
+                        '?version-id=%s' % version_id
+                    resp.headers['X-Symlink-Target'] = symlink_target
+        return resp
+
     def _check_head(self, req, auth_token_header):
         obj_head_headers = {
             'X-Newest': 'True',
@@ -726,40 +717,25 @@ class ObjectContext(ObjectVersioningContext):
         drain_and_close(hresp)
         return head_is_tombstone, symlink_target
 
-    def handle_delete_with_version_id(self, req, version):
+    def handle_delete_with_version_id(self, req, version_id):
         """
-        Handle a DELETE?version_id request.
+        Handle a DELETE?version-id request.
 
         :param req: original request.
-        :param version: version to delete.
+        :param version_id: version to delete.
+        :returns: a callable that implements the wsgi application interface.
         """
-        if version == 'null' and not (self.s3_compat and self.versions_cont):
-            # let the request go directly through to the is_latest link unless
-            # for an s3-compat versioned container
-            return req.get_response(self.app)
+        if version_id == 'null':
+            # let the request go directly through to the is_latest link
+            return self.app
         auth_token_header = {'X-Auth-Token': req.headers.get('X-Auth-Token')}
         head_is_tombstone, symlink_target = self._check_head(
             req, auth_token_header)
 
-        versions_obj = build_versions_object_name(self.obj, version)
+        versions_obj = build_versions_object_name(self.obj, version_id)
         req_obj_path = '%s/%s' % (self.versions_cont, versions_obj)
-        if head_is_tombstone:
-            version_is_latest = False
-            resp_version_id = None
-        elif symlink_target:
-            symlink_target = wsgi_unquote(symlink_target)
-            if symlink_target == wsgi_unquote(req_obj_path):
-                version_is_latest = True
-                resp_version_id = None
-            else:
-                version_is_latest = False
-                _, vers_obj_name = symlink_target.split('/', 1)
-                resp_version_id = parse_versions_object_name(vers_obj_name)[1]
-        else:
-            # de-facto null version (never been copied to versions container)
-            version_is_latest = version == 'null'
-            resp_version_id = None
-        if not version_is_latest:
+        if head_is_tombstone or not symlink_target or (
+           wsgi_unquote(symlink_target) != wsgi_unquote(req_obj_path)):
             # If there's no current version (i.e., tombstone or unversioned
             # object) or if current version links to another version, then
             # just delete the version requested to be deleted
@@ -767,47 +743,47 @@ class ObjectContext(ObjectVersioningContext):
                 self.api_version, self.account, self.versions_cont,
                 versions_obj)
             req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+            if head_is_tombstone or not symlink_target:
+                resp_version_id = 'null'
+            else:
+                _, vers_obj_name = wsgi_unquote(symlink_target).split('/', 1)
+                resp_version_id = parse_versions_object_name(vers_obj_name)[1]
         else:
             # if version-id is the latest version, delete the link too
             # First, kill the link...
             req.environ['QUERY_STRING'] = ''
-            update_systags(req, {'version': 'yes'})
             link_resp = req.get_response(self.app)
             self._check_response_error(req, link_resp)
             drain_and_close(link_resp)
-            update_systags(req, {'version': None})
 
             # *then* the backing data
             req.path_info = "/%s/%s/%s/%s" % (
                 self.api_version, self.account, self.versions_cont,
                 versions_obj)
             req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+            resp_version_id = 'null'
         resp = req.get_response(self.app)
-        resp.headers['X-Object-Version-Id'] = version
-        if self.s3_compat and (version_is_latest or not resp_version_id):
-            # The only in-tree use for this header is in the s3api object
-            # response handler, which performs a restore-on-delete if the
-            # header is 'null'.
-            resp.headers['X-Object-Current-Version-Id'] = 'null'
-        elif not resp_version_id:
-            # For backwards compatibility with any out-of-tree use case, 'null'
-            # is returned in the non-s3-compat scenario.
-            resp.headers['X-Object-Current-Version-Id'] = 'null'
-        else:
-            resp.headers['X-Object-Current-Version-Id'] = resp_version_id
+        resp.headers['X-Object-Version-Id'] = version_id
+        resp.headers['X-Object-Current-Version-Id'] = resp_version_id
         return resp
 
-    def handle_put_with_version_id(self, req, version):
+    def handle_put_with_version_id(self, req, version_id):
         """
         Handle a PUT?version-id request and create/update the is_latest link to
         point to the specific version. Expects a valid 'version' id.
 
         :param req: original request.
-        :param version: version to make the latest.
+        :param version_id: version to make the latest.
+        :returns: a callable that implements the wsgi application interface.
         """
         # The intended use case for a PUT?version-id= is to create a symlink to
-        # a version in the versions container.
-        validate_version(req, version, allow_null=True)
+        # a version in the versions container. In that context, the version-id
+        # is never expected to be 'null'. If version-id is 'null' then we
+        # cannot create a null version; the best we could do is HEAD the user
+        # object to see if it is already a null version (i.e. not a symlink to
+        # a version) and if it is not then perhaps return a 404 or 412. As it
+        # is, we just treat a 'null' version-id here as a 400 Bad Request.
+        validate_version(req, version_id, allow_null=False)
         if req.is_chunked:
             has_body = (req.body_file.read(1) != b'')
         elif req.content_length is None:
@@ -819,7 +795,7 @@ class ObjectContext(ObjectVersioningContext):
                 body='PUT version-id requests require a zero byte body',
                 request=req,
                 content_type='text/plain')
-        versions_obj_name = build_versions_object_name(self.obj, version)
+        versions_obj_name = build_versions_object_name(self.obj, version_id)
         versioned_obj_path = "/%s/%s/%s/%s" % (
             self.api_version, self.account, self.versions_cont,
             versions_obj_name)
@@ -851,53 +827,63 @@ class ObjectContext(ObjectVersioningContext):
             req, versions_obj_name, put_etag, put_bytes, put_content_type)
         return resp
 
-    def handle_get_head_with_version_id(self, req, version):
+    def handle_get_head_options_with_version_id(self, req, version_id):
+        """
+        Handle a GET?version-id, HEAD?version-id or OPTIONS?version-id request
+        where version-id is not 'null'.
+
+        :param req: original request.
+        :param version_id: version to make the latest.
+        :returns: a callable that implements the wsgi application interface.
+        """
         # Re-write the path; most everything else goes through normally
         req.path_info = "/%s/%s/%s/%s" % (
             self.api_version, self.account, self.versions_cont,
-            build_versions_object_name(self.obj, version))
+            build_versions_object_name(self.obj, version_id))
         req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
 
         resp = req.get_response(self.app)
         if resp.is_success:
-            resp.headers['X-Object-Version-Id'] = version
+            resp.headers['X-Object-Version-Id'] = version_id
 
         # Well, except for some delete marker business...
         is_del_marker = DELETE_MARKER_CONTENT_TYPE == resp.headers.get(
             'X-Backend-Content-Type', resp.headers['Content-Type'])
 
+        if is_del_marker:
+            drain_and_close(resp)
+            hdrs = {'X-Object-Version-Id': version_id,
+                    'Content-Type': DELETE_MARKER_CONTENT_TYPE}
+            raise HTTPNotFound(request=req, headers=hdrs)
+
         if req.method == 'HEAD':
             drain_and_close(resp)
 
-        if is_del_marker:
-            hdrs = {'X-Object-Version-Id': version,
-                    'Content-Type': DELETE_MARKER_CONTENT_TYPE}
-            raise HTTPNotFound(request=req, headers=hdrs)
         return resp
 
-    def hande_get_head_with_null_version_id(self, req):
+    def handle_get_head_options_with_null_version_id(self, req):
+        """
+        Handle a GET?version-id, HEAD?version-id or OPTIONS?version-id request
+        where version-id is 'null'.
+
+        :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
+        """
+        # try the user namespace container...
         resp = req.get_response(self.app)
-        location = wsgi_unquote(resp.headers.get('Content-Location', ''))
-        is_version_link = get_reserved_name('versions', '') in location
-        if resp.is_success and not is_version_link:
-            # this is the de-facto null version
+        if resp.is_success:
+            if get_reserved_name('versions', '') in wsgi_unquote(
+                    resp.headers.get('Content-Location', '')):
+                # Have a latest version, but it's got a real version-id.
+                # Since the user specifically asked for null, return 404
+                close_if_possible(resp.app_iter)
+                raise HTTPNotFound(request=req)
             resp.headers['X-Object-Version-Id'] = 'null'
             if req.method == 'HEAD':
                 drain_and_close(resp)
-            return resp
-        elif self.s3_compat and self.versions_cont:
-            # allow the request to be redirected to the versions container
-            close_if_possible(resp.app_iter)
-            return None
-        elif is_version_link:
-            # Have a latest version, but it's got a real version-id.
-            # Since the user specifically asked for null, return 404
-            close_if_possible(resp.app_iter)
-            raise HTTPNotFound(request=req)
-        else:
-            return resp
+        return resp
 
-    def handle_request_with_version_id(self, req, version):
+    def handle_request_with_version_id(self, req, version_id):
         """
         Handle 'version-id' request for object resource. When a request
         contains a ``version-id=<id>`` parameter, the request is acted upon
@@ -907,33 +893,33 @@ class ObjectContext(ObjectVersioningContext):
         operate on older versions of an object even if versioning is
         currently suspended.
 
-        PUT and POST requests are not allowed as that would overwrite
-        the contents of the versioned object.
+        POST requests are not allowed as that would overwrite the metadata of
+        the versioned object.
 
         :param req: The original request
-        :param version: version of the object to act on
+        :param version_id: version of the object to act on
+        :returns: a callable that implements the wsgi application interface.
         """
         # ?version-id requests are allowed for GET, HEAD, PUT, DELETE reqs
         if req.method == 'POST':
             raise HTTPBadRequest(
                 '%s to a specific version is not allowed' % req.method,
                 request=req)
-        elif not self.versions_cont and version != 'null':
+        elif not self.versions_cont and version_id != 'null':
             raise HTTPBadRequest(
                 'version-aware operations require that the container is '
                 'versioned', request=req)
-        validate_version(req, version, allow_null=True)
+        validate_version(req, version_id, allow_null=True)
 
         if req.method == 'DELETE':
-            return self.handle_delete_with_version_id(req, version)
+            return self.handle_delete_with_version_id(req, version_id)
         elif req.method == 'PUT':
-            return self.handle_put_with_version_id(req, version)
-        if version == 'null':
-            # try the user namespace container first...
-            resp = self.hande_get_head_with_null_version_id(req)
-            if resp:
-                return resp
-        return self.handle_get_head_with_version_id(req, version)
+            return self.handle_put_with_version_id(req, version_id)
+        if version_id == 'null':
+            return self.handle_get_head_options_with_null_version_id(req)
+        else:
+            return self.handle_get_head_options_with_version_id(
+                req, version_id)
 
     def handle_request_without_version_id(self, req):
         """
@@ -941,6 +927,7 @@ class ObjectContext(ObjectVersioningContext):
         be created.
 
         :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
         """
         if req.method == 'PUT':
             return self.handle_put(req)
@@ -948,49 +935,25 @@ class ObjectContext(ObjectVersioningContext):
             return self.handle_post(req)
         elif req.method == 'DELETE':
             return self.handle_delete(req)
-
-        # GET/HEAD/OPTIONS
-        resp = req.get_response(self.app)
-
-        resp.headers['X-Object-Version-Id'] = 'null'
-        # Check for a "real" version
-        loc = wsgi_unquote(resp.headers.get('Content-Location', ''))
-        if loc:
-            _, acct, cont, version_obj = split_path(loc, 4, 4, True)
-            if acct == self.account and cont == self.versions_cont:
-                _, version = parse_versions_object_name(version_obj)
-                if version is not None:
-                    resp.headers['X-Object-Version-Id'] = version
-                    content_loc = wsgi_quote('/%s/%s/%s/%s' % (
-                        self.api_version, self.account, self.container,
-                        self.obj)) + '?version-id=%s' % (version,)
-                    resp.headers['Content-Location'] = content_loc
-        symlink_target = wsgi_unquote(resp.headers.get('X-Symlink-Target', ''))
-        if symlink_target:
-            cont, version_obj = split_path('/%s' % symlink_target, 2, 2, True)
-            if cont == self.versions_cont:
-                _, version = parse_versions_object_name(version_obj)
-                if version is not None:
-                    resp.headers['X-Object-Version-Id'] = version
-                    symlink_target = wsgi_quote(
-                        '%s/%s' % (self.container, self.obj)) + \
-                        '?version-id=%s' % (version,)
-                    resp.headers['X-Symlink-Target'] = symlink_target
-        return resp
+        else:
+            return self.handle_get_head_options(req)
 
     def handle_request(self, req):
         """
         Handle request for an object resource.
 
         :param req: swift.common.swob.Request instance
+        :returns: a callable that implements the wsgi application interface.
         """
         version_id = req.params.get('version-id')
         if version_id:
+            # handle request for a specific version_id
             return self.handle_request_with_version_id(req, version_id)
         elif self.versions_cont:
             # handle object request for a versioned container
             return self.handle_request_without_version_id(req)
         else:
+            # Container has never been versioned; pass through to app
             return self.app
 
 
@@ -1076,11 +1039,11 @@ class ContainerContext(ObjectVersioningContext):
                     item['version_symlink'] = True
                     item['hash'] = item.pop('symlink_etag') + ''.join(
                         '; %s=%s' % (k, v) for k, v in meta.items())
-                    tgt_obj, version = parse_versions_object_name(tgt_obj)
-                    if version is not None and 'versions' not in req.params:
+                    tgt_obj, version_id = parse_versions_object_name(tgt_obj)
+                    if version_id is not None and 'versions' not in req.params:
                         sp = wsgi_quote('/v1/%s/%s/%s' % (
                             tgt_acct, container, tgt_obj,
-                        )) + '?version-id=' + version
+                        )) + '?version-id=' + version_id
                         item['symlink_path'] = sp
 
                 if 'versions' in req.params:
@@ -1178,14 +1141,11 @@ class ContainerContext(ObjectVersioningContext):
 
         versions_cont = container_info.get(
             'sysmeta', {}).get('versions-container')
-        is_enabled = config_true_value(req.headers[CLIENT_VERSIONS_ENABLED])
+        is_enabled = config_true_value(
+            req.headers[CLIENT_VERSIONS_ENABLED])
+
         req.headers[SYSMETA_VERSIONS_ENABLED] = is_enabled
-        if CLIENT_S3_COMPATIBLE_VERSIONS in req.headers:
-            s3_compat = config_true_value(
-                req.headers[CLIENT_S3_COMPATIBLE_VERSIONS])
-            if not s3_compat:
-                raise HTTPBadRequest('Cannot disable s3 compatible versions')
-            req.headers[SYSMETA_S3_COMPATIBLE_VERSIONS] = s3_compat
+
         # TODO: a POST request to a primary container that doesn't exist
         # will fail, so we will create and delete the versions container
         # for no reason
@@ -1264,20 +1224,6 @@ class ContainerContext(ObjectVersioningContext):
                        self._response_headers,
                        self._response_exc_info)
         return app_resp
-
-    def _insert_null_item(self, listing, null_item):
-        # TODO: this is ok for tests but obvs won't work for paged or marker
-        #   listing. We'll need to do a prefix listing for the null and then
-        #   insert it in each page of a listing.
-        i = len(listing)
-        for item in reversed(listing):
-            if item['name'] != null_item['name']:
-                break
-            if item['last_modified'] > null_item['last_modified']:
-                break
-            i -= 1
-        listing.insert(i, null_item)
-        return listing
 
     def _list_versions(self, req, start_response, location, primary_listing):
         # Only supports JSON listings
@@ -1363,8 +1309,8 @@ class ContainerContext(ObjectVersioningContext):
             for item in current_versions.values():
                 linked_name = wsgi_to_str(wsgi_unquote(bytes_to_wsgi(
                     item['symlink_path'].encode('utf8')))).split('/', 4)[-1]
-                name, version = parse_versions_object_name(linked_name)
-                if version is None:
+                name, version_id = parse_versions_object_name(linked_name)
+                if version_id is None:
                     continue
                 is_latest = False
                 if name not in is_latest_set:
@@ -1373,7 +1319,7 @@ class ContainerContext(ObjectVersioningContext):
                 broken_listing.append({
                     'name': name,
                     'is_latest': is_latest,
-                    'version_id': version,
+                    'version_id': version_id,
                     'content_type': item['content_type'],
                     'bytes': item['bytes'],
                     'hash': item['hash'],
@@ -1391,20 +1337,18 @@ class ContainerContext(ObjectVersioningContext):
             try:
                 listing = json.loads(versions_resp.body)
             except ValueError:
-                # TODO: fix, body unresolved here
                 app_resp = [body]
             else:
                 versions_listing = []
-                null_item = None
                 for item in listing:
                     if 'name' not in item:
                         # remove reserved chars from subdir
                         subdir = split_reserved_name(item['subdir'])[0]
                         subdir_set.add(subdir)
                     else:
-                        name, version = parse_versions_object_name(
+                        name, version_id = parse_versions_object_name(
                             item['name'])
-                        if version is None:
+                        if version_id is None:
                             continue
                         path = '/v1/%s/%s/%s' % (
                             wsgi_to_str(account),
@@ -1424,31 +1368,22 @@ class ContainerContext(ObjectVersioningContext):
                             item['is_latest'] = False
 
                         item['name'] = name
-                        item['version_id'] = version
-                        if null_item and null_item['name'] != name:
-                            self._insert_null_item(versions_listing, null_item)
-                            null_item = None
-                        if version == 'null':
-                            null_item = item
-                        else:
-                            versions_listing.append(item)
-
-                if null_item:
-                    self._insert_null_item(versions_listing, null_item)
+                        item['version_id'] = version_id
+                        versions_listing.append(item)
 
                 subdir_listing = [{'subdir': s} for s in subdir_set]
                 broken_listing = []
                 for item in current_versions.values():
                     link_path = wsgi_to_str(wsgi_unquote(bytes_to_wsgi(
                         item['symlink_path'].encode('utf-8'))))
-                    name, version = parse_versions_object_name(
+                    name, version_id = parse_versions_object_name(
                         link_path.split('/', 1)[1])
-                    if version is None:
+                    if version_id is None:
                         continue
                     broken_listing.append({
                         'name': name,
                         'is_latest': True,
-                        'version_id': version,
+                        'version_id': version_id,
                         'content_type': item['content_type'],
                         'bytes': item['bytes'],
                         'hash': item['hash'],
@@ -1617,14 +1552,14 @@ class ObjectVersioningMiddleware(object):
 
         sysmeta = container_info.get('sysmeta', {})
         versions_cont = sysmeta.get('versions-container', '')
+        is_enabled = config_true_value(sysmeta.get('versions-enabled'))
+
         if versions_cont:
             versions_cont = wsgi_unquote(str_to_wsgi(
                 versions_cont)).split('/')[0]
-        is_enabled = is_versioning_enabled(container_info)
-        s3_compat = config_true_value(sysmeta.get(S3_COMPATIBLE_VERSIONS))
         object_ctx = ObjectContext(
             self.app, self.logger, api_version, account, container, obj,
-            versions_cont, is_enabled, s3_compat)
+            versions_cont, is_enabled)
         return object_ctx.handle_request(req)
 
     def __call__(self, env, start_response):

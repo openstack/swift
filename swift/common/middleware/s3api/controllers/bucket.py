@@ -23,7 +23,7 @@ from swift.common import swob
 from swift.common.constraints import check_utf8
 from swift.common.http import HTTP_OK
 from swift.common.middleware.versioned_writes.object_versioning import \
-    DELETE_MARKER_CONTENT_TYPE, SYSMETA_S3_COMPATIBLE_VERSIONS
+    DELETE_MARKER_CONTENT_TYPE
 from swift.common.utils import json, public, config_true_value, Timestamp, \
     cap_length
 from swift.common.registry import get_swift_info
@@ -423,10 +423,6 @@ class BucketController(Controller):
                 # s3api cannot support multiple regions currently.
                 raise InvalidLocationConstraint()
 
-        # default to s3 compat
-        # TODO: need backwards compatibility with containers already using the
-        #   swift mode
-        req.headers[SYSMETA_S3_COMPATIBLE_VERSIONS] = 'true'
         resp = req.get_response(self.app)
 
         resp.status = HTTP_OK

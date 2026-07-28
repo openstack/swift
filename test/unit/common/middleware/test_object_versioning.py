@@ -15,23 +15,23 @@
 
 import functools
 import json
-import math
 import os
 import time
 import unittest
 import urllib.parse
 from swift.common import swob, utils
-from swift.common.exceptions import InvalidTimestamp
 from swift.common.middleware import versioned_writes, copy, symlink, \
     listing_formats
-from swift.common.middleware.versioned_writes import object_versioning
 from swift.common.swob import Request, wsgi_quote, str_to_wsgi, \
-    date_header_format, Response
+    date_header_format
 from swift.common.middleware.symlink import TGT_OBJ_SYSMETA_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES, SYMLOOP_EXTEND
 from swift.common.middleware.versioned_writes.object_versioning import \
     SYSMETA_VERSIONS_CONT, SYSMETA_VERSIONS_ENABLED, \
-    SYSMETA_VERSIONS_SYMLINK, DELETE_MARKER_CONTENT_TYPE, timestamp_to_version
+    SYSMETA_VERSIONS_SYMLINK, DELETE_MARKER_CONTENT_TYPE, \
+    timestamp_to_version, build_versions_object_prefix, \
+    build_versions_container_name, build_versions_object_name, \
+    parse_versions_object_name, split_versions_container_name
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy
 from swift.common.utils import md5
@@ -787,16 +787,16 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             self.assertEqual(symlink_put_headers[k], v)
 
     def test_POST(self):
-        ts_put = self.ts()
+        ts_now = self.ts()
         self.app.register(
             'POST',
-            self.build_versions_path(obj='o', version=(~ts_put).internal),
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
             swob.HTTPAccepted, {}, '')
         self.app.register(
             'POST', '/v1/a/c/o', swob.HTTPTemporaryRedirect, {
                 SYSMETA_VERSIONS_SYMLINK: 'true',
                 'Location': self.build_versions_path(
-                    obj='o', version=(~ts_put).internal)}, '')
+                    obj='o', version=(~ts_now).internal)}, '')
 
         # TODO: in symlink middleware, swift.leave_relative_location
         # is added by the middleware during the response
@@ -809,7 +809,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             environ={'swift.cache': self.cache_version_on,
                      'swift.leave_relative_location': 'true',
                      'swift.trans_id': 'fake_trans_id'})
-        with mock_timestamp_now(ts_put):
+        with mock_timestamp_now(ts_now):
             status, headers, body = self.call_ov(req)
         self.assertEqual(status, '202 Accepted')
 
@@ -820,7 +820,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(self.app.calls, [
             ('POST', '/v1/a/c/o'),
             ('POST', self.build_versions_path(
-                obj='o', version=(~ts_put).internal)),
+                obj='o', version=(~ts_now).internal)),
         ])
 
         expected_hdrs = {
@@ -1295,9 +1295,15 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('PUT', '/v1/a/c/o'),
         ])
 
-        calls = self.app.call_list
-        self.assertIn('X-Newest', calls[0].headers)
-        self.assertEqual('True', calls[0].headers['X-Newest'])
+        get_call = self.app.call_list[0]
+        self.assertIn('X-Newest', get_call.headers)
+        self.assertEqual('True', get_call.headers['X-Newest'])
+        copy_put_call = self.app.call_list[1]
+        self.assertEqual(ts_data_existing.internal,
+                         copy_put_call.headers.get('x-timestamp'))
+        new_put_call = self.app.call_list[2]
+        self.assertEqual(ts_put.internal,
+                         new_put_call.headers.get('x-timestamp'))
 
         expected_headers = {
             TGT_OBJ_SYSMETA_SYMLINK_HDR:
@@ -1306,7 +1312,8 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                 put_body.encode('utf8'), usedforsecurity=False).hexdigest(),
             'x-object-sysmeta-symlink-target-bytes': str(len(put_body)),
         }
-        symlink_put_headers = self.app.call_list[-1].headers
+        symlink_put_call = self.app.call_list[-1]
+        symlink_put_headers = symlink_put_call.headers
         for k, v in expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
@@ -2305,6 +2312,8 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             status, headers, body = self.call_ov(req)
             self.assertEqual(status, '400 Bad Request')
 
+        # 'null' is invalid in the context of a PUT?version_id=
+        do_test('null')
         # these are invalid in any context...
         do_test('something')
         do_test('-10')
@@ -4050,109 +4059,7 @@ class ObjectVersioningTestAccountOperations(ObjectVersioningBaseTestCase):
         self.assertEqual(expected, json.loads(body))
 
 
-class TestModuleFunctions(unittest.TestCase):
-    def test_build_versions_container_name(self):
-        self.assertEqual(
-            '\x00versions\x00foo',
-            object_versioning.build_versions_container_name('foo'))
-
-    def test_build_versions_object_name(self):
-        ts = utils.Timestamp.now()
-        expected = '\x00foo\x00%s' % (~ts).internal
-        self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_name('foo', ts))
-        self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_name('foo', ts.internal))
-        self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_name('foo', ts.normal))
-
-        ts.offset = 123
-        self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_name('foo', ts.normal))
-
-        expected = '\x00foo\x00%s' % (~ts).internal
-        self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_name('foo', ts))
-        ts.offset = 123
-        self.assertEqual(
-            expected,
-            object_versioning.build_versions_object_name('foo', ts.internal))
-
-    def test_build_versions_object_prefix(self):
-        self.assertEqual(
-            '\x00foo\x00',
-            object_versioning.build_versions_object_prefix('foo'))
-
-    def test_parse_versions_object_name(self):
-        ts = utils.Timestamp.now()
-        name = '\x00foo\x00%s' % (~ts).normal
-        self.assertEqual(
-            ('foo', ts.normal),
-            object_versioning.parse_versions_object_name(name),
-            (ts.normal, (~ts).normal, (~(~ts)).normal)
-        )
-
-        name = '\x00foo\x00bar'
-        self.assertEqual(
-            (name, None),
-            object_versioning.parse_versions_object_name(name))
-
-        name = '\x00foo'
-        self.assertEqual(
-            (name, None),
-            object_versioning.parse_versions_object_name(name))
-
-        name = 'foo'
-        self.assertEqual(
-            (name, None),
-            object_versioning.parse_versions_object_name(name))
-
-    def test_validate_version_ok(self):
-        def do_test(version):
-            try:
-                object_versioning.validate_version(Request({}), version)
-            except ValueError as err:
-                self.fail('Unexpected exception: %s' % err)
-
-        ts = utils.Timestamp.now()
-        do_test(ts.internal)
-        do_test(ts.normal)
-
-    def test_validate_version_bad(self):
-        def do_test(version):
-            with self.assertRaises(swob.HTTPException) as cm:
-                object_versioning.validate_version(Request({}), version)
-            self.assertEqual('400 Bad Request', str(cm.exception))
-
-        do_test('-123.4')
-        do_test(None)
-
-    def test_split_versions_container_name(self):
-        self.assertEqual('foo',
-                         object_versioning.split_versions_container_name(
-                             '\x00versions\x00foo'))
-        self.assertEqual('',
-                         object_versioning.split_versions_container_name(
-                             '\x00versions\x00'))
-
-        self.assertEqual('\x00versions',
-                         object_versioning.split_versions_container_name(
-                             '\x00versions'))
-        self.assertEqual('\x00not-versions\x00foo',
-                         object_versioning.split_versions_container_name(
-                             '\x00not-versions\x00foo'))
-        self.assertEqual('not-versions\x00foo',
-                         object_versioning.split_versions_container_name(
-                             'not-versions\x00foo'))
-        self.assertEqual('not-versions',
-                         object_versioning.split_versions_container_name(
-                             'not-versions'))
-
+class TestModuleFunctions(BaseUnitTestCase):
     def test_timestamp_to_version(self):
         ts = Timestamp.now()
         self.assertEqual(ts.internal, timestamp_to_version(ts))
@@ -4168,56 +4075,88 @@ class TestModuleFunctions(unittest.TestCase):
         self.assertEqual(ts_no_offset.internal,
                          timestamp_to_version(ts.internal))
 
+    def test_build_versions_object_prefix(self):
+        prefix = build_versions_object_prefix('myobj')
+        self.assertEqual('\x00myobj\x00', prefix)
+        # prefix sorts before all version names for the same object
+        vers_name = build_versions_object_name('myobj', self.ts().internal)
+        self.assertLess(prefix, vers_name)
+        # prefix for 'myobj' sorts after version names for 'myob'
+        earlier_vers = build_versions_object_name('myob', self.ts().internal)
+        self.assertGreater(prefix, earlier_vers)
 
-class TestObjectContext(BaseUnitTestCase):
-    def setUp(self):
-        super().setUp()
-        app = FakeSwift()
-        self.obj_context = object_versioning.ObjectContext(
-            app, app.logger, 'v1', 'c', 'a', 'o', None, False, False)
+    def test_split_versions_container_name(self):
+        self.assertEqual(
+            'mycontainer',
+            split_versions_container_name('\x00versions\x00mycontainer'))
 
-    def test_get_version(self):
-        req = Request.blank('/', headers={})
-        with self.assertRaises(InvalidTimestamp) as cm:
-            self.obj_context.get_version(req)
-        self.assertEqual('Missing X-Timestamp header', str(cm.exception))
+    def test_split_versions_container_name_not_versions_prefix(self):
+        # reserved name with a non-'versions' first component returns unchanged
+        self.assertEqual(
+            '\x00not-versions\x00mycontainer',
+            split_versions_container_name('\x00not-versions\x00mycontainer'))
 
+    def test_split_versions_container_name_not_reserved(self):
+        # plain (non-reserved) name returns unchanged
+        self.assertEqual('mycontainer',
+                         split_versions_container_name('mycontainer'))
+
+    def test_build_versions_container_name(self):
+        self.assertEqual('\x00versions\x00mycontainer',
+                         build_versions_container_name('mycontainer'))
+
+    def test_build_and_split_versions_container_name_roundtrip(self):
+        self.assertEqual('mycontainer',
+                         split_versions_container_name(
+                             build_versions_container_name('mycontainer')))
+
+    def test_build_versions_object_name(self):
+        version_id = '0123456789.45678'
+        self.assertEqual('\x00myobj\x009876543210.54321',
+                         build_versions_object_name('myobj', version_id))
+
+        version_id = '0123456789.45677_2000000001000001'
+        self.assertEqual('\x00myobj\x009876543210.54321_dffffffffeffffff',
+                         build_versions_object_name('myobj', version_id))
+
+    def test_build_versions_object_name_accepts_timestamp(self):
         ts = self.ts()
-        headers = {'x-timestamp': ts.internal}
-        req = Request.blank('/', headers=headers)
-        self.assertEqual(ts.normal, self.obj_context.get_version(req))
+        self.assertEqual(
+            build_versions_object_name('myobj', ts.internal),
+            build_versions_object_name('myobj', ts))
 
-        ts.offset = 1234
-        headers = {'x-timestamp': ts.internal}
-        req = Request.blank('/', headers=headers)
-        self.assertEqual(ts.normal, self.obj_context.get_version(req))
+    def test_build_versions_object_name_newer_sorts_earlier(self):
+        # Newer versions sort before older in listing
+        old_name = build_versions_object_name('myobj', self.ts().internal)
+        new_name = build_versions_object_name('myobj', self.ts().internal)
+        self.assertLess(new_name, old_name)
 
-    def test_get_null_version(self):
-        ts_last_modified = self.ts()
-        last_modified = time.strftime(
-            '%a, %d %b %Y %H:%M:%S GMT',
-            time.gmtime(math.ceil(float(ts_last_modified))))
-        ts = self.ts()
-        ts_backend = self.ts()
-        ts_backend.offset = 123
+    def test_parse_versions_object_name(self):
+        name, version_id = parse_versions_object_name(
+            '\x00object\x009876543210.54321_dffffffffeffffff')
+        self.assertEqual('object', name)
+        self.assertEqual('0123456789.45677_2000000001000001', version_id)
+        self.assertIsInstance(version_id, str)
 
-        headers = {'last-modified': last_modified}
-        resp = Response(headers=headers)
-        self.assertEqual(ts_last_modified.normal,
-                         self.obj_context.get_null_version(resp))
+    def test_parse_versions_object_name_not_reserved(self):
+        # plain (non-reserved) name returns (name, None)
+        name, version_id = parse_versions_object_name('plain_object')
+        self.assertEqual('plain_object', name)
+        self.assertIsNone(version_id)
 
-        headers = {'last-modified': last_modified,
-                   'x-timestamp': ts.normal}
-        resp = Response(headers=headers)
-        self.assertEqual(ts.normal,
-                         self.obj_context.get_null_version(resp))
+    def test_parse_versions_object_name_invalid_timestamp(self):
+        # reserved name with non-timestamp component returns (full_name, None)
+        name, version_id = parse_versions_object_name('\x00myobj\x00not_a_ts')
+        self.assertEqual('\x00myobj\x00not_a_ts', name)
+        self.assertIsNone(version_id)
 
-        headers = {'last-modified': last_modified,
-                   'x-timestamp': ts.normal,
-                   'x-backend-data-timestamp': ts_backend.internal}
-        resp = Response(headers=headers)
-        self.assertEqual(ts_backend.normal,
-                         self.obj_context.get_null_version(resp))
+    def test_build_and_parse_versions_object_name_roundtrip(self):
+        version_id = self.ts().internal
+        vers_name = build_versions_object_name('myobj', version_id)
+        parsed_name, parsed_version_id = parse_versions_object_name(vers_name)
+        self.assertEqual('myobj', parsed_name)
+        self.assertEqual(version_id, parsed_version_id)
+        self.assertIsInstance(parsed_version_id, str)
 
 
 if __name__ == '__main__':

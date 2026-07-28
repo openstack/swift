@@ -26,7 +26,7 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
 from swift.common.middleware.symlink import ALLOW_RESERVED_NAMES
 from swift.common.middleware.versioned_writes.object_versioning import \
-    is_versioning_enabled, validate_version
+    validate_version
 from swift.common.object_ref import ObjectRef, HistoryId, UploadId
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import drain_and_close, \
@@ -851,7 +851,7 @@ class MPUSessionsHandler(BaseMPUHandler):
 
         upload_id = UploadId(timestamp)
         session_ref = ObjectRef(self.obj, upload_id.serialize())
-        null = not is_versioning_enabled(self.user_container_info)
+        null = True  # TODO: rip out history stuff
         history_id = HistoryId(Timestamp.max() if null else timestamp,
                                null=null)
         self.req.headers[MPU_SYSMETA_HISTORY_ID_KEY] = history_id.serialize()
@@ -1101,11 +1101,9 @@ class MPUSessionHandler(BaseMPUHandler):
         offset = self.req.timestamp.raw - session.data_timestamp.raw
         offset += session.data_timestamp.offset
         # TODO: using offset to resolve concurrent completes is no longer
-        # appropriate
+        #   appropriate
         # offset = 0
         ts_complete = Timestamp(session.data_timestamp, offset=offset)
-        # if is_versioning_enabled(self.user_container_info):
-        #     manifest_systags['version'] = 'true'
         # note: setting x-timestamp here causes object-versioning to us that
         # timestamp to form a version id, so version ids are coupled to the
         # upload id and history id for the manifest
@@ -1545,7 +1543,6 @@ class MPUObjHandler(BaseMPUHandler):
             self.hidden_account, self.history_container, policy_index)
         # TODO: the coupling with object-versioning is unfortunate
         version_id = self.req.params.get('version-id')
-        is_versioning = is_versioning_enabled(self.user_container_info)
         # Note: we're relying on request method in the op field for correct
         # sorting of null versions in history i.e. DELETE trumps PUT of
         # otherwise same version.
@@ -1558,24 +1555,12 @@ class MPUObjHandler(BaseMPUHandler):
             validate_version(self.req, version_id)
             history_id = HistoryId(version_id)
             op = self.req.method
-        elif is_versioning:
-            # object-versioning will transform both PUTs and DELETEs to a
-            # PUT in the versions container, so the history event should also
-            # be a PUT
-            history_id = HistoryId(self.req.ensure_x_timestamp(), null=False)
-            op = 'PUT'
         else:
             # this is a new event in the null version's history
             history_id = HistoryId(Timestamp.max(), null=True)
             op = self.req.method
         # TODO: respect existing systags...
-        systags = {'version': 'true'} if is_versioning else {}
-        # systags = {}
-        # self.req.headers[
-        #     OBJECT_SYSMETA_CONTAINER_UPDATE_OVERRIDE_PREFIX + 'Systags'] = \
-        #     param_str_from_dict(systags)
-        self._annotate_with_history_update(
-            self.req, history_id, op, systags=systags)
+        self._annotate_with_history_update(self.req, history_id, op)
 
     def handle_request(self):
         if self.req.method in ('GET', 'HEAD'):
