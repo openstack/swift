@@ -285,6 +285,40 @@ class TestRequest(S3ApiTestCase):
             self.assertNotIn('s3api.auth_details', sw_req.environ)
             self.assertNotIn('X-Auth-Token', sw_req.headers)
 
+    def test_disallowed_client_headers_are_dropped(self):
+        smuggled = {
+            'X-Copy-From': '/other/object',
+            'X-Copy-From-Account': 'AUTH_victim',
+            'X-Object-Manifest': 'other/prefix',
+            'X-Static-Large-Object': 'True',
+            'X-Symlink-Target': 'other/object',
+            'X-Symlink-Target-Account': 'AUTH_victim',
+        }
+        headers = {'Authorization': 'AWS test:tester:hmac',
+                   'Date': self.get_date_header()}
+        headers.update(smuggled)
+        req = Request.blank('/bucket/object', method='PUT', headers=headers)
+        s3_req = S3Request(req.environ)
+        for header in smuggled:
+            self.assertNotIn(header, s3_req.headers)
+        sw_req = s3_req.to_swift_req('PUT', 'bucket', 'object')
+        for header in smuggled:
+            self.assertNotIn(header, sw_req.headers)
+
+    def test_s3api_generated_copy_from_is_preserved(self):
+        # A client-supplied X-Copy-From is dropped, but the X-Copy-From that
+        # S3 API derives from x-amz-copy-source is added afterwards and kept.
+        req = Request.blank('/bucket/object', method='PUT', headers={
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': self.get_date_header(),
+            'X-Amz-Copy-Source': '/srcbucket/srcobj',
+            'X-Copy-From': '/attacker/object',
+        })
+        s3_req = S3Request(req.environ)
+        self.assertNotIn('X-Copy-From', s3_req.headers)
+        sw_req = s3_req.to_swift_req('PUT', 'bucket', 'object')
+        self.assertEqual('/srcbucket/srcobj', sw_req.headers['X-Copy-From'])
+
     def test_to_swift_req_subrequest_proxy_access_log(self):
         container = 'bucket'
         obj = 'obj'
