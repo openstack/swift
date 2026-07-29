@@ -844,13 +844,15 @@ class ObjectContext(ObjectVersioningContext):
         is_del_marker = DELETE_MARKER_CONTENT_TYPE == resp.headers.get(
             'X-Backend-Content-Type', resp.headers['Content-Type'])
 
-        if req.method == 'HEAD':
-            drain_and_close(resp)
-
         if is_del_marker:
+            drain_and_close(resp)
             hdrs = {'X-Object-Version-Id': version_id,
                     'Content-Type': DELETE_MARKER_CONTENT_TYPE}
             raise HTTPNotFound(request=req, headers=hdrs)
+
+        if req.method == 'HEAD':
+            drain_and_close(resp)
+
         return resp
 
     def handle_get_head_options_with_null_version_id(self, req):

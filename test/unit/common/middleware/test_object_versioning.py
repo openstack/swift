@@ -2384,9 +2384,9 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             status, headers, body = self.call_ov(req)
 
     def test_HEAD_delete_marker(self):
+        v_path = self.build_versions_path(obj='o', version='9999999939.99999')
         self.app.register(
-            'HEAD',
-            self.build_versions_path(obj='o', version='9999999939.99999'),
+            'HEAD', v_path,
             swob.HTTPOk, {
                 'content-type':
                 'application/x-deleted;swift_versions_deleted=1'},
@@ -2397,11 +2397,33 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
             params={'version-id': '0000000060.00000'})
         status, headers, body = self.call_ov(req)
 
-        # a HEAD/GET of a delete-marker returns a 404
+        # a HEAD of a delete-marker returns a 404
         self.assertEqual(status, '404 Not Found')
         self.assertEqual(len(self.authorized), 1)
-        self.assertIn(('X-Object-Version-Id', '0000000060.00000'),
-                      headers)
+        self.assertIn(('X-Object-Version-Id', '0000000060.00000'), headers)
+        self.assertEqual([('HEAD', v_path + '?version-id=0000000060.00000')],
+                         self.app.calls)
+
+    def test_GET_delete_marker(self):
+        v_path = self.build_versions_path(obj='o', version='9999999939.99999')
+        self.app.register(
+            'GET', v_path,
+            swob.HTTPOk, {
+                'content-type':
+                'application/x-deleted;swift_versions_deleted=1'},
+            '')
+        req = Request.blank(
+            '/v1/a/c/o', method='GET',
+            environ={'swift.cache': self.cache_version_on},
+            params={'version-id': '0000000060.00000'})
+        status, headers, body = self.call_ov(req)
+
+        # a GET of a delete-marker returns a 404
+        self.assertEqual(status, '404 Not Found')
+        self.assertEqual(len(self.authorized), 1)
+        self.assertIn(('X-Object-Version-Id', '0000000060.00000'), headers)
+        self.assertEqual([('GET', v_path + '?version-id=0000000060.00000')],
+                         self.app.calls)
 
     def test_DELETE_not_current_version(self):
         # This tests when version-id does not point to the
