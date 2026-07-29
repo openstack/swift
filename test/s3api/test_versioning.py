@@ -70,6 +70,13 @@ class TestObjectVersioning(BaseS3TestCase):
         self.clear_bucket(self.client, self.bucket_name)
         super(TestObjectVersioning, self).tearDown()
 
+    def assert_no_such_key(self, bucket_name, obj_name):
+        with self.assertRaises(ClientError) as caught:
+            self.client.get_object(Bucket=bucket_name, Key=obj_name)
+        expected_err = 'An error occurred (NoSuchKey) when calling the ' \
+            'GetObject operation: The specified key does not exist.'
+        self.assertEqual(expected_err, str(caught.exception))
+
     def test_setup(self):
         bucket_name = self.create_name('new-bucket')
         resp = self.client.create_bucket(Bucket=bucket_name)
@@ -221,6 +228,12 @@ class TestObjectVersioning(BaseS3TestCase):
             'StorageClass': 'STANDARD',
         }], objs)
 
+        # ...and that's the object that a plain GET will return
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[0], resp['ETag'])
+
         # but everything is layed out in the object versions listing
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
         objs = resp.get('Versions', [])
@@ -247,6 +260,7 @@ class TestObjectVersioning(BaseS3TestCase):
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
         }], objs)
+        self.assertFalse(resp.get('DeleteMarkers'))
 
         # we can delete a specific version
         resp = self.client.delete_object(Bucket=self.bucket_name,
@@ -258,20 +272,22 @@ class TestObjectVersioning(BaseS3TestCase):
         objs = resp.get('Versions', [])
         for obj in objs:
             self._sanitize_obj_listing(obj)
-            obj.pop('VersionId')
         self.assertEqual([{
             'ETag': '"%s"' % etags[0],
             'IsLatest': True,
             'Key': obj_name,
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
+            'VersionId': versions[0],
         }, {
             'ETag': '"%s"' % etags[2],
             'IsLatest': False,
             'Key': obj_name,
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
+            'VersionId': versions[2],
         }], objs)
+        self.assertFalse(resp.get('DeleteMarkers'))
 
         # ... but the current listing is unaffected
         resp = self.client.list_objects_v2(Bucket=self.bucket_name)
@@ -285,25 +301,33 @@ class TestObjectVersioning(BaseS3TestCase):
             'StorageClass': 'STANDARD',
         }], objs)
 
+        # ...and that's still the object that a plain GET will return
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[0], resp['ETag'])
+
         # OTOH, if you delete specifically the latest version
         # we can delete a specific version
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=versions[0])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
         # the versions listing has a new IsLatest
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
         objs = resp.get('Versions', [])
         for obj in objs:
             self._sanitize_obj_listing(obj)
-            obj.pop('VersionId')
         self.assertEqual([{
             'ETag': '"%s"' % etags[2],
             'IsLatest': True,
             'Key': obj_name,
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
+            'VersionId': versions[2],
         }], objs)
+        self.assertFalse(resp.get('DeleteMarkers'))
 
         # and the stack pops
         resp = self.client.list_objects_v2(Bucket=self.bucket_name)
@@ -316,6 +340,12 @@ class TestObjectVersioning(BaseS3TestCase):
             'Size': len(obj_data),
             'StorageClass': 'STANDARD',
         }], objs)
+
+        # ...and the restored version is now what a plain GET will return
+        resp = self.client.get_object(Bucket=self.bucket_name,
+                                      Key=obj_name)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('"%s"' % etags[2], resp['ETag'])
 
     def test_delete_marker_with_prefix_sibling(self):
         def put_versioned_obj(obj_name, body):
@@ -416,21 +446,18 @@ class TestObjectVersioning(BaseS3TestCase):
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=marker_versions[2])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
-        # since IsLatest is still marker we'll raise NoSuchKey
-        with self.assertRaises(ClientError) as caught:
-            resp = self.client.get_object(Bucket=self.bucket_name,
-                                          Key=obj_name)
-        expected_err = 'An error occurred (NoSuchKey) when calling the ' \
-            'GetObject operation: The specified key does not exist.'
-        self.assertEqual(expected_err, str(caught.exception))
+        # since IsLatest is still a delete marker we'll raise NoSuchKey
+        self.assert_no_such_key(self.bucket_name, obj_name)
 
         # now delete the delete marker (IsLatest)
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=marker_versions[0])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
-        # most recent version is now latest
+        # most recent version is now restored to be the latest
         resp = self.client.get_object(Bucket=self.bucket_name,
                                       Key=obj_name)
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
@@ -440,14 +467,10 @@ class TestObjectVersioning(BaseS3TestCase):
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=versions[0])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
         # and object is deleted again
-        with self.assertRaises(ClientError) as caught:
-            resp = self.client.get_object(Bucket=self.bucket_name,
-                                          Key=obj_name)
-        expected_err = 'An error occurred (NoSuchKey) when calling the ' \
-            'GetObject operation: The specified key does not exist.'
-        self.assertEqual(expected_err, str(caught.exception))
+        self.assert_no_such_key(self.bucket_name, obj_name)
 
         # delete marker IsLatest
         resp = self.client.list_object_versions(Bucket=self.bucket_name)
