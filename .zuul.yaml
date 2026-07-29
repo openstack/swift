@@ -579,6 +579,9 @@
     parent: tempest-integrated-object-storage
     nodeset: openstack-single-node-jammy
     vars:
+      # tempest 46.3.0 predates https://review.opendev.org/c/openstack/tempest/+/993662
+      # which tolerates glance rejecting fake import URIs at create time (bug 2152110).
+      tempest_exclude_regex: tempest\.api\.image\.v2\.admin\.test_image_task\.ImageTaskCreate\.test_task_create_fake_image_location
       devstack_localrc:
         TEMPEST_VENV_UPPER_CONSTRAINTS: '/opt/stack/requirements/upper-constraints.txt'
         TEMPEST_BRANCH: '46.3.0'
