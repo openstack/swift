@@ -653,6 +653,42 @@ class ObjectContext(ObjectVersioningContext):
                 resp = post_req.get_response(self.app)
         return resp
 
+    def handle_get_head_options(self, req):
+        """
+        Handle a GET, HEAD or OPTIONS request.
+
+        :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
+        """
+        # GET, HEAD, OPTIONS: pass through and annotate with version-id
+        resp = req.get_response(self.app)
+
+        resp.headers['X-Object-Version-Id'] = 'null'
+        # Check for a "real" version
+        loc = wsgi_unquote(resp.headers.get('Content-Location', ''))
+        if loc:
+            _, acct, cont, version_obj = split_path(loc, 4, 4, True)
+            if acct == self.account and cont == self.versions_cont:
+                _, version_id = parse_versions_object_name(version_obj)
+                if version_id is not None:
+                    resp.headers['X-Object-Version-Id'] = version_id
+                    content_loc = wsgi_quote('/%s/%s/%s/%s' % (
+                        self.api_version, self.account, self.container,
+                        self.obj)) + '?version-id=%s' % version_id
+                    resp.headers['Content-Location'] = content_loc
+        symlink_target = wsgi_unquote(resp.headers.get('X-Symlink-Target', ''))
+        if symlink_target:
+            cont, version_obj = split_path('/%s' % symlink_target, 2, 2, True)
+            if cont == self.versions_cont:
+                _, version_id = parse_versions_object_name(version_obj)
+                if version_id is not None:
+                    resp.headers['X-Object-Version-Id'] = version_id
+                    symlink_target = wsgi_quote(
+                        '%s/%s' % (self.container, self.obj)) + \
+                        '?version-id=%s' % version_id
+                    resp.headers['X-Symlink-Target'] = symlink_target
+        return resp
+
     def _check_head(self, req, auth_token_header):
         obj_head_headers = {
             'X-Newest': 'True',
@@ -785,6 +821,60 @@ class ObjectContext(ObjectVersioningContext):
             req, versions_obj_name, put_etag, put_bytes, put_content_type)
         return resp
 
+    def handle_get_head_options_with_version_id(self, req, version_id):
+        """
+        Handle a GET?version-id, HEAD?version-id or OPTIONS?version-id request
+        where version-id is not 'null'.
+
+        :param req: original request.
+        :param version_id: version to make the latest.
+        :returns: a callable that implements the wsgi application interface.
+        """
+        # Re-write the path; most everything else goes through normally
+        req.path_info = "/%s/%s/%s/%s" % (
+            self.api_version, self.account, self.versions_cont,
+            build_versions_object_name(self.obj, version_id))
+        req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
+
+        resp = req.get_response(self.app)
+        if resp.is_success:
+            resp.headers['X-Object-Version-Id'] = version_id
+
+        # Well, except for some delete marker business...
+        is_del_marker = DELETE_MARKER_CONTENT_TYPE == resp.headers.get(
+            'X-Backend-Content-Type', resp.headers['Content-Type'])
+
+        if req.method == 'HEAD':
+            drain_and_close(resp)
+
+        if is_del_marker:
+            hdrs = {'X-Object-Version-Id': version_id,
+                    'Content-Type': DELETE_MARKER_CONTENT_TYPE}
+            raise HTTPNotFound(request=req, headers=hdrs)
+        return resp
+
+    def handle_get_head_options_with_null_version_id(self, req):
+        """
+        Handle a GET?version-id, HEAD?version-id or OPTIONS?version-id request
+        where version-id is 'null'.
+
+        :param req: original request.
+        :returns: a callable that implements the wsgi application interface.
+        """
+        # try the user namespace container...
+        resp = req.get_response(self.app)
+        if resp.is_success:
+            if get_reserved_name('versions', '') in wsgi_unquote(
+                    resp.headers.get('Content-Location', '')):
+                # Have a latest version, but it's got a real version-id.
+                # Since the user specifically asked for null, return 404
+                close_if_possible(resp.app_iter)
+                raise HTTPNotFound(request=req)
+            resp.headers['X-Object-Version-Id'] = 'null'
+            if req.method == 'HEAD':
+                drain_and_close(resp)
+        return resp
+
     def handle_request_with_version_id(self, req, version_id):
         """
         Handle 'version-id' request for object resource. When a request
@@ -818,41 +908,10 @@ class ObjectContext(ObjectVersioningContext):
         elif req.method == 'PUT':
             return self.handle_put_with_version_id(req, version_id)
         if version_id == 'null':
-            resp = req.get_response(self.app)
-            if resp.is_success:
-                if get_reserved_name('versions', '') in wsgi_unquote(
-                        resp.headers.get('Content-Location', '')):
-                    # Have a latest version, but it's got a real version-id.
-                    # Since the user specifically asked for null, return 404
-                    close_if_possible(resp.app_iter)
-                    raise HTTPNotFound(request=req)
-                resp.headers['X-Object-Version-Id'] = 'null'
-                if req.method == 'HEAD':
-                    drain_and_close(resp)
-            return resp
+            return self.handle_get_head_options_with_null_version_id(req)
         else:
-            # Re-write the path; most everything else goes through normally
-            req.path_info = "/%s/%s/%s/%s" % (
-                self.api_version, self.account, self.versions_cont,
-                build_versions_object_name(self.obj, version_id))
-            req.headers['X-Backend-Allow-Reserved-Names'] = 'true'
-
-            resp = req.get_response(self.app)
-            if resp.is_success:
-                resp.headers['X-Object-Version-Id'] = version_id
-
-            # Well, except for some delete marker business...
-            is_del_marker = DELETE_MARKER_CONTENT_TYPE == resp.headers.get(
-                'X-Backend-Content-Type', resp.headers['Content-Type'])
-
-            if req.method == 'HEAD':
-                drain_and_close(resp)
-
-            if is_del_marker:
-                hdrs = {'X-Object-Version-Id': version_id,
-                        'Content-Type': DELETE_MARKER_CONTENT_TYPE}
-                raise HTTPNotFound(request=req, headers=hdrs)
-            return resp
+            return self.handle_get_head_options_with_version_id(
+                req, version_id)
 
     def handle_request_without_version_id(self, req):
         """
@@ -868,35 +927,8 @@ class ObjectContext(ObjectVersioningContext):
             return self.handle_post(req)
         elif req.method == 'DELETE':
             return self.handle_delete(req)
-
-        # GET, HEAD, OPTIONS: pass through and annotate with version-id
-        resp = req.get_response(self.app)
-
-        resp.headers['X-Object-Version-Id'] = 'null'
-        # Check for a "real" version
-        loc = wsgi_unquote(resp.headers.get('Content-Location', ''))
-        if loc:
-            _, acct, cont, version_obj = split_path(loc, 4, 4, True)
-            if acct == self.account and cont == self.versions_cont:
-                _, version_id = parse_versions_object_name(version_obj)
-                if version_id is not None:
-                    resp.headers['X-Object-Version-Id'] = version_id
-                    content_loc = wsgi_quote('/%s/%s/%s/%s' % (
-                        self.api_version, self.account, self.container,
-                        self.obj)) + '?version-id=%s' % (version_id,)
-                    resp.headers['Content-Location'] = content_loc
-        symlink_target = wsgi_unquote(resp.headers.get('X-Symlink-Target', ''))
-        if symlink_target:
-            cont, version_obj = split_path('/%s' % symlink_target, 2, 2, True)
-            if cont == self.versions_cont:
-                _, version_id = parse_versions_object_name(version_obj)
-                if version_id is not None:
-                    resp.headers['X-Object-Version-Id'] = version_id
-                    symlink_target = wsgi_quote(
-                        '%s/%s' % (self.container, self.obj)) + \
-                        '?version-id=%s' % version_id
-                    resp.headers['X-Symlink-Target'] = symlink_target
-        return resp
+        else:
+            return self.handle_get_head_options(req)
 
     def handle_request(self, req):
         """
