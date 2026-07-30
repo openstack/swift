@@ -333,21 +333,34 @@ def extract_policy(obj_path):
 
 def quarantine_renamer(device_path, corrupted_file_path):
     """
-    In the case that a file is corrupted, move it to a quarantined
-    area to allow replication to fix it.
+    In the case that a file is corrupted, move its parent directory to a
+    quarantined area to allow replication to fix it.
 
-    :params device_path: The path to the device the corrupted file is on.
-    :params corrupted_file_path: The path to the file you want quarantined.
+    :params device_path: The path to the device the corrupted file is on
+    :params corrupted_file_path: The path to the file whose parent directory
+                                 you want quarantined
 
     :returns: path (str) of directory the file was moved to
     :raises OSError: re-raises non errno.EEXIST / errno.ENOTEMPTY
                      exceptions from rename
     """
-    policy = extract_policy(corrupted_file_path)
+    return quarantine_dir_renamer(device_path, dirname(corrupted_file_path))
+
+
+def quarantine_dir_renamer(device_path, from_dir):
+    """
+    Move `from_dir` to a quarantined area to allow replication to fix it.
+    :params device_path: The path to the device `from_dir` is on.
+    :params from_dir: The path to the directory you want quarantined.
+
+    :returns: path (str) of directory the quarantined path was moved to
+    :raises OSError: re-raises non errno.EEXIST / errno.ENOTEMPTY
+                     exceptions from rename
+    """
+    policy = extract_policy(from_dir)
     if policy is None:
         # TODO: support a quarantine-unknown location
         policy = POLICIES.legacy
-    from_dir = dirname(corrupted_file_path)
     to_dir = join(device_path, 'quarantined',
                   get_data_dir(policy),
                   basename(from_dir))
@@ -732,6 +745,7 @@ class BaseDiskFileManager(object):
     invalidate_hash = staticmethod(invalidate_hash)
     consolidate_hashes = staticmethod(consolidate_hashes)
     quarantine_renamer = staticmethod(quarantine_renamer)
+    quarantine_dir_renamer = staticmethod(quarantine_dir_renamer)
 
     def __init__(self, conf, logger):
         self.logger = logger
@@ -1208,14 +1222,8 @@ class BaseDiskFileManager(object):
                 objects_path = dirname(partition_path)
                 device_path = dirname(objects_path)
                 if err.errno == errno.ENOTDIR:
-                    # The made-up filename is so that the eventual dirpath()
-                    # will result in this object directory that we care about.
-                    # Some failures will result in an object directory
-                    # becoming a file, thus causing the parent directory to
-                    # be qarantined.
-                    quar_path = quarantine_renamer(device_path,
-                                                   join(hsh_path,
-                                                        "made-up-filename"))
+                    quar_path = self.quarantine_dir_renamer(device_path,
+                                                            hsh_path)
                     logging.error(
                         'Quarantined %(hsh_path)s to %(quar_path)s because '
                         'it is not a directory', {'hsh_path': hsh_path,
@@ -1224,16 +1232,17 @@ class BaseDiskFileManager(object):
                 elif err.errno in (errno.ENODATA, EUCLEAN):
                     try:
                         # We've seen cases where bad sectors lead to ENODATA
-                        # here; use a similar hack as above
-                        quar_path = quarantine_renamer(
+                        # here
+                        quar_path = self.quarantine_dir_renamer(
                             device_path,
-                            join(hsh_path, "made-up-filename"))
+                            hsh_path)
                         orig_path = hsh_path
                     except (OSError, IOError):
                         # We've *also* seen the bad sectors lead to us needing
                         # to quarantine the whole suffix
-                        quar_path = quarantine_renamer(device_path, hsh_path)
                         orig_path = path
+                        quar_path = self.quarantine_dir_renamer(device_path,
+                                                                orig_path)
                     logging.error(
                         'Quarantined %(orig_path)s to %(quar_path)s because '
                         'it could not be listed', {'orig_path': orig_path,
@@ -1570,14 +1579,7 @@ class BaseDiskFileManager(object):
             filenames = self.cleanup_ondisk_files(object_path)['files']
         except OSError as err:
             if err.errno == errno.ENOTDIR:
-                # The made-up filename is so that the eventual dirpath()
-                # will result in this object directory that we care about.
-                # Some failures will result in an object directory
-                # becoming a file, thus causing the parent directory to
-                # be qarantined.
-                quar_path = self.quarantine_renamer(dev_path,
-                                                    join(object_path,
-                                                         "made-up-filename"))
+                quar_path = self.quarantine_dir_renamer(dev_path, object_path)
                 logging.exception(
                     'Quarantined %(object_path)s to %(quar_path)s because '
                     'it is not a directory', {'object_path': object_path,
@@ -1585,17 +1587,17 @@ class BaseDiskFileManager(object):
                 raise DiskFileNotExist()
             elif err.errno in (errno.ENODATA, EUCLEAN):
                 try:
-                    # We've seen cases where bad sectors lead to ENODATA here;
-                    # use a similar hack as above
-                    quar_path = self.quarantine_renamer(
+                    # We've seen cases where bad sectors lead to ENODATA here
+                    quar_path = self.quarantine_dir_renamer(
                         dev_path,
-                        join(object_path, "made-up-filename"))
+                        object_path)
                     orig_path = object_path
                 except (OSError, IOError):
                     # We've *also* seen the bad sectors lead to us needing to
                     # quarantine the whole suffix, not just the hash dir
-                    quar_path = self.quarantine_renamer(dev_path, object_path)
                     orig_path = os.path.dirname(object_path)
+                    quar_path = self.quarantine_dir_renamer(dev_path,
+                                                            orig_path)
                 logging.exception(
                     'Quarantined %(orig_path)s to %(quar_path)s because '
                     'it could not be listed', {'orig_path': orig_path,
@@ -2630,25 +2632,20 @@ class BaseDiskFile(object):
             if err.errno == errno.ENOTDIR:
                 # If there's a file here instead of a directory, quarantine
                 # it; something's gone wrong somewhere.
-                raise self._quarantine(
-                    # hack: quarantine_renamer actually renames the directory
-                    # enclosing the filename you give it, but here we just
-                    # want this one file and not its parent.
-                    os.path.join(self._datadir, "made-up-filename"),
+                raise self._quarantine_dir(
+                    self._datadir,
                     "Expected directory, found file at %s" % self._datadir)
             elif err.errno in (errno.ENODATA, EUCLEAN):
                 try:
                     # We've seen cases where bad sectors lead to ENODATA here
-                    raise self._quarantine(
-                        # similar hack to above
-                        os.path.join(self._datadir, "made-up-filename"),
+                    raise self._quarantine_dir(
+                        self._datadir,
                         "Failed to list directory at %s" % self._datadir)
                 except (OSError, IOError):
                     # We've *also* seen the bad sectors lead to us needing to
                     # quarantine the whole suffix, not just the hash dir
-                    raise self._quarantine(
-                        # skip the above hack to rename the suffix
-                        self._datadir,
+                    raise self._quarantine_dir(
+                        os.path.dirname(self._datadir),
                         "Failed to list directory at %s" % self._datadir)
             elif err.errno != errno.ENOENT:
                 raise DiskFileError(
@@ -2702,6 +2699,36 @@ class BaseDiskFile(object):
             fp, self._fp = self._fp, None
             fp.close()
 
+    def _log_quarantine(self, method, path, msg):
+        """
+        Utility method to quarantine a path using a provided quarantine method,
+        and log the quarantine with a provided message.
+
+        :param method: callable that performs the quarantine action
+        :param path: full path to quarantine
+        :param msg: reason for quarantining to be included in the exception
+        :returns: DiskFileQuarantined exception object
+        """
+
+        self._quarantined_dir = method(self._device_path, path)
+        self._logger.warning("Quarantined object %s: %s" % (path, msg))
+        self._logger.increment('quarantines')
+        return DiskFileQuarantined(msg)
+
+    def _quarantine_dir(self, dir_path, msg):
+        """
+        Quarantine a directory; responsible for incrementing the associated
+        logger's count of quarantines.
+
+        :param dir_path: full path of the directory to quarantine
+        :param msg: reason for quarantining to be included in the exception
+        :returns: DiskFileQuarantined exception object
+        """
+
+        return self._log_quarantine(self.manager.quarantine_dir_renamer,
+                                    dir_path,
+                                    msg)
+
     def _quarantine(self, data_file, msg):
         """
         Quarantine a file; responsible for incrementing the associated logger's
@@ -2711,12 +2738,10 @@ class BaseDiskFile(object):
         :param msg: reason for quarantining to be included in the exception
         :returns: DiskFileQuarantined exception object
         """
-        self._quarantined_dir = self.manager.quarantine_renamer(
-            self._device_path, data_file)
-        self._logger.warning("Quarantined object %s: %s" % (
-            data_file, msg))
-        self._logger.increment('quarantines')
-        return DiskFileQuarantined(msg)
+
+        return self._log_quarantine(self.manager.quarantine_renamer,
+                                    data_file,
+                                    msg)
 
     def _get_ondisk_files(self, files, policy=None):
         """
