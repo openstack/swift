@@ -2819,6 +2819,37 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
         self.assertEqual(status.split()[0], '400', body)
 
+    def test_upload_part_copy_with_plain_range_is_rejected(self):
+        account = 'test:tester'
+        test_headers = (
+            {'Range': 'bytes=0-9'},
+            {
+                'Range': 'bytes=10-19',
+                'X-Amz-Copy-Source-Range': 'bytes=0-9',
+            },
+        )
+
+        for headers in test_headers:
+            self.swift.clear_calls()
+            with self.subTest(headers=headers):
+                status, _headers, body = self._test_copy_for_s3acl(
+                    account, src_headers={'Content-Length': '20'},
+                    put_header=headers)
+
+                self.assertEqual(status.split()[0], '400', body)
+                self.assertEqual(
+                    'InvalidRequest', self._get_error_code(body))
+                self.assertEqual(
+                    'Cannot specify both Range header and partNumber '
+                    'query parameter',
+                    self._get_error_message(body))
+                self.assertNotIn(
+                    ('HEAD', '/v1/AUTH_test/src_bucket/src_obj'),
+                    self.swift.calls)
+                self.assertNotIn(
+                    ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
+                    self.swift.calls)
+
     def test_upload_part_copy_range(self):
         account = 'test:tester'
 

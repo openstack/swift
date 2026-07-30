@@ -175,6 +175,10 @@ class ObjectController(Controller):
             raise InvalidArgument('x-amz-copy-source-range',
                                   req.headers['X-Amz-Copy-Source-Range'],
                                   'Illegal copy header')
+        if all(h in req.headers
+               for h in ('X-Amz-Copy-Source', 'Range')):
+            raise InvalidArgument('Range', req.headers['Range'],
+                                  'RANGE is not supported in Copy!')
         req.check_copy_source(self.app)
         if not req.headers.get('Content-Type'):
             # can't setdefault because it can be None for some reason
