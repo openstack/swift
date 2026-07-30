@@ -133,6 +133,22 @@ def make_relative_path(*parts):
     return '/'.join(str(p) for p in parts)
 
 
+def make_path(*parts):
+    return '/'.join(['', 'v1', make_relative_path(*parts)])
+
+
+def make_hidden_account_name(account):
+    return AUTO_CREATE_ACCOUNT_PREFIX + account
+
+
+def make_sessions_container_name(container):
+    return get_reserved_name('mpu_sessions', container)
+
+
+def make_parts_container_name(container):
+    return get_reserved_name('mpu_parts', container)
+
+
 def calculate_max_name_length():
     # TODO: ideally we'd allow longer internal names in hidden containers
     max_suffix = ''
@@ -562,10 +578,9 @@ class BaseMPUHandler:
                 wsgi_to_str(path_part) for path_part in path_parts)
             self.obj = None
 
-        self.sessions_container = get_reserved_name('mpu_sessions',
-                                                    self.container)
-        self.parts_container = get_reserved_name('mpu_parts', self.container)
-        self.hidden_account = AUTO_CREATE_ACCOUNT_PREFIX + self.account
+        self.sessions_container = make_sessions_container_name(self.container)
+        self.parts_container = make_parts_container_name(self.container)
+        self.hidden_account = make_hidden_account_name(self.account)
         self.user_container_info = get_container_info(
             self.req.environ, self.app, swift_source=MPU_SWIFT_SOURCE)
 
@@ -582,7 +597,7 @@ class BaseMPUHandler:
     def _ensure_container_exists(self, account, container, policy_index):
         # TODO: make storage policy specific parts bucket
         policy_name = POLICIES[policy_index].name
-        path = '/'.join(['', 'v1', account, container])
+        path = make_path(account, container)
         headers = {'X-Storage-Policy': policy_name}
         cont_req = self.make_subrequest(
             path=path, method='PUT', headers=headers)
@@ -611,9 +626,6 @@ class BaseMPUHandler:
 
     def _authorize_write_request(self):
         self._authorize_request('write_acl')
-
-    def make_path(self, *parts):
-        return '/'.join(['', 'v1', make_relative_path(*parts)])
 
     def make_subrequest(self, method=None, path=None, body=None,
                         headers=None, params=None):
@@ -695,7 +707,6 @@ class MPUSessionsHandler(BaseMPUHandler):
         Handles List Multipart Uploads
         """
         self._authorize_read_request()
-        path = self.make_path(self.hidden_account, self.sessions_container)
 
         subreq_params = {}
         if 'marker' in self.req.params:
@@ -715,7 +726,8 @@ class MPUSessionsHandler(BaseMPUHandler):
             # desired limit in the client listing.
             # note: params are quoted by Request when it forms the query string
             sub_req = self.make_subrequest(
-                path=path, method='GET', params=subreq_params)
+                path=make_path(self.hidden_account, self.sessions_container),
+                method='GET', params=subreq_params)
             sub_resp = sub_req.get_response(self.app)
             if sub_resp.is_success:
                 items = json.loads(sub_resp.body)
@@ -749,7 +761,7 @@ class MPUSessionsHandler(BaseMPUHandler):
                 headers['x-container-sysmeta-' + key] = quote(val)
         if headers:
             cont_req = self.make_subrequest(
-                path=self.make_path(self.account, self.container),
+                path=make_path(self.account, self.container),
                 method='POST',
                 headers=headers)
             resp = cont_req.get_response(self.app)
@@ -763,9 +775,8 @@ class MPUSessionsHandler(BaseMPUHandler):
         # PUT a lifeline obj in parts container that will be deleted when the
         # manifest is made obsolete
         lifeline_name = make_relative_path(self.obj, upload_id, '')
-        lifeline_path = self.make_path(self.hidden_account,
-                                       self.parts_container,
-                                       lifeline_name)
+        lifeline_path = make_path(
+            self.hidden_account, self.parts_container, lifeline_name)
         systags = {
             'relic_id': quote(upload_id.serialize()),
             'child_prefix': quote(lifeline_name),
@@ -815,7 +826,7 @@ class MPUSessionsHandler(BaseMPUHandler):
         upload_id = UploadId(timestamp)
         session_ref = ObjectRef(self.obj, upload_id.serialize())
         session_name = session_ref.serialize()
-        session_path = self.make_path(
+        session_path = make_path(
             self.hidden_account, self.sessions_container, session_name)
         session = MPUSession.from_user_headers(session_name, self.req.headers)
         session_req = self.make_subrequest(
@@ -856,7 +867,7 @@ class MPUSessionHandler(BaseMPUHandler):
         self.session_ref = ObjectRef(self.obj, self.upload_id.serialize())
         # mpu sessions for the same user_name sort in chronological order...
         self.session_name = self.session_ref.serialize()
-        self.session_path = self.make_path(
+        self.session_path = make_path(
             self.hidden_account, self.sessions_container, self.session_name)
         self.req_timestamp = Timestamp(
             self.req.headers.setdefault('X-Timestamp',
@@ -886,8 +897,7 @@ class MPUSessionHandler(BaseMPUHandler):
         return session_req.get_response(self.app)
 
     def _get_user_object_metadata(self):
-        path = self.make_path(
-            self.account, self.container, self.obj)
+        path = make_path(self.account, self.container, self.obj)
         req = self.make_subrequest(method='HEAD', path=path)
         resp = req.get_response(self.app)
         if resp.is_success:
@@ -903,7 +913,7 @@ class MPUSessionHandler(BaseMPUHandler):
 
         part_name = '%s/%s/%s' % (self.obj, self.upload_id,
                                   normalize_part_number(part_number))
-        part_path = self.make_path(
+        part_path = make_path(
             self.hidden_account, self.parts_container, part_name)
         self.logger.debug('mpu upload_part %s', part_path)
         headers = {}
@@ -939,7 +949,7 @@ class MPUSessionHandler(BaseMPUHandler):
         if not session.is_active:
             return HTTPNotFound(MPU_NO_SUCH_UPLOAD_ID_MSG)
 
-        path = self.make_path(self.hidden_account, self.parts_container)
+        path = make_path(self.hidden_account, self.parts_container)
         part_prefix = '%s/%s/' % (self.obj, self.upload_id)
         subreq_params = {
             'prefix': swob.str_to_wsgi(part_prefix),
@@ -1100,7 +1110,7 @@ class MPUSessionHandler(BaseMPUHandler):
             [('mpu_etag', internal_manifest.mpu_etag),
              ('mpu_link', part_prefix_path)])
         manifest_req = self.make_subrequest(
-            path=self.make_path(self.account, self.container, self.obj),
+            path=make_path(self.account, self.container, self.obj),
             method='PUT',
             headers=manifest_headers,
             body=internal_manifest.serialize())
@@ -1513,7 +1523,7 @@ class MPUContainerHandler(BaseMPUHandler):
                     'x-container-sysmeta-mpu-parts-container-'):
                 continue
             parts_container = urllib.parse.unquote(value)
-            path = self.make_path(self.account, parts_container)
+            path = make_path(self.account, parts_container)
             parts_req = self.make_subrequest('HEAD', path)
             parts_resp = parts_req.get_response(self.app)
             if parts_resp.is_success:
