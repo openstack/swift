@@ -30,7 +30,7 @@ from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
 from swift.common.middleware.s3api.utils import unique_id
 from swift.common.middleware.versioned_writes.object_versioning import \
     build_versions_object_name
-from swift.common.object_ref import HistoryId, ObjectRef, UploadId
+from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.request_helpers import get_reserved_name
 from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
     HTTPNotFound, HTTPAccepted, HTTPServerError, wsgi_quote, \
@@ -59,7 +59,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.account = 'a'
         self.obj_name = 'obj'
         self.upload_id = UploadId(next(self.ts_iter))
-        self.vers_name = self._create_history_ref(self.obj_name, null=True)
+        self.upload_ref = self._create_upload_ref(self.obj_name)
         self.obj_path = '/v1/%s/%s/%s' % (self.account,
                                           self.user_container,
                                           self.obj_name)
@@ -87,10 +87,10 @@ class BaseTestMpuAuditor(unittest.TestCase):
         broker.initialize(put_timestamp=float(next(self.ts_iter)))
         return broker
 
-    def _create_history_ref(self, obj, ts_data=None, null=True):
+    def _create_upload_ref(self, obj, ts_data=None):
         ts_data = ts_data or next(self.ts_iter)
-        vers_id = HistoryId(ts_data, null=null)
-        return ObjectRef(obj, vers_id)
+        upload_id = UploadId(ts_data)
+        return ObjectRef(obj, upload_id)
 
     @contextlib.contextmanager
     def _mock_internal_client(self, registered_calls=None):
@@ -207,11 +207,11 @@ class BaseTestMpuAuditor(unittest.TestCase):
 class TestModuleFunctions(BaseTestMpuAuditor):
     def _setup_for_yield_item_batches(self, table, state):
         timestamps = [next(self.ts_iter) for _ in range(12)]
-        vers_names = [
-            self._create_history_ref(next(self.name_iter), ts)
+        upload_refs = [
+            self._create_upload_ref(next(self.name_iter), ts)
             for ts in timestamps]
         items = [self._create_item(str(vers_name), ts, state=state)
-                 for vers_name, ts in zip(vers_names, timestamps)]
+                 for vers_name, ts in zip(upload_refs, timestamps)]
         with self.broker.get() as conn:
             self.broker._really_merge_items(table, conn, items)
 
@@ -344,8 +344,9 @@ class TestMpuAuditor(BaseTestMpuAuditor):
     def test_audit_objects(self):
         def do_test(container):
             broker = self._make_broker(container)
-            with mock.patch('swift.container.mpu_auditor.MpuHistoryAuditor'
-                            ) as mocked:
+            with mock.patch(
+                    'swift.container.mpu_auditor.MpuOverwriteAuditor'
+            ) as mocked:
                 self.auditor.audit(broker)
             self.assertEqual(
                 [mock.call(self.auditor.config, self.auditor.client,
@@ -391,9 +392,8 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
         self.assertEqual(exp_metrics, self.fake_statsd_client.counters)
 
 
-class TestMpuHistoryAuditor(BaseTestMpuAuditor):
-    audit_container = get_reserved_name(
-        'history', BaseTestMpuAuditor.user_container)
+class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
+    audit_container = BaseTestMpuAuditor.user_container
 
     def setUp(self):
         super().setUp()
@@ -864,7 +864,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
     def test_audit_in_progress_session(self):
         # verify that an in progress session is passed over
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_CREATED_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_CREATED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         with self._mock_internal_client():
@@ -884,7 +884,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         ts_ctype = Timestamp(float(ts_now) - 123)  # recent
         ts_meta = Timestamp(float(ts_now) - 4)
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_COMPLETING_CONTENT_TYPE,
+            self.upload_ref, MPU_SESSION_COMPLETING_CONTENT_TYPE,
             ts_data=ts_data, ts_ctype=ts_ctype, ts_meta=ts_meta)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
@@ -914,7 +914,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         ts_ctype = Timestamp(float(ts_now) - 3601)  # old
         ts_meta = ts_now
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_COMPLETING_CONTENT_TYPE,
+            self.upload_ref, MPU_SESSION_COMPLETING_CONTENT_TYPE,
             ts_data=ts_data, ts_ctype=ts_ctype, ts_meta=ts_meta)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
@@ -943,7 +943,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         ts_now = Timestamp.now()
         ts_data = Timestamp(float(ts_now) - 3699)
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_COMPLETING_CONTENT_TYPE,
+            self.upload_ref, MPU_SESSION_COMPLETING_CONTENT_TYPE,
             ts_data=ts_data)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
@@ -965,11 +965,11 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         # verify that a completing session that is found to be completed is
         # removed
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_COMPLETING_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_COMPLETING_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id':
-                              str(self.vers_name.obj_id)}
+                              str(self.upload_ref.obj_id)}
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE',
@@ -992,12 +992,12 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         # is bumped if session delete fails
         ts_data = next(self.ts_iter)
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_COMPLETING_CONTENT_TYPE,
+            self.upload_ref, MPU_SESSION_COMPLETING_CONTENT_TYPE,
             ts_data=ts_data)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id':
-                              str(self.vers_name.obj_id)}
+                              str(self.upload_ref.obj_id)}
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE',
@@ -1020,7 +1020,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
     def test_audit_completed_session(self):
         # verify that a completed session is removed
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_COMPLETED_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_COMPLETED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
@@ -1042,11 +1042,11 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
     def test_audit_aborted_session_and_user_obj_is_mpu(self):
         # verify that an aborted session is cleaned up if mpu exists
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id':
-                              str(self.vers_name.obj_id)}
+                              str(self.upload_ref.obj_id)}
         registered_calls = [
             ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE',
@@ -1069,7 +1069,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         ts_now = Timestamp.now()
         ts_data = Timestamp(float(ts_now) - 3699)
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE,
+            self.upload_ref, MPU_SESSION_ABORTED_CONTENT_TYPE,
             ts_data=ts_data)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
@@ -1089,7 +1089,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
     def test_audit_aborted_session_error_checking_user_obj(self):
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
@@ -1108,7 +1108,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
     def test_audit_aborted_session_is_purged(self):
         # verify that an aborted session older than purge_delay is cleaned up
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
@@ -1136,7 +1136,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
     def test_audit_aborted_session_error_putting_part_delete_marker(self):
         # verify that an aborted session older than purge_delay is cleaned up
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
@@ -1159,7 +1159,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
     def test_audit_aborted_session_error_deleting_session(self):
         # verify that an aborted session older than purge_delay is cleaned up
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE)
+            self.upload_ref, MPU_SESSION_ABORTED_CONTENT_TYPE)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
@@ -1190,7 +1190,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         ts_data = Timestamp(now - 3600)
         ts_ctype = Timestamp(now - 2001)
         session = self._create_session_spec(
-            self.vers_name, MPU_SESSION_ABORTED_CONTENT_TYPE,
+            self.upload_ref, MPU_SESSION_ABORTED_CONTENT_TYPE,
             ts_data=ts_data, ts_ctype=ts_ctype)
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check

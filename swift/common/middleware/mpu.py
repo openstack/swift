@@ -25,9 +25,7 @@ from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
 from swift.common.middleware.symlink import ALLOW_RESERVED_NAMES
-from swift.common.middleware.versioned_writes.object_versioning import \
-    validate_version
-from swift.common.object_ref import ObjectRef, HistoryId, UploadId
+from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import drain_and_close, \
     config_positive_int_value, reiterate, parse_content_type, \
@@ -58,7 +56,6 @@ MPU_SWIFT_SOURCE = 'MPU'
 MPU_OBJECT_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
 MPU_SYSMETA_MANIFEST_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'manifest'
 MPU_SYSMETA_UPLOAD_ID_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'upload-id'
-MPU_SYSMETA_HISTORY_ID_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'history-id'
 MPU_SYSMETA_ETAG_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'etag'
 MPU_SYSMETA_SIZE_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'size'
 MPU_SYSMETA_PARTS_COUNT_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'parts-count'
@@ -143,7 +140,7 @@ def calculate_max_name_length():
                    'PUT', 'DELETE'):
         if len(suffix) > len(max_suffix):
             max_suffix = suffix
-    obj_id = HistoryId(Timestamp.now(), null=True)
+    obj_id = UploadId(Timestamp.now())
     ref = ObjectRef('', obj_id=obj_id.serialize(), tail=max_suffix)
 
     return constraints.MAX_OBJECT_NAME_LENGTH - len(ref.serialize())
@@ -546,10 +543,6 @@ class MPUSession(MPUItem):
                 headers[key] = val
         return headers
 
-    @property
-    def history_id(self):
-        return HistoryId.parse(self.headers.get(MPU_SYSMETA_HISTORY_ID_KEY))
-
 
 class BaseMPUHandler:
     def __init__(self, mw, req):
@@ -572,7 +565,6 @@ class BaseMPUHandler:
         self.sessions_container = get_reserved_name('mpu_sessions',
                                                     self.container)
         self.parts_container = get_reserved_name('mpu_parts', self.container)
-        self.history_container = get_reserved_name('history', self.container)
         self.hidden_account = AUTO_CREATE_ACCOUNT_PREFIX + self.account
         self.user_container_info = get_container_info(
             self.req.environ, self.app, swift_source=MPU_SWIFT_SOURCE)
@@ -661,29 +653,6 @@ class BaseMPUHandler:
         else:
             client_resp_status_int = sub_resp.status_int
         return swob.status_map[client_resp_status_int](request=self.req)
-
-    def _annotate_with_history_update(self, req, history_id, op, systags=None):
-        update_headers = {
-            # zero-size so that phony entries don't add to container bytes
-            'x-size': '0',
-            # listings can filter out based on content-type
-            'x-content-type': MPU_PHONY_OBJECT_CONTENT_TYPE,
-        }
-        if systags:
-            update_headers['x-systags'] = param_str_from_dict(systags)
-        update = {
-            'op': op,
-            'account': self.hidden_account,
-            'container': self.history_container,
-            # history entries need to sort in reverse chronological order
-            'obj': '%s\x00%s' % (
-                self.obj,
-                'null' if history_id.null else history_id.timestamp.normal),
-            'headers': update_headers
-        }
-        if 'swift.container_updates' not in req.environ:
-            req.environ['swift.container_updates'] = []
-        req.environ['swift.container_updates'].append(update)
 
 
 class MPUSessionsHandler(BaseMPUHandler):
@@ -775,11 +744,7 @@ class MPUSessionsHandler(BaseMPUHandler):
     def _ensure_resource_containers_in_metadata(self, policy_index):
         parts_container_key = 'mpu-parts-container-%d' % policy_index
         headers = {}
-        # TODO: IDK if history container needs to be in sysmeta - this may be
-        #   in anticipation of integrating with versioning when we want
-        #   object-versioning to know the container exists?
-        for key, val in ((parts_container_key, self.parts_container),
-                         ('history-container', self.history_container)):
+        for key, val in ((parts_container_key, self.parts_container),):
             if key not in self.user_container_info['sysmeta']:
                 headers['x-container-sysmeta-' + key] = quote(val)
         if headers:
@@ -841,8 +806,6 @@ class MPUSessionsHandler(BaseMPUHandler):
             self.hidden_account, self.sessions_container, policy_index)
         self._ensure_container_exists(
             self.hidden_account, self.parts_container, policy_index)
-        self._ensure_container_exists(
-            self.hidden_account, self.history_container, policy_index)
         self._ensure_resource_containers_in_metadata(policy_index)
 
         self.req.headers.pop('Etag', None)
@@ -851,10 +814,6 @@ class MPUSessionsHandler(BaseMPUHandler):
 
         upload_id = UploadId(timestamp)
         session_ref = ObjectRef(self.obj, upload_id.serialize())
-        null = True  # TODO: rip out history stuff
-        history_id = HistoryId(Timestamp.max() if null else timestamp,
-                               null=null)
-        self.req.headers[MPU_SYSMETA_HISTORY_ID_KEY] = history_id.serialize()
         session_name = session_ref.serialize()
         session_path = self.make_path(
             self.hidden_account, self.sessions_container, session_name)
@@ -1106,7 +1065,7 @@ class MPUSessionHandler(BaseMPUHandler):
         ts_complete = Timestamp(session.data_timestamp, offset=offset)
         # note: setting x-timestamp here causes object-versioning to us that
         # timestamp to form a version id, so version ids are coupled to the
-        # upload id and history id for the manifest
+        # upload id for the manifest
         # TODO: make manifest content-type be application/json, move
         #  user content-type to sysmeta
         manifest_headers = {
@@ -1154,9 +1113,6 @@ class MPUSessionHandler(BaseMPUHandler):
             'child': quote(lifeline_name)
         }
         update_systags(manifest_req, systags)
-        self._annotate_with_history_update(
-            manifest_req, session.history_id, 'PUT',
-            systags=systags)
 
         self.logger.debug('mpu manifest PUT %s %s',
                           manifest_req.path, dict(manifest_req.headers))
@@ -1535,41 +1491,11 @@ class MPUObjHandler(BaseMPUHandler):
             resp.app_iter = None
         return resp
 
-    def _handle_put_delete_request(self):
-        # TODO: remove!
-        # TODO: ok to always use default policy for history?
-        policy_index = POLICIES.default.idx
-        self._ensure_container_exists(
-            self.hidden_account, self.history_container, policy_index)
-        # TODO: the coupling with object-versioning is unfortunate
-        version_id = self.req.params.get('version-id')
-        # Note: we're relying on request method in the op field for correct
-        # sorting of null versions in history i.e. DELETE trumps PUT of
-        # otherwise same version.
-        if version_id == 'null':
-            # this is a new event in the null version's history
-            history_id = HistoryId(Timestamp.max(), null=True)
-            op = self.req.method
-        elif version_id:
-            # this is a new event in a specific version's history
-            validate_version(self.req, version_id)
-            history_id = HistoryId(version_id)
-            op = self.req.method
-        else:
-            # this is a new event in the null version's history
-            history_id = HistoryId(Timestamp.max(), null=True)
-            op = self.req.method
-        # TODO: respect existing systags...
-        self._annotate_with_history_update(self.req, history_id, op)
-
     def handle_request(self):
         if self.req.method in ('GET', 'HEAD'):
             # instruct the object server to look for an mpu-etag in sysmeta
             # for evaluating conditional requests
             return self._handle_get_head_request()
-
-        if self.req.method in ('PUT', 'DELETE'):
-            return self._handle_put_delete_request()
 
         return self.req.get_response(self.app)
 
@@ -1635,11 +1561,6 @@ class MPUContainerHandler(BaseMPUHandler):
         #     self._update_resp_headers(resp)
         # elif self.req.method == 'HEAD':
         #     self._update_resp_headers(resp)
-        elif self.req.method == 'PUT':
-            # TODO: ok to always use default policy for history?
-            policy_index = POLICIES.default.idx
-            self._ensure_container_exists(
-                self.hidden_account, self.history_container, policy_index)
         elif self.req.method == 'DELETE':
             pass
             # TODO: implement

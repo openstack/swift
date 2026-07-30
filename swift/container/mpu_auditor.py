@@ -259,8 +259,8 @@ class BaseMpuAuditor:
         return None
 
 
-class MpuHistoryAuditor(BaseMpuAuditor):
-    resource_type = 'history'
+class MpuOverwriteAuditor(BaseMpuAuditor):
+    resource_type = 'object'
 
     def _cleanup_obsolete_item(self, item):
         # TODO: vary parts container according to policy OR put explicit path
@@ -283,8 +283,7 @@ class MpuHistoryAuditor(BaseMpuAuditor):
             self._complete_item(item, self.ts_audit)
 
     def _item_has_version(self, item):
-        if self.broker.container.startswith('\x00') and \
-                not self.broker.container.startswith('\x00history'):
+        if self.broker.container.startswith('\x00'):
             self.debug('skip version check for %s', item.name)
             return False
 
@@ -494,13 +493,13 @@ class MpuAuditor:
             mpu_auditor_class = MpuSessionAuditor
             user_container = container
         elif reserved_prefix == 'versions':
-            mpu_auditor_class = MpuHistoryAuditor
+            mpu_auditor_class = MpuOverwriteAuditor
             user_container = container
         elif broker.path.endswith('+segments'):
             mpu_auditor_class = MpuPartMarkerAuditor
             user_container = broker.container[:-1 * len('+segments')]
         else:
-            mpu_auditor_class = MpuHistoryAuditor
+            mpu_auditor_class = MpuOverwriteAuditor
             user_container = container
 
         mpu_auditor = mpu_auditor_class(

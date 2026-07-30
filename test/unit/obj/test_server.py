@@ -42,7 +42,7 @@ from swift.common.concurrency import (
 from swift import __version__ as swift_version
 from swift.common.http import is_success
 from swift.common.middleware.mpu import ObjectRef
-from swift.common.object_ref import HistoryId
+from swift.common.object_ref import UploadId
 from swift.obj.expirer import ExpirerConfig
 from test import listen_zero
 from test.debug_logger import debug_logger, FakeStatsdClient, \
@@ -1819,7 +1819,7 @@ class TestObjectController(BaseUnitTestCase):
         updates = [
             {'account': '.a',
              'container': '\x00versions\x00cont-\N{SNOWMAN}',
-             'obj': ObjectRef(obj, HistoryId(t_put, null=True)).serialize(),
+             'obj': ObjectRef(obj, UploadId(t_put)).serialize(),
              'headers': {'x-size': '0',
                          'x-content-type': 'application/x-phony'},
              'hosts': ['1.0.1.0:6000', '1.0.1.1:6001'],
@@ -1828,7 +1828,7 @@ class TestObjectController(BaseUnitTestCase):
              },
             {'account': 'other-account',
              'container': '\x00other\x00container',
-             'obj': ObjectRef(obj, HistoryId(t_put, null=True)).serialize(),
+             'obj': ObjectRef(obj, UploadId(t_put)).serialize(),
              'headers': {'x-size': '0',
                          'x-content-type': 'application/x-phony'},
              'hosts': ['1.0.1.2:6002'],

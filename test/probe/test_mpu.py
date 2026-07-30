@@ -305,7 +305,6 @@ class BaseTestNativeMPU(BaseTestMPU):
         self.sessions_container_name = \
             '\x00mpu_sessions\x00%s' % self.bucket_name
         self.parts_container_name = '\x00mpu_parts\x00%s' % self.bucket_name
-        self.history_container_name = '\x00history\x00%s' % self.bucket_name
         self.versions_container_name = '\x00versions\x00%s' % self.bucket_name
         self.part_size = 5 * 2 ** 20
 
@@ -446,14 +445,9 @@ class BaseTestNativeMPU(BaseTestMPU):
         return self._get_listing(
             self.hidden_account, self.sessions_container_name)
 
-    def get_history(self, include_state=None):
-        return self._get_listing(
-            self.account, self.bucket_name, include_state=include_state)
-
     def get_mpu_resources(self):
         return (self.get_mpu_sessions(),
-                self.get_mpu_parts(),
-                self.get_history())
+                self.get_mpu_parts())
 
     def _make_mpu(self, num_parts=1):
         # create
@@ -502,12 +496,6 @@ class TestNativeMPU(BaseTestNativeMPU):
             contents='junk')
         orig_objs = list(self.internal_client.iter_objects(
             self.account, self.bucket_name))
-
-        # check history
-        sessions, parts, history = self.get_mpu_resources()
-        history_refs = [ObjectRef.parse(v['name']) for v in history]
-        self.assertEqual([self.mpu_name],
-                         [v.user_name for v in history_refs])
         self.assertEqual([self.mpu_name],
                          [o['name'] for o in orig_objs])
 
@@ -527,12 +515,11 @@ class TestNativeMPU(BaseTestNativeMPU):
                          sorted([c['name'] for c in containers]))
         containers = self.internal_client.iter_containers(self.hidden_account)
         self.assertEqual(sorted([self.parts_container_name,
-                                 self.sessions_container_name,
-                                 self.history_container_name]),
+                                 self.sessions_container_name]),
                          sorted([c['name'] for c in containers]))
 
         # list sessions internal
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertEqual(
             [{'name': sess_name.serialize(),
               'content_type': 'application/x-mpu-session-created',
@@ -621,10 +608,9 @@ class TestNativeMPU(BaseTestNativeMPU):
                            'last_modified': mock.ANY}],
                          user_objs)
 
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertIn(self.mpu_name, sessions[0]['name'])
         self.assertEqual(exp_parts_items, parts)
-        self.assertIn(self.mpu_name, history[0]['name'])
 
         # head mpu
         headers = swiftclient.head_object(
@@ -661,16 +647,6 @@ class TestNativeMPU(BaseTestNativeMPU):
                 query_string='upload-id=%s' % ext_upload_id_str)
         self.assertEqual(404, cm.exception.http_status)
 
-        # list history versions
-        history = self.get_history()
-        history_refs = [ObjectRef.parse(v['name']) for v in history]
-        self.assertEqual([self.mpu_name],
-                         [v.user_name for v in history_refs])
-        # latest version is the mpu
-        exp_history_ref = ObjectRef(self.mpu_name, reserved=False)
-        self.assertEqual(exp_history_ref.serialize(),
-                         history_refs[0].serialize())
-
         # list versions via api
         versions = self.list_versions(self.bucket_name)
         self.assertEqual(1, len(versions))
@@ -692,17 +668,6 @@ class TestNativeMPU(BaseTestNativeMPU):
         swiftclient.delete_object(self.url, self.token, self.bucket_name,
                                   self.mpu_name)
 
-        # history is empty...
-        self.assertFalse(self.get_history())
-        # ...except for a tombstone and a relic
-        history = self.get_history(include_state=1)
-        self.assertEqual([exp_history_ref.serialize()],
-                         [item['name'] for item in history])
-        exp_relic_ref = '%s\x00%s' % (self.mpu_name, int_upload_id)
-        history = self.get_history(include_state=2)
-        self.assertEqual([exp_relic_ref],
-                         [item['name'] for item in history])
-
         # check the mpu cannot be downloaded
         with self.assertRaises(ClientException) as cm:
             swiftclient.get_object(
@@ -717,8 +682,8 @@ class TestNativeMPU(BaseTestNativeMPU):
         # ...once more to process any parts markers...
         Manager(['container-auditor']).once()
 
-        # session, parts and history have gone :)
-        self.assertEqual(([], [], []), self.get_mpu_resources())
+        # session, parts have gone :)
+        self.assertEqual(([], []), self.get_mpu_resources())
 
         # check the account stats
         Manager(['container-updater']).once()
@@ -784,25 +749,18 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assert_etag(etag, headers.get('etag'), rfc_compliant=True)
         self.assertEqual(2 * self.part_size, len(body))
 
-        # list history versions
-        history = self.get_history()
-        history_refs = [ObjectRef.parse(v['name']) for v in history]
-        self.assertEqual([self.mpu_name],
-                         [v.user_name for v in history_refs])
-
         # check we still have the parts for both mpu
         parts = self.get_mpu_parts()
         self.assertEqual(exp_parts_items_1 + exp_parts_items_2, parts)
 
-        # async cleanup: once for sessions and history, once for parts markers
+        # async cleanup: once for sessions, once for parts markers
         Manager(['container-auditor']).once()
         Manager(['container-auditor']).once()
 
         # sessions and obsolete parts have gone :)
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertFalse(sessions)
         self.assertEqual(exp_parts_items_2, parts)
-        self.assertEqual(1, len(history))
 
         # get user object
         headers, body = swiftclient.get_object(
@@ -850,25 +808,18 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assert_etag(MD5_OF_EMPTY_STRING, headers.get('etag'))
         self.assertEqual(b'', body)
 
-        # list history versions
-        history = self.get_history()
-        history_refs = [ObjectRef.parse(v['name']) for v in history]
-        self.assertEqual([self.mpu_name],
-                         [v.user_name for v in history_refs])
-
         # check we still have the parts for mpu
         parts = self.get_mpu_parts()
         self.assertEqual(exp_parts_items_1, parts)
 
-        # async cleanup: once for sessions and history, once for parts markers
+        # async cleanup: once for sessions, once for parts markers
         Manager(['container-auditor']).once()
         Manager(['container-auditor']).once()
 
         # sessions and obsolete parts have gone :)
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertFalse(sessions)
         self.assertFalse(parts)
-        self.assertEqual(1, len(history))
 
         # get user object
         headers, body = swiftclient.get_object(
@@ -983,7 +934,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-auditor']).once()
 
         # ... so session still exists
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertEqual(exp_aborted_sessions, list(sessions))
         # and the parts still exist
         self.assertEqual(exp_parts_items, [part for part in parts])
@@ -996,14 +947,14 @@ class TestNativeMPU(BaseTestNativeMPU):
                 conf_index, custom_conf=custom_conf)
 
         # now the session is gone
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertFalse(list(sessions))
 
         # async cleanup to ensure generated parts markers are processed
         Manager(['container-auditor']).once()
 
         # parts have gone :)
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertEqual(([], []), (sessions, parts))
 
     def test_native_mpu_concurrent_complete_on_handoff(self):
@@ -1123,7 +1074,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         Manager(['container-auditor']).once()
         Manager(['container-auditor']).once()
 
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertFalse(sessions)
         int_upload_id = self.internalize_upload_id(upload_id)
         part_base = '%s/%s/' % (self.mpu_name, int_upload_id)
@@ -1229,18 +1180,16 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
                              % quote(obj_versions[mpu_name][1][0]))
         self.assertEqual(404, cm.exception.http_status)
 
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertFalse(sessions)
         # part + lifeline
         self.assertEqual(2, len(parts), parts)
-        # XXX
-        # self.assertFalse(history)
 
         # run auditor
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertEqual(([], []), (sessions, parts))
 
     def test_delete_retained_version_while_versioning_enabled(self):
@@ -1317,7 +1266,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         for i in range(2):
             Manager(['container-auditor']).once()
 
-        sessions, parts, history = self.get_mpu_resources()
+        sessions, parts = self.get_mpu_resources()
         self.assertEqual(([], []), (sessions, parts))
 
     def test_overwrite_during_and_delete_after_versioning(self):

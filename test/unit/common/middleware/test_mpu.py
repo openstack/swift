@@ -28,7 +28,7 @@ from swift.common.middleware import mpu
 from swift.common.middleware.mpu import MPUMiddleware, \
     normalize_part_number, MPUSession, BaseMPUHandler, MPUEtagHasher, \
     byteranges_parts_iter
-from swift.common.object_ref import ObjectRef, HistoryId, UploadId
+from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPServiceUnavailable, HTTPPreconditionFailed, \
     HTTPException, HTTPBadRequest, HTTPNoContent, HTTPInternalServerError, \
@@ -129,7 +129,6 @@ class TestMPUSession(unittest.TestCase):
 
     def test_get_manifest_headers(self):
         headers = {
-            'X-Object-Sysmeta-Mpu-History-Id': '-null-&$&9999987654.99999',
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
             'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
@@ -153,7 +152,6 @@ class TestMPUSession(unittest.TestCase):
 
     def test_from_user_headers(self):
         headers = {
-            'X-Object-Sysmeta-Mpu-History-Id': '-null-&$&9999987654.99999',
             'x-object-meta-fruit': 'apple',
             'x-timestamp': '12345',
             'content-type': 'user/type',
@@ -169,7 +167,6 @@ class TestMPUSession(unittest.TestCase):
         self.assertEqual('application/x-mpu-session-created',
                          sess.content_type)
         exp_sess_headers = {
-            'X-Object-Sysmeta-Mpu-History-Id': '-null-&$&9999987654.99999',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
             'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
@@ -187,7 +184,6 @@ class TestMPUSession(unittest.TestCase):
             'Content-Length': '0',
             'Content-Type': 'application/x-mpu-session-created',
             'X-Timestamp': '0000012345.00000',
-            'X-Object-Sysmeta-Mpu-History-Id': '-null-&$&9999987654.99999',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
             'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
@@ -209,7 +205,6 @@ class TestMPUSession(unittest.TestCase):
             'Content-Type': 'application/x-mpu-session-aborted',
             'X-Backend-Data-Timestamp': '0000012345.00000',
             'X-Timestamp': '0000067890.00000',
-            'X-Object-Sysmeta-Mpu-History-Id': '-null-&$&9999987654.99999',
             'X-Object-Sysmeta-Mpu-Content-Type': 'user/type',
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Fruit': 'apple',
             'X-Object-Sysmeta-Mpu-User-Content-Disposition': 'attachment',
@@ -228,8 +223,6 @@ class TestMPUSession(unittest.TestCase):
             'Content-Type': 'application/x-mpu-session-aborted',
             'X-Timestamp': '0000067890.00000'}
         self.assertEqual(exp_post_headers, sess.get_post_headers())
-        self.assertEqual(12345.0, sess.history_id.timestamp)
-        self.assertTrue(sess.history_id.null)
 
     def test_set_completed(self):
         sess = MPUSession('mysession', Timestamp(123.45678))
@@ -318,10 +311,6 @@ class BaseTestMPUMiddleware(unittest.TestCase):
         return swob.str_to_wsgi(self.session_ref.serialize())
 
     @property
-    def history_id(self):
-        return HistoryId(Timestamp.max(), null=True)
-
-    @property
     def history_ref(self):
         return ObjectRef(self.obj_name, self.history_id)
 
@@ -348,7 +337,6 @@ class BaseTestMPUMiddleware(unittest.TestCase):
             'X-Timestamp': ts_meta.internal,
             'Content-Type': 'application/x-mpu-session-created',
             'X-Backend-Data-Timestamp': ts_session.internal,
-            'X-Object-Sysmeta-Mpu-History-Id': self.history_id.serialize(),
             'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
             'X-Object-Sysmeta-Mpu-Content-Type': 'application/test',
         })
@@ -578,8 +566,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             ('PUT', '/v1/.a/\x00mpu_sessions\x00c', HTTPCreated, {}),
             ('HEAD', '/v1/.a/\x00mpu_parts\x00c', HTTPNotFound, {}),
             ('PUT', '/v1/.a/\x00mpu_parts\x00c', HTTPCreated, {}),
-            ('HEAD', '/v1/.a/\x00history\x00c', HTTPNotFound, {}),
-            ('PUT', '/v1/.a/\x00history\x00c', HTTPCreated, {}),
             ('POST', '/v1/a/c', HTTPAccepted, {}),
         ]
         for call in registered:
@@ -598,10 +584,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertIs(app, mw.app)
         self.assertEqual(10000, mw.max_part_number)
         self.assertEqual(5242880, mw.min_part_size)
-        self.assertEqual(983, mw.max_name_length)
+        self.assertEqual(990, mw.max_name_length)
         self.assertEqual({'max_part_number': 10000,
                           'min_part_size': 5242880,
-                          'max_name_length': 983},
+                          'max_name_length': 990},
                          registry.get_swift_info().get('mpu'))
 
     def test_filter_factory_custom_conf(self):
@@ -612,10 +598,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.assertIs(app, mw.app)
             self.assertEqual(999, mw.max_part_number)
             self.assertEqual(1048576, mw.min_part_size)
-            self.assertEqual(983, mw.max_name_length)
+            self.assertEqual(990, mw.max_name_length)
             self.assertEqual({'max_part_number': 999,
                               'min_part_size': 1048576,
-                              'max_name_length': 983},
+                              'max_name_length': 990},
                              registry.get_swift_info().get('mpu'))
 
         do_test({'min_part_size': 1048576,
@@ -718,7 +704,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Sysmeta-Mpu-History-Id': self.history_id.serialize(),
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-2])
@@ -735,7 +720,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Sysmeta-Mpu-History-Id': self.history_id.serialize(),
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-2])
@@ -746,7 +730,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.method = 'POST'
         resp = req.get_response(self.mw)
         self.assertEqual(400, resp.status_int)
-        self.assertEqual(b'MPU object name length of 1024 longer than 983',
+        self.assertEqual(b'MPU object name length of 1024 longer than 990',
                          resp.body)
 
     def test_create_mpu_with_content_type(self):
@@ -760,7 +744,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Sysmeta-Mpu-History-Id': self.history_id.serialize(),
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/test'},
             self.app.headers[-2])
@@ -776,7 +759,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Sysmeta-Mpu-History-Id': self.history_id.serialize(),
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'text/html'},
             self.app.headers[-2])
@@ -811,7 +793,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
              'X-Backend-Allow-Reserved-Names': 'true',
-             'X-Object-Sysmeta-Mpu-History-Id': self.history_id.serialize(),
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-2])
@@ -820,15 +801,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         user_container_headers = {
             'X-Container-Sysmeta-Mpu-Parts-Container-0':
                 swob.wsgi_quote('\x00mpu_parts\x00c'),
-            'X-Container-Sysmeta-History-Container':
-                swob.wsgi_quote('\x00history\x00c')
         }
         registered = [
             ('HEAD', '/v1/a', HTTPOk, {}),
             ('HEAD', '/v1/a/c', HTTPNoContent, user_container_headers),
             ('HEAD', '/v1/.a/\x00mpu_sessions\x00c', HTTPNoContent, {}),
             ('HEAD', '/v1/.a/\x00mpu_parts\x00c', HTTPNoContent, {}),
-            ('HEAD', '/v1/.a/\x00history\x00c', HTTPNoContent, {}),
             ('PUT', '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
              HTTPCreated, {}),
             ('PUT', '/v1/.a/\x00mpu_parts\x00c/%s/' % self.session_name_wsgi,
@@ -847,7 +825,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(expected, self.app.calls)
 
     def test_create_mpu_fails_to_create_parts_container(self):
-        expected = self._setup_mpu_create_requests()[:-3]
+        expected = self._setup_mpu_create_requests()[:-1]
         # replace previously registered call
         self.app.register(
             'PUT', '/v1/.a/\x00mpu_parts\x00c', HTTPInternalServerError, {})
@@ -860,7 +838,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(expected, self.app.calls)
 
     def test_create_mpu_fails_to_create_sessions_container(self):
-        expected = self._setup_mpu_create_requests()[:-5]
+        expected = self._setup_mpu_create_requests()[:-3]
         # replace previously registered call
         self.app.register(
             'PUT', '/v1/.a/\x00mpu_sessions\x00c', HTTPInternalServerError, {})
@@ -1566,19 +1544,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': exp_put_ts.internal},
             dict(manifest_put.headers))
 
-        exp_updates = [{
-            "op": "PUT",
-            "account": ".a",
-            "container": "\x00history\x00c",
-            "obj": self.obj_name + '\x00null',
-            "headers": {
-                "x-size": "0",
-                "x-content-type": "application/x-phony;swift_source=mpu",
-                'x-systags': param_str_from_dict(exp_systags), }
-        }]
-        self.assertEqual(exp_updates,
-                         manifest_put.env.get('swift.container_updates'))
-
         session_post = self.app.call_list[-1]
         self.assertEqual(
             {'Content-Type': 'application/x-mpu-session-completed',
@@ -1688,18 +1653,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '3',
              'X-Timestamp': exp_put_ts.internal},
             manifest_put.headers)
-        exp_updates = [{
-            "op": "PUT",
-            "account": ".a",
-            "container": "\x00history\x00c",
-            "obj": self.obj_name + '\x00null',
-            "headers": {
-                "x-size": "0",
-                "x-content-type": "application/x-phony;swift_source=mpu",
-                'x-systags': param_str_from_dict(exp_systags), }
-        }]
-        self.assertEqual(exp_updates,
-                         manifest_put.env.get('swift.container_updates'))
 
         session_post = self.app.call_list[-1]
         self.assertEqual(
@@ -3104,10 +3057,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(b'', resp.body)
 
     def test_put_not_mpu(self):
+        # PUTs should just pass through
         registered = [
             ('HEAD', '/v1/a', swob.HTTPOk, {}),
             ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
-            ('HEAD', '/v1/.a/\x00history\x00c', HTTPCreated, {}),
             ('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, b'')]
         [self.app.register(*call) for call in registered]
         exp_calls = [call[:2] for call in registered]
@@ -3121,22 +3074,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual({'Host': 'localhost:80',
                           'X-Timestamp': mock.ANY},
                          dict(put_call.headers))
-        self.assertIn('swift.container_updates', put_call.env)
-        self.assertEqual(
-            [{'op': 'PUT',
-              'account': '.a',
-              'container': '\x00history\x00c',
-              'headers': {
-                  'x-content-type': 'application/x-phony;swift_source=mpu',
-                  'x-size': '0'},
-              'obj': self.obj_name + '\x00null'}],
-            put_call.env['swift.container_updates'])
 
     def test_delete_not_mpu(self):
+        # DELETEs should just pass through
         registered = [
             ('HEAD', '/v1/a', swob.HTTPOk, {}),
             ('HEAD', '/v1/a/c', swob.HTTPOk, {}),
-            ('HEAD', '/v1/.a/\x00history\x00c', HTTPNoContent, {}),
             ('DELETE', '/v1/a/c/o', swob.HTTPNoContent, {}, b'')]
         [self.app.register(*call) for call in registered]
         exp_calls = [call[:2] for call in registered]
@@ -3150,16 +3093,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual({'Host': 'localhost:80',
                           'X-Timestamp': mock.ANY},
                          dict(delete_call.headers))
-        self.assertIn('swift.container_updates', delete_call.env)
-        self.assertEqual(
-            [{'op': 'DELETE',
-              'account': '.a',
-              'container': '\x00history\x00c',
-              'headers': {
-                  'x-content-type': 'application/x-phony;swift_source=mpu',
-                  'x-size': '0'},
-              'obj': self.obj_name + '\x00null'}],
-            delete_call.env['swift.container_updates'])
 
 
 class TestMpuMiddlewareErrors(BaseTestMPUMiddleware):
