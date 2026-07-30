@@ -27,8 +27,8 @@ from swift.common.registry import get_swift_info
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
 from swift.common.middleware.s3api.acl_handlers import ObjectAclHandler
-from swift.common.middleware.s3api.utils import S3Timestamp, \
-    sysmeta_header, swift3_object_sysmeta_header
+from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header, \
+    swift3_object_sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \

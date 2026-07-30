@@ -31,13 +31,14 @@ from swift.common import utils, swob
 
 from swift.common.middleware.s3api.etree import fromstring
 from swift.common.middleware.s3api.utils import S3Timestamp
-from swift.common.utils import md5, quote
+from swift.common.utils import quote
 
 from test.functional.s3api import S3ApiBase, SigV4Mixin, \
     skip_boto2_sort_header_bug, S3ApiBaseBoto3, get_boto3_conn
 from test.functional.s3api.s3_test_client import Connection
 from test.functional.s3api.utils import get_error_code, calculate_md5, \
     get_error_msg
+from test.functional.swift_test_client import Connection as SwiftConnection
 
 DAY = 86400.0  # 60 * 60 * 24 (sec)
 
@@ -180,7 +181,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_object(self):
         obj = u'object name with %-sign 🙂'
         content = b'abc123'
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
 
         # PUT Object
         status, headers, body = \
@@ -391,7 +392,7 @@ class TestS3ApiObject(S3ApiBase):
 
     def test_put_object_content_encoding(self):
         obj = 'object'
-        etag = md5(usedforsecurity=False).hexdigest()
+        etag = tf.md5hex('')
         headers = {'Content-Encoding': 'gzip'}
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj, headers)
@@ -406,7 +407,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_put_object_content_md5(self):
         obj = 'object'
         content = b'abcdefghij'
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
         headers = {'Content-MD5': calculate_md5(content)}
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj, headers, content)
@@ -417,7 +418,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_put_object_content_type(self):
         obj = 'object'
         content = b'abcdefghij'
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
         headers = {'Content-Type': 'text/plain'}
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj, headers, content)
@@ -471,7 +472,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_put_object_expect(self):
         obj = 'object'
         content = b'abcdefghij'
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
         headers = {'Expect': '100-continue'}
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj, headers, content)
@@ -484,7 +485,7 @@ class TestS3ApiObject(S3ApiBase):
             expected_headers = req_headers
         obj = 'object'
         content = b'abcdefghij'
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj,
                                    req_headers, content)
@@ -541,7 +542,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_put_object_storage_class(self):
         obj = 'object'
         content = b'abcdefghij'
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
         headers = {'X-Amz-Storage-Class': 'STANDARD'}
         status, headers, body = \
             self.conn.make_request('PUT', self.bucket, obj, headers, content)
@@ -676,7 +677,7 @@ class TestS3ApiObject(S3ApiBase):
     def test_put_object_copy_source(self):
         obj = 'object'
         content = b'abcdefghij'
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
         self.conn.make_request('PUT', self.bucket, obj, body=content)
 
         dst_bucket = 'dst-bucket'
@@ -758,12 +759,87 @@ class TestS3ApiObject(S3ApiBase):
             self.conn.make_request('PUT', dst_bucket, dst_obj, headers)
         self.assertEqual(status, 400)
 
+    def test_put_object_copy_preserves_custom_metadata(self):
+        obj = 'object'
+        dst_obj = 'object-copy'
+        content = b'abcdefghij'
+        etag = tf.md5hex(content)
+        req_headers = {'X-Amz-Meta-Foo': 'bar'}
+
+        # PUT the source object with custom user metadata
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj,
+                                   req_headers, content)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self._assertObjectEtag(self.bucket, obj, etag)
+
+        # verify metadata via HEAD on the source object
+        status, headers, body = \
+            self.conn.make_request('HEAD', self.bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+
+        # server-side copy the object via the S3 API (default metadata
+        # directive: COPY)
+        copy_headers = {
+            'X-Amz-Copy-Source': '/%s/%s' % (self.bucket, obj)}
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, dst_obj, copy_headers)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+        self._assertObjectEtag(self.bucket, dst_obj, etag)
+
+        # verify metadata was preserved on the copy via HEAD
+        status, headers, body = \
+            self.conn.make_request('HEAD', self.bucket, dst_obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+
+    def test_put_object_native_copy_preserves_custom_metadata(self):
+        obj = 'object'
+        dst_obj = 'object-copy-native'
+        content = b'abcdefghij'
+        etag = tf.md5hex(content)
+        req_headers = {'X-Amz-Meta-Foo': 'bar'}
+
+        # PUT the source object via the S3 API with custom user metadata
+        status, headers, body = \
+            self.conn.make_request('PUT', self.bucket, obj,
+                                   req_headers, content)
+        self.assertEqual(status, 200)
+
+        # verify metadata via S3 HEAD on the source object
+        status, headers, body = \
+            self.conn.make_request('HEAD', self.bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+
+        # copy the object using the native Swift API; the S3 bucket is the
+        # same account/container as accessed via tempauth
+        sw_conn = SwiftConnection(tf.config)
+        sw_conn.authenticate()
+        src_file = sw_conn.get_account().container(self.bucket).file(obj)
+        src_file.copy(self.bucket, dst_obj)
+
+        # verify metadata was preserved on the copy, via native Swift HEAD
+        dst_file = sw_conn.get_account().container(self.bucket).file(dst_obj)
+        dst_file.initialize()
+        self.assertEqual(dst_file.metadata.get('foo'), 'bar')
+
+        # and also via S3 HEAD on the copy
+        status, headers, body = \
+            self.conn.make_request('HEAD', self.bucket, dst_obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+        self._assertObjectEtag(self.bucket, dst_obj, etag)
+
     @skip_boto2_sort_header_bug
     def test_put_object_copy_source_if_modified_since(self):
         obj = 'object'
         dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
-        etag = md5(usedforsecurity=False).hexdigest()
+        etag = tf.md5hex('')
         self.conn.make_request('PUT', self.bucket, obj)
         self.conn.make_request('PUT', dst_bucket)
 
@@ -784,7 +860,7 @@ class TestS3ApiObject(S3ApiBase):
         obj = 'object'
         dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
-        etag = md5(usedforsecurity=False).hexdigest()
+        etag = tf.md5hex('')
         self.conn.make_request('PUT', self.bucket, obj)
         self.conn.make_request('PUT', dst_bucket)
 
@@ -805,7 +881,7 @@ class TestS3ApiObject(S3ApiBase):
         obj = 'object'
         dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
-        etag = md5(usedforsecurity=False).hexdigest()
+        etag = tf.md5hex('')
         self.conn.make_request('PUT', self.bucket, obj)
         self.conn.make_request('PUT', dst_bucket)
 
@@ -825,7 +901,7 @@ class TestS3ApiObject(S3ApiBase):
         obj = 'object'
         dst_bucket = 'dst-bucket'
         dst_obj = 'dst_object'
-        etag = md5(usedforsecurity=False).hexdigest()
+        etag = tf.md5hex('')
         self.conn.make_request('PUT', self.bucket, obj)
         self.conn.make_request('PUT', dst_bucket)
 

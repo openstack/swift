@@ -746,11 +746,9 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
                 'Size': exp_size,
                 'StorageClass': 'STANDARD',
             }], objs)
-        # XXX Swift makes inconsistent etags
-        # See https://bugs.launchpad.net/swift/+bug/2163751
-        # dest_etag = etag_from_resp(dest_get_resp)
-        # self.assertEqual(exp_dest_etag, dest_etag)
-        # self.assertNotEqual(dest_etag, src_etag)
+        dest_etag = etag_from_resp(dest_get_resp)
+        self.assertEqual(exp_dest_etag, dest_etag)
+        self.assertNotEqual(dest_etag, src_etag)
 
     def test_create_list_abort_multipart_uploads(self):
         key_name = self.create_name('key')

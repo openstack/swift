@@ -23,7 +23,8 @@ from swift.common import swob
 from swift.common.middleware import copy
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPException
-from swift.common.utils import close_if_possible, closing_if_possible, md5
+from swift.common.utils import close_if_possible, closing_if_possible, \
+    InputProxy, md5
 from test.debug_logger import debug_logger
 from test.unit import patch_policies, FakeRing
 from test.unit.common.middleware.helpers import FakeSwift
@@ -179,6 +180,146 @@ class TestServerSideCopyMiddleware(unittest.TestCase):
         self.assertEqual(self.app.swift_sources[1], 'SSC')
         # For basic test cases, assert orig_req_method behavior
         self.assertNotIn('swift.orig_req_method', req.environ)
+
+    def test_copy_source_hook_can_proxy_put_body(self):
+        source_body = b'bytes copied through the PUT request'
+        proxied_chunks = []
+        hook_calls = []
+
+        class ReadThroughInput(InputProxy):
+            def chunk_update(self, chunk, eof, *args, **kwargs):
+                proxied_chunks.append(chunk)
+                return chunk
+
+        def copy_source_hook(req, source_resp, sink_req):
+            # TODO: update test to assert on source_resp
+            hook_calls.append({
+                'sink_method': sink_req.method,
+                'sink_path': sink_req.path,
+                'sink_content_length': sink_req.content_length,
+            })
+            sink_req.environ['wsgi.input'] = ReadThroughInput(
+                sink_req.environ['wsgi.input'])
+
+        def hook_injecting_middleware(env, start_response):
+            env['swift.callback.copy_source_hook'] = copy_source_hook
+            return self.ssc(env, start_response)
+
+        self.app.register(
+            'GET', '/v1/a/c/source', swob.HTTPOk, {}, source_body)
+        self.app.register(
+            'PUT', '/v1/a/c/destination', swob.HTTPCreated, {})
+        req = Request.blank(
+            '/v1/a/c/destination',
+            method='PUT',
+            headers={
+                'Content-Length': '0',
+                'X-Copy-From': 'c/source',
+            })
+
+        status, _headers, _body = self.call_app(
+            req, app=hook_injecting_middleware)
+
+        self.assertEqual('201 Created', status)
+        self.assertEqual([{
+            'sink_method': 'PUT',
+            'sink_path': '/v1/a/c/destination',
+            'sink_content_length': len(source_body),
+        }], hook_calls)
+        self.assertEqual(source_body, b''.join(proxied_chunks))
+        self.assertEqual(source_body, self.app.call_list[-1].body)
+
+    def test_copy_source_hooks_can_chain_put_body_proxies(self):
+        source_body = b'bytes copied through both PUT request proxies'
+        first_proxied_chunks = []
+        second_proxied_chunks = []
+        hook_calls = []
+
+        class FirstReadThroughInput(InputProxy):
+            def chunk_update(self, chunk, eof, *args, **kwargs):
+                first_proxied_chunks.append(chunk)
+                return chunk
+
+        class SecondReadThroughInput(InputProxy):
+            def chunk_update(self, chunk, eof, *args, **kwargs):
+                second_proxied_chunks.append(chunk)
+                return chunk
+
+        def first_hook_injecting_middleware(env, start_response):
+            previous_hook = env.get('swift.callback.copy_source_hook')
+
+            def first_copy_source_hook(req, source_resp, sink_req):
+                if previous_hook:
+                    previous_hook(req, source_resp, sink_req)
+                hook_calls.append('first')
+                sink_req.environ['wsgi.input'] = FirstReadThroughInput(
+                    sink_req.environ['wsgi.input'])
+
+            env['swift.callback.copy_source_hook'] = \
+                first_copy_source_hook
+            return second_hook_injecting_middleware(env, start_response)
+
+        def second_hook_injecting_middleware(env, start_response):
+            previous_hook = env.get('swift.callback.copy_source_hook')
+
+            def second_copy_source_hook(req, source_resp, sink_req):
+                if previous_hook:
+                    previous_hook(req, source_resp, sink_req)
+                hook_calls.append('second')
+                sink_req.environ['wsgi.input'] = SecondReadThroughInput(
+                    sink_req.environ['wsgi.input'])
+
+            env['swift.callback.copy_source_hook'] = \
+                second_copy_source_hook
+            return self.ssc(env, start_response)
+
+        self.app.register(
+            'GET', '/v1/a/c/source', swob.HTTPOk, {}, source_body)
+        self.app.register(
+            'PUT', '/v1/a/c/destination', swob.HTTPCreated, {})
+        req = Request.blank(
+            '/v1/a/c/destination',
+            method='PUT',
+            headers={
+                'Content-Length': '0',
+                'X-Copy-From': 'c/source',
+            })
+
+        status, _headers, _body = self.call_app(
+            req, app=first_hook_injecting_middleware)
+
+        self.assertEqual('201 Created', status)
+        self.assertEqual(['first', 'second'], hook_calls)
+        self.assertEqual(source_body, b''.join(first_proxied_chunks))
+        self.assertEqual(source_body, b''.join(second_proxied_chunks))
+        self.assertEqual(source_body, self.app.call_list[-1].body)
+
+    def test_copy_source_hook_failure_closes_source_response(self):
+
+        def failing_copy_source_hook(req, source_resp, sink_req):
+            raise Exception('kaboom')
+
+        self.app.register(
+            'GET', '/v1/a/c/source', swob.HTTPOk, {}, b'source body')
+        req = Request.blank(
+            '/v1/a/c/destination',
+            method='PUT',
+            environ={
+                'swift.callback.copy_source_hook':
+                    failing_copy_source_hook,
+            },
+            headers={
+                'Content-Length': '0',
+                'X-Copy-From': 'c/source',
+            })
+
+        with self.assertRaisesRegex(
+                Exception, 'kaboom'):
+            self.call_ssc(req)
+
+        self.assertEqual({}, self.app.unclosed_requests)
+        self.assertEqual(
+            [('GET', '/v1/a/c/source')], self.app.calls)
 
     def test_static_large_object_manifest(self):
         self.app.register('GET', '/v1/a/c/o', swob.HTTPOk,

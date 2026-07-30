@@ -17,7 +17,7 @@ import os
 import time
 import unittest
 
-from swift.common.swob import Request
+from swift.common.swob import Request, Response
 from swift.common.middleware.s3api import utils, s3request
 from swift.common.middleware.s3api.exception import InvalidBucketNameParseError
 from swift.common.middleware.s3api.utils import make_header_label
@@ -325,6 +325,123 @@ class TestS3ApiUtils(unittest.TestCase):
         self.assertIsNone(
             utils.convert_swift_to_s3_cipher(
                 'I want to be a cipher algorithm someday'))
+
+    def test_install_copy_hook_removes_sysmeta(self):
+        req = Request.blank('/bucket/dest', method='PUT')
+        acl = '{"Owner":"test:tester","Grant":' + \
+              '[{"Permission":"FULL_CONTROL","Grantee":"test:tester"}]}'
+        src_headers = {
+            'X-Object-Sysmeta-S3api-Acl': acl,
+            'X-Object-Sysmeta-S3api-Etag': 's3-etag',
+            'X-Object-Sysmeta-Swift3-Etag': 'swift3-etag',
+            'X-Object-Sysmeta-S3api-Upload-Id': 'my-upload-id',
+            'X-Object-Sysmeta-S3api-Other': 'also removed',
+            'X-Object-Sysmeta-Slo-Etag': 'slo-etag',
+            'X-Object-Sysmeta-Slo-Size': 'slo-size',
+            'X-Object-Sysmeta-Future': 'Unknown',
+            'X-Object-Meta-Fruit': 'Banana',
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+            'etag; s3_etag=abcd; slo_etag=1234',
+        }
+        source_resp = Response(headers=src_headers)
+        sink_req = Request.blank('/v1/AUTH_test/bucket/dest',
+                                 method='PUT', headers=src_headers)
+
+        utils.install_copy_hook(req.environ)
+        self.assertIn('swift.callback.copy_source_hook', req.environ)
+        req.environ['swift.callback.copy_source_hook'](
+            req, source_resp, sink_req)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Object-Sysmeta-S3Api-Acl': acl,
+                          'X-Object-Sysmeta-Future': 'Unknown',
+                          'X-Object-Meta-Fruit': 'Banana',
+                          'X-Object-Sysmeta-Container-Update-Override-Etag':
+                          'etag; slo_etag=1234'},
+                         dict(sink_req.headers))
+
+    def test_install_copy_hook_set_acl(self):
+        new_acl = '{"Owner":"test:tester","Grant":' + \
+                  '[{"Permission":"WRITE","Grantee":"test:tester"}]}'
+        req = Request.blank('/bucket/dest', method='PUT',
+                            headers={'X-Object-Sysmeta-S3Api-Acl': new_acl})
+        src_acl = '{"Owner":"test:tester","Grant":' + \
+                  '[{"Permission":"FULL_CONTROL","Grantee":"test:tester"}]}'
+        src_headers = {
+            'X-Object-Sysmeta-S3api-Acl': src_acl,
+        }
+        source_resp = Response(headers=src_headers)
+        sink_req = Request.blank('/v1/AUTH_test/bucket/dest',
+                                 method='PUT', headers=src_headers)
+
+        utils.install_copy_hook(req.environ)
+        self.assertIn('swift.callback.copy_source_hook', req.environ)
+        req.environ['swift.callback.copy_source_hook'](
+            req, source_resp, sink_req)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Object-Sysmeta-S3Api-Acl': new_acl},
+                         dict(sink_req.headers))
+
+    def test_install_copy_hook_removes_sysmeta_not_s3_request(self):
+        acl = '{"Owner":"test:tester","Grant":' + \
+              '[{"Permission":"FULL_CONTROL","Grantee":"test:tester"}]}'
+        req = Request.blank('/bucket/dest', method='PUT')
+        src_headers = {
+            'X-Object-Sysmeta-S3api-Acl': acl,
+            'X-Object-Sysmeta-S3api-Etag': 's3-etag',
+            'X-Object-Sysmeta-Swift3-Etag': 'swift3-etag',
+            'X-Object-Sysmeta-S3api-Other': 'other',
+            # note: X-Object-Sysmeta-S3api-Upload-Id is not present
+            'X-Object-Sysmeta-Slo-Etag': 'slo-etag',
+            'X-Object-Sysmeta-Slo-Size': 'slo-size',
+            'X-Object-Sysmeta-Future': 'Unknown',
+            'X-Object-Meta-Fruit': 'Banana',
+            'X-Object-Sysmeta-Container-Update-Override-Etag':
+            'etag; s3_etag=abcd; slo_etag=1234',
+        }
+        source_resp = Response(headers=src_headers)
+        sink_req = Request.blank('/v1/AUTH_test/bucket/dest',
+                                 method='PUT', headers=src_headers)
+
+        utils.install_copy_hook(req.environ)
+        self.assertIn('swift.callback.copy_source_hook', req.environ)
+        req.environ['swift.callback.copy_source_hook'](
+            req, source_resp, sink_req)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Object-Sysmeta-S3Api-Acl': acl,
+                          'X-Object-Sysmeta-Slo-Etag': 'slo-etag',
+                          'X-Object-Sysmeta-Slo-Size': 'slo-size',
+                          'X-Object-Sysmeta-Future': 'Unknown',
+                          'X-Object-Meta-Fruit': 'Banana',
+                          'X-Object-Sysmeta-Container-Update-Override-Etag':
+                          'etag; slo_etag=1234'},
+                         dict(sink_req.headers))
+
+    def test_install_copy_hook_calls_previous(self):
+        my_callback_calls = 0
+
+        def my_callback(req, resp, sink_req):
+            nonlocal my_callback_calls
+            my_callback_calls += 1
+            sink_req.headers['x-object-sysmeta-mine'] = 'retained'
+            # this will be removed by the s3api copy hook which is called
+            # *after* this hook...
+            sink_req.headers['x-object-sysmeta-s3api-alien'] = 'removed'
+
+        req = Request.blank('/bucket/dest', method='PUT')
+        req.environ['swift.callback.copy_source_hook'] = my_callback
+        resp_headers = {}
+        source_resp = Response(headers=resp_headers)
+        sink_req = Request.blank('/v1/AUTH_test/bucket/dest',
+                                 method='PUT', headers=resp_headers)
+
+        utils.install_copy_hook(req.environ)
+        req.environ['swift.callback.copy_source_hook'](
+            req, source_resp, sink_req)
+
+        self.assertEqual(1, my_callback_calls)
+        self.assertEqual({'Host': 'localhost:80',
+                          'X-Object-Sysmeta-Mine': 'retained'},
+                         dict(sink_req.headers))
 
 
 class TestS3Timestamp(unittest.TestCase):

@@ -23,10 +23,13 @@ import uuid
 
 from swift.common import utils
 from swift.common.constraints import check_utf8
-from swift.common.request_helpers import get_sys_meta_prefix
+from swift.common.middleware.copy import register_copy_source_hook
+from swift.common.request_helpers import get_container_update_override_key, \
+    get_sys_meta_prefix
 from swift.common.swob import wsgi_to_str
 from swift.common.middleware.s3api.exception import \
     InvalidBucketNameParseError, InvalidURIParseError
+from swift.common.utils import serialize_header, parse_header
 
 MULTIUPLOAD_SUFFIX = '+segments'
 
@@ -49,12 +52,26 @@ def sysmeta_header(resource, name):
     return sysmeta_prefix(resource) + name
 
 
+def is_s3api_sysmeta(server_type, name):
+    return name.lower().startswith(
+        get_sys_meta_prefix(server_type) + 's3api-')
+
+
 def swift3_object_sysmeta_header(name):
     """
     Returns the legacy ``swift3`` namespace object system metadata header for
     the given name.
     """
     return get_sys_meta_prefix('object') + 'swift3-' + name
+
+
+def is_swift3_sysmeta(server_type, name):
+    return name.lower().startswith(
+        get_sys_meta_prefix(server_type) + 'swift3-')
+
+
+def is_swift3_object_sysmeta(name):
+    return is_swift3_sysmeta('object', name)
 
 
 def camel_to_snake(camel):
@@ -406,3 +423,34 @@ class Config(dict):
                     raise
         else:
             dict.__setitem__(self, key, value)
+
+
+def install_copy_hook(environ):
+    def copy_hook(req, source_resp, sink_req):
+        # copy middleware has already copied most sysmeta from the source resp
+        # to the sink req, so first clear *all* s3api sysmeta, and then set
+        # only the s3api sysmeta that is explicitly wanted in sink_req...
+        etag_override_key = get_container_update_override_key('etag').lower()
+        s3_mpu = sysmeta_header('object', 'upload-id') in sink_req.headers
+        for key, value in dict(sink_req.headers).items():
+            lower_key = key.lower()
+            if (is_s3api_sysmeta('object', lower_key)
+                    or is_swift3_object_sysmeta(lower_key)):
+                del sink_req.headers[key]
+            elif s3_mpu and lower_key in ('x-object-sysmeta-slo-etag',
+                                          'x-object-sysmeta-slo-size'):
+                # s3api assumes responsibility for the SLO sysmeta for an MPU
+                del sink_req.headers[key]
+            elif lower_key == etag_override_key:
+                etag, params = parse_header(value)
+                params.pop('s3_etag', None)
+                value = serialize_header(etag, params)
+                sink_req.headers[key] = value or None
+            # else: not relevant to s3api
+
+        # acl sysmeta from the req takes precedence over any from the source
+        acl_header = sysmeta_header('object', 'acl')
+        sink_req.headers[acl_header] = (req.headers.get(acl_header)
+                                        or source_resp.headers.get(acl_header))
+
+    register_copy_source_hook(environ, copy_hook)

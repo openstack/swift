@@ -68,7 +68,7 @@ import time
 from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
     wsgi_quote, wsgi_to_str, parse_date_header
-from swift.common.utils import json, public, reiterate, md5
+from swift.common.utils import json, public, reiterate, md5, serialize_header
 from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.common.request_helpers import get_container_update_override_key, \
     get_param
@@ -236,15 +236,7 @@ class PartController(Controller):
 
             req.headers['Range'] = rng
             del req.headers['X-Amz-Copy-Source-Range']
-        if 'X-Amz-Copy-Source' in req.headers:
-            # Clear some problematic headers that might be on the source
-            req.headers.update({
-                sysmeta_header('object', 'etag'): '',
-                'X-Object-Sysmeta-Swift3-Etag': '',  # for legacy data
-                'X-Object-Sysmeta-Slo-Etag': '',
-                'X-Object-Sysmeta-Slo-Size': '',
-                get_container_update_override_key('etag'): '',
-            })
+
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
@@ -779,8 +771,8 @@ class UploadController(Controller):
             raise NoSuchUpload(upload_id=upload_id)
         headers[s3_etag_header] = s3_etag
         # Leave base header value blank; SLO will populate
-        c_etag = '; s3_etag=%s' % s3_etag
-        headers[get_container_update_override_key('etag')] = c_etag
+        headers[get_container_update_override_key('etag')] = \
+            serialize_header('', {'s3_etag': s3_etag})
 
         too_small_message = ('s3api requires that each segment be at least '
                              '%d bytes' % self.conf.min_segment_size)

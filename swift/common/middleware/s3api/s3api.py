@@ -161,9 +161,9 @@ from swift.common.middleware.s3api.s3response import ErrorResponse, \
     InternalError, MethodNotAllowed, S3ResponseBase
 from swift.common.utils import get_logger, config_true_value, \
     config_positive_int_value, split_path, closing_if_possible, \
-    list_from_csv, parse_header, checksum
+    list_from_csv, parse_header, checksum, serialize_header
 from swift.common.middleware.s3api.utils import Config, \
-    classify_checksum_header_value, make_header_label
+    classify_checksum_header_value, make_header_label, install_copy_hook
 from swift.common.registry import register_swift_info, \
     register_sensitive_header, register_sensitive_param
 
@@ -265,8 +265,7 @@ class ListingEtagMiddleware(object):
                 value, params = parse_header(item['hash'])
                 if 's3_etag' in params:
                     item['s3_etag'] = '"%s"' % params.pop('s3_etag')
-                    item['hash'] = value + ''.join(
-                        '; %s=%s' % kv for kv in params.items())
+                    item['hash'] = serialize_header(value, params)
         except (TypeError, KeyError, ValueError):
             # If anything goes wrong above, drop back to original response
             start_response(ctx._response_status, ctx._response_headers,
@@ -451,6 +450,8 @@ class S3ApiMiddleware(object):
             start_response('200 OK', headers)
             return [b'']
 
+        # prevent s3api specific sysmeta being copied via s3api or swift api
+        install_copy_hook(env)
         try:
             req_class = s3request.get_request_class(env, self.conf.s3_acl)
             req = req_class(env, self.app, self.conf)

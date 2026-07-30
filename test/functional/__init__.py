@@ -39,7 +39,7 @@ from http.client import HTTPException
 
 from swift.common.middleware.memcache import MemcacheMiddleware
 from swift.common.storage_policy import parse_storage_policies, PolicyError
-from swift.common.utils import set_swift_dir
+from swift.common.utils import set_swift_dir, md5
 from swift.common.utils.timestamp import Timestamp
 
 from test import get_config, listen_zero
@@ -1337,3 +1337,9 @@ def requires_bulk(f):
             raise SkipTest('Requires bulk middleware')
         return f(*args, **kwargs)
     return wrapper
+
+
+def md5hex(s):
+    if not isinstance(s, bytes):
+        s = s.encode('ascii')
+    return md5(s, usedforsecurity=False).hexdigest()

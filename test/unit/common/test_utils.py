@@ -1790,6 +1790,16 @@ cluster_dfw1 = http://dfw1.host/v1/
 
         do_test(' space  oddity ')
 
+    def test_serialize_header(self):
+        self.assertEqual('etag', utils.serialize_header('etag', {}))
+        self.assertEqual('', utils.serialize_header('', {}))
+        self.assertEqual('etag; a=1',
+                         utils.serialize_header('etag', {'a': '1'}))
+        self.assertEqual('etag; b=2; a=1',
+                         utils.serialize_header('etag', {'b': 2, 'a': '1'}))
+        self.assertEqual('; b=2; a=1',
+                         utils.serialize_header('', {'b': 2, 'a': '1'}))
+
     def test_override_bytes_from_content_type(self):
         listing_dict = {
             'bytes': 1234, 'hash': 'asdf', 'name': 'zxcv',
