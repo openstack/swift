@@ -425,6 +425,24 @@ class TestAccept(unittest.TestCase):
                                    'text/xml'])
             self.assertEqual(match, 'application/xml')
 
+    def test_accept_quoted_extension_with_escapes(self):
+        for accept in (r'text/plain;note="escaped \" quote"',
+                       r'text/plain;note="escaped \\ backslash"'):
+            acc = swob.Accept(accept)
+            match = acc.best_match(['text/plain', 'application/xml'])
+            self.assertEqual(match, 'text/plain')
+
+    def test_accept_rejects_unterminated_quoted_extension(self):
+        self.assertIsNone(re.fullmatch(swob.Accept.qdtext, '\\'))
+
+        for accept in (
+                'text/plain;note="' + r'\a' * 10000,
+                r'text/plain;note="escaped \" quote',
+                r'text/plain;note="trailing \"'):
+            acc = swob.Accept(accept)
+            with self.assertRaises(ValueError):
+                acc.best_match(['text/plain', 'application/xml'])
+
     def test_accept_invalid(self):
         for accept in ('*', 'text/plain,,', 'some stuff',
                        'application/xml;q=1.0;q=1.1', 'text/plain,*',
