@@ -28,7 +28,10 @@ from swift.common.middleware.symlink import TGT_OBJ_SYSMETA_SYMLINK_HDR, \
     ALLOW_RESERVED_NAMES, SYMLOOP_EXTEND
 from swift.common.middleware.versioned_writes.object_versioning import \
     SYSMETA_VERSIONS_CONT, SYSMETA_VERSIONS_ENABLED, \
-    SYSMETA_VERSIONS_SYMLINK, DELETE_MARKER_CONTENT_TYPE, timestamp_to_version
+    SYSMETA_VERSIONS_SYMLINK, DELETE_MARKER_CONTENT_TYPE, \
+    timestamp_to_version, build_versions_object_prefix, \
+    build_versions_container_name, build_versions_object_name, \
+    parse_versions_object_name, split_versions_container_name
 from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import StoragePolicy
 from swift.common.utils import md5
@@ -3920,7 +3923,7 @@ class ObjectVersioningTestAccountOperations(ObjectVersioningBaseTestCase):
         self.assertEqual(expected, json.loads(body))
 
 
-class TestModuleFunctions(unittest.TestCase):
+class TestModuleFunctions(BaseUnitTestCase):
     def test_timestamp_to_version(self):
         ts = Timestamp.now()
         self.assertEqual(ts.internal, timestamp_to_version(ts))
@@ -3935,6 +3938,89 @@ class TestModuleFunctions(unittest.TestCase):
         self.assertEqual(ts_no_offset.internal, timestamp_to_version(ts))
         self.assertEqual(ts_no_offset.internal,
                          timestamp_to_version(ts.internal))
+
+    def test_build_versions_object_prefix(self):
+        prefix = build_versions_object_prefix('myobj')
+        self.assertEqual('\x00myobj\x00', prefix)
+        # prefix sorts before all version names for the same object
+        vers_name = build_versions_object_name('myobj', self.ts().internal)
+        self.assertLess(prefix, vers_name)
+        # prefix for 'myobj' sorts after version names for 'myob'
+        earlier_vers = build_versions_object_name('myob', self.ts().internal)
+        self.assertGreater(prefix, earlier_vers)
+
+    def test_split_versions_container_name(self):
+        self.assertEqual(
+            'mycontainer',
+            split_versions_container_name('\x00versions\x00mycontainer'))
+
+    def test_split_versions_container_name_not_versions_prefix(self):
+        # reserved name with a non-'versions' first component returns unchanged
+        self.assertEqual(
+            '\x00not-versions\x00mycontainer',
+            split_versions_container_name('\x00not-versions\x00mycontainer'))
+
+    def test_split_versions_container_name_not_reserved(self):
+        # plain (non-reserved) name returns unchanged
+        self.assertEqual('mycontainer',
+                         split_versions_container_name('mycontainer'))
+
+    def test_build_versions_container_name(self):
+        self.assertEqual('\x00versions\x00mycontainer',
+                         build_versions_container_name('mycontainer'))
+
+    def test_build_and_split_versions_container_name_roundtrip(self):
+        self.assertEqual('mycontainer',
+                         split_versions_container_name(
+                             build_versions_container_name('mycontainer')))
+
+    def test_build_versions_object_name(self):
+        version_id = '0123456789.45678'
+        self.assertEqual('\x00myobj\x009876543210.54321',
+                         build_versions_object_name('myobj', version_id))
+
+        version_id = '0123456789.45677_2000000001000001'
+        self.assertEqual('\x00myobj\x009876543210.54321_dffffffffeffffff',
+                         build_versions_object_name('myobj', version_id))
+
+    def test_build_versions_object_name_accepts_timestamp(self):
+        ts = self.ts()
+        self.assertEqual(
+            build_versions_object_name('myobj', ts.internal),
+            build_versions_object_name('myobj', ts))
+
+    def test_build_versions_object_name_newer_sorts_earlier(self):
+        # Newer versions sort before older in listing
+        old_name = build_versions_object_name('myobj', self.ts().internal)
+        new_name = build_versions_object_name('myobj', self.ts().internal)
+        self.assertLess(new_name, old_name)
+
+    def test_parse_versions_object_name(self):
+        name, version_id = parse_versions_object_name(
+            '\x00object\x009876543210.54321_dffffffffeffffff')
+        self.assertEqual('object', name)
+        self.assertEqual('0123456789.45677_2000000001000001', version_id)
+        self.assertIsInstance(version_id, str)
+
+    def test_parse_versions_object_name_not_reserved(self):
+        # plain (non-reserved) name returns (name, None)
+        name, version_id = parse_versions_object_name('plain_object')
+        self.assertEqual('plain_object', name)
+        self.assertIsNone(version_id)
+
+    def test_parse_versions_object_name_invalid_timestamp(self):
+        # reserved name with non-timestamp component returns (full_name, None)
+        name, version_id = parse_versions_object_name('\x00myobj\x00not_a_ts')
+        self.assertEqual('\x00myobj\x00not_a_ts', name)
+        self.assertIsNone(version_id)
+
+    def test_build_and_parse_versions_object_name_roundtrip(self):
+        version_id = self.ts().internal
+        vers_name = build_versions_object_name('myobj', version_id)
+        parsed_name, parsed_version_id = parse_versions_object_name(vers_name)
+        self.assertEqual('myobj', parsed_name)
+        self.assertEqual(version_id, parsed_version_id)
+        self.assertIsInstance(parsed_version_id, str)
 
 
 if __name__ == '__main__':
