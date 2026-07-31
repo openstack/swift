@@ -27,7 +27,8 @@ from queue import Queue, Empty
 
 
 from swift.common import statsd_client
-from swift.common.statsd_client import StatsdClient, get_statsd_client
+from swift.common.statsd_client import StatsdClient, get_statsd_client, \
+    LabelsMap
 
 from test.debug_logger import debug_logger
 
@@ -1184,3 +1185,104 @@ class TestGetLabeledStatsdClientOutput(BaseTestStatsdClientOutput):
 
     def test_statsd_methods_librato_no_labels(self):
         self._do_test_statsd_methods_no_labels('librato')
+
+
+class TestLabelsMap(unittest.TestCase):
+    def test_init(self):
+        labels = LabelsMap({'x': None, 'y': 'z'})
+        self.assertEqual({'x': None, 'y': 'z'}, dict(labels))
+        self.assertIsInstance(labels, dict)
+
+        labels = LabelsMap(x=None, y='z')
+        self.assertEqual({'x': None, 'y': 'z'}, dict(labels))
+        self.assertIsInstance(labels, dict)
+
+        labels = LabelsMap((('x', None), ('y', 'z')))
+        self.assertEqual({'x': None, 'y': 'z'}, dict(labels))
+        self.assertIsInstance(labels, dict)
+
+    def test_set_none_key_does_not_exist(self):
+        labels = LabelsMap()
+        labels['x'] = None
+        self.assertEqual({'x': None}, labels)
+
+    def test_set_none_key_exists(self):
+        # None will be set
+        labels = LabelsMap(x=0)
+        self.assertEqual({'x': 0}, labels)
+        labels['x'] = None
+        self.assertEqual({'x': None}, labels)
+
+    def test_update_keys_do_not_exist(self):
+        labels = LabelsMap()
+        labels.update({'x': None, 'y': 'z'})
+        self.assertEqual({'x': None, 'y': 'z'}, labels)
+
+        labels = LabelsMap()
+        labels.update(x=None, y='z')
+        self.assertEqual({'x': None, 'y': 'z'}, labels)
+
+        labels = LabelsMap()
+        labels.update([('x', None), ('y', 'z')])
+        self.assertEqual({'x': None, 'y': 'z'}, labels)
+
+    def test_update_none_keys_exist(self):
+        labels = LabelsMap(x=None, y='y')
+        labels.update({'x': 'not none', 'y': 'z'})
+        self.assertEqual({'x': 'not none', 'y': 'z'}, labels)
+
+        labels = LabelsMap(x=None, y='y')
+        labels.update(x='not none', y='z')
+        self.assertEqual({'x': 'not none', 'y': 'z'}, labels)
+
+        labels = LabelsMap(x=None, y='y')
+        labels.update([('x', 'not none'), ('y', 'z')])
+        self.assertEqual({'x': 'not none', 'y': 'z'}, labels)
+
+    def test_setdefault_key_not_exists_none_value(self):
+        labels = LabelsMap()
+        self.assertNotIn('account', labels)
+        labels.setdefault('account', None)
+        self.assertEqual({'account': None}, labels)
+        self.assertIsNone(labels['account'])
+
+        # None can be replaced
+        labels.setdefault('account', 'AUTH_test')
+        self.assertEqual({'account': 'AUTH_test'}, labels)
+        self.assertEqual('AUTH_test', labels['account'])
+
+    def test_setdefault_key_not_exists(self):
+        labels = LabelsMap()
+        self.assertNotIn('account', labels)
+        labels.setdefault('account', 'AUTH_test')
+        self.assertEqual({'account': 'AUTH_test'}, labels)
+        self.assertEqual('AUTH_test', labels['account'])
+
+    def test_setdefault_key_exists_with_none_value(self):
+        labels = LabelsMap(account=None)
+        self.assertIn('account', labels)
+        self.assertEqual({'account': None}, labels)
+        self.assertIsNone(labels['account'])
+
+        actual = labels.setdefault('account', 'AUTH_test')
+        self.assertEqual('AUTH_test', actual)
+        self.assertEqual({'account': 'AUTH_test'}, labels)
+        self.assertEqual('AUTH_test', labels['account'])
+
+    def test_setdefault_key_exists_with_non_none_value(self):
+        labels = LabelsMap(account='AUTH_test')
+        actual = labels.setdefault('account', 'AUTH_other')
+        self.assertEqual('AUTH_test', actual)
+        self.assertEqual('AUTH_test', labels['account'])
+
+        actual = labels.setdefault('account', None)
+        self.assertEqual('AUTH_test', actual)
+        self.assertEqual('AUTH_test', labels['account'])
+
+        actual = labels.setdefault('account', '')
+        self.assertEqual('AUTH_test', actual)
+        self.assertEqual('AUTH_test', labels['account'])
+
+    def test_contains(self):
+        labels = LabelsMap(x=None)
+        self.assertTrue('x' in labels)

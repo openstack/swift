@@ -101,7 +101,7 @@ from swift.common.utils import (get_logger, get_remote_client,
                                 InputProxy, list_from_csv,
                                 get_policy_index, LogStringFormatter,
                                 split_path, StrAnonymizer, StrFormatTime)
-from swift.common.statsd_client import get_labeled_statsd_client
+from swift.common.statsd_client import get_labeled_statsd_client, LabelsMap
 
 from swift.common.storage_policy import POLICIES
 from swift.common.registry import get_sensitive_headers, \
@@ -518,27 +518,50 @@ class ProxyLoggingMiddleware(object):
         else:
             return None
 
-    def get_request_labels(self, req, acc, cont, obj):
+    def get_base_labels(self, req, acc, cont, obj):
         """
-        Returns a dict of labels associated with the request.
+        Returns a LabelsMap of labels associated with the request, including
+        the following keys: 'account', 'resource', 'method', 'api'. Keys whose
+        value is not yet known are set with the value None.
 
         :param req: a swob.Request
         :param acc: the account
         :param cont: the container
         :param obj: the object
-        :return: a dict of labels associated with the request.
+        :return: an instance of LabelsMap
         """
-        req_labels = {}
-        if acc:
-            req_labels['account'] = acc
+        resource = self.get_resource_type_from_aco(req, acc, cont, obj)
+        metric_method = self.statsd_metric_method(self.method_from_req(req))
+        labels = LabelsMap(account=acc or None,  # acc might be ''
+                           method=metric_method,
+                           resource=resource,
+                           api=None)
         if cont:
-            req_labels['container'] = cont
-        req_labels['resource'] = self.get_resource_type_from_aco(
-            req, acc, cont, obj)
-        method = self.method_from_req(req)
-        metric_method = self.statsd_metric_method(method)
-        req_labels['method'] = metric_method
-        return req_labels
+            labels['container'] = cont
+        return labels
+
+    def get_current_labels(self, req, acc, cont, obj):
+        """
+        Returns a LabelsMap of labels associated with the request, including
+        the following keys: 'account', 'resource', 'method'. Keys whose value
+        is not yet known are not set.
+
+        :param req: a swob.Request
+        :param acc: the account
+        :param cont: the container
+        :param obj: the object
+        :return: an instance of LabelsMap
+        """
+        resource = self.get_resource_type_from_aco(req, acc, cont, obj)
+        metric_method = self.statsd_metric_method(self.method_from_req(req))
+        labels = LabelsMap(method=metric_method)
+        if acc:
+            labels['account'] = acc
+        if resource:
+            labels['resource'] = resource
+        if cont:
+            labels['container'] = cont
+        return labels
 
     def update_swift_base_labels(self, req):
         """
@@ -576,15 +599,11 @@ class ProxyLoggingMiddleware(object):
         base_labels = req.environ.get('swift.base_labels')
         if base_labels is None:
             # expected in the left-most proxy_logging instance
-            base_labels = self.get_request_labels(req, acc, cont, obj)
-            if base_labels.get('account') is None and is_s3_req(req):
+            base_labels = self.get_base_labels(req, acc, cont, obj)
+            if base_labels['account'] is None and is_s3_req(req):
                 cont, obj = extract_bucket_and_key(
                     req, self.storage_domains, False)
-                base_labels = self.get_request_labels(req, acc, cont, obj)
-                if base_labels['resource'] is None:
-                    # allow a later middleware to update the resource label
-                    # once the full swift path is known.
-                    base_labels.pop('resource')
+                base_labels = self.get_base_labels(req, acc, cont, obj)
                 base_labels['api'] = 'S3'
             else:
                 base_labels['api'] = 'swift'
@@ -592,13 +611,14 @@ class ProxyLoggingMiddleware(object):
             req_labels = ChainMap({}, base_labels)
         else:
             # expected in the right-most proxy_logging instance
-            labels = self.get_request_labels(req, acc, cont, obj)
-            for k, v in labels.items():
-                # if these base_labels are not already set then this is the
-                # best idea we have
-                if k in ('resource', 'account'):
-                    base_labels.setdefault(k, v)
-            req_labels = ChainMap(labels, base_labels)
+            current_labels = self.get_current_labels(req, acc, cont, obj)
+            # if these base_labels are not already known then this is the best
+            # idea we have; set them in base_labels so that they are visible to
+            # the left-most proxy_logging instance
+            base_labels.setdefault('account', current_labels.get('account'))
+            base_labels.setdefault('resource', current_labels.get('resource'))
+            # use the composition of base_labels overlaid with current_labels
+            req_labels = ChainMap(current_labels, base_labels)
         return req_labels
 
     @staticmethod
