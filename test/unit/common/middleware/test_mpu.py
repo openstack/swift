@@ -27,7 +27,9 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.middleware import mpu
 from swift.common.middleware.mpu import MPUMiddleware, \
     normalize_part_number, MPUSession, BaseMPUHandler, MPUEtagHasher, \
-    byteranges_parts_iter
+    byteranges_parts_iter, make_mpu_hidden_account_name, \
+    parse_mpu_hidden_account_name, make_parts_container_name, \
+    make_sessions_container_name, parse_hidden_container_name
 from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
     HTTPAccepted, HTTPServiceUnavailable, HTTPPreconditionFailed, \
@@ -41,6 +43,25 @@ from test.unit.common.middleware.helpers import FakeSwift
 
 
 class TestModuleFunctions(unittest.TestCase):
+    def test_make_mpu_hidden_account_name(self):
+        self.assertEqual('.mpu_test', make_mpu_hidden_account_name('test'))
+
+    def test_parse_mpu_hidden_account_name(self):
+        self.assertEqual('test', parse_mpu_hidden_account_name('.mpu_test'))
+        self.assertEqual('test', parse_mpu_hidden_account_name('test'))
+        self.assertEqual('.test', parse_mpu_hidden_account_name('.test'))
+
+    def test_make_mpu_parts_container_name(self):
+        self.assertEqual('test~mpu_parts', make_parts_container_name('test'))
+
+    def test_make_mpu_sessions_container_name(self):
+        self.assertEqual('test~mpu_sessions',
+                         make_sessions_container_name('test'))
+
+    def test_parse_hidden_container_name(self):
+        self.assertEqual(('test', 'mpu_parts'),
+                         parse_hidden_container_name('test~mpu_parts'))
+
     def test_normalize_part_number(self):
         self.assertEqual('000001', normalize_part_number(1))
         self.assertEqual('000011', normalize_part_number('11'))
@@ -311,14 +332,6 @@ class BaseTestMPUMiddleware(unittest.TestCase):
         return swob.str_to_wsgi(self.session_ref.serialize())
 
     @property
-    def history_ref(self):
-        return ObjectRef(self.obj_name, self.history_id)
-
-    @property
-    def version_name(self):
-        return self.history_ref.serialize()
-
-    @property
     def external_upload_id(self):
         return self.mw.externalize_upload_id(
             '/v1/a/c/' + quote(self.obj_name), self.upload_id)
@@ -342,7 +355,7 @@ class BaseTestMPUMiddleware(unittest.TestCase):
         })
         headers.update(extra_headers or {})
         call = ('HEAD',
-                '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+                '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
                 HTTPOk, headers)
         self.app.register(*call)
         self.exp_calls.append(call)
@@ -496,13 +509,13 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         """
         part_numbers = part_numbers or [1, 2]
         return [
-            {'path': '.a/\x00mpu_parts\x00c/%s/%06d'
+            {'path': '.mpu_a/c~mpu_parts/%s/%06d'
                      % (self.session_ref.serialize(), part_numbers[0]),
              'part_number': part_numbers[0],
              'etag': md5(self.sample_part1_body).hexdigest(),
              'timestamp': next(self.ts_iter).internal,
              'size': len(self.sample_part1_body)},
-            {'path': '.a/\x00mpu_parts\x00c/%s/%06d'
+            {'path': '.mpu_a/c~mpu_parts/%s/%06d'
                      % (self.session_ref.serialize(), part_numbers[1]),
              'part_number': part_numbers[1],
              'etag': md5(self.sample_part2_body).hexdigest(),
@@ -562,10 +575,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         during a CreateMpu request.
         """
         registered = [
-            ('HEAD', '/v1/.a/\x00mpu_sessions\x00c', HTTPNotFound, {}),
-            ('PUT', '/v1/.a/\x00mpu_sessions\x00c', HTTPCreated, {}),
-            ('HEAD', '/v1/.a/\x00mpu_parts\x00c', HTTPNotFound, {}),
-            ('PUT', '/v1/.a/\x00mpu_parts\x00c', HTTPCreated, {}),
+            ('HEAD', '/v1/.mpu_a/c~mpu_sessions', HTTPNotFound, {}),
+            ('PUT', '/v1/.mpu_a/c~mpu_sessions', HTTPCreated, {}),
+            ('HEAD', '/v1/.mpu_a/c~mpu_parts', HTTPNotFound, {}),
+            ('PUT', '/v1/.mpu_a/c~mpu_parts', HTTPCreated, {}),
             ('POST', '/v1/a/c', HTTPAccepted, {}),
         ]
         for call in registered:
@@ -671,9 +684,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def _do_test_create_mpu(self, req_headers):
         expected = self._setup_mpu_create_requests()
         registered_calls = [
-            ('PUT', '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+            ('PUT', '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPCreated, {}),
-            ('PUT', '/v1/.a/\x00mpu_parts\x00c/%s/' % self.session_name_wsgi,
+            ('PUT', '/v1/.mpu_a/c~mpu_parts/%s/' % self.session_name_wsgi,
              HTTPCreated, {})
         ]
         for call in registered_calls:
@@ -768,9 +781,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req_headers = {'X-Object-Meta-Foo': 'blah',
                        'X-Timestamp': self.ts_now.internal}
         registered_calls = [
-            ('PUT', '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+            ('PUT', '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPCreated, {}),
-            ('PUT', '/v1/.a/\x00mpu_parts\x00c/%s/' % self.session_name_wsgi,
+            ('PUT', '/v1/.mpu_a/c~mpu_parts/%s/' % self.session_name_wsgi,
              HTTPCreated, {})
         ]
         for call in registered_calls:
@@ -800,16 +813,16 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def test_create_mpu_existing_resource_containers(self):
         user_container_headers = {
             'X-Container-Sysmeta-Mpu-Parts-Container-0':
-                swob.wsgi_quote('\x00mpu_parts\x00c'),
+                swob.wsgi_quote('c~mpu_parts'),
         }
         registered = [
             ('HEAD', '/v1/a', HTTPOk, {}),
             ('HEAD', '/v1/a/c', HTTPNoContent, user_container_headers),
-            ('HEAD', '/v1/.a/\x00mpu_sessions\x00c', HTTPNoContent, {}),
-            ('HEAD', '/v1/.a/\x00mpu_parts\x00c', HTTPNoContent, {}),
-            ('PUT', '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+            ('HEAD', '/v1/.mpu_a/c~mpu_sessions', HTTPNoContent, {}),
+            ('HEAD', '/v1/.mpu_a/c~mpu_parts', HTTPNoContent, {}),
+            ('PUT', '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPCreated, {}),
-            ('PUT', '/v1/.a/\x00mpu_parts\x00c/%s/' % self.session_name_wsgi,
+            ('PUT', '/v1/.mpu_a/c~mpu_parts/%s/' % self.session_name_wsgi,
              HTTPCreated, {})
         ]
         for call in registered:
@@ -828,7 +841,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         expected = self._setup_mpu_create_requests()[:-1]
         # replace previously registered call
         self.app.register(
-            'PUT', '/v1/.a/\x00mpu_parts\x00c', HTTPInternalServerError, {})
+            'PUT', '/v1/.mpu_a/c~mpu_parts', HTTPInternalServerError, {})
         req = Request.blank('/v1/a/c/%s?uploads=true' % self.obj_name)
         req.method = 'POST'
         resp = req.get_response(self.mw)
@@ -841,7 +854,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         expected = self._setup_mpu_create_requests()[:-3]
         # replace previously registered call
         self.app.register(
-            'PUT', '/v1/.a/\x00mpu_sessions\x00c', HTTPInternalServerError, {})
+            'PUT', '/v1/.mpu_a/c~mpu_sessions', HTTPInternalServerError, {})
         req = Request.blank('/v1/a/c/%s?uploads=true' % self.obj_name)
         req.method = 'POST'
         resp = req.get_response(self.mw)
@@ -866,7 +879,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def test_create_mpu_fails_to_create_session(self):
         expected = self._setup_mpu_create_requests()
         registered_calls = [
-            ('PUT', '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+            ('PUT', '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPServiceUnavailable, {}),
         ]
         for call in registered_calls:
@@ -886,9 +899,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_uploads(self):
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps(self.sample_all_session_listing).encode('ascii')),
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps([]).encode('ascii'))
         ]
         self.app.register(*registered_calls[0])
@@ -918,14 +931,14 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # first backend listing
         self.assertEqual('GET', self.app.calls[2][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual({}, unquoted_params)
         # second backend listing
         self.assertEqual('GET', self.app.calls[3][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual(
@@ -934,7 +947,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_uploads_limit(self):
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps(self.sample_all_session_listing).encode('ascii')),
         ]
         self.app.register(*registered_calls[0])
@@ -963,7 +976,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # first backend listing
         self.assertEqual('GET', self.app.calls[2][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual({}, unquoted_params)
@@ -971,9 +984,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def test_list_uploads_with_prefix(self):
         prefix = 'obj2'
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps(self.sample_all_session_listing[1:]).encode('ascii')),
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps([]).encode('ascii'))
         ]
         self.app.register(*registered_calls[0])
@@ -1002,14 +1015,14 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # first backend listing
         self.assertEqual('GET', self.app.calls[2][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual({'prefix': str(ObjectRef(prefix))}, unquoted_params)
         # second backend listing
         self.assertEqual('GET', self.app.calls[3][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual(
@@ -1020,9 +1033,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
     def test_list_uploads_with_marker_and_no_upload_id_marker(self):
         marker = 'obj1'
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps(self.sample_all_session_listing[1:]).encode('ascii')),
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps([]).encode('ascii'))
         ]
         self.app.register(*registered_calls[0])
@@ -1049,7 +1062,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # first backend listing
         self.assertEqual('GET', self.app.calls[2][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual(
@@ -1059,7 +1072,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # second backend listing
         self.assertEqual('GET', self.app.calls[3][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual(
@@ -1068,9 +1081,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_uploads_with_marker_and_upload_id_marker(self):
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps(self.sample_all_session_listing[3:]).encode('ascii')),
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps([]).encode('ascii'))
         ]
         self.app.register(*registered_calls[0])
@@ -1092,7 +1105,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         call = self.app.call_list[2]
         self.assertEqual('GET', call.method)
         parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual(
@@ -1102,7 +1115,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         call = self.app.call_list[3]
         self.assertEqual('GET', call.method)
         parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         unquoted_params = dict(urllib.parse.parse_qsl(parsed_path.query,
                                                       keep_blank_values=True))
         self.assertEqual(
@@ -1111,9 +1124,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_uploads_with_no_marker_and_upload_id_marker(self):
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps(self.sample_all_session_listing).encode('ascii')),
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c', HTTPOk, {},
+            ('GET', '/v1/.mpu_a/c~mpu_sessions', HTTPOk, {},
              json.dumps([]).encode('ascii'))
         ]
         self.app.register(*registered_calls[0])
@@ -1127,14 +1140,14 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # first backend listing
         self.assertEqual('GET', self.app.calls[2][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[2][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         params = dict(urllib.parse.parse_qsl(parsed_path.query,
                       keep_blank_values=True))
         self.assertFalse(params)
         # second backend listing
         self.assertEqual('GET', self.app.calls[3][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
-        self.assertEqual('/v1/.a/\x00mpu_sessions\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_sessions', parsed_path.path)
         params = dict(urllib.parse.parse_qsl(parsed_path.query,
                       keep_blank_values=True))
         self.assertEqual(
@@ -1143,7 +1156,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_uploads_subrequest_503(self):
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c',
+            ('GET', '/v1/.mpu_a/c~mpu_sessions',
              HTTPServiceUnavailable, {}, None),
         ]
         self.app.register(*registered_calls[0])
@@ -1157,7 +1170,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_list_uploads_subrequest_404(self):
         registered_calls = [
-            ('GET', '/v1/.a/\x00mpu_sessions\x00c',
+            ('GET', '/v1/.mpu_a/c~mpu_sessions',
              HTTPNotFound, {}, None),
         ]
         self.app.register(*registered_calls[0])
@@ -1177,7 +1190,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             ts_session, extra_headers=extra_hdrs)
         registered_calls = [
             ('PUT',
-             '/v1/.a/\x00mpu_parts\x00c/%s/000001' % self.session_name,
+             '/v1/.mpu_a/c~mpu_parts/%s/000001' % self.session_name,
              HTTPCreated, {})]
         for call in registered_calls:
             self.app.register(*call)
@@ -1227,7 +1240,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
             ('PUT',
-             '/v1/.a/\x00mpu_parts\x00c/%s/000001' % self.session_name,
+             '/v1/.mpu_a/c~mpu_parts/%s/000001' % self.session_name,
              HTTPNotFound, {})
         ]
         for call in registered_calls:
@@ -1248,7 +1261,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
             ('PUT',
-             '/v1/.a/\x00mpu_parts\x00c/%s/000001' % self.session_name,
+             '/v1/.mpu_a/c~mpu_parts/%s/000001' % self.session_name,
              HTTPServiceUnavailable, {})
         ]
         for call in registered_calls:
@@ -1284,7 +1297,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_session = next(self.ts_iter)
         registered_calls = [
             ('HEAD',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound,
              {'X-Backend-Delete-Timestamp': ts_session.internal}
              ),
@@ -1312,7 +1325,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                    for i in range(3)]
         registered_calls = [
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c',
+             '/v1/.mpu_a/c~mpu_parts',
              HTTPOk,
              {'X-Container-Object-Count': '123',
               'X-Container-Bytes-Used': '999999',
@@ -1327,7 +1340,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             resp = req.get_response(self.mw)
         self.assertEqual(200, resp.status_int, resp.body)
         expected = [call[:2] for call in self.exp_calls] + [
-            ('GET', '/v1/.a/\x00mpu_parts\x00c?marker=%s&prefix=%s'
+            ('GET', '/v1/.mpu_a/c~mpu_parts?marker=%s&prefix=%s'
              % (quote(self.session_name + '/', safe=''),
                 quote(self.session_name + '/', safe=''))),
         ]
@@ -1360,7 +1373,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         listing = []
         registered_calls = [
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c',
+             '/v1/.mpu_a/c~mpu_parts',
              HTTPOk,
              {'X-Container-Object-Count': '123',
               'X-Container-Bytes-Used': '999999',
@@ -1382,7 +1395,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(expected, self.app.calls[:3])
         self.assertEqual('GET', self.app.calls[3][0])
         parsed_path = urllib.parse.urlparse(self.app.calls[3][1])
-        self.assertEqual('/v1/.a/\x00mpu_parts\x00c', parsed_path.path)
+        self.assertEqual('/v1/.mpu_a/c~mpu_parts', parsed_path.path)
         params = dict(urllib.parse.parse_qsl(parsed_path.query,
                       keep_blank_values=True))
         self.assertEqual({'marker': '%s/000001' % self.session_name,
@@ -1394,7 +1407,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c',
+             '/v1/.mpu_a/c~mpu_parts',
              HTTPNotFound, {})
 
         ]
@@ -1412,7 +1425,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                           'Content-Type': 'text/html; charset=UTF-8'},
                          resp.headers)
         expected = [call[:2] for call in self.exp_calls] + [
-            ('GET', '/v1/.a/\x00mpu_parts\x00c?marker=%s&prefix=%s'
+            ('GET', '/v1/.mpu_a/c~mpu_parts?marker=%s&prefix=%s'
              % (quote(self.session_name + '/', safe=''),
                 quote(self.session_name + '/', safe=''))),
         ]
@@ -1423,7 +1436,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self._setup_mpu_existence_check_call(ts_session)
         registered_calls = [
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c',
+             '/v1/.mpu_a/c~mpu_parts',
              HTTPServiceUnavailable, {})
         ]
         for call in registered_calls:
@@ -1439,7 +1452,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                           'Content-Type': 'text/html; charset=UTF-8'},
                          resp.headers)
         expected = [call[:2] for call in self.exp_calls] + [
-            ('GET', '/v1/.a/\x00mpu_parts\x00c?marker=%s&prefix=%s'
+            ('GET', '/v1/.mpu_a/c~mpu_parts?marker=%s&prefix=%s'
              % (quote(self.session_name + '/', safe=''),
                 quote(self.session_name + '/', safe=''))),
         ]
@@ -1455,7 +1468,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                                            for _ in range(3)]
         registered_calls = [
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPOk, {}),
         ]
         registered_calls += self._make_parts_check_calls(part_dicts)
@@ -1467,7 +1480,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              {'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT'},
              b'ignored manifest put resp body'),
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPAccepted, {}),
         ]
         for call in registered_calls:
@@ -1512,12 +1525,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw + 123)
         exp_mpu_link = quote(
-            '\x00mpu_parts\x00c/%s' % self.session_ref.serialize())
+            'c~mpu_parts/%s' % self.session_ref.serialize())
         manifest_put = self.app.call_list[-2]
         exp_systags = {
             'relic_id': quote(self.upload_id.serialize()),
-            'child_account': '.a',
-            'child_container': quote('\x00mpu_parts\x00c'),
+            'child_account': '.mpu_a',
+            'child_container': quote('c~mpu_parts'),
             'child': quote(self.session_name) + '/',
         }
         self.assertEqual(
@@ -1570,7 +1583,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         user_manifest = self._user_manifest_for_part_dicts(part_dicts)
         registered_calls = [
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPOk, {})]
         registered_calls += self._make_parts_check_calls(part_dicts)
         registered_calls += [
@@ -1580,7 +1593,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              {'Last-Modified': 'Tue, 24 Sep 2024 13:22:31 GMT'},
              b'ignored manifest put resp body'),
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPAccepted, {}),
         ]
         for call in registered_calls:
@@ -1622,12 +1635,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw)
         exp_mpu_link = swob.wsgi_quote(
-            '\x00mpu_parts\x00c/%s' % self.session_name)
+            'c~mpu_parts/%s' % self.session_name)
         manifest_put = self.app.call_list[-2]
         exp_systags = {
             'relic_id': quote(self.upload_id.serialize()),
-            'child_account': '.a',
-            'child_container': quote('\x00mpu_parts\x00c'),
+            'child_account': '.mpu_a',
+            'child_container': quote('c~mpu_parts'),
             'child': quote(self.session_name) + '/',
         }
         self.assertEqual(
@@ -1669,7 +1682,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_complete = next(self.ts_iter)
         registered_calls = [
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound, {}),
         ]
         for call in registered_calls:
@@ -1792,7 +1805,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         user_manifest = self._user_manifest_for_part_dicts(part_dicts)
         registered_calls = [
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPOk, {}),
         ]
         registered_calls += self._make_parts_check_calls(part_dicts)
@@ -1834,7 +1847,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         bad_part_dicts[1]['etag'] = 'bad etag'
         registered_calls = [
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPOk, {}),
         ]
         registered_calls += self._make_parts_check_calls(bad_part_dicts)
@@ -1932,7 +1945,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_complete = next(self.ts_iter)
         registered_calls = [
             ('HEAD',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound, {}),
             ('HEAD', '/v1/a/c/o', HTTPNotFound, {}),
         ]
@@ -1963,7 +1976,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
         registered_calls = [
             ('HEAD',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound, {}),
             ('HEAD', '/v1/a/c/o', HTTPOk, user_obj_head_resp_headers),
         ]
@@ -1995,7 +2008,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
         registered_calls = [
             ('HEAD',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound, {}),
             ('HEAD', '/v1/a/c/o', HTTPOk, user_obj_head_resp_headers),
         ]
@@ -2028,7 +2041,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
         registered_calls = [
             ('HEAD',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound, {}),
             ('HEAD', '/v1/a/c/o', HTTPOk, user_obj_head_resp_headers),
         ]
@@ -2062,7 +2075,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         registered_calls = [
             ('HEAD', '/v1/a/c/o', HTTPOk, {}),
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPOk, {}),
         ]
         for call in registered_calls:
@@ -2115,7 +2128,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         registered_calls = [
             ('HEAD', '/v1/a/c/o', HTTPOk, {}),
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound, {}),
         ]
         for call in registered_calls:
@@ -2141,7 +2154,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         registered_calls = [
             ('HEAD', '/v1/a/c/o', HTTPOk, {}),
             ('POST',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPOk, {}),
         ]
         for call in registered_calls:
@@ -2205,7 +2218,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         ts_abort = next(self.ts_iter)
         registered_calls = [
             ('HEAD',
-             '/v1/.a/\x00mpu_sessions\x00c/%s' % self.session_name_wsgi,
+             '/v1/.mpu_a/c~mpu_sessions/%s' % self.session_name_wsgi,
              HTTPNotFound, {}),
         ]
         for call in registered_calls:
@@ -2223,7 +2236,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
 
     def test_container_listing(self):
         mpu_link = swob.wsgi_quote(
-            '\x00mpu_manifests\x00cont/%s' % self.session_name_wsgi)
+            'c~mpu_parts/%s' % self.session_name_wsgi)
         listing = [
             # MPU
             {'name': 'a-mpu',
@@ -2261,7 +2274,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'last_modified': '1970-01-01T00:00:01.000000'},
         ]
         resp_body = json.dumps(listing).encode('ascii')
-        parts_container = '\x00mpu_parts\x00cont'
+        parts_container = 'c~mpu_parts'
         get_resp_hdrs = {
             'X-Container-Sysmeta-Mpu-Parts-Container-0':
                 swob.wsgi_quote(parts_container),
@@ -2294,7 +2307,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'Content-Type': 'text/html; charset=UTF-8',
             'X-Container-Bytes-Used': '123',
             'X-Container-Object-Count': '4',
-            'X-Container-Sysmeta-Mpu-Parts-Container-0': '%00mpu_parts%00cont'
+            'X-Container-Sysmeta-Mpu-Parts-Container-0': 'c~mpu_parts'
         }
         self.assertEqual(exp_hdrs, resp.headers)
         exp_calls = [call[:2] for call in registered]
@@ -2421,7 +2434,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             registered_calls += [
                 # TODO: the multipart-manifest=get is due to SegmentedIterable
                 ('GET',
-                 '/v1/.a/\x00mpu_parts\x00c/%s/000001?multipart-manifest=get'
+                 '/v1/.mpu_a/c~mpu_parts/%s/000001?multipart-manifest=get'
                  % self.session_name_wsgi,
                  HTTPOk,
                  {'X-Backend-Timestamp': part_dicts[0]['timestamp'],
@@ -2429,7 +2442,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                   'ETag': '%s' % part_dicts[0]['etag']},
                  self.sample_part1_body),
                 ('GET',
-                 '/v1/.a/\x00mpu_parts\x00c/%s/000002?multipart-manifest=get'
+                 '/v1/.mpu_a/c~mpu_parts/%s/000002?multipart-manifest=get'
                  % self.session_name_wsgi,
                  HTTPOk,
                  {'X-Backend-Timestamp': part_dicts[1]['timestamp'],
@@ -2595,7 +2608,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              manifest_body),
             # TODO: the multipart-manifest=get is due to SegmentedIterable
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c/%s/000002?multipart-manifest=get'
+             '/v1/.mpu_a/c~mpu_parts/%s/000002?multipart-manifest=get'
              % self.session_name_wsgi,
              HTTPOk,
              {'X-Backend-Timestamp': part_dicts[1]['timestamp'],
@@ -2832,7 +2845,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              manifest_body),
             # TODO: the multipart-manifest=get is due to SegmentedIterable
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c/%s/000001?multipart-manifest=get'
+             '/v1/.mpu_a/c~mpu_parts/%s/000001?multipart-manifest=get'
              % self.session_name_wsgi,
              HTTPOk,
              {'X-Backend-Timestamp': part_dicts[0]['timestamp'],
@@ -2911,7 +2924,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              manifest_body),
             # TODO: the multipart-manifest=get is due to SegmentedIterable
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c/%s/000001?multipart-manifest=get'
+             '/v1/.mpu_a/c~mpu_parts/%s/000001?multipart-manifest=get'
              % self.session_name_wsgi,
              HTTPPartialContent,
              {'X-Backend-Timestamp': part_dicts[0]['timestamp'],
@@ -2920,7 +2933,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
               'ETag': '%s' % part_dicts[0]['etag']},
              b'part1'),
             ('GET',
-             '/v1/.a/\x00mpu_parts\x00c/%s/000002?multipart-manifest=get'
+             '/v1/.mpu_a/c~mpu_parts/%s/000002?multipart-manifest=get'
              % self.session_name_wsgi,
              HTTPOk,
              {'X-Backend-Timestamp': part_dicts[1]['timestamp'],

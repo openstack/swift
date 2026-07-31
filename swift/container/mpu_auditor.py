@@ -20,11 +20,12 @@ from collections import defaultdict
 
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPUSession, MPUItem, \
-    MPU_SYSMETA_UPLOAD_ID_KEY
+    MPU_SYSMETA_UPLOAD_ID_KEY, parse_hidden_container_name, \
+    make_parts_container_name, parse_mpu_hidden_account_name
 from swift.common.middleware.versioned_writes.object_versioning import \
     build_versions_container_name, build_versions_object_name
 from swift.common.object_ref import ObjectRef, UploadId
-from swift.common.request_helpers import split_reserved_name, get_reserved_name
+from swift.common.request_helpers import split_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
     non_negative_int, config_positive_int_value
 from swift.container.backend import ContainerBroker
@@ -37,15 +38,6 @@ def _safe_get_and_unquote(map, key, default_value=None):
         return unquote(value)
     else:
         return default_value
-
-
-# TODO: share with object_versioning?  move to request_helpers?
-def safe_split_reserved_name(reserved_name):
-    # TODO: this assumes 2 parts, should it be generalised
-    try:
-        return split_reserved_name(reserved_name)
-    except ValueError:
-        return None, reserved_name
 
 
 def yield_item_batches(broker, max_batches, batch_size, include_states, table):
@@ -140,8 +132,7 @@ class BaseMpuAuditor:
         self.user_container = user_container
         # TODO: parts container may vary per mpu w.r.t. policy
         self.user_account = self.broker.account.lstrip('.')
-        self.parts_container = get_reserved_name('mpu_parts',
-                                                 self.user_container)
+        self.parts_container = make_parts_container_name(self.user_container)
         self.statsd_client = logger.logger.statsd_client
         self.stats = defaultdict(int)
         self.ts_audit = Timestamp.now()
@@ -192,14 +183,6 @@ class BaseMpuAuditor:
                    prefix, len(rows), rows)
         return [MPUItem.from_db_record(row) for row in rows]
 
-    def _get_item_with_prefix(self, name, include_states=None):
-        self.debug('get_item prefix %s', name)
-        items = self._get_items_with_prefix(
-            name, limit=1, include_states=include_states)
-        if items:
-            return items[0]
-        return None
-
     def _bump_item(self, item):
         # bump the item's *meta_timestamp* and merge to db so that the item is
         # moved to a new row; ctype_timestamp is not changed so any subsequent
@@ -209,10 +192,6 @@ class BaseMpuAuditor:
             item.deleted = 0
             item.data_timestamp = Timestamp(time.time())
         item.meta_timestamp = Timestamp(time.time())
-        self.broker.put_record(item.to_db_record())
-
-    def _bump_item_meta_offset(self, item):
-        item.meta_timestamp.offset += 1
         self.broker.put_record(item.to_db_record())
 
     def _complete_item(self, item, ts=None):
@@ -283,7 +262,7 @@ class MpuOverwriteAuditor(BaseMpuAuditor):
             self._complete_item(item, self.ts_audit)
 
     def _item_has_version(self, item):
-        if self.broker.container.startswith('\x00'):
+        if self.broker.container != self.user_container:
             self.debug('skip version check for %s', item.name)
             return False
 
@@ -375,9 +354,6 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
 class MpuSessionAuditor(BaseMpuAuditor):
     resource_type = 'session'
     audit_table = 'object'
-
-    def __init__(self, conf, client, logger, broker, user_container):
-        super().__init__(conf, client, logger, broker, user_container)
 
     def _is_mpu_in_user_namespace(self, obj_ref):
         """
@@ -484,24 +460,37 @@ class MpuAuditor:
             global_conf={'log_name': '%s-ic' % conf.get(
                 'log_name', 'container-auditor')})
 
+    def _audit(self, mpu_auditor_class, broker, user_container):
+        mpu_auditor = mpu_auditor_class(
+            self.config, self.client, self.logger, broker, user_container)
+        return mpu_auditor.audit()
+
     def audit(self, broker):
-        reserved_prefix, container = safe_split_reserved_name(broker.container)
-        if reserved_prefix == 'mpu_parts':
-            mpu_auditor_class = MpuPartMarkerAuditor
-            user_container = container
-        elif reserved_prefix == 'mpu_sessions':
-            mpu_auditor_class = MpuSessionAuditor
-            user_container = container
-        elif reserved_prefix == 'versions':
-            mpu_auditor_class = MpuOverwriteAuditor
-            user_container = container
-        elif broker.path.endswith('+segments'):
+        mpu_auditor_class = None
+        if parse_mpu_hidden_account_name(broker.account) != broker.account:
+            user_container, audit_type = parse_hidden_container_name(
+                broker.container)
+            if audit_type == 'mpu_parts':
+                mpu_auditor_class = MpuPartMarkerAuditor
+            elif audit_type == 'mpu_sessions':
+                mpu_auditor_class = MpuSessionAuditor
+        elif broker.container.endswith('+segments'):
+            # TODO: I think this is redundant; maybe at one point the auditor
+            # was going to handle segments too???
             mpu_auditor_class = MpuPartMarkerAuditor
             user_container = broker.container[:-1 * len('+segments')]
         else:
-            mpu_auditor_class = MpuOverwriteAuditor
-            user_container = container
+            try:
+                prefix, user_container = split_reserved_name(broker.container)
+                if prefix == 'versions':
+                    mpu_auditor_class = MpuOverwriteAuditor
+            except ValueError:
+                mpu_auditor_class = MpuOverwriteAuditor
+                user_container = broker.container
 
-        mpu_auditor = mpu_auditor_class(
-            self.config, self.client, self.logger, broker, user_container)
-        mpu_auditor.audit()
+        if mpu_auditor_class:
+            self._audit(mpu_auditor_class, broker, user_container)
+        else:
+            self.logger.debug(
+                'unknown audit type for container %s, skipping',
+                broker.path)

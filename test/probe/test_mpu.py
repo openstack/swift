@@ -26,8 +26,10 @@ import random
 from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.manager import Manager
 from swift.common.middleware.mpu import MPUSessionHandler, \
-    externalize_upload_id, internalize_upload_id
+    externalize_upload_id, internalize_upload_id, \
+    make_sessions_container_name, make_parts_container_name
 from swift.common.object_ref import ObjectRef
+from swift.common.request_helpers import get_reserved_name
 from swift.common.storage_policy import POLICIES
 from swift.common.swob import normalize_etag
 from swift.common.utils import quote, md5, MD5_OF_EMPTY_STRING, Timestamp, \
@@ -299,13 +301,15 @@ class BaseTestNativeMPU(BaseTestMPU):
 
         self.internal_client = self.make_internal_client()
         self.mpu_internal_client = self.make_mpu_internal_client()
-        self.hidden_account = AUTO_CREATE_ACCOUNT_PREFIX + self.account
+        self.hidden_account = '%smpu_%s' % (AUTO_CREATE_ACCOUNT_PREFIX,
+                                            self.account)
         # TODO: revert to superclass uuid name
         self.mpu_name = 'tempname'
-        self.sessions_container_name = \
-            '\x00mpu_sessions\x00%s' % self.bucket_name
-        self.parts_container_name = '\x00mpu_parts\x00%s' % self.bucket_name
-        self.versions_container_name = '\x00versions\x00%s' % self.bucket_name
+        self.sessions_container_name = make_sessions_container_name(
+            self.bucket_name)
+        self.parts_container_name = make_parts_container_name(self.bucket_name)
+        self.versions_container_name = get_reserved_name(
+            'versions', self.bucket_name)
         self.part_size = 5 * 2 ** 20
 
         swiftclient.put_container(self.url, self.token, self.bucket_name)
@@ -591,7 +595,9 @@ class TestNativeMPU(BaseTestNativeMPU):
 
         # check mpu sysmeta
         mpu_meta = self.internal_client.get_object_metadata(
-            self.account, self.bucket_name, self.mpu_name)
+            self.account, self.bucket_name, self.mpu_name,
+            headers={'x-backend-include-mpu-sysmeta': 'true'}
+        )
         self.assertEqual(int_upload_id.serialize(),
                          mpu_meta.get('x-object-sysmeta-mpu-upload-id'),
                          mpu_meta)

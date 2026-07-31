@@ -26,7 +26,8 @@ from swift.common.internal_client import InternalClient
 from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
     MPU_MARKER_CONTENT_TYPE, MPU_SESSION_CREATED_CONTENT_TYPE, \
     MPU_SESSION_COMPLETED_CONTENT_TYPE, MPU_SESSION_ABORTED_CONTENT_TYPE, \
-    MPU_SESSION_COMPLETING_CONTENT_TYPE, normalize_part_number, MPUItem
+    MPU_SESSION_COMPLETING_CONTENT_TYPE, normalize_part_number, MPUItem, \
+    make_parts_container_name, make_sessions_container_name
 from swift.common.middleware.s3api.utils import unique_id
 from swift.common.middleware.versioned_writes.object_versioning import \
     build_versions_object_name
@@ -47,8 +48,11 @@ from test.unit.common.middleware.helpers import FakeSwift
 
 
 class BaseTestMpuAuditor(unittest.TestCase):
+    user_account = 'a'
     user_container = 'c'
-    audit_container = get_reserved_name('test', user_container)
+    audit_account = 'a'
+    hidden_account = '.mpu_a'
+    audit_container = user_container
 
     def setUp(self):
         self.tempdir = mkdtemp()
@@ -56,23 +60,28 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.name_iter = map(lambda x: 'obj%06d' % x, itertools.count())
         self.logger = debug_logger('mpu-auditor-test')
         self.fake_statsd_client = self.logger.logger.statsd_client
-        self.account = 'a'
         self.obj_name = 'obj'
         self.upload_id = UploadId(next(self.ts_iter))
         self.upload_ref = self._create_upload_ref(self.obj_name)
-        self.obj_path = '/v1/%s/%s/%s' % (self.account,
+        self.obj_path = '/v1/%s/%s/%s' % (self.audit_account,
                                           self.user_container,
                                           self.obj_name)
-        self.audit_container_path = '/v1/%s/%s' % (self.account,
+        self.audit_container_path = '/v1/%s/%s' % (self.audit_account,
                                                    self.audit_container)
-        self.broker = self._make_broker(self.audit_container)
+        self.broker = self._make_broker(self.audit_account,
+                                        self.audit_container)
         self.server = ContainerController({'mount_check': False,
                                            'devices': self.tempdir})
+        self.sessions_container = '%s~%s' % (
+            self.user_container, 'mpu_sessions')
+        self.parts_container = '%s~%s' % (self.user_container, 'mpu_parts')
+        self.part_container_path = '/'.join([
+            '', 'v1', '.mpu_' + self.user_account, self.parts_container])
 
     def tearDown(self):
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
-    def _make_broker(self, container_name):
+    def _make_broker(self, account_name, container_name):
         hash_ = md5(container_name.encode('utf-8'),
                     usedforsecurity=False).hexdigest()
         datadir = os.path.join(
@@ -81,7 +90,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         db_file = os.path.join(datadir, filename)
         broker = ContainerBroker(
             db_file,
-            account=self.account,
+            account=account_name,
             container=container_name,
             logger=self.logger)
         broker.initialize(put_timestamp=float(next(self.ts_iter)))
@@ -309,7 +318,7 @@ class TestMpuAuditor(BaseTestMpuAuditor):
         self.assertIs(self.logger, self.auditor.logger)
 
     def test_audit_slo_segments(self):
-        broker = self._make_broker('test+segments')
+        broker = self._make_broker(self.user_account, 'test+segments')
         with mock.patch('swift.container.mpu_auditor.MpuPartMarkerAuditor'
                         ) as mocked:
             self.auditor.audit(broker)
@@ -320,7 +329,8 @@ class TestMpuAuditor(BaseTestMpuAuditor):
                          mocked.return_value.audit.call_args_list)
 
     def test_audit_mpu_parts(self):
-        broker = self._make_broker(get_reserved_name('mpu_parts', 'test'))
+        broker = self._make_broker(
+            self.hidden_account, make_parts_container_name('test'))
         with mock.patch('swift.container.mpu_auditor.MpuPartMarkerAuditor'
                         ) as mocked:
             self.auditor.audit(broker)
@@ -331,7 +341,8 @@ class TestMpuAuditor(BaseTestMpuAuditor):
                          mocked.return_value.audit.call_args_list)
 
     def test_audit_mpu_sessions(self):
-        broker = self._make_broker(get_reserved_name('mpu_sessions', 'test'))
+        broker = self._make_broker(
+            self.hidden_account, make_sessions_container_name('test'))
         with mock.patch('swift.container.mpu_auditor.MpuSessionAuditor'
                         ) as mocked:
             self.auditor.audit(broker)
@@ -343,7 +354,7 @@ class TestMpuAuditor(BaseTestMpuAuditor):
 
     def test_audit_objects(self):
         def do_test(container):
-            broker = self._make_broker(container)
+            broker = self._make_broker(self.user_account, container)
             with mock.patch(
                     'swift.container.mpu_auditor.MpuOverwriteAuditor'
             ) as mocked:
@@ -357,6 +368,19 @@ class TestMpuAuditor(BaseTestMpuAuditor):
 
         do_test('test')
         do_test(get_reserved_name('versions', 'test'))
+
+    def test_audit_ignored_containers(self):
+        def do_test(account, container):
+            broker = self._make_broker(account, container)
+            with mock.patch(
+                    'swift.container.mpu_auditor.MpuAuditor._audit'
+            ) as mocked:
+                self.auditor.audit(broker)
+            self.assertFalse(mocked.call_args_list)
+
+        do_test(self.hidden_account, 'test')
+        do_test(self.hidden_account, 'test~mpu_ignored')
+        do_test(self.user_account, get_reserved_name('not-versions', 'test'))
 
 
 class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
@@ -393,12 +417,8 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
 
 
 class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
-    audit_container = BaseTestMpuAuditor.user_container
-
     def setUp(self):
         super().setUp()
-        self.parts_container = get_reserved_name(
-            'mpu_parts', self.user_container)
         self.versions_container = get_reserved_name(
             'versions', self.user_container)
 
@@ -510,7 +530,8 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
 
     def test_audit_retained_versions(self):
         # verify cleanup with versioned object names
-        self.broker = self._make_broker(self.versions_container)
+        self.broker = self._make_broker(
+            self.user_account, self.versions_container)
         ts_vers = next(self.ts_iter)
         upload_id = UploadId(ts_vers)
         vers_name = '\x00%s\x00%s' % (self.obj_name, (~(ts_vers)).normal)
@@ -584,8 +605,9 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
 
 
 class TestMpuAuditorParts(BaseTestMpuAuditor):
-    audit_container = get_reserved_name(
-        'mpu_parts', BaseTestMpuAuditor.user_container)
+    audit_account = BaseTestMpuAuditor.hidden_account
+    audit_container = make_parts_container_name(
+        BaseTestMpuAuditor.user_container)
 
     def _create_part_spec(self, obj_name, upload_id, part_number, ts_data=None,
                           systags=None, state=0):
@@ -844,15 +866,13 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
 
 
 class TestMpuAuditorSessions(BaseTestMpuAuditor):
-    audit_container = get_reserved_name(
-        'mpu_sessions', BaseTestMpuAuditor.user_container)
+    audit_account = BaseTestMpuAuditor.hidden_account
+    audit_container = make_sessions_container_name(
+        BaseTestMpuAuditor.user_container)
 
     def setUp(self):
         super().setUp()
         self.ts_data = Timestamp(time.time())
-        self.part_container_path = '/'.join([
-            '', 'v1', self.account,
-            get_reserved_name('mpu_parts', self.user_container)])
 
     def _create_session_spec(
             self, vers_name, ctype, ts_data=None, ts_ctype=None, ts_meta=None):

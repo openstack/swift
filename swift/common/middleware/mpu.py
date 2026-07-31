@@ -39,11 +39,10 @@ from swift.common.swob import Request, normalize_etag, \
     HTTPMethodNotAllowed, HTTPLengthRequired, HTTPRequestEntityTooLarge, \
     Response
 from swift.common.registry import register_swift_info
-from swift.common.request_helpers import get_reserved_name, \
-    get_valid_part_num, is_reserved_name, is_user_meta, \
-    update_etag_override_header, update_etag_is_at_header, \
-    validate_part_number, update_content_type, is_sys_meta, \
-    get_container_update_override_key, update_systags, \
+from swift.common.request_helpers import get_valid_part_num, \
+    is_reserved_name, is_user_meta, update_etag_override_header, \
+    update_etag_is_at_header, validate_part_number, update_content_type, \
+    is_sys_meta, get_container_update_override_key, update_systags, \
     get_heartbeat_response_body, SegmentedIterable, update_ignore_range_header
 from swift.common.wsgi import make_pre_authed_request
 from swift.proxy.controllers.base import get_container_info
@@ -52,6 +51,8 @@ DEFAULT_MIN_PART_SIZE = 5 * 1024 * 1024
 DEFAULT_MAX_PART_NUMBER = 10000
 MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
+
+MPU_HIDDEN_ACCOUNT_PREFIX = AUTO_CREATE_ACCOUNT_PREFIX + 'mpu_'
 
 MPU_OBJECT_SYSMETA_PREFIX = 'x-object-sysmeta-mpu-'
 MPU_SYSMETA_MANIFEST_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'manifest'
@@ -63,7 +64,7 @@ MPU_SYSMETA_MAX_MANIFEST_PART_KEY = \
     MPU_OBJECT_SYSMETA_PREFIX + 'max-manifest-part'
 MPU_SYSMETA_USER_CONTENT_TYPE_KEY = MPU_OBJECT_SYSMETA_PREFIX + 'content-type'
 MPU_SYSMETA_USER_PREFIX = MPU_OBJECT_SYSMETA_PREFIX + 'user-'
-MPU_CONTAINER_SYSMETA_PREFIX = 'x-container-sysmeta-mpu-'
+
 MPU_SESSION_CREATED_CONTENT_TYPE = 'application/x-mpu-session-created'
 MPU_SESSION_ABORTED_CONTENT_TYPE = 'application/x-mpu-session-aborted'
 MPU_SESSION_COMPLETING_CONTENT_TYPE = 'application/x-mpu-session-completing'
@@ -71,9 +72,11 @@ MPU_SESSION_COMPLETED_CONTENT_TYPE = 'application/x-mpu-session-completed'
 MPU_MANIFEST_DEFAULT_CONTENT_TYPE = 'application/x-mpu'
 MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
 MPU_PHONY_OBJECT_CONTENT_TYPE = 'application/x-phony;swift_source=mpu'
+
 MPU_GENERIC_MARKER_SUFFIX = 'marker'
 MPU_DELETED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-deleted'
 MPU_ABORTED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-aborted'
+
 MPU_UNEXPECTED_UPLOAD_ID_MSG = 'Request does not support upload-id'
 MPU_INVALID_UPLOAD_ID_MSG = 'Invalid upload-id'
 MPU_NO_SUCH_UPLOAD_ID_MSG = 'No such upload-id'
@@ -137,16 +140,31 @@ def make_path(*parts):
     return '/'.join(['', 'v1', make_relative_path(*parts)])
 
 
-def make_hidden_account_name(account):
-    return AUTO_CREATE_ACCOUNT_PREFIX + account
+def make_mpu_hidden_account_name(account):
+    return '%s%s' % (MPU_HIDDEN_ACCOUNT_PREFIX, account)
+
+
+def parse_mpu_hidden_account_name(account):
+    if account.startswith(MPU_HIDDEN_ACCOUNT_PREFIX):
+        return account[len(MPU_HIDDEN_ACCOUNT_PREFIX):]
+    else:
+        return account
+
+
+def make_hidden_container_name(container, suffix):
+    return '%s~%s' % (container, suffix)
+
+
+def parse_hidden_container_name(container):
+    return container.partition('~')[0::2]
 
 
 def make_sessions_container_name(container):
-    return get_reserved_name('mpu_sessions', container)
+    return make_hidden_container_name(container, 'mpu_sessions')
 
 
 def make_parts_container_name(container):
-    return get_reserved_name('mpu_parts', container)
+    return make_hidden_container_name(container, 'mpu_parts')
 
 
 def calculate_max_name_length():
@@ -580,7 +598,7 @@ class BaseMPUHandler:
 
         self.sessions_container = make_sessions_container_name(self.container)
         self.parts_container = make_parts_container_name(self.container)
-        self.hidden_account = make_hidden_account_name(self.account)
+        self.hidden_account = make_mpu_hidden_account_name(self.account)
         self.user_container_info = get_container_info(
             self.req.environ, self.app, swift_source=MPU_SWIFT_SOURCE)
 
@@ -598,9 +616,9 @@ class BaseMPUHandler:
         # TODO: make storage policy specific parts bucket
         policy_name = POLICIES[policy_index].name
         path = make_path(account, container)
-        headers = {'X-Storage-Policy': policy_name}
+        req_headers = {'X-Storage-Policy': policy_name}
         cont_req = self.make_subrequest(
-            path=path, method='PUT', headers=headers)
+            path=path, method='PUT', headers=req_headers)
         info = get_container_info(cont_req.environ, self.app,
                                   swift_source=MPU_SWIFT_SOURCE)
 
@@ -814,9 +832,11 @@ class MPUSessionsHandler(BaseMPUHandler):
         timestamp = self.req.ensure_x_timestamp()
         policy_index = self.user_container_info['storage_policy']
         self._ensure_container_exists(
-            self.hidden_account, self.sessions_container, policy_index)
+            self.hidden_account, self.sessions_container, policy_index,
+        )
         self._ensure_container_exists(
-            self.hidden_account, self.parts_container, policy_index)
+            self.hidden_account, self.parts_container, policy_index,
+        )
         self._ensure_resource_containers_in_metadata(policy_index)
 
         self.req.headers.pop('Etag', None)
