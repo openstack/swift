@@ -469,13 +469,26 @@ class ProxyLoggingMiddleware(object):
         return acc, cont, obj
 
     def get_resource_type_from_aco(self, req, acc, cont, obj):
+        """
+        Returns the type of resource addressed by a request. If the resource
+        type cannot be determined from ``acc``, ``cont`` and ``obj`` then the
+        value of ``swift.source`` found in the ``req`` environ will be
+        returned. If ``swift.source`` cannot be found then None is returned.
+
+        :param req: a swob.Request instance.
+        :param acc: the account name, or None if it is unknown.
+        :param cont: the container name, or None if it is unknown.
+        :param obj: the object name, or None if it is unknown.
+        :returns: one of 'account', 'container', 'object', the ``swift.source``
+            value, or None.
+        """
         if obj:
             return 'object'
         if cont:
             return 'container'
         if acc:
             return 'account'
-        return req.environ.get('swift.source') or 'UNKNOWN'
+        return req.environ.get('swift.source')
 
     def get_resource_type(self, req):
         swift_path = req.environ.get('swift.backend_path', req.path)
@@ -486,7 +499,7 @@ class ProxyLoggingMiddleware(object):
         return method if method in self.valid_methods else 'BAD_METHOD'
 
     def statsd_metric_name(self, req, status_int, metric_method):
-        resource_type = self.get_resource_type(req)
+        resource_type = self.get_resource_type(req) or 'UNKNOWN'
         return '.'.join((resource_type, metric_method, str(status_int)))
 
     def statsd_metric_name_policy(self, req, status_int, metric_method,
@@ -539,10 +552,10 @@ class ProxyLoggingMiddleware(object):
 
         Other middlewares, including the rightmost proxy logging instance, may
         update base_labels if they consider themselves to have *authoritative*
-        information about the client* request. For example, the 'account' field
-        may be unknown to the leftmost proxy logging instance for an s3API
-        request, but can be set by later middlewares. The base_labels dict
-        should not otherwise be modified by other middlewares.
+        information about the *client* request. For example, the 'account'
+        field may be unknown to the leftmost proxy logging instance for an
+        s3API request, but can be set by later middlewares. The base_labels
+        dict should not otherwise be modified by other middlewares.
 
         Each proxy logging middleware instance also creates a local per-request
         dict of the req_labels associated with the request that it is handling.
@@ -568,7 +581,7 @@ class ProxyLoggingMiddleware(object):
                 cont, obj = extract_bucket_and_key(
                     req, self.storage_domains, False)
                 base_labels = self.get_request_labels(req, acc, cont, obj)
-                if base_labels.get('resource') == 'UNKNOWN':
+                if base_labels['resource'] is None:
                     # allow a later middleware to update the resource label
                     # once the full swift path is known.
                     base_labels.pop('resource')
