@@ -478,6 +478,7 @@ class TestObjectVersioning(BaseS3TestCase):
         resp = self.client.delete_object(Bucket=self.bucket_name,
                                          Key=obj_name,
                                          VersionId=versions[1])
+        self.assertEqual(204, resp['ResponseMetadata']['HTTPStatusCode'])
 
         # and that just pulls it out of the versions listing
         resp = self.client.list_object_versions(Bucket=self.bucket_name)

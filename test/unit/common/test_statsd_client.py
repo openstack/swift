@@ -325,12 +325,64 @@ class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
             'statsd_label_mode': 'librato',
         }
         client = statsd_client.get_labeled_statsd_client(conf)
-        labels = {'bool': True, 'number': 42.1, 'null': None}
+        labels = {'bool': True, 'number': 42.1}
         with mock.patch.object(client, '_send_line') as mocked:
             client.update_stats('metric', '10', labels=labels)
         self.assertEqual(
-            [mock.call('metric#bool=True,null=None,number=42.1:10|c')],
+            [mock.call('metric#bool=True,number=42.1:10|c')],
             mocked.call_args_list)
+
+    def _do_test_label_value_none_sent_as_empty_string(self, mode):
+        # verify that a None value is sent as the empty string
+        conf = {
+            'log_statsd_host': 'myhost1',
+            'log_statsd_port': 1235,
+            'statsd_label_mode': mode,
+            'statsd_user_label_empty': None,
+            'statsd_user_label_foo': 'bar',
+        }
+        client = statsd_client.get_labeled_statsd_client(conf)
+        labels = {'number': 0, 'bool': False, 'null': None, 'string': 'None'}
+        with mock.patch.object(client, '_send_line') as mocked:
+            client.update_stats('metric', '10', labels=labels)
+            client.timing('metric', 10, labels=labels)
+        return [call_args[0][0] for call_args in mocked.call_args_list]
+
+    def test_label_value_none_sent_as_empty_string_librato(self):
+        self.assertEqual(
+            ['metric#bool=False,null=,number=0,string=None,'
+             'user_empty=,user_foo=bar:10|c',
+             'metric#bool=False,null=,number=0,string=None,'
+             'user_empty=,user_foo=bar:10|ms'],
+            self._do_test_label_value_none_sent_as_empty_string('librato')
+        )
+
+    def test_label_value_none_sent_as_empty_string_graphite(self):
+        self.assertEqual(
+            ['metric;bool=False;null=;number=0;string=None;'
+             'user_empty=;user_foo=bar:10|c',
+             'metric;bool=False;null=;number=0;string=None;'
+             'user_empty=;user_foo=bar:10|ms'],
+            self._do_test_label_value_none_sent_as_empty_string('graphite')
+        )
+
+    def test_label_value_none_sent_as_empty_string_influxdb(self):
+        self.assertEqual(
+            ['metric,bool=False,null=,number=0,string=None,'
+             'user_empty=,user_foo=bar:10|c',
+             'metric,bool=False,null=,number=0,string=None,'
+             'user_empty=,user_foo=bar:10|ms'],
+            self._do_test_label_value_none_sent_as_empty_string('influxdb')
+        )
+
+    def test_label_value_none_sent_as_empty_string_dogstatsd(self):
+        self.assertEqual(
+            ['metric:10|c|#bool:False,null:,number:0,string:None,'
+             'user_empty:,user_foo:bar',
+             'metric:10|ms|#bool:False,null:,number:0,string:None,'
+             'user_empty:,user_foo:bar'],
+            self._do_test_label_value_none_sent_as_empty_string('dogstatsd')
+        )
 
     def test_user_label(self):
         conf = {
@@ -352,14 +404,19 @@ class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
             'log_statsd_host': 'myhost1',
             'log_statsd_port': 1235,
             'statsd_label_mode': 'librato',
+            'statsd_user_label_a': None,
+            'statsd_user_label_b': 'full',
             'statsd_user_label_foo': 'foo',
         }
         client = statsd_client.get_labeled_statsd_client(conf)
-        self.assertEqual({'user_foo': 'foo'}, client.default_labels)
+        self.assertEqual({'user_a': None, 'user_b': 'full', 'user_foo': 'foo'},
+                         client.default_labels)
         with mock.patch.object(client, '_send_line') as mocked:
-            client.update_stats('metric', '10', labels={'user_foo': 'bar'})
+            client.update_stats(
+                'metric', '10',
+                labels={'user_a': 'full', 'user_b': None, 'user_foo': 'bar'})
         self.assertEqual(
-            [mock.call('metric#user_foo=bar:10|c')],
+            [mock.call('metric#user_a=full,user_b=,user_foo=bar:10|c')],
             mocked.call_args_list)
 
     def test_user_label_sorting(self):
@@ -410,6 +467,22 @@ class TestGetLabeledStatsdClientConfParsing(BaseTestStatsdClient):
                              "'statsd_user_label_foo' value "
                              "'%s': '%s'" % (label_value, c),
                              str(ctx.exception))
+
+    def test_user_label_value_is_none(self):
+        # it's ok for a default user label value to be None, it will be sent as
+        # an empty string
+        conf = {
+            'log_statsd_host': 'myhost1',
+            'log_statsd_port': 1235,
+            'statsd_label_mode': 'librato',
+            'statsd_user_label_foo': None
+        }
+        client = statsd_client.get_labeled_statsd_client(conf)
+        with mock.patch.object(client, '_send_line') as mocked:
+            client.update_stats('metric', '10', labels={'x': 0})
+        self.assertEqual(
+            [mock.call('metric#user_foo=,x=0:10|c')],
+            mocked.call_args_list)
 
 
 class CommonBaseTestsMixIn(object):

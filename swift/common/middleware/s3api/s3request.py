@@ -101,6 +101,24 @@ SIGV4_CHUNK_MIN_SIZE = 8192
 SERVICE = 's3'  # useful for mocking out in tests
 
 
+SIGV4_MUST_BE_SIGNED_AMZ_PREFIXES = (
+    'x-amz-copy',
+    'x-amz-acl',
+    'x-amz-grant',
+    'x-amz-meta',
+)
+
+
+DISALLOWED_CLIENT_HEADERS = frozenset((
+    'x-copy-from',
+    'x-copy-from-account',
+    'x-symlink-target',
+    'x-symlink-target-account',
+    'x-object-manifest',
+    'x-static-large-object',
+))
+
+
 CHECKSUMS_BY_HEADER = {
     'x-amz-checksum-crc32': checksum.crc32,
     'x-amz-checksum-crc32c': checksum.crc32c,
@@ -954,6 +972,14 @@ class SigV4Mixin(object):
                 (k.lower().strip(), ' '.join(_header_strip(v or '').split()))
                 for (k, v) in self.headers.items())
 
+        for key in headers_lower_dict:
+            key = swob.wsgi_to_str(key)
+            if (key not in self._signed_headers
+                    and key.startswith(SIGV4_MUST_BE_SIGNED_AMZ_PREFIXES)):
+                raise AccessDenied(
+                    'There were headers present in the request which were '
+                    'not signed', headers_not_signed=key)
+
         if 'host' in headers_lower_dict and re.match(
                 'Boto/2.[0-9].[0-2]',
                 headers_lower_dict.get('user-agent', '')):
@@ -1154,6 +1180,10 @@ class S3Request(swob.Request):
         # Avoids that swift.swob.Response replaces Location header value
         # by full URL when absolute path given. See swift.swob for more detail.
         self.environ['swift.leave_relative_location'] = True
+
+        for header in list(self.headers):
+            if header.lower() in DISALLOWED_CLIENT_HEADERS:
+                self.headers.pop(header, None)
 
     def validate_part_number(self, parts_count=None, check_max=True):
         """

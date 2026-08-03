@@ -285,6 +285,40 @@ class TestRequest(S3ApiTestCase):
             self.assertNotIn('s3api.auth_details', sw_req.environ)
             self.assertNotIn('X-Auth-Token', sw_req.headers)
 
+    def test_disallowed_client_headers_are_dropped(self):
+        smuggled = {
+            'X-Copy-From': '/other/object',
+            'X-Copy-From-Account': 'AUTH_victim',
+            'X-Object-Manifest': 'other/prefix',
+            'X-Static-Large-Object': 'True',
+            'X-Symlink-Target': 'other/object',
+            'X-Symlink-Target-Account': 'AUTH_victim',
+        }
+        headers = {'Authorization': 'AWS test:tester:hmac',
+                   'Date': self.get_date_header()}
+        headers.update(smuggled)
+        req = Request.blank('/bucket/object', method='PUT', headers=headers)
+        s3_req = S3Request(req.environ)
+        for header in smuggled:
+            self.assertNotIn(header, s3_req.headers)
+        sw_req = s3_req.to_swift_req('PUT', 'bucket', 'object')
+        for header in smuggled:
+            self.assertNotIn(header, sw_req.headers)
+
+    def test_s3api_generated_copy_from_is_preserved(self):
+        # A client-supplied X-Copy-From is dropped, but the X-Copy-From that
+        # S3 API derives from x-amz-copy-source is added afterwards and kept.
+        req = Request.blank('/bucket/object', method='PUT', headers={
+            'Authorization': 'AWS test:tester:hmac',
+            'Date': self.get_date_header(),
+            'X-Amz-Copy-Source': '/srcbucket/srcobj',
+            'X-Copy-From': '/attacker/object',
+        })
+        s3_req = S3Request(req.environ)
+        self.assertNotIn('X-Copy-From', s3_req.headers)
+        sw_req = s3_req.to_swift_req('PUT', 'bucket', 'object')
+        self.assertEqual('/srcbucket/srcobj', sw_req.headers['X-Copy-From'])
+
     def test_to_swift_req_subrequest_proxy_access_log(self):
         container = 'bucket'
         obj = 'obj'
@@ -497,6 +531,43 @@ class TestRequest(S3ApiTestCase):
         sw_req1 = sigv4_req.to_swift_req('GET', '/a', None)
         self.assertEqual(ts1, sw_req1.timestamp)
         self.assertEqual(ts1.internal, sw_req1.headers['X-Timestamp'])
+
+    def _make_sigv4_req(self, extra_headers):
+        date_header = self.get_v4_amz_date_header()
+        scope_date = date_header.split('T', 1)[0]
+        headers = {
+            'X-Amz-Date': date_header,
+            'Authorization':
+                'AWS4-HMAC-SHA256 '
+                'Credential=test/%s/us-east-1/s3/aws4_request, '
+                'SignedHeaders=%s,'
+                'Signature=X' % (
+                    scope_date, ';'.join(sorted(['host', 'x-amz-date']))),
+            'X-Amz-Content-SHA256': '0' * 64,
+        }
+        headers.update(extra_headers)
+        return Request.blank('/bucket/object', method='PUT', headers=headers)
+
+    def test_sigv4_unsigned_sensitive_x_amz_header_is_rejected(self):
+        for header, value in (
+                ('X-Amz-Copy-Source', '/victim/secret'),
+                ('X-Amz-Copy-Source-Range', 'bytes=0-1'),
+                ('X-Amz-Metadata-Directive', 'REPLACE'),
+                ('X-Amz-Acl', 'public-read'),
+                ('X-Amz-Grant-Read', 'id=someone'),
+                ('X-Amz-Meta-Injected', 'x')):
+            req = self._make_sigv4_req({header: value})
+            with self.assertRaises(AccessDenied) as cm:
+                SigV4Request(req.environ, conf=self.s3api.conf)
+            self.assertEqual(
+                'There were headers present in the request which were '
+                'not signed', cm.exception._msg)
+            self.assertEqual(
+                header.lower(), cm.exception.info['headers_not_signed'])
+
+    def test_sigv4_unsigned_inert_x_amz_header_is_allowed(self):
+        req = self._make_sigv4_req({'X-Amz-Storage-Class': 'STANDARD'})
+        SigV4Request(req.environ, conf=self.s3api.conf)
 
     def _test_request_signing_timestamp_sigv4(self, date_header):
         # signature v4 here
