@@ -2473,10 +2473,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             'X-Upload-Id': self.external_upload_id,
         }
         self.assertEqual(exp_resp_headers, resp.headers)
-        return resp_body
+        return resp_body, resp.headers
 
     def test_get_mpu(self):
-        resp_body = self._do_test_get_head_mpu('GET')
+        resp_body, _ = self._do_test_get_head_mpu('GET')
         self.assertEqual(self.sample_part1_body + self.sample_part2_body,
                          resp_body)
         self.assertEqual(
@@ -2494,8 +2494,26 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                           'User-Agent': 'MPU GET'},
                          self.app.call_list[-1].headers)
 
+    def test_get_mpu_include_sysmeta(self):
+        resp_body, resp_headers = self._do_test_get_head_mpu('GET')
+        exp_headers = dict(resp_headers)
+        exp_headers.update(
+            {'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+             'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+             'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+             'X-Object-Sysmeta-Mpu-Size': '5242979',
+             'X-Object-Sysmeta-Mpu-Upload-Id': str(self.upload_id)}
+        )
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name),
+            method='GET',
+            headers={'x-backend-include-mpu-sysmeta': 'true'})
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual(exp_headers, resp.headers)
+
     def test_head_mpu(self):
-        resp_body = self._do_test_get_head_mpu('HEAD')
+        resp_body, _ = self._do_test_get_head_mpu('HEAD')
         self.assertEqual(b'', resp_body)
         self.assertEqual(
             {'Host': 'localhost:80',
@@ -2503,6 +2521,24 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  'x-object-sysmeta-mpu-manifest',
              'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
             self.app.call_list[-1].headers)
+
+    def test_head_mpu_include_sysmeta(self):
+        resp_body, resp_headers = self._do_test_get_head_mpu('HEAD')
+        exp_headers = dict(resp_headers)
+        exp_headers.update(
+            {'X-Object-Sysmeta-Mpu-Etag': 'mpu-etag',
+             'X-Object-Sysmeta-Mpu-Max-Manifest-Part': '2',
+             'X-Object-Sysmeta-Mpu-Parts-Count': '2',
+             'X-Object-Sysmeta-Mpu-Size': '5242979',
+             'X-Object-Sysmeta-Mpu-Upload-Id': str(self.upload_id)}
+        )
+        req = Request.blank(
+            '/v1/a/c/' + quote(self.obj_name),
+            method='HEAD',
+            headers={'x-backend-include-mpu-sysmeta': 'true'})
+        resp = req.get_response(self.mw)
+        self.assertEqual(200, resp.status_int)
+        self.assertEqual(exp_headers, resp.headers)
 
     def _do_test_head_mpu_304(self, method):
         # A conditional HEAD whose backend returns 304 should have

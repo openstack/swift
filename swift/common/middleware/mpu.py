@@ -31,7 +31,7 @@ from swift.common.utils import drain_and_close, \
     config_positive_int_value, reiterate, parse_content_type, \
     decode_timestamps, split_path, quote, param_str_from_dict, \
     param_str_to_dict, MD5_OF_EMPTY_STRING, StreamingPile, friendly_close, \
-    get_logger, Timestamp, md5, public
+    get_logger, Timestamp, md5, public, config_true_value
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
@@ -80,6 +80,8 @@ MPU_ABORTED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-aborted'
 MPU_UNEXPECTED_UPLOAD_ID_MSG = 'Request does not support upload-id'
 MPU_INVALID_UPLOAD_ID_MSG = 'Invalid upload-id'
 MPU_NO_SUCH_UPLOAD_ID_MSG = 'No such upload-id'
+
+MPU_INCLUDE_SYSMETA_HEADER = 'x-backend-include-mpu-sysmeta'
 
 
 def _get_mac_digest(signing_key, path, obj_id):
@@ -1400,7 +1402,9 @@ class MPUObjHandler(BaseMPUHandler):
 
     def _translate_mpu_response_headers(self, resp, keys=None):
         new_headers = HeaderKeyDict()
-        mpu_etag = mpu_size = None
+        updates = HeaderKeyDict()
+        include_sysmeta = config_true_value(
+            self.req.headers.get(MPU_INCLUDE_SYSMETA_HEADER))
         for key, val in resp.headers.items():
             key = key.lower()
             if keys and key not in keys:
@@ -1410,24 +1414,21 @@ class MPUObjHandler(BaseMPUHandler):
                        'x-manifest-etag'):
                 continue
             if key == MPU_SYSMETA_ETAG_KEY:
-                mpu_etag = val
+                updates['etag'] = quote_etag(val)
             elif key == MPU_SYSMETA_SIZE_KEY:
-                mpu_size = val
+                updates['content-length'] = val
             elif key == MPU_SYSMETA_PARTS_COUNT_KEY:
-                new_headers['x-parts-count'] = val
+                updates['x-parts-count'] = val
             elif key == MPU_SYSMETA_UPLOAD_ID_KEY:
                 upload_id = UploadId.parse(val)
-                new_headers['x-upload-id'] = self.mw.externalize_upload_id(
+                updates['x-upload-id'] = self.mw.externalize_upload_id(
                     self.req.path, upload_id)
-            elif key.startswith(MPU_OBJECT_SYSMETA_PREFIX):
+            if key.startswith(MPU_OBJECT_SYSMETA_PREFIX) and \
+                    not include_sysmeta:
                 continue
             else:
                 new_headers[key] = val
-        if mpu_etag is not None:
-            # mpu mw always quotes response header etag for requests it handles
-            new_headers['etag'] = quote_etag(mpu_etag)
-        if mpu_size is not None:
-            new_headers['content-length'] = mpu_size
+        new_headers.update(updates)
         return new_headers
 
     def _parse_internal_manifest(self, resp):
