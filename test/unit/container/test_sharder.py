@@ -35,7 +35,7 @@ from swift.common import internal_client
 from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.container import replicator
 from swift.container.backend import ContainerBroker, UNSHARDED, SHARDING, \
-    SHARDED, DATADIR
+    SHARDED, DATADIR, record_to_dict
 from swift.container.sharder import ContainerSharder, sharding_enabled, \
     CleavingContext, DEFAULT_SHARDER_CONF, finalize_shrinking, \
     find_shrinking_candidates, process_compactible_shard_sequences, \
@@ -8486,7 +8486,7 @@ class TestCleavingContext(BaseTestSharder):
         broker = self._make_old_style_sharding_broker()
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
-        old_broker.merge_items([old_broker._record_to_dict(
+        old_broker.merge_items([record_to_dict(
             ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check
@@ -8494,7 +8494,7 @@ class TestCleavingContext(BaseTestSharder):
         ctx.store(broker)
 
         # adding a row changes max row
-        old_broker.merge_items([old_broker._record_to_dict(
+        old_broker.merge_items([record_to_dict(
             ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
 
         new_ctx = CleavingContext.load(broker)
@@ -8511,7 +8511,7 @@ class TestCleavingContext(BaseTestSharder):
         broker = self._make_old_style_sharding_broker()
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
-        old_broker.merge_items([old_broker._record_to_dict(
+        old_broker.merge_items([record_to_dict(
             ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check
@@ -8598,7 +8598,7 @@ class TestCleavingContext(BaseTestSharder):
         broker = self._make_sharding_broker()
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
-        old_broker.merge_items([old_broker._record_to_dict(
+        old_broker.merge_items([record_to_dict(
             ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check
@@ -8606,7 +8606,7 @@ class TestCleavingContext(BaseTestSharder):
         ctx.store(broker)
 
         # adding a row changes max row
-        old_broker.merge_items([old_broker._record_to_dict(
+        old_broker.merge_items([record_to_dict(
             ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
 
         new_ctx = CleavingContext.load(broker)
@@ -8623,7 +8623,7 @@ class TestCleavingContext(BaseTestSharder):
         broker = self._make_sharding_broker()
         old_broker = broker.get_brokers()[0]
         old_db_id = old_broker.get_info()['id']
-        old_broker.merge_items([old_broker._record_to_dict(
+        old_broker.merge_items([record_to_dict(
             ('obj', self.ts().internal, 0, 'text/plain', 'etag', 1))])
         old_max_row = old_broker.get_max_row()
         self.assertEqual(1, old_max_row)  # sanity check

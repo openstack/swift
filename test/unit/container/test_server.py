@@ -4226,18 +4226,18 @@ class TestContainerController(BaseUnitTestCase):
         assert_broker_rows(broker.get_brokers()[0], ['unsharded'], 1)
         assert_broker_rows(broker.get_brokers()[1], ['sharding'], 2)
 
-        orig_lister = swift.container.backend.ContainerBroker.list_objects_iter
+        orig_lister = swift.container.backend.ContainerBroker.list_objects
 
-        def mock_list_objects_iter(*args, **kwargs):
+        def mock_list_objects(*args, **kwargs):
             # cause an update to land in the pending file after it has been
             # flushed by get_info() calls in the container PUT method, but
-            # before it is flushed by the call to list_objects_iter
+            # before it is flushed by the call to list_objects
             do_update('racing_update')
             return orig_lister(*args, **kwargs)
 
         with mock.patch(
-                'swift.container.backend.ContainerBroker.list_objects_iter',
-                mock_list_objects_iter):
+                'swift.container.backend.ContainerBroker.list_objects',
+                mock_list_objects):
             listing = get_api_listing()
 
         self.assertEqual(['unsharded'], listing)
@@ -4967,14 +4967,16 @@ class TestContainerController(BaseUnitTestCase):
         self.assertEqual(0, info['bytes_used'])
         self.assertFalse(broker.get_objects())
         self.assertEqual([{'content_type': 'text/plain',
-                           'created_at': '0000000001.00000',
+                           'data_timestamp': '0000000001.00000',
+                           'ctype_timestamp': '0000000001.00000',
+                           'meta_timestamp': '0000000001.00000',
                            'deleted': 2,
                            'etag': 'X',
                            'name': 'o',
                            'size': 0,
                            'storage_policy_index': 0,
                            'systags': None}],
-                         broker.get_objects(include_states=[2]))
+                         broker.list_objects(include_states=[2]))
 
     def test_PUT_GET_object_with_weird_content_types(self):
         snowman = u'\u2603'
@@ -5101,7 +5103,9 @@ class TestContainerController(BaseUnitTestCase):
         resp = req.get_response(self.controller)
         self.assertEqual(resp.status_int, 204)
         expected = [{'content_type': 'application/deleted',
-                     'created_at': '0000000001.00000',
+                     'data_timestamp': '0000000001.00000',
+                     'ctype_timestamp': '0000000001.00000',
+                     'meta_timestamp': '0000000001.00000',
                      'deleted': 1,
                      'etag': 'noetag',
                      'name': 'o',
@@ -5109,7 +5113,9 @@ class TestContainerController(BaseUnitTestCase):
                      'storage_policy_index': int(exp_policy_idx),
                      'systags': 'a=b&x=\N{SNOWMAN}'}]
         broker = self.controller._get_container_broker('sda1', 'p', 'a', 'c')
-        self.assertEqual(broker.get_objects(include_states={1}), expected)
+        self.assertEqual(
+            broker.list_objects(all_policies=True, include_states={1}),
+            expected)
 
     def test_GET_accept_not_valid(self):
         req = Request.blank('/sda1/p/a/c', method='PUT', headers={

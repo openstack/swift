@@ -597,7 +597,6 @@ class TestAccountBroker(test_db.TestDbBase):
                          ['3-0049-', '3-0049-0049'])
 
     def test_list_objects_iter_order_and_reverse(self):
-        # Test ContainerBroker.list_objects_iter
         broker = AccountBroker(self.get_db_path(), account='a')
         put_ts = self.ts()
         broker.initialize(put_ts.internal, 0)
@@ -633,7 +632,6 @@ class TestAccountBroker(test_db.TestDbBase):
                          ['c10', 'c1'])
 
     def test_list_container_iter_with_reserved_name(self):
-        # Test ContainerBroker.list_objects_iter
         broker = AccountBroker(self.get_db_path(), account='a')
         broker.initialize(self.ts().internal, 0)
 

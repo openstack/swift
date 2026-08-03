@@ -165,6 +165,10 @@ class BaseTestMpuAuditor(unittest.TestCase):
     def _create_db_item(self, name, ts_data, ts_ctype=None, ts_meta=None,
                         ctype='text/plain', size=0, etag='', systags=None,
                         state=0):
+        """
+        Create a DB item dict of the form passed in ContainerBroker.merge_items
+        item_list.
+        """
         created_at = encode_timestamps(ts_data, ts_ctype, ts_meta)
         item = {
             'name': str(name),
@@ -183,8 +187,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
     def _check_broker_rows(self, expected_items, include_states=None,
                            table='object'):
         include_states = include_states or {0}
-        rows = self.broker.get_objects(
-            include_states=include_states, table=table)
+        rows = self.broker.list_objects(
+            allow_reserved=True, include_states=include_states, table=table)
         self.assertEqual(sorted([o['name'] for o in expected_items]),
                          sorted([row['name'] for row in rows]))
         return rows
@@ -198,17 +202,18 @@ class BaseTestMpuAuditor(unittest.TestCase):
             expected_items, include_states=include_states, table='action')
 
     def _check_deleted_broker_rows(self, expected_items):
-        rows = self.broker.get_objects(include_deleted=True)
+        rows = self.broker.list_objects(include_deleted=True)
         self.assertEqual(sorted([o['name'] for o in expected_items]),
                          sorted([row['name'] for row in rows]))
         return rows
 
 
 class TestModuleFunctions(BaseTestMpuAuditor):
-    def _setup_for_yield_item_batches(self, table, state):
+    def _setup_for_yield_item_batches(self, table, state, name_iter=None):
+        name_iter = name_iter or self.name_iter
         timestamps = [next(self.ts_iter) for _ in range(12)]
         upload_refs = [
-            self._create_upload_ref(next(self.name_iter), ts)
+            self._create_upload_ref(next(name_iter), ts)
             for ts in timestamps]
         items = [self._create_db_item(str(vers_name), ts, state=state)
                  for vers_name, ts in zip(upload_refs, timestamps)]
@@ -246,6 +251,19 @@ class TestModuleFunctions(BaseTestMpuAuditor):
         actual = [batch for batch in yield_item_batches(
             self.broker, 10, 5, include_states=[0], table='object')]
         self.assertFalse(actual)
+
+    def test_yield_item_batches_yields_reserved_names(self):
+        name_iter = map(lambda x: '\x00obj%06d\x00vers' % x, itertools.count())
+        items = self._setup_for_yield_item_batches(
+            table='object', state=0, name_iter=name_iter)
+        actual = [batch for batch in yield_item_batches(
+            self.broker, 10, 5, include_states=[0], table='object')]
+        self.assertEqual(3, len(actual))
+        sorted_names = [it['name']
+                        for it in sorted(items, key=lambda i: i['name'])]
+        self.assertEqual(sorted_names[:5], [a['name'] for a in actual[0]])
+        self.assertEqual(sorted_names[5:10], [a['name'] for a in actual[1]])
+        self.assertEqual(sorted_names[10:], [a['name'] for a in actual[2]])
 
     def test_yield_item_batches_stops_at_max_batches(self):
         items = self._setup_for_yield_item_batches(table='object', state=0)
@@ -896,7 +914,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
 
         self.assertEqual(1, self.broker.get_max_row())  # no new row
         rows = self._check_broker_rows([session])
-        self.assertEqual(self.ts_data, rows[0]['created_at'])
+        self.assertEqual(self.ts_data, rows[0]['data_timestamp'])
         self._check_deleted_broker_rows([])
 
     def test_audit_completing_session_is_recent(self):
@@ -925,8 +943,10 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(2, self.broker.get_max_row())  # new row
         rows = self._check_broker_rows([session])
         # update meta_timestamp
-        self.assertEqual((ts_data, ts_ctype, ts_now),
-                         decode_timestamps(rows[0]['created_at']))
+        self.assertEqual(
+            (ts_data, ts_ctype, ts_now),
+            (rows[0]['data_timestamp'], rows[0]['ctype_timestamp'],
+             rows[0]['meta_timestamp']))
         self._check_deleted_broker_rows([])
 
     def test_audit_completing_session_is_old(self):
@@ -956,8 +976,10 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(1, self.broker.get_max_row())  # no new rows
         rows = self._check_broker_rows([session])
         # no change to session timestamps
-        self.assertEqual((ts_data, ts_ctype, ts_meta),
-                         decode_timestamps(rows[0]['created_at']))
+        self.assertEqual(
+            (ts_data, ts_ctype, ts_meta),
+            (rows[0]['data_timestamp'], rows[0]['ctype_timestamp'],
+             rows[0]['meta_timestamp']))
         self._check_deleted_broker_rows([])
 
     def test_audit_completing_session_is_old_error_checking_user_obj(self):
@@ -1283,7 +1305,7 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
         # NB: not all parts are inserted into DB yet
         items = parts_1[:2] + parts_2 + [marker]
         self.put_objects(items)
-        rows = self.broker.get_objects(include_deleted=False)
+        rows = self.broker.list_objects(include_deleted=False)
         self.assertEqual(sorted([o['name'] for o in items]),
                          sorted([o['name'] for o in rows]))
 

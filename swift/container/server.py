@@ -647,27 +647,33 @@ class ContainerController(BaseStorageServer):
             response['last_modified'] = Timestamp(created).isoformat
         return response
 
-    def update_object_record(self, record):
+    def translate_broker_item(self, broker_item):
         """
-        Perform mutation to container listing records that are common to all
-        serialization formats, and returns it as a dict.
+        Perform mutation to container listing items that are common to all
+        serialization formats.
 
-        Converts created time to iso timestamp.
-        Replaces size with 'swift_bytes' content type parameter.
+        For objects, the returned dict has the following keys:
+            'name', 'bytes', 'hash', 'content_type', 'last_modified'.
 
-        :param record: object entry record
-        :returns: modified record
+        The ``broker_item`` metadata timestamp is converted to ISO timestamp
+        format. When the ``broker_item`` content-type has a ``swift_bytes``
+        parameter this is used for the value of ``bytes``.
+
+        For subdirs, the returned dict has a single key 'subdir'.
+
+        :param broker_item: object entry record
+        :returns: a dict suitable for listing responses
         """
-        # record is object info
-        (name, created, size, content_type, etag) = record[:5]
-        if content_type is None:
-            return {'subdir': name}
-        response = {
-            'bytes': size, 'hash': etag, 'name': name,
-            'content_type': content_type}
-        override_bytes_from_content_type(response, logger=self.logger)
-        response['last_modified'] = Timestamp(created).isoformat
-        return response
+        if broker_item['content_type'] is None:
+            return {'subdir': broker_item['name']}
+        resp_item = {'name': broker_item['name'],
+                     'bytes': broker_item['size'],
+                     'content_type': broker_item['content_type'],
+                     'hash': broker_item['etag']}
+        override_bytes_from_content_type(resp_item, logger=self.logger)
+        resp_item['last_modified'] = Timestamp(
+            broker_item['meta_timestamp']).isoformat
+        return resp_item
 
     @public
     @timing_stats()
@@ -918,13 +924,14 @@ class ContainerController(BaseStorageServer):
         # Use the retired db while container is in process of sharding,
         # otherwise use current db
         with broker.get_brokers()[0] as src_broker:
-            container_list = src_broker.list_objects_iter(
+            container_list = src_broker.list_objects(
                 limit, marker, end_marker, prefix, delimiter, path,
                 storage_policy_index=storage_policy_index,
-                reverse=reverse, allow_reserved=req.allow_reserved_names,
+                reverse=reverse,
+                allow_reserved=req.allow_reserved_names,
                 include_states={state})
-        listing = [self.update_object_record(record)
-                   for record in container_list]
+        listing = [self.translate_broker_item(broker_item)
+                   for broker_item in container_list]
         return self._create_GET_response(req, out_content_type, info,
                                          resp_headers, broker.metadata,
                                          container, listing)

@@ -7836,7 +7836,7 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
                           1: {'object_count': 0, 'bytes_used': 0}},
                          broker.get_policy_stats())
 
-    def test_list_object_iter_hidden_row(self):
+    def test_list_objects_hidden_row(self):
         broker = ContainerBroker(self.get_db_path(), account='a',
                                  container='c')
         broker.initialize(self.ts().internal, 0)
@@ -7853,99 +7853,60 @@ class TestCurrentContainerBroker(test_db.TestDbBase):
                           'noetag', storage_policy_index=0, deleted=1)
         broker._commit_puts()
 
+        expected = [{'name': 'o1',
+                     'data_timestamp': ts1.internal,
+                     'ctype_timestamp': ts1.internal,
+                     'meta_timestamp': ts1.internal,
+                     'size': 123,
+                     'content_type': 'text/plain',
+                     'storage_policy_index': 0,
+                     'deleted': 0,
+                     'systags': None,
+                     'etag': 'my-etag'},
+                    {'name': 'o2',
+                     'data_timestamp': ts2.internal,
+                     'ctype_timestamp': ts2.internal,
+                     'meta_timestamp': ts2.internal,
+                     'size': 456,
+                     'content_type': 'text/plain',
+                     'storage_policy_index': 0,
+                     'deleted': 2,
+                     'systags': None,
+                     'etag': 'my-etag'},
+                    {'name': 'o3',
+                     'data_timestamp': ts3.internal,
+                     'ctype_timestamp': ts3.internal,
+                     'meta_timestamp': ts3.internal,
+                     'size': 0,
+                     'content_type': 'application/deleted',
+                     'storage_policy_index': 0,
+                     'deleted': 1,
+                     'systags': None,
+                     'etag': 'noetag'}]
+
         # undeleted
-        expected = [('o1', ts1.internal, 123, 'text/plain', 'my-etag')]
-        actual = list(broker.list_objects_iter(10, None, None, None, None))
-        self.assertEqual(expected, actual)
-        actual = list(broker.list_objects_iter(
+        actual = list(broker.list_objects(10, None, None, None, None))
+        self.assertEqual(expected[0:1], actual)
+        actual = list(broker.list_objects(
             10, None, None, None, None, include_states={0}))
-        self.assertEqual(expected, actual)
+        self.assertEqual(expected[0:1], actual)
 
         # deleted
-        expected = [('o3', ts3.internal, 0, 'application/deleted', 'noetag')]
-        actual = list(broker.list_objects_iter(
+        actual = list(broker.list_objects(
             10, None, None, None, None, include_deleted=True))
-        self.assertEqual(expected, actual)
-        actual = list(broker.list_objects_iter(10, None, None, None, None,
-                                               include_states={1}))
-        self.assertEqual(expected, actual)
+        self.assertEqual(expected[2:], actual)
+        actual = list(broker.list_objects(10, None, None, None, None,
+                                          include_states={1}))
+        self.assertEqual(expected[2:], actual)
 
         # obsolete
-        expected = [('o2', ts2.internal, 456, 'text/plain', 'my-etag')]
-        actual = list(broker.list_objects_iter(
+        actual = list(broker.list_objects(
             10, None, None, None, None, include_states={2}))
-        self.assertEqual(expected, actual)
+        self.assertEqual(expected[1:2], actual)
 
         # all states
-        expected = [('o1', ts1.internal, 123, 'text/plain', 'my-etag'),
-                    ('o2', ts2.internal, 456, 'text/plain', 'my-etag'),
-                    ('o3', ts3.internal, 0, 'application/deleted', 'noetag')]
-        actual = list(broker.list_objects_iter(
+        actual = list(broker.list_objects(
             10, None, None, None, None, include_states={0, 1, 2}))
-        self.assertEqual(expected, actual)
-
-    def test_get_objects_hidden_row(self):
-        broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
-        broker.initialize(self.ts().internal, 0)
-        # putting object in wrong policy causes the sql trigger to insert into
-        # policy_stat rather than update
-        ts1 = self.ts()
-        broker.put_object('o1', ts1.internal, 123, 'text/plain', 'my-etag',
-                          storage_policy_index=0, deleted=0)
-        ts2 = self.ts()
-        broker.put_object('o2', ts2.internal, 456, 'text/plain', 'my-etag',
-                          storage_policy_index=0, deleted=2,
-                          systags='foo=bar')
-        ts3 = self.ts()
-        broker.put_object('o3', ts3.internal, 0, 'application/deleted',
-                          'noetag', storage_policy_index=0, deleted=1)
-        broker._commit_puts()
-
-        # undeleted
-        expected = [
-            {'name': 'o1', 'created_at': ts1.internal, 'size': 123,
-             'content_type': 'text/plain', 'etag': 'my-etag',
-             'storage_policy_index': 0, 'deleted': 0, 'systags': None},
-        ]
-        actual = broker.get_objects(include_deleted=False)
-        self.assertEqual(expected, actual)
-        actual = broker.get_objects(include_states={0})
-        self.assertEqual(expected, actual)
-
-        # deleted
-        expected = [
-            {'name': 'o3', 'created_at': ts3.internal, 'size': 0,
-             'content_type': 'application/deleted', 'etag': 'noetag',
-             'storage_policy_index': 0, 'deleted': 1, 'systags': None},
-        ]
-        actual = broker.get_objects(include_deleted=True)
-        self.assertEqual(expected, actual)
-        actual = broker.get_objects(include_states={1})
-        self.assertEqual(expected, actual)
-
-        # obsolete
-        expected = [
-            {'name': 'o2', 'created_at': ts2.internal, 'size': 456,
-             'content_type': 'text/plain', 'etag': 'my-etag',
-             'storage_policy_index': 0, 'deleted': 2, 'systags': 'foo=bar'},
-        ]
-        actual = broker.get_objects(include_states={2})
-        self.assertEqual(expected, actual)
-
-        # all states
-        expected = [
-            {'name': 'o1', 'created_at': ts1.internal, 'size': 123,
-             'content_type': 'text/plain', 'etag': 'my-etag',
-             'storage_policy_index': 0, 'deleted': 0, 'systags': None},
-            {'name': 'o2', 'created_at': ts2.internal, 'size': 456,
-             'content_type': 'text/plain', 'etag': 'my-etag',
-             'storage_policy_index': 0, 'deleted': 2, 'systags': 'foo=bar'},
-            {'name': 'o3', 'created_at': ts3.internal, 'size': 0,
-             'content_type': 'application/deleted', 'etag': 'noetag',
-             'storage_policy_index': 0, 'deleted': 1, 'systags': None},
-        ]
-        actual = broker.get_objects(include_states={0, 1, 2})
         self.assertEqual(expected, actual)
 
 

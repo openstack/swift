@@ -12,7 +12,6 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import functools
 import json
 import time
 from urllib.parse import unquote
@@ -29,16 +28,14 @@ from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.request_helpers import split_reserved_name
 from swift.common.utils import Timestamp, get_logger, non_negative_float, \
     non_negative_int, config_positive_int_value
-from swift.container.backend import ContainerBroker
 
 
-def _safe_get_and_unquote(map, key, default_value=None):
+def _safe_get_and_unquote(data, key, default_value=None):
     # TODO: add unit test coverage
-    value = map.get(key)
-    if value:
+    value = data.get(key)
+    if value is not None:
         return unquote(value)
-    else:
-        return default_value
+    return default_value
 
 
 def yield_item_batches(broker, max_batches, batch_size, include_states, table):
@@ -46,8 +43,11 @@ def yield_item_batches(broker, max_batches, batch_size, include_states, table):
     marker = None
     while remaining > 0:
         batch_limit = min(batch_size, remaining)
-        items = broker.get_objects(
-            marker=marker, limit=batch_limit, include_states=include_states,
+        items = broker.list_objects(
+            marker=marker,
+            limit=batch_limit,
+            allow_reserved=True,
+            include_states=include_states,
             table=table
         )
         if items:
@@ -134,15 +134,12 @@ class BaseMpuAuditor:
 
     def _get_items_with_prefix(self, prefix, limit, include_states=None):
         # get results as dicts...
-        # TODO: broker.get_objects doesn't support prefix so working around...
-        transform_func = functools.partial(ContainerBroker._record_to_dict,
-                                           self.broker)
-        rows = self.broker.list_objects_iter(
+        broker_items = self.broker.list_objects(
             limit, '', '', prefix, None, include_states=include_states,
-            transform_func=transform_func, allow_reserved=True)
+            allow_reserved=True)
         self.debug('get_items_with_prefix %s (%d): %s',
-                   prefix, len(rows), rows)
-        return [MPUItem.from_db_record(row) for row in rows]
+                   prefix, len(broker_items), broker_items)
+        return [MPUItem(**item) for item in broker_items]
 
     def _bump_item(self, item):
         # bump the item's *meta_timestamp* and merge to db so that the item is
@@ -170,9 +167,9 @@ class BaseMpuAuditor:
         for item_dict in batch:
             self.increment('processed')
             try:
-                item = MPUItem.from_db_record(item_dict)
+                item = MPUItem(**item_dict)
                 self.debug('auditing item %s', dict(item))
-                if not item.deleted == 1:
+                if item.deleted != 1:
                     self._audit_item(item)
                     self.increment('audited')
             except Exception as err:  # noqa

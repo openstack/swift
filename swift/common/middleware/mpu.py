@@ -29,9 +29,9 @@ from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import drain_and_close, \
     config_positive_int_value, reiterate, parse_content_type, \
-    decode_timestamps, split_path, quote, param_str_from_dict, \
-    param_str_to_dict, MD5_OF_EMPTY_STRING, StreamingPile, friendly_close, \
-    get_logger, Timestamp, md5, public, config_true_value
+    split_path, quote, param_str_from_dict, param_str_to_dict, \
+    MD5_OF_EMPTY_STRING, StreamingPile, friendly_close, get_logger, \
+    Timestamp, md5, public, config_true_value
 from swift.common.swob import Request, normalize_etag, \
     wsgi_to_str, wsgi_quote, HTTPInternalServerError, HTTPOk, \
     HTTPConflict, HTTPBadRequest, HTTPException, HTTPNotFound, HTTPNoContent, \
@@ -341,11 +341,15 @@ class MPUItem:
     def __init__(self, name, meta_timestamp, data_timestamp=None,
                  ctype_timestamp=None,
                  size=0, content_type='', etag='', deleted=0,
-                 storage_policy_index=0, systags=None, **kwargs):
+                 storage_policy_index=0, systags=None, created_at=None,
+                 **kwargs):
         self._name = name
-        self.meta_timestamp = meta_timestamp
-        self.data_timestamp = data_timestamp or meta_timestamp
-        self.ctype_timestamp = ctype_timestamp or meta_timestamp
+        self.meta_timestamp = self.timestampify(meta_timestamp)
+        self.data_timestamp = (self.timestampify(data_timestamp)
+                               or self.timestampify(created_at)
+                               or self.meta_timestamp)
+        self.ctype_timestamp = (self.timestampify(ctype_timestamp)
+                                or self.meta_timestamp)
         self.size = size
         self.content_type = content_type
         self.etag = etag
@@ -353,6 +357,12 @@ class MPUItem:
         self.storage_policy_index = storage_policy_index
         self.systags = param_str_to_dict(systags)
         self.kwargs = kwargs
+
+    def timestampify(self, timestamp):
+        if timestamp is None:
+            return None
+        else:
+            return Timestamp(timestamp)
 
     @property
     def name(self):
@@ -375,15 +385,6 @@ class MPUItem:
         for k, v in self.kwargs.items():
             yield k, v
 
-    @classmethod
-    def from_db_record(cls, row):
-        data_timestamp, ctype_timestamp, meta_timestamp = \
-            decode_timestamps(row['created_at'])
-        return cls(data_timestamp=data_timestamp,
-                   ctype_timestamp=ctype_timestamp,
-                   meta_timestamp=meta_timestamp,
-                   **row)
-
     def to_db_record(self):
         """
         Returns a dict representation of the item in the form required by
@@ -399,6 +400,9 @@ class MPUItem:
                 'ctype_timestamp': self.ctype_timestamp.internal,
                 'meta_timestamp': self.meta_timestamp.internal,
                 'systags': param_str_from_dict(self.systags)}
+
+    def __repr__(self):
+        return str(dict(self))
 
 
 class MPUSession(MPUItem):
@@ -808,6 +812,7 @@ class MPUSessionsHandler(BaseMPUHandler):
             'Content-Type': MPU_MARKER_CONTENT_TYPE,
             'Content-Length': '0',
             'X-Timestamp': timestamp.internal,
+            # TODO: no longer necessary?...
             'X-Backend-Allow-Reserved-Names': 'true',
         }
         lifeline_req = self.make_subrequest(
