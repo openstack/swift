@@ -57,48 +57,6 @@ def yield_item_batches(broker, max_batches, batch_size, include_states, table):
             remaining = 0
 
 
-class MpuAuditorContext:
-    """
-    Encapsulate state related to the auditor's visits to a container DB.
-
-    A serialized representation of this state is stored as metadata in the DB.
-    """
-    MPU_AUDITOR_SYSMETA_PREFIX = 'X-Container-Sysmeta-Mpu-Auditor-'
-
-    def __init__(self, ref, last_audit_row=0):
-        self.ref = ref
-        self.last_audit_row = last_audit_row
-
-    def __iter__(self):
-        yield 'ref', self.ref
-        yield 'last_audit_row', self.last_audit_row
-
-    @classmethod
-    def _make_sysmeta_key(cls, broker):
-        prefix = 'X-Container-Sysmeta-Mpu-Auditor-Context-'
-        return prefix + broker.get_info()['id']
-
-    @classmethod
-    def load(cls, broker):
-        """
-        :param broker: an instances of :class:`ContainerBroker`
-        :return: An instance of :class:`MpuAuditorContext`.
-        """
-        ref = cls._make_sysmeta_key(broker)
-        data, _ = broker.metadata.get(cls._make_sysmeta_key(broker), (None, 0))
-        data = json.loads(data) if data else {}
-        data['ref'] = ref
-        return cls(**data)
-
-    def store(self, broker):
-        """
-        :param broker: an instances of :class:`ContainerBroker`
-        """
-        broker.update_metadata(
-            {self._make_sysmeta_key(broker):
-             (json.dumps(dict(self)), Timestamp.now().internal)})
-
-
 class MpuAuditorConfig:
     def __init__(self, conf):
         # the auditor will not purge an aborted MPU's resources until it has
@@ -223,7 +181,6 @@ class BaseMpuAuditor:
     def audit(self):
         self.broker.get_info()
         self.debug('visiting container')
-        context = MpuAuditorContext.load(self.broker)
         for batch in yield_item_batches(self.broker,
                                         self.config.max_batches,
                                         self.config.batch_size,
@@ -233,7 +190,6 @@ class BaseMpuAuditor:
             self._audit_batch(batch)
             self.broker.merge_actions(self.completed_items)
         # TODO: run a TombstoneReclaimer on the action table
-        context.store(self.broker)
         self.info('%s', self._dump_stats())
         return None
 
