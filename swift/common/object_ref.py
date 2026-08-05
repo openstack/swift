@@ -12,37 +12,10 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from swift.common.utils import RESERVED, Timestamp
+from swift.common.utils import Timestamp
 
 
-class BaseObjectId:
-    SHARD_ALIGNMENT_CHARACTER = '$'
-    PARAM_SEPARATOR = '&'
-
-    def __init__(self, timestamp):
-        self.timestamp = Timestamp(timestamp)
-
-    def __eq__(self, other):
-        return str(self) == str(other)
-
-    def serialize(self, **kwargs):
-        raise NotImplementedError
-
-    def __str__(self):
-        return self.serialize()
-
-    def _parse(cls, params):
-        raise NotImplementedError
-
-    @classmethod
-    def parse(cls, value):
-        try:
-            return cls._parse(value)
-        except (ValueError, AttributeError):
-            raise ValueError('Invalid %s: %s' % (cls.__name__, value))
-
-
-class UploadId(BaseObjectId):
+class UploadId:
     """
     Encapsulate properties of an upload id.
 
@@ -69,6 +42,17 @@ class UploadId(BaseObjectId):
     :param timestamp: the object creation timestamp.
     """
     _newest = None
+    SHARD_ALIGNMENT_CHARACTER = '$'
+    PARAM_SEPARATOR = '&'
+
+    def __init__(self, timestamp):
+        self.timestamp = Timestamp(timestamp)
+
+    def __eq__(self, other):
+        return str(self) == str(other)
+
+    def __str__(self):
+        return self.serialize()
 
     def serialize(self, **kwargs):
         return self.PARAM_SEPARATOR.join(
@@ -82,6 +66,13 @@ class UploadId(BaseObjectId):
         if params[1] != cls.SHARD_ALIGNMENT_CHARACTER:
             raise ValueError()
         return cls(params[0])
+
+    @classmethod
+    def parse(cls, value):
+        try:
+            return cls._parse(value)
+        except (ValueError, AttributeError):
+            raise ValueError('Invalid %s: %s' % (cls.__name__, value))
 
     @classmethod
     def newest(cls):
@@ -101,32 +92,29 @@ class ObjectRef:
     Encapsulate properties of the internal name for a specific variant of an
     object.
 
-    The internal name of an object instance has two components:
+    The internal name of an object instance has up to three components joined
+    by a ``/`` delimiter:
       * <user_name> is the object name in the user namespace, common to all
         variants of the same user object. This is a native string (unquoted
         utf8).
-      * <object_id> is a native string that is unique to each variant of an
-        object, for example a history id or upload id.
+      * an optional <object_id> that is a native string unique to each variant
+        of an object, for example an upload id.
+      * an optional <tail>, for example an upload part number
 
     The serialized form of an ObjectRef has the form:
 
-        <R><user_name><R><object_id>
-
-    where <R> is the reserved character.
+        <user_name>[/<object_id>[/<tail>]]
 
     :param user_name: an unquoted utf8 object name.
     :param obj_id: a string variant id.
+    :param tail: a string tail component.
     """
-    # TODO: the reserved 0x00 character doesn't play well with sqlite3 cli
-    # https://www.sqlite.org/nulinstr.html
-    # is there a better way to delimit the user name from the object id?
     DELIMITER = '/'
 
-    def __init__(self, user_name, obj_id=None, tail=None, reserved=False):
+    def __init__(self, user_name, obj_id=None, tail=None):
         self.user_name = user_name
         self.obj_id = str(obj_id) if obj_id else None
         self.tail = tail
-        self.reserved = reserved
 
     def __eq__(self, other):
         return isinstance(other, ObjectRef) and str(other) == str(self)
@@ -134,12 +122,8 @@ class ObjectRef:
     def clone(self):
         return ObjectRef(self.user_name, self.obj_id, self.tail)
 
-    @property
-    def _prefix(self):
-        return RESERVED if self.reserved else ''
-
     def serialize(self, drop_tail=False):
-        val = self.basename
+        val = self.user_name
         if self.obj_id:
             val += (self.DELIMITER + self.obj_id)
             if self.tail is not None and not drop_tail:
@@ -149,17 +133,12 @@ class ObjectRef:
     def __str__(self):
         return self.serialize()
 
-    @property
-    def basename(self):
-        return self._prefix + self.user_name
-
     @classmethod
     def _parse(cls, name):
-        reserved = name.startswith(RESERVED)
-        name, _, rest = name[1 if reserved else 0:].partition(cls.DELIMITER)
+        name, _, rest = name.partition(cls.DELIMITER)
         uid_str, delimiter, tail = rest.partition(cls.DELIMITER)
         tail = tail if delimiter else None
-        return cls(name, obj_id=uid_str, tail=tail, reserved=reserved)
+        return cls(name, obj_id=uid_str, tail=tail)
 
     @classmethod
     def parse(cls, name):

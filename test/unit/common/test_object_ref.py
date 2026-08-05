@@ -75,7 +75,6 @@ class TestObjectRef(BaseUnitTestCase):
     def _do_test_init(self, obj, obj_id):
         obj_ref = ObjectRef(obj, obj_id)
         self.assertEqual(obj, obj_ref.user_name)
-        self.assertEqual('%s' % obj, obj_ref.basename)
         self.assertEqual(str(obj_id), obj_ref.obj_id)
         self.assertIsNone(obj_ref.tail)
         return obj_ref
@@ -88,17 +87,8 @@ class TestObjectRef(BaseUnitTestCase):
         self.assertEqual(
             'foo/%s' % obj_id, obj_ref.serialize())
 
-    def test_init_reserved(self):
-        obj_ref = ObjectRef('foo', 'bar', reserved=True)
-        self.assertEqual('\x00foo/bar', str(obj_ref))
-        self.assertEqual('\x00foo/bar', obj_ref.serialize())
-
     def test_init_no_obj_id(self):
         obj_ref = ObjectRef('foo')
-        self.assertEqual('foo', str(obj_ref))
-        self.assertEqual('foo', obj_ref.serialize())
-
-        obj_ref = ObjectRef('foo', reserved=False)
         self.assertEqual('foo', str(obj_ref))
         self.assertEqual('foo', obj_ref.serialize())
 
@@ -115,17 +105,7 @@ class TestObjectRef(BaseUnitTestCase):
         self.assertEqual(
             'fünicode/%s' % obj_id, obj_ref.serialize())
 
-    def test_init_with_history_id_instance(self):
-        # it's ok to pass in a UploadId instance...
-        obj_id = UploadId(123.45678)
-        obj_ref = self._do_test_init('foo', obj_id)
-        self.assertEqual(
-            'foo/%s' % obj_id, str(obj_ref))
-        self.assertEqual(
-            'foo/%s' % obj_id, obj_ref.serialize())
-
     def test_init_with_upload_id_instance(self):
-        # it's ok to pass in a UploadId instance...
         obj_id = UploadId(123.45678)
         obj_ref = self._do_test_init('foo', obj_id)
         self.assertEqual(
@@ -136,7 +116,6 @@ class TestObjectRef(BaseUnitTestCase):
     def test_init_no_object_id(self):
         obj_ref = ObjectRef('foo')
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('foo', obj_ref.basename)
         self.assertIsNone(obj_ref.obj_id)
         self.assertIsNone(obj_ref.tail)
         self.assertEqual('foo', str(obj_ref))
@@ -145,7 +124,6 @@ class TestObjectRef(BaseUnitTestCase):
         obj_id = UploadId(123.45678)
         obj_ref = ObjectRef('foo', obj_id, '000001')
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(obj_id, obj_ref.obj_id)
         self.assertEqual('000001', obj_ref.tail)
         self.assertEqual('foo/%s/000001' % obj_id, str(obj_ref))
@@ -180,7 +158,6 @@ class TestObjectRef(BaseUnitTestCase):
         obj_ref_str = 'foo/0000000123.45678&$'
         obj_ref = ObjectRef.parse(obj_ref_str)
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(UploadId(123.45678), obj_ref.obj_id)
         self.assertIsNone(obj_ref.tail)
         self.assertEqual(obj_ref_str, str(obj_ref))
@@ -189,7 +166,6 @@ class TestObjectRef(BaseUnitTestCase):
         obj_ref_str = 'foo/0000000123.45678&$/000001'
         obj_ref = ObjectRef.parse(obj_ref_str)
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(UploadId(123.45678), obj_ref.obj_id)
         self.assertEqual('000001', obj_ref.tail)
         self.assertEqual(obj_ref_str, str(obj_ref))
@@ -198,7 +174,6 @@ class TestObjectRef(BaseUnitTestCase):
         obj_ref_str = 'foo/0000000123.45678&$/'
         obj_ref = ObjectRef.parse(obj_ref_str)
         self.assertEqual('foo', obj_ref.user_name)
-        self.assertEqual('foo', obj_ref.basename)
         self.assertEqual(UploadId(123.45678), obj_ref.obj_id)
         self.assertEqual('', obj_ref.tail)
         self.assertEqual(obj_ref_str, str(obj_ref))
