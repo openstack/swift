@@ -48,7 +48,8 @@ class TestAuditorMigrations(BaseUnitTestCase):
 
         conf = {'devices': tempdir, 'mount_check': False}
         with mock.patch(
-                'swift.container.auditor.MpuAuditor') as mock_mpu_auditor:
+                'swift.container.auditor.MpuAuditorDispatcher'
+        ) as mock_mpu_auditor:
             test_auditor = auditor.ContainerAuditor(
                 conf, logger=debug_logger())
             test_auditor.run_once()

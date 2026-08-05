@@ -142,15 +142,18 @@ def make_path(*parts):
     return '/'.join(['', 'v1', make_relative_path(*parts)])
 
 
-def make_mpu_hidden_account_name(account):
-    return '%s%s' % (MPU_HIDDEN_ACCOUNT_PREFIX, account)
+def make_mpu_hidden_account_name(user_account):
+    return '%s%s' % (MPU_HIDDEN_ACCOUNT_PREFIX, user_account)
 
 
-def parse_mpu_hidden_account_name(account):
-    if account.startswith(MPU_HIDDEN_ACCOUNT_PREFIX):
+def is_mpu_hidden_account_name(account):
+    return account.startswith(MPU_HIDDEN_ACCOUNT_PREFIX)
+
+
+def extract_user_account_name(account):
+    if is_mpu_hidden_account_name(account):
         return account[len(MPU_HIDDEN_ACCOUNT_PREFIX):]
-    else:
-        return account
+    raise ValueError('Not an mpu hidden account name: %s' % account)
 
 
 def make_hidden_container_name(container, suffix):

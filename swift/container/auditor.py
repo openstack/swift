@@ -16,7 +16,7 @@ from swift.container.backend import ContainerBroker
 from swift.common.daemon import run_daemon
 from swift.common.db_auditor import DatabaseAuditor
 from swift.common.utils import parse_options
-from swift.container.mpu_auditor import MpuAuditor
+from swift.container.mpu_auditor import MpuAuditorDispatcher
 
 
 class ContainerAuditor(DatabaseAuditor):
@@ -27,7 +27,7 @@ class ContainerAuditor(DatabaseAuditor):
 
     def __init__(self, conf, logger=None):
         super(ContainerAuditor, self).__init__(conf, logger)
-        self.mpu_auditor = MpuAuditor(conf, self.logger)
+        self.mpu_auditor = MpuAuditorDispatcher(conf, self.logger)
 
     def _audit(self, job, broker):
         self.mpu_auditor.audit(broker)

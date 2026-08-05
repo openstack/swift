@@ -28,7 +28,7 @@ from swift.common.middleware import mpu
 from swift.common.middleware.mpu import MPUMiddleware, \
     normalize_part_number, MPUSession, BaseMPUHandler, MPUEtagHasher, \
     byteranges_parts_iter, make_mpu_hidden_account_name, \
-    parse_mpu_hidden_account_name, make_parts_container_name, \
+    extract_user_account_name, make_parts_container_name, \
     make_sessions_container_name, parse_hidden_container_name
 from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, HTTPCreated, \
@@ -46,10 +46,12 @@ class TestModuleFunctions(unittest.TestCase):
     def test_make_mpu_hidden_account_name(self):
         self.assertEqual('.mpu_test', make_mpu_hidden_account_name('test'))
 
-    def test_parse_mpu_hidden_account_name(self):
-        self.assertEqual('test', parse_mpu_hidden_account_name('.mpu_test'))
-        self.assertEqual('test', parse_mpu_hidden_account_name('test'))
-        self.assertEqual('.test', parse_mpu_hidden_account_name('.test'))
+    def test_extract_mpu_hidden_account_name(self):
+        self.assertEqual('test', extract_user_account_name('.mpu_test'))
+        with self.assertRaises(ValueError):
+            self.assertEqual('test', extract_user_account_name('test'))
+        with self.assertRaises(ValueError):
+            self.assertEqual('.test', extract_user_account_name('.test'))
 
     def test_make_mpu_parts_container_name(self):
         self.assertEqual('test~mpu_parts', make_parts_container_name('test'))

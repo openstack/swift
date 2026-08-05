@@ -39,8 +39,8 @@ from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
 from swift.common.utils import md5, Timestamp, decode_timestamps, \
     encode_timestamps, MD5_OF_EMPTY_STRING, param_str_from_dict, quote
 from swift.container.backend import ContainerBroker
-from swift.container.mpu_auditor import MpuAuditor, yield_item_batches, \
-    BaseMpuAuditor, MpuAuditorConfig
+from swift.container.mpu_auditor import MpuAuditorDispatcher, \
+    yield_item_batches, BaseMpuAuditor, MpuAuditorConfig
 from swift.container.server import ContainerController
 from test.debug_logger import debug_logger
 from test.unit import make_timestamp_iter
@@ -60,12 +60,12 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.name_iter = map(lambda x: 'obj%06d' % x, itertools.count())
         self.logger = debug_logger('mpu-auditor-test')
         self.fake_statsd_client = self.logger.logger.statsd_client
-        self.obj_name = 'obj'
+        self.user_obj_name = 'obj'
+        self.user_obj_path = '/v1/%s/%s/%s' % (self.audit_account,
+                                               self.user_container,
+                                               self.user_obj_name)
         self.upload_id = UploadId(next(self.ts_iter))
-        self.upload_ref = self._create_upload_ref(self.obj_name)
-        self.obj_path = '/v1/%s/%s/%s' % (self.audit_account,
-                                          self.user_container,
-                                          self.obj_name)
+        self.upload_ref = self._create_upload_ref(self.user_obj_name)
         self.audit_container_path = '/v1/%s/%s' % (self.audit_account,
                                                    self.audit_container)
         self.broker = self._make_broker(self.audit_account,
@@ -306,12 +306,12 @@ class TestModuleFunctions(BaseTestMpuAuditor):
         self.assertEqual(sorted_names[5:10], [a['name'] for a in actual[1]])
 
 
-class TestMpuAuditor(BaseTestMpuAuditor):
+class TestMpuAuditorDispatcher(BaseTestMpuAuditor):
     # TODO: add tests covering MpuAuditorConfig
     def setUp(self):
         super().setUp()
         with self._mock_internal_client():
-            self.auditor = MpuAuditor({}, self.logger)
+            self.auditor = MpuAuditorDispatcher({}, self.logger)
 
     def test_init(self):
         self.assertIsInstance(self.auditor.config, MpuAuditorConfig)
@@ -323,7 +323,8 @@ class TestMpuAuditor(BaseTestMpuAuditor):
                         ) as mocked:
             self.auditor.audit(broker)
         self.assertEqual([mock.call(self.auditor.config, self.auditor.client,
-                                    self.auditor.logger, broker, 'test')],
+                                    self.auditor.logger, broker,
+                                    self.user_account, 'test')],
                          mocked.call_args_list)
         self.assertEqual([mock.call()],
                          mocked.return_value.audit.call_args_list)
@@ -335,7 +336,8 @@ class TestMpuAuditor(BaseTestMpuAuditor):
                         ) as mocked:
             self.auditor.audit(broker)
         self.assertEqual([mock.call(self.auditor.config, self.auditor.client,
-                                    self.auditor.logger, broker, 'test')],
+                                    self.auditor.logger, broker,
+                                    self.user_account, 'test')],
                          mocked.call_args_list)
         self.assertEqual([mock.call()],
                          mocked.return_value.audit.call_args_list)
@@ -347,40 +349,53 @@ class TestMpuAuditor(BaseTestMpuAuditor):
                         ) as mocked:
             self.auditor.audit(broker)
         self.assertEqual([mock.call(self.auditor.config, self.auditor.client,
-                                    self.auditor.logger, broker, 'test')],
+                                    self.auditor.logger, broker,
+                                    self.user_account, 'test')],
                          mocked.call_args_list)
         self.assertEqual([mock.call()],
                          mocked.return_value.audit.call_args_list)
 
+    def _do_test_audit_objects(self, account, container, exp_user_container):
+        broker = self._make_broker(account, container)
+        with mock.patch(
+                'swift.container.mpu_auditor.MpuOverwriteAuditor'
+        ) as mocked:
+            self.auditor.audit(broker)
+        self.assertEqual(
+            [mock.call(self.auditor.config, self.auditor.client,
+                       self.auditor.logger, broker, account,
+                       exp_user_container)],
+            mocked.call_args_list)
+        self.assertEqual([mock.call()],
+                         mocked.return_value.audit.call_args_list)
+
     def test_audit_objects(self):
-        def do_test(container):
-            broker = self._make_broker(self.user_account, container)
-            with mock.patch(
-                    'swift.container.mpu_auditor.MpuOverwriteAuditor'
-            ) as mocked:
-                self.auditor.audit(broker)
-            self.assertEqual(
-                [mock.call(self.auditor.config, self.auditor.client,
-                           self.auditor.logger, broker, 'test')],
-                mocked.call_args_list)
-            self.assertEqual([mock.call()],
-                             mocked.return_value.audit.call_args_list)
+        self._do_test_audit_objects('a', 'test', 'test')
 
-        do_test('test')
-        do_test(get_reserved_name('versions', 'test'))
+    def test_audit_versions(self):
+        self._do_test_audit_objects(
+            'a', get_reserved_name('versions', 'test'), 'test')
 
-    def test_audit_ignored_containers(self):
-        def do_test(account, container):
-            broker = self._make_broker(account, container)
-            with mock.patch(
-                    'swift.container.mpu_auditor.MpuAuditor._audit'
-            ) as mocked:
-                self.auditor.audit(broker)
-            self.assertFalse(mocked.call_args_list)
+    def test_audit_objects_in_dot_prefix_account(self):
+        self._do_test_audit_objects('.a', 'test', 'test')
 
-        do_test(self.hidden_account, 'test')
-        do_test(self.hidden_account, 'test~mpu_ignored')
-        do_test(self.user_account, get_reserved_name('not-versions', 'test'))
+    def _do_test_ignored_containers(self, account, container):
+        broker = self._make_broker(account, container)
+        with mock.patch(
+                'swift.container.mpu_auditor.MpuAuditorDispatcher._dispatch'
+        ) as mocked:
+            self.auditor.audit(broker)
+        self.assertFalse(mocked.call_args_list)
+
+    def test_audit_unrecognised_container_in_mpu_hidden_account_ignored(self):
+        self._do_test_ignored_containers(self.hidden_account, 'test')
+
+    def test_audit_unrecognised_resource_in_mpu_hidden_account_ignored(self):
+        self._do_test_ignored_containers(self.hidden_account, 'test~ignored')
+
+    def test_audit_reserved_name_container_ignored(self):
+        self._do_test_ignored_containers(
+            self.user_account, get_reserved_name('not-versions', 'test'))
 
 
 class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
@@ -394,7 +409,7 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
         auditor = BaseMpuAuditor(
             MpuAuditorConfig({}), fake_ic, self.logger, self.broker,
-            self.user_container)
+            self.user_account, self.user_container)
 
         with mock.patch(
                 'swift.container.mpu_auditor.BaseMpuAuditor._audit_item',
@@ -437,17 +452,18 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         timestamps = [next(self.ts_iter) for _ in range(5)]
         random.shuffle(timestamps)
         non_mpu_history_items = [
-            self._create_history_item(self.obj_name, ts)
+            self._create_history_item(self.user_obj_name, ts)
             for ts in timestamps[:2]
         ]
         older_upload_ids = [UploadId(ts) for ts in timestamps[2:]]
         mpu_history_items = [
             self._create_history_item(
-                self.obj_name,
+                self.user_obj_name,
                 upload_id.timestamp,
                 systags={
                     'relic_id': quote(upload_id.serialize()),
-                    'child': quote('%s/%s/' % (self.obj_name, upload_id)),
+                    'child': quote('%s/%s/' % (
+                        self.user_obj_name, upload_id)),
                     'child_container': quote(self.parts_container),
                 }
             )
@@ -457,12 +473,13 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         latest_upload_id = UploadId(next(self.ts_iter))
         mpu_history_items += [
             self._create_history_item(
-                self.obj_name,
+                self.user_obj_name,
                 latest_upload_id.timestamp,
                 systags={
                     'relic_id': quote(latest_upload_id.serialize()),
                     'child': quote('%s/%s/%s/' % (
-                        self.parts_container, self.obj_name, latest_upload_id))
+                        self.parts_container, self.user_obj_name,
+                        latest_upload_id))
                 }
             )
             for ts in [next(self.ts_iter)]
@@ -474,12 +491,12 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         self._check_broker_rows(mpu_history_items[-1:], include_states={0})
         exp_relic_items = [
             self._create_history_item(
-                '%s\x00%s' % (self.obj_name, upload_id),
+                '%s\x00%s' % (self.user_obj_name, upload_id),
                 upload_id.timestamp,
                 systags={
                     'relic_id': quote(upload_id.serialize()),
                     'child': quote('%s/%s/%s/' % (
-                        self.parts_container, self.obj_name, upload_id))})
+                        self.parts_container, self.user_obj_name, upload_id))})
             for upload_id in older_upload_ids
         ]
         exp_action_items = [
@@ -494,18 +511,18 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
             registered_calls.extend([
                 ('HEAD', '/v1/a/%s/%s'
                  % (self.versions_container,
-                    build_versions_object_name(self.obj_name,
+                    build_versions_object_name(self.user_obj_name,
                                                upload_id.timestamp.internal)),
                  HTTPNotFound, {}),
                 ('DELETE', '/v1/a/%s/%s/%s/'
-                 % (self.parts_container, self.obj_name, upload_id),
+                 % (self.parts_container, self.user_obj_name, upload_id),
                  HTTPNoContent, {})
             ])
 
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = list(sorted([call[:2] for call in registered_calls]))
@@ -519,7 +536,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         with self._mock_internal_client([]) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         self.assertFalse(fake_swift.calls)
@@ -534,7 +551,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
             self.user_account, self.versions_container)
         ts_vers = next(self.ts_iter)
         upload_id = UploadId(ts_vers)
-        vers_name = '\x00%s\x00%s' % (self.obj_name, (~(ts_vers)).normal)
+        vers_name = '\x00%s\x00%s' % (self.user_obj_name, (~(ts_vers)).normal)
         mpu_history_items = [
             self._create_history_item(
                 vers_name,
@@ -580,7 +597,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = list(sorted([call[:2] for call in registered_calls]))
@@ -594,7 +611,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         with self._mock_internal_client([]) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         self.assertFalse(fake_swift.calls)
@@ -644,9 +661,10 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         # verify that deletion of the lifeline will result in existing
         # *undeleted* parts being cleaned up
         lifeline = self._create_lifeline_spec(
-            self.obj_name, self.upload_id)
+            self.user_obj_name, self.upload_id)
         parts = [
-            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            self._create_part_spec(
+                self.user_obj_name, self.upload_id, i, state=0)
             for i in range(1, 6)]
         # merge parts and lifeline...
         self.put_objects(parts + [lifeline], shuffle_order=True)
@@ -656,7 +674,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client([]) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
         self.assertFalse(fake_swift.calls)
         self._check_broker_rows(parts[3:] + [lifeline], include_states={0})
@@ -665,7 +683,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         # delete lifeline...
         self.delete_objects([lifeline])
 
-        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        part_prefix = '%s/%s/' % (self.user_obj_name, self.upload_id)
         exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
         exp_relic = dict(lifeline, name=exp_relic_name, state=2)
         exp_action = dict(exp_relic, state=0)
@@ -686,7 +704,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         # expect DELETEs for parts...
@@ -703,15 +721,16 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         # verify that deletion of the lifeline will result in subsequent parts
         # being cleaned up
         lifeline = self._create_lifeline_spec(
-            self.obj_name, self.upload_id)
+            self.user_obj_name, self.upload_id)
         parts = [
-            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            self._create_part_spec(
+                self.user_obj_name, self.upload_id, i, state=0)
             for i in range(1, 6)]
         # merge lifeline then delete it to create a relic...
         self.put_objects([lifeline])
         self.delete_objects([lifeline])
 
-        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        part_prefix = '%s/%s/' % (self.user_obj_name, self.upload_id)
         exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
         exp_relic = dict(lifeline, name=exp_relic_name, state=2)
         exp_action = dict(exp_relic, state=0)
@@ -725,7 +744,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client([]) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
         self.assertFalse(fake_swift.calls)
         self._check_broker_rows([], include_states={0})
@@ -755,7 +774,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -769,14 +788,16 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
 
     def test_audit_delete_marker_parts_not_found(self):
         # verify that part DELETE 404s don't prevent progress
-        lifeline = self._create_lifeline_spec(self.obj_name, self.upload_id)
+        lifeline = self._create_lifeline_spec(
+            self.user_obj_name, self.upload_id)
         parts = [
-            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            self._create_part_spec(
+                self.user_obj_name, self.upload_id, i, state=0)
             for i in range(1, 6)]
         # merge parts and lifeline then delete lifeline to create a relic...
         self.put_objects(parts + [lifeline])
         self.delete_objects([lifeline])
-        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        part_prefix = '%s/%s/' % (self.user_obj_name, self.upload_id)
         exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
         exp_relic = dict(lifeline, name=exp_relic_name, state=2)
         exp_action = dict(exp_relic, state=0)
@@ -804,7 +825,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -818,14 +839,16 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
     def test_audit_delete_marker_parts_fail(self):
         # verify that part DELETE 503s don't prevent progress, but action
         # remains intact
-        lifeline = self._create_lifeline_spec(self.obj_name, self.upload_id)
+        lifeline = self._create_lifeline_spec(
+            self.user_obj_name, self.upload_id)
         parts = [
-            self._create_part_spec(self.obj_name, self.upload_id, i, state=0)
+            self._create_part_spec(
+                self.user_obj_name, self.upload_id, i, state=0)
             for i in range(1, 6)]
         # merge parts and lifeline then delete lifeline to create a relic...
         self.put_objects(parts + [lifeline])
         self.delete_objects([lifeline])
-        part_prefix = '%s/%s/' % (self.obj_name, self.upload_id)
+        part_prefix = '%s/%s/' % (self.user_obj_name, self.upload_id)
         exp_relic_name = '%s\x00%s' % (part_prefix, self.upload_id)
         exp_relic = dict(lifeline, name=exp_relic_name, state=2)
         exp_action = dict(exp_relic, state=0)
@@ -853,7 +876,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -888,7 +911,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         with self._mock_internal_client():
-            auditor = MpuAuditor({}, self.logger)
+            auditor = MpuAuditorDispatcher({}, self.logger)
             auditor.audit(self.broker)
 
         self.assertEqual(1, self.broker.get_max_row())  # no new row
@@ -909,12 +932,12 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('HEAD', self.user_obj_path, HTTPOk, {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -940,12 +963,12 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         user_obj_resp_hdrs = {}
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
+            ('HEAD', self.user_obj_path, HTTPOk, user_obj_resp_hdrs),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -968,12 +991,12 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPServerError, {}),
+            ('HEAD', self.user_obj_path, HTTPServerError, {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -991,14 +1014,14 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id':
                               str(self.upload_ref.obj_id)}
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
+            ('HEAD', self.user_obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE',
              '/'.join([self.audit_container_path, session['name']]),
              HTTPAccepted,
              {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
-            auditor = MpuAuditor({}, self.logger)
+            auditor = MpuAuditorDispatcher({}, self.logger)
         auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1019,7 +1042,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id':
                               str(self.upload_ref.obj_id)}
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
+            ('HEAD', self.user_obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE',
              '/'.join([self.audit_container_path, session['name']]),
              HTTPServerError,
@@ -1029,7 +1052,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1050,7 +1073,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
              {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
-            auditor = MpuAuditor({}, self.logger)
+            auditor = MpuAuditorDispatcher({}, self.logger)
         auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1068,14 +1091,14 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         user_obj_resp_hdrs = {'x-object-sysmeta-mpu-upload-id':
                               str(self.upload_ref.obj_id)}
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, user_obj_resp_hdrs),
+            ('HEAD', self.user_obj_path, HTTPOk, user_obj_resp_hdrs),
             ('DELETE',
              '/'.join([self.audit_container_path, session['name']]),
              HTTPNoContent,
              {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
-            auditor = MpuAuditor({}, self.logger)
+            auditor = MpuAuditorDispatcher({}, self.logger)
         auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1094,12 +1117,12 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('HEAD', self.user_obj_path, HTTPOk, {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(ts_now)):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1113,11 +1136,11 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPServerError, {}),  # error!
+            ('HEAD', self.user_obj_path, HTTPServerError, {}),  # error!
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
-            auditor = MpuAuditor({'mpu_aborted_purge_delay': 0},
-                                 self.logger)
+            auditor = MpuAuditorDispatcher({'mpu_aborted_purge_delay': 0},
+                                           self.logger)
             auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1132,7 +1155,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('HEAD', self.user_obj_path, HTTPOk, {}),
             ('DELETE',
              '/'.join([self.part_container_path, session['name'] + '/']),
              HTTPNoContent,
@@ -1143,8 +1166,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
              {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
-            auditor = MpuAuditor({'mpu_aborted_purge_delay': 0},
-                                 self.logger)
+            auditor = MpuAuditorDispatcher({'mpu_aborted_purge_delay': 0},
+                                           self.logger)
             auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1160,15 +1183,15 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('HEAD', self.user_obj_path, HTTPOk, {}),
             ('DELETE',
              '/'.join([self.part_container_path, session['name'] + '/']),
              HTTPInternalServerError,
              {}),
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
-            auditor = MpuAuditor({'mpu_aborted_purge_delay': 0},
-                                 self.logger)
+            auditor = MpuAuditorDispatcher({'mpu_aborted_purge_delay': 0},
+                                           self.logger)
             auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1183,7 +1206,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('HEAD', self.user_obj_path, HTTPOk, {}),
             ('DELETE',
              '/'.join([self.part_container_path, session['name'] + '/']),
              HTTPNoContent,
@@ -1194,8 +1217,8 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
              {})
         ]
         with self._mock_internal_client(registered_calls) as fake_swift:
-            auditor = MpuAuditor({'mpu_aborted_purge_delay': 0},
-                                 self.logger)
+            auditor = MpuAuditorDispatcher({'mpu_aborted_purge_delay': 0},
+                                           self.logger)
             auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -1215,14 +1238,14 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.put_objects([session])
         self.assertEqual(1, self.broker.get_max_row())  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('HEAD', self.user_obj_path, HTTPOk, {}),
         ]
         for audit_time_offset in [0, 1000, 8600]:
             audit_time = now + audit_time_offset
             with self._mock_internal_client(registered_calls) as fake_swift:
                 with mock.patch('swift.container.mpu_auditor.time.time',
                                 return_value=audit_time):
-                    auditor = MpuAuditor({}, self.logger)
+                    auditor = MpuAuditorDispatcher({}, self.logger)
                     auditor.audit(self.broker)
             self._check_broker_rows([session])
 
@@ -1230,7 +1253,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         audit_time = now + 86400  # purge_delay in the future
         self.assertGreater(audit_time, float(ts_ctype) + 86400)  # sanity check
         registered_calls = [
-            ('HEAD', self.obj_path, HTTPOk, {}),
+            ('HEAD', self.user_obj_path, HTTPOk, {}),
             ('DELETE',
              '/'.join([self.part_container_path, session['name'] + '/']),
              HTTPNoContent,
@@ -1243,7 +1266,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=audit_time):
-                auditor = MpuAuditor({}, self.logger)
+                auditor = MpuAuditorDispatcher({}, self.logger)
                 auditor.audit(self.broker)
         expected_calls = [call[:2] for call in registered_calls]
         self.assertEqual(expected_calls, fake_swift.calls)
@@ -1259,7 +1282,7 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
     def _create_upload_parts(self, num_parts):
         ts = next(self.ts_iter)
         upload_id = unique_id()
-        upload = '%s/%s' % (self.obj_name, upload_id)
+        upload = '%s/%s' % (self.user_obj_name, upload_id)
         parts = [{'name': '%s/%d' % (upload, i),
                   'created_at': ts.normal,
                   'content_type': 'text/plain',
@@ -1293,7 +1316,7 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
 
         with mock.patch('swift.container.mpu_auditor.InternalClient',
                         return_value=fake_ic):
-            auditor = MpuAuditor({}, self.logger)
+            auditor = MpuAuditorDispatcher({}, self.logger)
         auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls
@@ -1317,7 +1340,7 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
         fake_swift.clear_calls()
         with mock.patch('swift.container.mpu_auditor.InternalClient',
                         return_value=fake_ic):
-            auditor = MpuAuditor({}, self.logger)
+            auditor = MpuAuditorDispatcher({}, self.logger)
         auditor.audit(self.broker)
 
         expected_calls = [registered_calls[2][:2]]

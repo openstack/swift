@@ -21,7 +21,8 @@ from collections import defaultdict
 from swift.common.internal_client import InternalClient, UnexpectedResponse
 from swift.common.middleware.mpu import MPUSession, MPUItem, \
     MPU_SYSMETA_UPLOAD_ID_KEY, parse_hidden_container_name, \
-    make_parts_container_name, parse_mpu_hidden_account_name
+    make_parts_container_name, extract_user_account_name, \
+    make_mpu_hidden_account_name, is_mpu_hidden_account_name
 from swift.common.middleware.versioned_writes.object_versioning import \
     build_versions_container_name, build_versions_object_name
 from swift.common.object_ref import ObjectRef, UploadId
@@ -82,14 +83,16 @@ class BaseMpuAuditor:
     audit_table = 'action'
     audit_states = {0}
 
-    def __init__(self, config, client, logger, broker, user_container):
+    def __init__(self, config, client, logger, broker, user_account,
+                 user_container):
         self.config = config
         self.client = client
         self.logger = logger
         self.broker = broker
+        self.user_account = user_account
         self.user_container = user_container
+        self.hidden_account = make_mpu_hidden_account_name(self.user_account)
         # TODO: parts container may vary per mpu w.r.t. policy
-        self.user_account = self.broker.account.lstrip('.')
         self.parts_container = make_parts_container_name(self.user_container)
         self.statsd_client = logger.logger.statsd_client
         self.stats = defaultdict(int)
@@ -402,7 +405,11 @@ class MpuSessionAuditor(BaseMpuAuditor):
             self._audit_completed_session(session, obj_ref)
 
 
-class MpuAuditor:
+class MpuAuditorDispatcher:
+    """
+    A plug-in for ContainerAuditor that dispatches audit work to a
+    BaseMpuAuditor subclass according to the type of container
+    """
     def __init__(self, conf, logger=None):
         self.config = MpuAuditorConfig(conf)
         self.logger = logger or get_logger({}, 'mpu-auditor')
@@ -416,37 +423,40 @@ class MpuAuditor:
             global_conf={'log_name': '%s-ic' % conf.get(
                 'log_name', 'container-auditor')})
 
-    def _audit(self, mpu_auditor_class, broker, user_container):
-        mpu_auditor = mpu_auditor_class(
-            self.config, self.client, self.logger, broker, user_container)
+    def _dispatch(self, auditor_class, broker, user_account, user_container):
+        mpu_auditor = auditor_class(
+            self.config, self.client, self.logger, broker,
+            user_account, user_container)
         return mpu_auditor.audit()
 
     def audit(self, broker):
-        mpu_auditor_class = None
-        if parse_mpu_hidden_account_name(broker.account) != broker.account:
+        auditor_class = None
+        if is_mpu_hidden_account_name(broker.account):
+            user_account = extract_user_account_name(broker.account)
             user_container, audit_type = parse_hidden_container_name(
                 broker.container)
             if audit_type == 'mpu_parts':
-                mpu_auditor_class = MpuPartMarkerAuditor
+                auditor_class = MpuPartMarkerAuditor
             elif audit_type == 'mpu_sessions':
-                mpu_auditor_class = MpuSessionAuditor
+                auditor_class = MpuSessionAuditor
         elif broker.container.endswith('+segments'):
             # TODO: I think this is redundant; maybe at one point the auditor
-            # was going to handle segments too???
-            mpu_auditor_class = MpuPartMarkerAuditor
+            #  was going to handle segments too???
+            user_account = broker.account
             user_container = broker.container[:-1 * len('+segments')]
+            auditor_class = MpuPartMarkerAuditor
         else:
+            user_account = broker.account
             try:
                 prefix, user_container = split_reserved_name(broker.container)
                 if prefix == 'versions':
-                    mpu_auditor_class = MpuOverwriteAuditor
+                    auditor_class = MpuOverwriteAuditor
             except ValueError:
-                mpu_auditor_class = MpuOverwriteAuditor
                 user_container = broker.container
+                auditor_class = MpuOverwriteAuditor
 
-        if mpu_auditor_class:
-            self._audit(mpu_auditor_class, broker, user_container)
+        if auditor_class:
+            self._dispatch(auditor_class, broker, user_account, user_container)
         else:
-            self.logger.debug(
-                'unknown audit type for container %s, skipping',
-                broker.path)
+            self.logger.debug('unknown audit type for container %s, skipping',
+                              broker.path)
