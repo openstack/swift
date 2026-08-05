@@ -162,9 +162,9 @@ class BaseTestMpuAuditor(unittest.TestCase):
         # commit the deletes
         self.broker.get_info()
 
-    def _create_item(self, name, ts_data, ts_ctype=None, ts_meta=None,
-                     ctype='text/plain', size=0, etag='', systags=None,
-                     state=0):
+    def _create_db_item(self, name, ts_data, ts_ctype=None, ts_meta=None,
+                        ctype='text/plain', size=0, etag='', systags=None,
+                        state=0):
         created_at = encode_timestamps(ts_data, ts_ctype, ts_meta)
         item = {
             'name': str(name),
@@ -179,15 +179,6 @@ class BaseTestMpuAuditor(unittest.TestCase):
             'systags': param_str_from_dict(systags),
         }
         return item
-
-    def _create_marker_spec(self, vers_name, ts_data=None):
-        ts_data = ts_data or next(self.ts_iter)
-        marker_name = '%s/%s' % (vers_name, MPU_DELETED_MARKER_SUFFIX)
-        return self._create_item(marker_name,
-                                 ts_data,
-                                 ctype=MPU_MARKER_CONTENT_TYPE,
-                                 etag=MD5_OF_EMPTY_STRING,
-                                 state=2)
 
     def _check_broker_rows(self, expected_items, include_states=None,
                            table='object'):
@@ -219,7 +210,7 @@ class TestModuleFunctions(BaseTestMpuAuditor):
         upload_refs = [
             self._create_upload_ref(next(self.name_iter), ts)
             for ts in timestamps]
-        items = [self._create_item(str(vers_name), ts, state=state)
+        items = [self._create_db_item(str(vers_name), ts, state=state)
                  for vers_name, ts in zip(upload_refs, timestamps)]
         with self.broker.get() as conn:
             self.broker._really_merge_items(table, conn, items)
@@ -403,7 +394,7 @@ class TestBaseMpuBrokerAuditor(BaseTestMpuAuditor):
     # being audited
     def test_audit_stats(self):
         timestamps = [next(self.ts_iter) for _ in range(3)]
-        items = [self._create_item(next(self.name_iter), ts, state=0)
+        items = [self._create_db_item(next(self.name_iter), ts, state=0)
                  for ts in timestamps]
         self.broker.merge_actions(items)
         fake_ic = InternalClient(None, 'test-ic', 1, app=FakeSwift())
@@ -437,27 +428,16 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         self.versions_container = get_reserved_name(
             'versions', self.user_container)
 
-    def _create_history_item(self, name, timestamp, systags=None, state=0):
-        return self._create_item(
-            name,
-            timestamp,
-            ctype='application/x-phony',
-            size=0,
-            etag=MD5_OF_EMPTY_STRING,
-            state=state,
-            systags=systags
-        )
-
     def test_audit_null_versions(self):
         timestamps = [next(self.ts_iter) for _ in range(5)]
         random.shuffle(timestamps)
-        non_mpu_history_items = [
-            self._create_history_item(self.user_obj_name, ts)
+        non_mpu_items = [
+            self._create_db_item(self.user_obj_name, ts)
             for ts in timestamps[:2]
         ]
         older_upload_ids = [UploadId(ts) for ts in timestamps[2:]]
-        mpu_history_items = [
-            self._create_history_item(
+        mpu_items = [
+            self._create_db_item(
                 self.user_obj_name,
                 upload_id.timestamp,
                 systags={
@@ -471,8 +451,8 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         ]
         # the most recent variant is always an mpu
         latest_upload_id = UploadId(next(self.ts_iter))
-        mpu_history_items += [
-            self._create_history_item(
+        mpu_items += [
+            self._create_db_item(
                 self.user_obj_name,
                 latest_upload_id.timestamp,
                 systags={
@@ -486,11 +466,11 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         ]
 
         # as these are merged they'll generate relics for all but latest mpu
-        self.put_objects(non_mpu_history_items + mpu_history_items,
+        self.put_objects(non_mpu_items + mpu_items,
                          shuffle_order=True)
-        self._check_broker_rows(mpu_history_items[-1:], include_states={0})
+        self._check_broker_rows(mpu_items[-1:], include_states={0})
         exp_relic_items = [
-            self._create_history_item(
+            self._create_db_item(
                 '%s\x00%s' % (self.user_obj_name, upload_id),
                 upload_id.timestamp,
                 systags={
@@ -527,7 +507,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
 
         expected_calls = list(sorted([call[:2] for call in registered_calls]))
         self.assertEqual(expected_calls, list(sorted(fake_swift.calls)))
-        self._check_broker_rows(mpu_history_items[-1:])
+        self._check_broker_rows(mpu_items[-1:])
         self._check_broker_rows([], include_states={1})
         self._check_broker_rows(exp_relic_items, include_states={2})
         self._check_action_rows(exp_action_items, include_states={1})
@@ -540,7 +520,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
                 auditor.audit(self.broker)
 
         self.assertFalse(fake_swift.calls)
-        self._check_broker_rows(mpu_history_items[-1:])
+        self._check_broker_rows(mpu_items[-1:])
         self._check_broker_rows([], include_states={1})
         self._check_broker_rows(exp_relic_items, include_states={2})
         self._check_action_rows(exp_action_items, include_states={1})
@@ -552,8 +532,8 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         ts_vers = next(self.ts_iter)
         upload_id = UploadId(ts_vers)
         vers_name = '\x00%s\x00%s' % (self.user_obj_name, (~(ts_vers)).normal)
-        mpu_history_items = [
-            self._create_history_item(
+        mpu_items = [
+            self._create_db_item(
                 vers_name,
                 ts_vers,
                 systags={
@@ -562,16 +542,16 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
                     'child_container': quote(self.parts_container),
                 }
             ),
-            self._create_history_item(
+            self._create_db_item(
                 vers_name,
                 next(self.ts_iter),
                 state=1
             ),
         ]
         # as these are merged they'll generate a relic and action
-        self.put_objects(mpu_history_items, shuffle_order=True)
+        self.put_objects(mpu_items, shuffle_order=True)
         exp_relic_items = [
-            self._create_history_item(
+            self._create_db_item(
                 '%s\x00%s' % (vers_name, upload_id),
                 ts_vers,
                 systags={
@@ -585,7 +565,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
             dict(exp_relic_item) for exp_relic_item in exp_relic_items
         ]
         self._check_broker_rows([], include_states={0})
-        self._check_broker_rows(mpu_history_items[1:], include_states={1})
+        self._check_broker_rows(mpu_items[1:], include_states={1})
         self._check_broker_rows(exp_relic_items, include_states={2})
         self._check_action_rows(exp_action_items, include_states={0})
 
@@ -603,7 +583,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
         expected_calls = list(sorted([call[:2] for call in registered_calls]))
         self.assertEqual(expected_calls, list(sorted(fake_swift.calls)))
         self._check_broker_rows([], include_states={0})
-        self._check_broker_rows(mpu_history_items[1:], include_states={1})
+        self._check_broker_rows(mpu_items[1:], include_states={1})
         self._check_broker_rows(exp_relic_items, include_states={2})
         self._check_action_rows(exp_action_items, include_states={1})
 
@@ -616,7 +596,7 @@ class TestMpuOverwriteAuditor(BaseTestMpuAuditor):
 
         self.assertFalse(fake_swift.calls)
         self._check_broker_rows([], include_states={0})
-        self._check_broker_rows(mpu_history_items[1:], include_states={1})
+        self._check_broker_rows(mpu_items[1:], include_states={1})
         self._check_broker_rows(exp_relic_items, include_states={2})
         self._check_action_rows(exp_action_items, include_states={1})
 
@@ -634,12 +614,12 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         part_name = '%s%s' % (part_prefix, normalize_part_number(part_number))
         relic_name = '%s\x00%s' % (part_prefix, upload_id)
         systags['parent'] = quote(relic_name)
-        return self._create_item(part_name,
-                                 ts_data,
-                                 ctype='application/octet-stream',
-                                 size=123456,
-                                 systags=systags,
-                                 state=state)
+        return self._create_db_item(part_name,
+                                    ts_data,
+                                    ctype='application/octet-stream',
+                                    size=123456,
+                                    systags=systags,
+                                    state=state)
 
     def _create_lifeline_spec(self, obj_name, upload_id, ts_data=None,
                               systags=None, state=0):
@@ -650,12 +630,12 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
             'relic_id': quote(str(upload_id)),
             'child_prefix': quote(part_prefix),
         })
-        return self._create_item(part_prefix,
-                                 ts_data,
-                                 ctype='application/octet-stream',
-                                 size=123456,
-                                 systags=systags,
-                                 state=state)
+        return self._create_db_item(part_prefix,
+                                    ts_data,
+                                    ctype='application/octet-stream',
+                                    size=123456,
+                                    systags=systags,
+                                    state=state)
 
     def test_audit_lifeline_deleted_after_parts_merged(self):
         # verify that deletion of the lifeline will result in existing
@@ -900,7 +880,7 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
     def _create_session_spec(
             self, vers_name, ctype, ts_data=None, ts_ctype=None, ts_meta=None):
         ts_data = ts_data or self.ts_data
-        return self._create_item(
+        return self._create_db_item(
             vers_name, ts_data=ts_data, ts_ctype=ts_ctype,
             ts_meta=ts_meta, ctype=ctype)
 
@@ -1294,7 +1274,12 @@ class TestMpuAuditorSLO(BaseTestMpuAuditor):
     def test(self):
         upload_1, parts_1 = self._create_upload_parts(3)
         upload_2, parts_2 = self._create_upload_parts(2)
-        marker = self._create_marker_spec(upload_1)
+        marker_name = '%s/%s' % (upload_1, MPU_DELETED_MARKER_SUFFIX)
+        marker = self._create_db_item(marker_name,
+                                      next(self.ts_iter),
+                                      ctype=MPU_MARKER_CONTENT_TYPE,
+                                      etag=MD5_OF_EMPTY_STRING,
+                                      state=2)
         # NB: not all parts are inserted into DB yet
         items = parts_1[:2] + parts_2 + [marker]
         self.put_objects(items)
