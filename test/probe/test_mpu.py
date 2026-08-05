@@ -494,6 +494,9 @@ class BaseTestNativeMPU(BaseTestMPU):
 
 
 class TestNativeMPU(BaseTestNativeMPU):
+    # TODO: add test scenarios:
+    #  * mpu complete races and beats mpu_abort: verify that the abort finds
+    #    the completed manifest and no-ops.
     def test_native_mpu(self):
         swiftclient.put_object(
             self.url, self.token, self.bucket_name, self.mpu_name,

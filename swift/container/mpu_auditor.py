@@ -322,7 +322,7 @@ class MpuSessionAuditor(BaseMpuAuditor):
             False if the user object is not a manifest for the given upload.
         """
         metadata = self.client.get_object_metadata(
-            self.broker.account, self.user_container, obj_ref.user_name,
+            self.user_account, self.user_container, obj_ref.user_name,
             headers={'X-Newest': 'true'},
             acceptable_statuses=(2, 404))
         return metadata.get(MPU_SYSMETA_UPLOAD_ID_KEY) == obj_ref.obj_id
@@ -372,7 +372,7 @@ class MpuSessionAuditor(BaseMpuAuditor):
                 self.debug('deleting aborted session %s, lifeline=%s',
                            session.name, lifeline_name)
                 self.client.delete_object(
-                    self.broker.account, self.parts_container, lifeline_name)
+                    self.hidden_account, self.parts_container, lifeline_name)
                 self._delete_session(session)
             except Exception as err:  # noqa
                 self.warning('Failed to delete aborted session %s: %s',

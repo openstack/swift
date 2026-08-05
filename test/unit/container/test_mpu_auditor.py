@@ -61,7 +61,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
         self.logger = debug_logger('mpu-auditor-test')
         self.fake_statsd_client = self.logger.logger.statsd_client
         self.user_obj_name = 'obj'
-        self.user_obj_path = '/v1/%s/%s/%s' % (self.audit_account,
+        self.user_obj_path = '/v1/%s/%s/%s' % (self.user_account,
                                                self.user_container,
                                                self.user_obj_name)
         self.upload_id = UploadId(next(self.ts_iter))
