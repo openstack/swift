@@ -46,7 +46,7 @@ class TestModuleFunctions(unittest.TestCase):
     def test_make_mpu_hidden_account_name(self):
         self.assertEqual('.mpu_test', make_mpu_hidden_account_name('test'))
 
-    def test_extract_mpu_hidden_account_name(self):
+    def test_extract_user_account_name(self):
         self.assertEqual('test', extract_user_account_name('.mpu_test'))
         with self.assertRaises(ValueError):
             self.assertEqual('test', extract_user_account_name('test'))
