@@ -2419,6 +2419,31 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
         self.assertIn(('X-Object-Version-Id', '0000000060.00000'),
                       headers)
 
+    def test_OPTIONS_with_version_id(self):
+        # the path is not re-written to the versions container
+        self.app.register('OPTIONS', '/v1/a/c/o', swob.HTTPOk, {
+            'Allow': 'HEAD, GET, PUT, POST, DELETE, OPTIONS'}, None)
+        req = Request.blank(
+            '/v1/a/c/o', method='OPTIONS',
+            environ={'swift.cache': self.cache_version_on},
+            params={'version-id': '0000000060.00000'})
+        status, headers, body = self.call_ov(req)
+
+        self.assertEqual(status, '200 OK')
+        self.assertEqual(
+            [('OPTIONS', '/v1/a/c/o?version-id=0000000060.00000')],
+            self.app.calls)
+
+    def test_OPTIONS_with_invalid_version_id(self):
+        # the version-id is still validated
+        req = Request.blank(
+            '/v1/a/c/o', method='OPTIONS',
+            environ={'swift.cache': self.cache_version_on},
+            params={'version-id': 'not-a-version'})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '400 Bad Request')
+        self.assertEqual([], self.app.calls)
+
     def test_DELETE_not_current_version(self):
         # This tests when version-id does not point to the
         # current version, in this case, there's no need to
