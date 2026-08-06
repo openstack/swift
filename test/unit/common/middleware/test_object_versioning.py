@@ -532,6 +532,22 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
             ('Content-Location', '/v1/a/c/o?version-id=0000001234.00000'),
             headers)
 
+    def test_OPTIONS(self):
+        # unlike GET and HEAD, the version-id is always null: symlink
+        # middleware does not follow the is_latest link for OPTIONS, so
+        # there is no Content-Location to get a version from
+        self.app.register(
+            'OPTIONS', '/v1/a/c/o', swob.HTTPOk, {
+                'Allow': 'HEAD, GET, PUT, POST, DELETE, OPTIONS'}, None)
+        req = Request.blank(
+            '/v1/a/c/o', method='OPTIONS',
+            environ={'swift.cache': self.cache_version_on})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '200 OK')
+        self.assertEqual([('OPTIONS', '/v1/a/c/o')], self.app.calls)
+        self.assertIn(('X-Object-Version-Id', 'null'), headers)
+        self.assertNotIn('Content-Location', dict(headers))
+
     def test_get_symlink(self):
         self.app.register(
             'GET', '/v1/a/c/o?symlink=get', swob.HTTPOk, {
