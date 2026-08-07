@@ -159,6 +159,12 @@ def start_response(*args):
 
 class BaseTestProxyLogging(unittest.TestCase):
 
+    def find_syslog_handler(self, logger):
+        syslog_handlers = [handler for handler in logger.handlers
+                           if isinstance(handler, SysLogHandler)]
+        self.assertEqual(1, len(syslog_handlers))
+        return syslog_handlers[0]
+
     def assertLabeledUpdateStats(self, exp_metrics_values_labels, statsd=None):
         statsd = statsd or self.statsd
         statsd_calls = statsd.calls['update_stats']
@@ -539,10 +545,11 @@ class TestProxyLogging(BaseTestProxyLogging):
         self.assertEqual('proxy-access', log_adapter.name)
         self.assertEqual('bob', app.access_logger.server)
         self.assertEqual(logging.DEBUG, log_adapter.logger.level)
+        syslog_handler = self.find_syslog_handler(log_adapter.logger)
         self.assertEqual(('example.com', 3456),
-                         log_adapter.logger.handlers[0].address)
+                         syslog_handler.address)
         self.assertEqual(SysLogHandler.LOG_LOCAL7,
-                         log_adapter.logger.handlers[0].facility)
+                         syslog_handler.facility)
 
         statsd_client = app.access_logger.logger.statsd_client
         self.assertIsInstance(statsd_client, FakeStatsdClient)
@@ -592,10 +599,11 @@ class TestProxyLogging(BaseTestProxyLogging):
         self.assertEqual('my-proxy-access', log_adapter.name)
         self.assertEqual('alice', app.access_logger.server)
         self.assertEqual(logging.WARNING, log_adapter.logger.level)
+        syslog_handler = self.find_syslog_handler(log_adapter.logger)
         self.assertEqual(('access.com', 6789),
-                         log_adapter.logger.handlers[0].address)
+                         syslog_handler.address)
         self.assertEqual(SysLogHandler.LOG_LOCAL6,
-                         log_adapter.logger.handlers[0].facility)
+                         syslog_handler.facility)
 
         statsd_client = app.access_logger.logger.statsd_client
         self.assertIsInstance(statsd_client, FakeStatsdClient)
