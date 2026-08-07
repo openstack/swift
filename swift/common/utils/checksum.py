@@ -106,7 +106,8 @@ except OSError as e:
     if e.errno == errno.ENOENT:
         # could create socket, but crc32c is unknown
         _sock.close()
-    elif e.errno != errno.EAFNOSUPPORT:
+    elif e.errno not in (errno.EAFNOSUPPORT, errno.EPERM, errno.EACCES):
+        # EPERM/EACCES: sandboxes such as Docker >= 29 deny AF_ALG
         raise
     crc32c_kern = None
 else:
