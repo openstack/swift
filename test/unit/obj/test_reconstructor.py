@@ -1670,6 +1670,34 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
         self.assertEqual([], request_log.requests)
         self.assertFalse(os.access(part_path, os.F_OK))
 
+    def test_stale_hashes_do_not_delete_populated_partition(self):
+        # part 2 is predefined to have all revert jobs
+        part_path = os.path.join(self.objects_1, '2')
+        os.unlink(os.path.join(part_path, 'hashes.invalid'))
+        with open(os.path.join(part_path, 'hashes.pkl'), 'wb') as f:
+            pickle.dump({'valid': True, 'updated': time.time()}, f)
+
+        self.assertFalse(self.reconstructor._get_hashes(
+            'sda1', 2, self.policy, do_listdir=False))
+
+        ssync_calls = []
+        with mock.patch('swift.obj.reconstructor.ssync_sender',
+                        self._make_fake_ssync(ssync_calls)):
+            self.reconstructor.reconstruct(override_partitions=[2])
+
+        expected_ssync_calls = sorted([
+            (u'10.0.0.0', REVERT, 2, [u'3c1'], True),
+            (u'10.0.0.2', REVERT, 2, [u'061'], True),
+        ])
+        self.assertEqual(expected_ssync_calls, sorted((
+            c['node']['ip'],
+            c['job']['job_type'],
+            c['job']['partition'],
+            c['suffixes'],
+            c.get('include_non_durable')
+        ) for c in ssync_calls))
+        self.assertTrue(os.access(part_path, os.F_OK))
+
     def test_process_job_all_success(self):
         rehash_per_job_type = {SYNC: 1, REVERT: 0}
         self.reconstructor._reset_stats()
