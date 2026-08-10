@@ -507,7 +507,7 @@ class ObjectContext(ObjectVersioningContext):
         if get_resp.status_int == HTTP_NOT_FOUND:
             # nothing to version, proceed with original request
             drain_and_close(get_resp)
-            return get_resp
+            return
 
         # check for any other errors
         self._check_response_error(req, get_resp)
@@ -515,7 +515,7 @@ class ObjectContext(ObjectVersioningContext):
         if get_resp.headers.get(SYSMETA_VERSIONS_SYMLINK) == 'true':
             # existing object is a VW symlink; no action required
             drain_and_close(get_resp)
-            return get_resp
+            return
 
         # if there's an existing object, then copy it to the versions container
         ts_source = get_resp.headers.get(
