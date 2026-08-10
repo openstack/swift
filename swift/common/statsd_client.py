@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """ Statsd Client """
-
 import time
 import warnings
 import re
@@ -652,3 +651,38 @@ class LabeledStatsdClient(AbstractStatsdClient):
         return super().transfer_rate(metric, elapsed_time, byte_xfer,
                                      labels=labels,
                                      sample_rate=sample_rate)
+
+
+class LabelsMap(dict):
+    """
+    Implements a custom map whose ``setdefault()`` method allows None values to
+    be replaced. This enables a label key to be set with a default unknown
+    value (i.e. None), ensuring that the label key will be included in a
+    statsd metric, but also allowing the value to be subsequently updated with
+    a known value.
+
+    The normal setdefault behaviour is preserved after a known (non-None) value
+    has been set.
+
+    The normal set behavior is preserved; a None value can replace a non-None
+    value.
+
+    The ``__contains__`` behavior of the map is not changed; ``key in map``
+    will be ``True`` for a map that has a key with value ``None``.
+    """
+    __slots__ = ()
+
+    def setdefault(self, key, value=None):
+        """
+        If the key does not already exist, or exists with value ``None`` and
+        ``value`` is not ``None``, then the key is updated to the given value.
+        Otherwise, the map is unchanged.
+
+        :return: the resulting value for ``key`` in the map. This may be either
+            the given value, or an existing value if the map is unchanged.
+        """
+        result = super().setdefault(key, value)
+        if result is None and value is not None:
+            self[key] = value
+            return value
+        return result
