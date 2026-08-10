@@ -12,6 +12,9 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import errno
+import importlib
+import os
 import sys
 import unittest
 from unittest import mock
@@ -70,6 +73,17 @@ class TestModuleFunctions(unittest.TestCase):
             with mock.patch('importlib.metadata.files',
                             side_effect=PackageNotFoundError):
                 self.assertIsNone(checksum.find_isal())
+
+    def test_kern_probe_survives_denied_af_alg(self):
+        # Docker >= 29 denies AF_ALG via seccomp and AppArmor
+        for err in (errno.EPERM, errno.EACCES):
+            try:
+                with mock.patch('socket.socket', side_effect=OSError(
+                        err, os.strerror(err))):
+                    importlib.reload(checksum)
+                self.assertIsNone(checksum.crc32c_kern)
+            finally:
+                importlib.reload(checksum)
 
 
 # If you're curious about the 0xe3069283, see "check" at
