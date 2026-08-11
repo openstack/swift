@@ -894,7 +894,8 @@ class ObjectContext(ObjectVersioningContext):
         :param version_id: version of the object to act on
         :returns: a callable that implements the wsgi application interface.
         """
-        # ?version-id requests are allowed for GET, HEAD, PUT, DELETE reqs
+        # ?version-id requests are allowed for GET, HEAD, PUT, DELETE and
+        # OPTIONS reqs
         if req.method == 'POST':
             raise HTTPBadRequest(
                 '%s to a specific version is not allowed' % req.method,
@@ -904,6 +905,11 @@ class ObjectContext(ObjectVersioningContext):
                 'version-aware operations require that the container is '
                 'versioned', request=req)
         validate_version(req, version_id, allow_null=True)
+
+        if req.method == 'OPTIONS':
+            # the proxy answers OPTIONS from the container in the request
+            # path, so don't rewrite it to the versions container
+            return self.app
 
         if req.method == 'DELETE':
             return self.handle_delete_with_version_id(req, version_id)
