@@ -146,6 +146,9 @@ backend container server needs to be given this list of hosts in the
     # interval = 300
     # Maximum amount of time to spend syncing each container
     # container_time = 60
+    # Number of parallel container_sync_row operations per container
+    # for new rows
+    # sync_row_concurrency = 8
 
 
 ----------------------
