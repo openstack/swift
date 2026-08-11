@@ -28,7 +28,7 @@ import string
 
 from swift.common.utils import split_path, json, md5, streq_const_time, \
     close_if_possible, InputProxy, get_policy_index, list_from_csv, \
-    strict_b64decode, base64_str, checksum
+    base64_str
 from swift.common.registry import get_swift_info
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
@@ -44,6 +44,9 @@ from swift.proxy.controllers.base import get_container_info
 from swift.common.request_helpers import check_path_header, \
     update_etag_is_at_value
 
+from swift.common.middleware.s3api.s3checksum import CHECKSUMS_BY_HEADER, \
+    ChecksummingInput, get_checksum_hasher, \
+    validate_checksum_value as _validate_checksum_value
 from swift.common.middleware.s3api.controllers import ServiceController, \
     ObjectController, AclController, MultiObjectDeleteController, \
     LocationController, LoggingStatusController, PartController, \
@@ -125,27 +128,13 @@ ALLOWED_COPY_SOURCE_HEADERS = frozenset((
 ))
 
 
-CHECKSUMS_BY_HEADER = {
-    'x-amz-checksum-crc32': checksum.crc32,
-    'x-amz-checksum-crc32c': checksum.crc32c,
-    'x-amz-checksum-crc64nvme': checksum.crc64nvme,
-    'x-amz-checksum-sha1': sha1,
-    'x-amz-checksum-sha256': sha256,
-}
-
-
 def _get_checksum_hasher(header):
+    """Return an S3 checksum hasher or raise an S3 response error."""
+    # This is to avoid cyclical imports between checksum and s3response.
     try:
-        return CHECKSUMS_BY_HEADER[header]()
-    except (KeyError, NotImplementedError):
-        raise S3NotImplemented('The %s algorithm is not supported.' % header)
-
-
-def _validate_checksum_value(checksum_hasher, b64digest):
-    return strict_b64decode(
-        b64digest,
-        exact_size=checksum_hasher.digest_size,
-    )
+        return get_checksum_hasher(header)
+    except NotImplementedError as err:
+        raise S3NotImplemented(str(err))
 
 
 def _validate_checksum_header_cardinality(num_checksum_headers,
@@ -248,64 +237,6 @@ class HashingInput(InputProxy):
                 self._expected_hash,
                 self._hasher.hexdigest())
 
-        return chunk
-
-
-class ChecksummingInput(InputProxy):
-    """
-    wsgi.input wrapper to calculate the X-Amz-Checksum-* of the input as it's
-    read. The calculated value is checked against an expected value that is
-    sent in either the request headers or trailers. To allow for the latter,
-    the expected value is lazy fetched once the input has been read.
-
-    :param wsgi_input: file-like object to be wrapped.
-    :param content_length: the expected number of bytes to be read.
-    :param checksum_hasher: a hasher to calculate the checksum of read bytes.
-    :param checksum_key: the name of the header or trailer that will have
-        the expected checksum value to be checked.
-    :param checksum_source: a dict that will have the ``checksum_key``.
-    """
-
-    def __init__(self, wsgi_input, content_length, checksum_hasher,
-                 checksum_key, checksum_source):
-        super().__init__(wsgi_input)
-        self._expected_length = content_length
-        self._checksum_hasher = checksum_hasher
-        self._checksum_key = checksum_key
-        self._checksum_source = checksum_source
-
-    def chunk_update(self, chunk, eof, *args, **kwargs):
-        # Note that "chunk" is just whatever was read from the input; this
-        # says nothing about whether the underlying stream uses aws-chunked
-        self._checksum_hasher.update(chunk)
-        if self.bytes_received < self._expected_length:
-            # wrapped input is likely to have timed out before this clause is
-            # reached with eof==True, but just in case...
-            error = eof
-        elif self.bytes_received == self._expected_length:
-            # Lazy fetch checksum value because it may have come in trailers
-            b64digest = self._checksum_source.get(self._checksum_key)
-            try:
-                expected_raw_checksum = _validate_checksum_value(
-                    self._checksum_hasher, b64digest)
-            except ValueError:
-                # If the checksum value came in a header then it would have
-                # been validated before the body was read, so if the validation
-                # fails here then we can infer that the checksum value came in
-                # a trailer. The S3InputChecksumTrailerInvalid raised here will
-                # propagate all the way back up the middleware stack to s3api
-                # where it is caught and translated to an InvalidRequest.
-                raise S3InputChecksumTrailerInvalid(self._checksum_key)
-            error = self._checksum_hasher.digest() != expected_raw_checksum
-        else:
-            # the underlying wsgi.Input stops reading at content-length so we
-            # don't expect to reach this clause, but just in case...
-            error = True
-
-        if error:
-            self.close()
-            # Since we don't return the last chunk, the PUT never completes
-            raise S3InputChecksumMismatch(self._checksum_hasher.name.upper())
         return chunk
 
 

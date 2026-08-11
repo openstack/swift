@@ -33,7 +33,7 @@ from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
 from swift.common.middleware.s3api.s3request import S3Request, \
     S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT, HashingInput, \
     ChunkReader, StreamingInput, S3InputSHA256Mismatch, \
-    S3InputChunkSignatureMismatch, _get_checksum_hasher
+    S3InputChunkSignatureMismatch
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, ServiceUnavailable, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, \
@@ -2252,7 +2252,7 @@ class TestRequest(S3ApiTestCase):
             body=body,
             extra_headers={'x-amz-checksum-crc32c': crc}
         )
-        with patch('swift.common.middleware.s3api.s3request.checksum.'
+        with patch('swift.common.middleware.s3api.s3checksum.checksum.'
                    '_select_crc32c_impl', side_effect=NotImplementedError):
             with self.assertRaises(S3NotImplemented):
                 SigV4Request(req.environ)
@@ -3169,45 +3169,6 @@ class TestStreamingInput(S3ApiTestCase):
         # note: underscore not hyphen...
         do_test('chunk_signature=ok', s3request.S3InputChunkSignatureMismatch)
         do_test('skunk-cignature=ok', s3request.S3InputChunkSignatureMismatch)
-
-
-class TestModuleFunctions(unittest.TestCase):
-    def test_get_checksum_hasher(self):
-        def do_test(crc):
-            hasher = _get_checksum_hasher('x-amz-checksum-%s' % crc)
-            self.assertEqual(crc, hasher.name)
-
-        do_test('crc32')
-        do_test('sha1')
-        do_test('sha256')
-
-        try:
-            checksum._select_crc32c_impl()
-        except NotImplementedError:
-            # This *should* always have a kernel implementation available as
-            # a fallback, but debian packaging (at least) has bumped into
-            # issues with even *that* not being available before
-            pass
-        else:
-            do_test('crc32c')
-
-        try:
-            checksum._select_crc64nvme_impl()
-        except NotImplementedError:
-            pass
-        else:
-            do_test('crc64nvme')
-
-    def test_get_checksum_hasher_invalid(self):
-        def do_test(crc):
-            with self.assertRaises(s3response.S3NotImplemented):
-                _get_checksum_hasher('x-amz-checksum-%s' % crc)
-
-        with mock.patch.object(checksum, '_select_crc64nvme_impl',
-                               side_effect=NotImplementedError):
-            do_test('crc64nvme')
-        do_test('nonsense')
-        do_test('')
 
 
 if __name__ == '__main__':

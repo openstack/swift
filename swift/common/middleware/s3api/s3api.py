@@ -154,6 +154,7 @@ from swift.common.wsgi import PipelineWrapper, loadcontext, WSGIContext
 from swift.common.statsd_client import get_labeled_statsd_client
 
 from swift.common.middleware import app_property
+from swift.common.middleware.s3api.s3checksum import CHECKSUMS_BY_HEADER
 from swift.common.middleware.s3api.exception import NotS3Request, \
     InvalidSubresource
 from swift.common.middleware.s3api import s3request
@@ -372,10 +373,10 @@ class S3ApiMiddleware(object):
                     label_val = classify_checksum_header_value(hdr_val)
             elif hdr_key == 'content-md5':
                 label_val = classify_checksum_header_value(hdr_val)
-            elif hdr_key in s3request.CHECKSUMS_BY_HEADER.keys():
+            elif hdr_key in CHECKSUMS_BY_HEADER.keys():
                 label_val = classify_checksum_header_value(hdr_val)
             elif hdr_key == 'x-amz-trailer':
-                if hdr_val.lower() in s3request.CHECKSUMS_BY_HEADER.keys():
+                if hdr_val.lower() in CHECKSUMS_BY_HEADER.keys():
                     label_val = hdr_val.lower()
                 else:
                     label_val = 'unknown'
