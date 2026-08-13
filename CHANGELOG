@@ -1,3 +1,27 @@
+swift (2.35.4, epoxy stable backports)
+
+    * Fixed `Accept` header parsing to avoid excessive backtracking. Previously,
+      an unauthenticated user could send a malicious `Accept` header that would
+      keep a proxy-server process pegged at 100% CPU for several seconds.
+      Repeated requests would exhaust all available workers, leading to a
+      complete denial of service. Refer to CVE-2026-71190 for more information.
+
+    * Require that more `x-amz-*` headers be included in the set of signed
+      headers if present in an S3 API request. Previously an attacker could include
+      an unsigned `x-amz-copy-source` header with a valid presigned PUT to
+      copy arbitrary data accessible by the signer provided that the container
+      and object name were known. This required the default `s3_acl = False`
+      configuration. Refer to CVE-2026-71191 for more information.
+
+    * Limit native Swift control headers from S3 API requests. Previously these
+      could allow an attacker to copy arbitrary data to a bucket they control
+      provided they know the account, container, and object name to copy. This
+      required the non-default `s3_acl = True` configuration. Refer to
+      CVE-2026-71192 for more information.
+
+    * Prevent a crash when `AF_ALG` socket creation is denied by policy (such
+      as may be the case with recent versions of Docker).
+
 swift (2.35.3, epoxy stable backports)
 
     * Block client-supplied container-update headers. Previously, these could
