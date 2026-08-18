@@ -23,6 +23,7 @@ import uuid
 
 from swift.common import utils
 from swift.common.constraints import check_utf8
+from swift.common.request_helpers import get_sys_meta_prefix
 from swift.common.swob import wsgi_to_str
 from swift.common.middleware.s3api.exception import \
     InvalidBucketNameParseError, InvalidURIParseError
@@ -42,9 +43,18 @@ def sysmeta_prefix(resource):
 
 def sysmeta_header(resource, name):
     """
-    Returns the system metadata header for given resource type and name.
+    Returns the ``s3api`` namespace system metadata header for given resource
+    type and name.
     """
     return sysmeta_prefix(resource) + name
+
+
+def swift3_object_sysmeta_header(name):
+    """
+    Returns the legacy ``swift3`` namespace object system metadata header for
+    the given name.
+    """
+    return get_sys_meta_prefix('object') + 'swift3-' + name
 
 
 def camel_to_snake(camel):

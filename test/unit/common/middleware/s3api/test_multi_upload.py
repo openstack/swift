@@ -882,7 +882,7 @@ class BaseS3ApiMultiUpload(object):
             timestamp=timestamp)
         self.assertEqual(status.split()[0], '200')
         self.assertEqual(headers['Content-Type'], 'application/xml')
-        self.assertTrue(headers.get('etag') is None)
+        self.assertIsNone(headers.get('etag'))
         self.assertNotIn('X-Timestamp', headers)
         elem = fromstring(body, 'CopyPartResult')
         exp_last_modified = parse_date_header(self.last_modified)
@@ -890,7 +890,15 @@ class BaseS3ApiMultiUpload(object):
                          S3Timestamp(exp_last_modified).s3xmlformat)
         self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
+        method, path, headers = self.swift.calls_with_headers[-2]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/src_bucket/src_obj', path)
+        self.assertEqual('x-object-sysmeta-s3api-etag,'
+                         'x-object-sysmeta-swift3-etag',
+                         headers.get('x-backend-etag-is-at'))
+
         _, _, headers = self.swift.calls_with_headers[-1]
+        self.assertNotIn('x-backend-etag-is-at', headers)
         self.assertEqual(headers['X-Copy-From'], '/src_bucket/src_obj')
         self.assertEqual(headers['Content-Length'], '0')
         # Some headers *need* to get cleared in case we're copying from
@@ -903,6 +911,74 @@ class BaseS3ApiMultiUpload(object):
             'X-Object-Sysmeta-Swift3-Etag',
         ):
             self.assertEqual(headers[header], '')
+
+    def test_upload_part_copy_if_match_s3api_etag(self):
+        s3api_etag = '%s-2' % self.etag
+        status, headers, body = self._test_copy_for_s3acl(
+            'test:tester',
+            src_headers={
+                'Etag': self.etag,
+                'X-Object-Sysmeta-S3Api-Etag': s3api_etag,
+            },
+            put_header={'X-Amz-Copy-Source-If-Match': s3api_etag})
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[-2]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/src_bucket/src_obj', path)
+        self.assertEqual(s3api_etag, swift_headers['If-Match'])
+        self.assertEqual('x-object-sysmeta-s3api-etag,'
+                         'x-object-sysmeta-swift3-etag',
+                         swift_headers.get('x-backend-etag-is-at'))
+
+    def test_upload_part_copy_s3api_etag_mismatch(self):
+        s3api_etag = '%s-2' % self.etag
+        status, headers, body = self._test_copy_for_s3acl(
+            'test:tester',
+            src_headers={
+                'Etag': self.etag,
+                'X-Object-Sysmeta-S3Api-Etag': s3api_etag,
+            },
+            put_header={
+                'X-Amz-Copy-Source-If-Match': 'not-' + s3api_etag,
+            })
+
+        self.assertEqual('412', status.split()[0])
+        self.assertEqual('PreconditionFailed', self._get_error_code(body))
+
+    def test_upload_part_copy_if_match_legacy_swift3_etag(self):
+        legacy_etag = '%s-2' % self.etag
+        status, headers, body = self._test_copy_for_s3acl(
+            'test:tester',
+            src_headers={
+                'Etag': self.etag,
+                'X-Object-Sysmeta-Swift3-Etag': legacy_etag,
+            },
+            put_header={'X-Amz-Copy-Source-If-Match': legacy_etag})
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[-2]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/src_bucket/src_obj', path)
+        self.assertEqual(legacy_etag, swift_headers['If-Match'])
+        self.assertEqual('x-object-sysmeta-s3api-etag,'
+                         'x-object-sysmeta-swift3-etag',
+                         swift_headers.get('x-backend-etag-is-at'))
+
+    def test_upload_part_copy_legacy_swift3_etag_mismatch(self):
+        legacy_etag = '%s-2' % self.etag
+        status, headers, body = self._test_copy_for_s3acl(
+            'test:tester',
+            src_headers={
+                'Etag': self.etag,
+                'X-Object-Sysmeta-Swift3-Etag': legacy_etag,
+            },
+            put_header={
+                'X-Amz-Copy-Source-If-Match': 'not-' + legacy_etag,
+            })
+
+        self.assertEqual('412', status.split()[0])
+        self.assertEqual('PreconditionFailed', self._get_error_code(body))
 
     def test_upload_part_copy_headers_error(self):
         account = 'test:tester'
