@@ -32,6 +32,18 @@ strs = [
 
 
 class TestS3ApiUtils(unittest.TestCase):
+    def test_sysmeta_header(self):
+        self.assertEqual('x-object-sysmeta-s3api-etag',
+                         utils.sysmeta_header('object', 'etag'))
+        self.assertEqual('x-object-sysmeta-s3api-etag',
+                         utils.sysmeta_header('OBJECT', 'etag'))
+        self.assertEqual('x-container-sysmeta-s3api-foo',
+                         utils.sysmeta_header('container', 'foo'))
+
+    def test_swift3_object_sysmeta_header(self):
+        self.assertEqual('x-object-sysmeta-swift3-etag',
+                         utils.swift3_object_sysmeta_header('etag'))
+
     def test_camel_to_snake(self):
         for s1, s2 in strs:
             self.assertEqual(utils.camel_to_snake(s1), s2)
