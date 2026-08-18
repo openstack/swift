@@ -41,7 +41,8 @@ from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_CLIENT_CLOSED_REQUEST
 
 from swift.proxy.controllers.base import get_container_info
-from swift.common.request_helpers import check_path_header
+from swift.common.request_helpers import check_path_header, \
+    update_etag_is_at_value
 
 from swift.common.middleware.s3api.controllers import ServiceController, \
     ObjectController, AclController, MultiObjectDeleteController, \
@@ -67,7 +68,7 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
     S3InputSHA256Mismatch, S3InputChecksumMismatch, \
     S3InputChecksumTrailerInvalid
 from swift.common.middleware.s3api.utils import utf8encode, \
-    S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
+    S3Timestamp, mktime, MULTIUPLOAD_SUFFIX, swift3_object_sysmeta_header
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
     parse_host, parse_path, Config
@@ -1802,7 +1803,10 @@ class S3Request(swob.Request):
 
         headers = swob.HeaderKeyDict()
         headers.update(self._copy_source_headers())
-
+        update_etag_is_at_value(headers, sysmeta_header('object', 'etag'))
+        # objects uploaded by the legacy swift3 middleware stored the S3-style
+        # etag under a different sysmeta name
+        update_etag_is_at_value(headers, swift3_object_sysmeta_header('etag'))
         src_resp = self.get_response(app, 'HEAD', src_bucket,
                                      swob.str_to_wsgi(src_obj),
                                      headers=headers, query=query)

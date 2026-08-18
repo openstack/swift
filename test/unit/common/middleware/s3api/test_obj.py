@@ -1028,11 +1028,20 @@ class BaseS3ApiObj(object):
                              S3Timestamp(exp_last_modified).s3xmlformat)
             self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
+            exp_src_path = src_path.strip('/').partition('?')[0]
+            method, path, sw_headers = self.swift.calls_with_headers[0]
+            self.assertEqual('HEAD', method)
+            self.assertEqual('/v1/AUTH_test/%s' % exp_src_path, path)
+            self.assertEqual('x-object-sysmeta-s3api-etag,'
+                             'x-object-sysmeta-swift3-etag',
+                             sw_headers.get('x-backend-etag-is-at'))
+
             _, _, sw_headers = self.swift.calls_with_headers[-1]
             self.assertEqual(sw_headers['X-Copy-From'], '/some/source')
             self.assertTrue(sw_headers.get('X-Fresh-Metadata') is None)
             self.assertEqual(sw_headers['Content-Length'], '0')
             self.assertNotIn('X-Timestamp', sw_headers)
+            self.assertNotIn('x-backend-etag-is-at', sw_headers)
 
         do_test('/some/source')
         do_test('/some/source?')
@@ -1040,6 +1049,93 @@ class BaseS3ApiObj(object):
         # Some clients (like Boto) don't include the leading slash;
         # AWS seems to tolerate this so we should, too
         do_test('some/source')
+
+    def test_object_PUT_copy_if_match_s3api_etag(self):
+        s3api_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-S3Api-Etag': s3api_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source', {'X-Amz-Copy-Source-If-Match': s3api_etag})
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[0]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/some/source', path)
+        self.assertEqual(s3api_etag, swift_headers['If-Match'])
+
+    def test_object_PUT_copy_s3api_etag_mismatch(self):
+        s3api_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-S3Api-Etag': s3api_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source',
+            {'X-Amz-Copy-Source-If-Match': 'not-' + s3api_etag})
+
+        self.assertEqual('412', status.split()[0])
+
+    def test_object_PUT_copy_legacy_swift3_etag(self):
+        legacy_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-Swift3-Etag': legacy_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source', {'X-Amz-Copy-Source-If-Match': legacy_etag})
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[0]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/some/source', path)
+        self.assertEqual(legacy_etag, swift_headers['If-Match'])
+
+    def test_object_PUT_copy_legacy_swift3_etag_mismatch(self):
+        legacy_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-Swift3-Etag': legacy_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source',
+            {'X-Amz-Copy-Source-If-Match': 'not-' + legacy_etag})
+
+        self.assertEqual('412', status.split()[0])
+        self.assertEqual('PreconditionFailed', self._get_error_code(body))
 
     def test_object_PUT_copy_metadata_replace(self):
         status, headers, body = \

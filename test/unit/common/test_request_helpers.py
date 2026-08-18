@@ -641,6 +641,21 @@ class TestHTTPResponseToDocumentIters(unittest.TestCase):
 
         self.assertRaises(StopIteration, next, doc_iters)
 
+    def test_update_etag_is_at_value(self):
+        # start with no existing X-Backend-Etag-Is-At
+        headers = {}
+        rh.update_etag_is_at_value(headers, 'X-Object-Sysmeta-My-Etag')
+        self.assertEqual('X-Object-Sysmeta-My-Etag',
+                         headers['X-Backend-Etag-Is-At'])
+        # add another alternate
+        rh.update_etag_is_at_value(headers, 'X-Object-Sysmeta-Ec-Etag')
+        self.assertEqual('X-Object-Sysmeta-My-Etag,X-Object-Sysmeta-Ec-Etag',
+                         headers['X-Backend-Etag-Is-At'])
+        with self.assertRaises(ValueError) as cm:
+            rh.update_etag_is_at_value(headers, 'X-Object-Sysmeta-,-Bad')
+        self.assertEqual('Header name must not contain commas',
+                         cm.exception.args[0])
+
     def test_update_etag_is_at_header(self):
         # start with no existing X-Backend-Etag-Is-At
         req = Request.blank('/v/a/c/o')
