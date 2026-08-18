@@ -148,6 +148,10 @@ def etag_from_resp(response):
     return response['ETag']
 
 
+def size_from_resp(response):
+    return response['ContentLength']
+
+
 def code_from_error(error):
     return error.response['Error']['Code']
 
@@ -256,6 +260,14 @@ class BaseS3TestCase(BaseS3Mixin, unittest.TestCase):
             pass
         else:
             self.clear_account(client)
+
+    def _sanitize_obj_listing(self, obj):
+        # there's some object listing parameters that are not deterministic
+        obj.pop('LastModified')
+        obj.pop('Owner', None)
+        # there's some object listing parameters that Swift doesn't return,
+        obj.pop('ChecksumAlgorithm', None)
+        obj.pop('ChecksumType', None)
 
 
 class BaseS3TestCaseWithBucket(BaseS3Mixin, unittest.TestCase):
