@@ -836,7 +836,7 @@ def http_response_to_document_iters(response, read_chunk_size=4096):
             response, wsgi_to_bytes(params['boundary']), read_chunk_size)
 
 
-def update_etag_is_at_header(req, name):
+def update_etag_is_at_value(headers, name):
     """
     Helper function to update an X-Backend-Etag-Is-At header whose value is a
     list of alternative header names at which the actual object etag may be
@@ -847,15 +847,26 @@ def update_etag_is_at_header(req, name):
     names, the value of X-Backend-Etag-Is-At is a comma separated list which
     the object server inspects in order until it finds an etag value.
 
-    :param req: a swob Request
+    :param headers: a dict of headers
     :param name: name of a sysmeta where alternative etag may be found
     """
     if ',' in name:
         # HTTP header names should not have commas but we'll check anyway
         raise ValueError('Header name must not contain commas')
-    existing = req.headers.get("X-Backend-Etag-Is-At")
-    req.headers["X-Backend-Etag-Is-At"] = csv_append(
-        existing, name)
+    existing = headers.get("X-Backend-Etag-Is-At")
+    headers["X-Backend-Etag-Is-At"] = csv_append(existing, name)
+
+
+def update_etag_is_at_header(req, name):
+    """
+    This helper function is similar to the ``update_etag_is_at_value`` helper
+    function but takes a ``swob.Request`` instance as an argument and modifies
+    the requests header.
+
+    :param req: a swob Request
+    :param name: name of a sysmeta where alternative etag may be found
+    """
+    update_etag_is_at_value(req.headers, name)
 
 
 def resolve_etag_is_at_header(req, metadata):
