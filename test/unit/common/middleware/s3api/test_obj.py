@@ -128,6 +128,101 @@ class BaseS3ApiObj(object):
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
 
+    def _do_test_object_GETorHEAD_conditional(self, method, req_headers,
+                                              resp_headers=None):
+        headers = dict(self.response_headers)
+        headers.update(resp_headers or {})
+        self.swift.register(method, '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk, headers, self.object_body)
+        headers = {'Authorization': 'AWS test:tester:hmac',
+                   'Date': self.get_date_header()}
+        headers.update(req_headers)
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': method},
+                            headers=headers)
+        status, _, _ = self.call_s3api(req)
+        # note: with s3_acl enabled the precondition may be evaluated by the
+        # acl HEAD subrequest, so filter calls only by path
+        for sw_method, sw_path, sw_hdrs in self.swift.calls_with_headers:
+            if sw_path == '/v1/AUTH_test/bucket/object':
+                self.assertEqual('x-object-sysmeta-s3api-etag,'
+                                 'x-object-sysmeta-swift3-etag',
+                                 sw_hdrs.get('X-Backend-Etag-Is-At'),
+                                 (sw_method, sw_path, sw_hdrs))
+        return status.split()[0]
+
+    def test_object_GET_if_match_legacy_swift3_etag(self):
+        # objects uploaded by the legacy swift3 middleware have their S3-style
+        # etag under the swift3 sysmeta name
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('200', status)
+
+    def test_object_HEAD_if_match_legacy_swift3_etag(self):
+        # objects uploaded by the legacy swift3 middleware have their S3-style
+        # etag under the swift3 sysmeta name
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('200', status)
+
+    def test_object_GET_if_match_legacy_swift3_etag_mismatch(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"not-%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('412', status)
+
+    def test_object_HEAD_if_match_legacy_swift3_etag_mismatch(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"not-%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('412', status)
+
+    def test_object_GET_if_none_match_legacy_swift3_etag(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-None-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('304', status)
+
+    def test_object_HEAD_if_none_match_legacy_swift3_etag(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-None-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('304', status)
+
+    def test_object_GET_if_match_s3api_etag_preferred(self):
+        # if both are set then the s3api etag is authoritative
+        legacy_etag = '%s-2' % self.etag
+        resp_headers = {'X-Object-Sysmeta-S3api-Etag': '%s-3' % self.etag,
+                        'X-Object-Sysmeta-Swift3-Etag': legacy_etag}
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"%s-3"' % self.etag}, resp_headers)
+        self.assertEqual('200', status)
+
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"%s"' % legacy_etag}, resp_headers)
+        self.assertEqual('412', status)
+
+    def test_object_HEAD_if_match_s3api_etag_preferred(self):
+        # if both are set then the s3api etag is authoritative
+        legacy_etag = '%s-2' % self.etag
+        resp_headers = {'X-Object-Sysmeta-S3api-Etag': '%s-3' % self.etag,
+                        'X-Object-Sysmeta-Swift3-Etag': legacy_etag}
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"%s-3"' % self.etag}, resp_headers)
+        self.assertEqual('200', status)
+
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"%s"' % legacy_etag}, resp_headers)
+        self.assertEqual('412', status)
+
     def test_object_HEAD_error(self):
         # HEAD does not return the body even an error response in the
         # specifications of the REST API.
