@@ -282,3 +282,72 @@ class TestTuneMalloc(unittest.TestCase):
         with mock.patch.dict('os.environ',
                              {'SWIFT_GTHREAD_NO_MALLOC_TUNE': '1'}):
             self.assertFalse(wsgi_gunicorn._tune_malloc())
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
+    """Only poller-bound outcomes should cost a trip to the main thread."""
+
+    def setUp(self):
+        wsgi_gunicorn.patch_gunicorn()
+        from gunicorn.workers.gthread import ThreadWorker
+        self.cls = ThreadWorker
+        self.worker = ThreadWorker.__new__(ThreadWorker)
+        self.worker.alive = True
+        self.worker.tpool = MagicMock()
+        self.worker.method_queue = MagicMock()
+        self.worker.finish_request = MagicMock()
+        self.conn = MagicMock()
+
+    def _run(self, result=None, exc=None, cancelled=False, alive=True):
+        self.worker.alive = alive
+        fut = MagicMock()
+        fut.cancelled.return_value = cancelled
+        fut.exception.return_value = exc
+        fut.result.return_value = result
+        # capture the done callback enqueue_req registers, then fire it
+        submitted = MagicMock()
+        self.worker.tpool.submit.return_value = submitted
+        self.cls.enqueue_req(self.worker, self.conn)
+        callback = submitted.add_done_callback.call_args[0][0]
+        callback(fut)
+        return fut
+
+    def assert_inline(self, fut):
+        self.worker.method_queue.defer.assert_not_called()
+        self.worker.finish_request.assert_called_once_with(self.conn, fut)
+
+    def assert_deferred(self, fut):
+        self.worker.finish_request.assert_not_called()
+        self.worker.method_queue.defer.assert_called_once_with(
+            self.worker.finish_request, self.conn, fut)
+
+    def test_close_runs_on_worker_thread(self):
+        # the common case for a Swift backend: proxy closes after one request
+        self.assert_inline(self._run(result=False))
+
+    def test_keepalive_goes_to_the_main_thread(self):
+        # the connection is handed back to the poller, which the main thread
+        # owns, so this one must still be deferred
+        self.assert_deferred(self._run(result=True))
+
+    def test_defer_sentinel_goes_to_the_main_thread(self):
+        from gunicorn.workers.gthread import _DEFER
+        self.assert_deferred(self._run(result=_DEFER))
+
+    def test_failed_request_closes_on_worker_thread(self):
+        self.assert_inline(self._run(exc=ValueError('boom')))
+
+    def test_cancelled_request_closes_on_worker_thread(self):
+        self.assert_inline(self._run(cancelled=True))
+
+    def test_shutting_down_closes_even_for_keepalive(self):
+        # not alive: finish_request's own branch closes rather than
+        # re-registering, and that needs no poller
+        self.assert_inline(self._run(result=True, alive=False))
+
+    def test_exception_is_not_raised_out_of_the_callback(self):
+        # fut.result() would re-raise; we must consult exception() instead so
+        # the callback never throws inside the thread pool
+        fut = self._run(exc=ValueError('boom'))
+        fut.result.assert_not_called()

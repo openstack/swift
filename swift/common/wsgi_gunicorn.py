@@ -73,7 +73,7 @@ import gunicorn.http.wsgi
 import gunicorn.http.body
 from gunicorn.config import Config
 from gunicorn.glogging import Logger
-from gunicorn.workers.gthread import ThreadWorker, TConn
+from gunicorn.workers.gthread import ThreadWorker, TConn, _DEFER
 from gunicorn.http.unreader import SocketUnreader
 from gunicorn.http.body import Body, ChunkedReader
 from gunicorn.http.errors import (
@@ -142,6 +142,8 @@ def patch_gunicorn():
     _required = [
         (ThreadWorker, 'wait_for_and_dispatch_events'),
         (ThreadWorker, 'murder_keepalived'),
+        (ThreadWorker, 'enqueue_req'),
+        (ThreadWorker, 'finish_request'),
         (TConn, 'init'),
     ]
     _missing = ['%s.%s' % (cls.__name__, attr)
@@ -383,6 +385,48 @@ def patch_gunicorn():
         return orig_murder_keepalived(self)
 
     ThreadWorker.murder_keepalived = swift_murder_keepalived
+
+    # Every request ends by deferring finish_request() to the main thread:
+    # the worker thread writes a byte to the wake-up pipe, the poller wakes,
+    # takes the GIL and runs it. But only two of finish_request's three
+    # outcomes actually need the main thread -- the ones that hand the
+    # connection back to the poller (keepalive, or a new connection with no
+    # data yet). The third just closes the socket and decrements a counter,
+    # which the worker thread can do itself.
+    #
+    # That third case is the common one here: Swift's proxy opens a fresh
+    # backend connection per request and closes it, so backend servers take
+    # the close path on essentially every request and pay a pipe write, a
+    # poller wake and an epoll re-registration for nothing.
+    #
+    # Waking the main thread is also what makes it expensive out of
+    # proportion to the syscalls: a second runnable thread turns each of the
+    # ~50 GIL releases in a request into a potential futex handoff.
+    #
+    # Closing on the worker thread has a second benefit. util.close_graceful()
+    # sends FIN then blocks reading until the peer closes or 2s elapse; on the
+    # main thread that stalls the single accept/dispatch loop for every other
+    # connection, which is why server-side closes (keepalive_timeout = 0) are
+    # so costly today.
+    def swift_enqueue_req(self, conn):
+        fs = self.tpool.submit(self.handle, conn)
+
+        def done(fut):
+            # Runs on the worker thread that finished the request.
+            needs_poller = False
+            if self.alive and not fut.cancelled() and fut.exception() is None:
+                result = fut.result()
+                needs_poller = result is _DEFER or bool(result)
+            if needs_poller:
+                self.method_queue.defer(self.finish_request, conn, fut)
+            else:
+                # same call, just not via the main thread; it re-reads the
+                # future and takes its close/error branch
+                self.finish_request(conn, fut)
+
+        fs.add_done_callback(done)
+
+    ThreadWorker.enqueue_req = swift_enqueue_req
 
     # Gunicorn rejects requests with both Content-Length and Transfer-Encoding
     # (RFC 9112), but Swift sends both (e.g. Content-Length: 0 + chunked PUT).
