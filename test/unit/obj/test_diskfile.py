@@ -22,6 +22,7 @@ import errno
 import itertools
 from unittest import mock
 import unittest
+from io import BytesIO
 import email
 import tempfile
 import threading
@@ -10028,3 +10029,95 @@ class TestHashesHelpers(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestDiskFileReaderSizedReads(unittest.TestCase):
+    """The reader knows the verified on-disk size; it should use it.
+
+    _obj_size comes from fstat and is checked against the metadata
+    Content-Length when the file is opened, so reading that many bytes from
+    the current offset is exactly reading to EOF. Doing so lets the reader
+    skip the extra read() that exists only to observe b''.
+    """
+
+    class CountingFile(object):
+        """A BytesIO that records the size of every read() asked of it."""
+
+        def __init__(self, data):
+            self._buf = BytesIO(data)
+            self.read_sizes = []
+
+        def read(self, size=-1):
+            self.read_sizes.append(size)
+            return self._buf.read(size)
+
+        def tell(self):
+            return self._buf.tell()
+
+        def seek(self, *a):
+            return self._buf.seek(*a)
+
+        def close(self):
+            pass
+
+        def fileno(self):
+            return -1
+
+    def _reader(self, data, obj_size, chunk_size=65536):
+        fp = self.CountingFile(data)
+        reader = diskfile.DiskFileReader(
+            fp, '/dev/null/data', obj_size, 'etag', chunk_size, 0,
+            '/dev/null', debug_logger(), lambda m: None, False, 0, None,
+            keep_cache=False, etag_validate_frac=0)
+        reader._drop_cache = lambda *a: None
+        return reader, fp
+
+    def test_small_object_is_read_in_one_call(self):
+        body = b'a' * 16384
+        reader, fp = self._reader(body, len(body))
+        self.assertEqual(body, b''.join(reader))
+        # exactly one read, for exactly the object size -- no EOF probe
+        self.assertEqual([16384], fp.read_sizes)
+        self.assertTrue(reader._read_to_eof)
+        self.assertEqual(16384, reader._bytes_read)
+
+    def test_multi_chunk_object_stops_without_an_extra_read(self):
+        body = b'b' * 10
+        reader, fp = self._reader(body, len(body), chunk_size=4)
+        self.assertEqual(body, b''.join(reader))
+        self.assertEqual([4, 4, 2], fp.read_sizes)
+        self.assertTrue(reader._read_to_eof)
+
+    def test_unknown_size_keeps_the_old_behaviour(self):
+        body = b'c' * 10
+        reader, fp = self._reader(body, None, chunk_size=4)
+        self.assertEqual(body, b''.join(reader))
+        # falls back to chunk-sized reads terminated by an empty read
+        self.assertEqual([4, 4, 4, 4], fp.read_sizes)
+        self.assertTrue(reader._read_to_eof)
+
+    def test_truncated_file_is_still_detected(self):
+        # file shorter than the recorded size: a short read then b'', so
+        # _bytes_read != _obj_size and close() can still quarantine
+        body = b'd' * 100
+        reader, fp = self._reader(body, 200, chunk_size=64)
+        self.assertEqual(body, b''.join(reader))
+        self.assertTrue(reader._read_to_eof)
+        self.assertEqual(100, reader._bytes_read)
+        self.assertNotEqual(reader._bytes_read, reader._obj_size)
+
+    def test_range_read_is_bounded_from_the_current_offset(self):
+        body = b'e' * 100
+        reader, fp = self._reader(body, len(body), chunk_size=64)
+        reader._fp.seek(90)
+        self.assertEqual(b'e' * 10, b''.join(reader))
+        # only the 10 bytes left after the seek are requested
+        self.assertEqual([10], fp.read_sizes)
+
+    def test_offset_past_end_yields_nothing(self):
+        body = b'f' * 10
+        reader, fp = self._reader(body, len(body), chunk_size=64)
+        reader._fp.seek(10)
+        self.assertEqual(b'', b''.join(reader))
+        self.assertEqual([], fp.read_sizes)
+        self.assertTrue(reader._read_to_eof)

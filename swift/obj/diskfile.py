@@ -2192,17 +2192,40 @@ class BaseDiskFileReader(object):
             self._started_at_0 = False
             self._read_to_eof = False
             self._init_checks()
+            # _obj_size is the fstat'd size, already verified against the
+            # metadata Content-Length when the file was opened, so reading
+            # that many bytes from start_offset is exactly reading to EOF.
+            # Knowing it lets the last read ask for only what is left and
+            # then stop, instead of spending a further read() whose only
+            # purpose is to observe b''. For an object smaller than
+            # disk_chunk_size that turns three reads into one: the buffered
+            # reader stops as soon as it has the bytes it was asked for,
+            # rather than probing for EOF to satisfy the larger request.
+            # A file shorter than _obj_size still ends on a short read
+            # followed by b'', so a truncated object is quarantined on close
+            # exactly as before.
+            remaining = None
+            if self._obj_size is not None:
+                remaining = max(0, self._obj_size - start_offset)
             while True:
-                try:
-                    chunk = self._fp.read(self._disk_chunk_size)
-                except IOError as e:
-                    if e.errno == errno.EIO:
-                        # Note that if there's no quarantine hook set up,
-                        # this won't raise any exception
-                        self._quarantine(str(e))
-                    # ... so it's significant that this is not in an else
-                    raise
+                if remaining is not None and remaining <= 0:
+                    chunk = b''
+                else:
+                    to_read = self._disk_chunk_size
+                    if remaining is not None:
+                        to_read = min(to_read, remaining)
+                    try:
+                        chunk = self._fp.read(to_read)
+                    except IOError as e:
+                        if e.errno == errno.EIO:
+                            # Note that if there's no quarantine hook set up,
+                            # this won't raise any exception
+                            self._quarantine(str(e))
+                        # ... so it's significant that this is not in an else
+                        raise
                 if chunk:
+                    if remaining is not None:
+                        remaining -= len(chunk)
                     self._update_checks(chunk)
                     self._bytes_read += len(chunk)
                     if self._bytes_read - dropped_cache > DROP_CACHE_WINDOW:
