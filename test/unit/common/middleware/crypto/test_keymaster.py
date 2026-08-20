@@ -750,6 +750,38 @@ class TestKeymaster(unittest.TestCase):
                          calls)
         del calls[:]
 
+    def test_keys_for_listing(self):
+        secrets = {None: os.urandom(32),
+                   '22': os.urandom(33)}
+        conf = {}
+        for secret_id, secret in secrets.items():
+            opt = ('encryption_root_secret%s' %
+                   (('_%s' % secret_id) if secret_id else ''))
+            conf[opt] = base64.b64encode(secret)
+        conf['active_root_secret_id'] = '22'
+        self.app = keymaster.KeyMaster(self.swift, conf)
+        orig_create_key = self.app.create_key
+        calls = []
+
+        def mock_create_key(path, secret_id=None):
+            calls.append((path, secret_id))
+            return orig_create_key(path, secret_id)
+
+        context = keymaster.KeyMasterContext(self.app, 'a', 'c1', None)
+
+        # Sometimes, listings need to use the same context for multiple paths
+        # (for example, because a pipeline misconfiguration caused an
+        # encrypted object to be copied to another container without
+        # re-encrypting)
+        with mock.patch.object(self.app, 'create_key', mock_create_key):
+            context.fetch_crypto_keys(key_id={'v': '3', 'path': '/a/c1'})
+            context.fetch_crypto_keys(key_id={'v': '3', 'path': '/a/c2'})
+            context.fetch_crypto_keys(key_id={'v': '3', 'path': '/a/c1'})
+            context.fetch_crypto_keys(key_id={
+                'v': '3', 'path': '/a/c3', 'secret_id': '22'})
+        self.assertEqual([('/a/c1', None), ('/a/c2', None), ('/a/c3', '22')],
+                         calls)
+
     @mock.patch('swift.common.middleware.crypto.keymaster.readconf')
     def test_keymaster_config_path(self, mock_readconf):
         for secret in (os.urandom(32), os.urandom(33), os.urandom(50)):

@@ -360,11 +360,6 @@
       - tools/playbooks/cors/install_selenium.yaml
     run: tools/playbooks/cors/run.yaml
     post-run: tools/playbooks/cors/post.yaml
-    # TODO: OpenSSL 3.5.7 seems to have broken ansible's get_url, used to
-    #       fetch selenium's firefox driver. For more info, see
-    #       https://github.com/openssl/openssl/issues/31807
-    #       Make this voting again once it starts passing again.
-    voting: false
 
 - nodeset:
     name: swift-five-nodes-centos-9
@@ -656,6 +651,8 @@
         - swift-tox-func-encryption-py312:
             irrelevant-files: *functest-irrelevant-files
         - swift-tox-func-ec-py312:
+            irrelevant-files: *functest-irrelevant-files
+        - swift-tox-func-py39-centos-9-stream:
             irrelevant-files: *functest-irrelevant-files
 
         # Other tests

@@ -128,6 +128,101 @@ class BaseS3ApiObj(object):
     def test_object_HEAD(self):
         self._test_object_GETorHEAD('HEAD')
 
+    def _do_test_object_GETorHEAD_conditional(self, method, req_headers,
+                                              resp_headers=None):
+        headers = dict(self.response_headers)
+        headers.update(resp_headers or {})
+        self.swift.register(method, '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk, headers, self.object_body)
+        headers = {'Authorization': 'AWS test:tester:hmac',
+                   'Date': self.get_date_header()}
+        headers.update(req_headers)
+        req = Request.blank('/bucket/object',
+                            environ={'REQUEST_METHOD': method},
+                            headers=headers)
+        status, _, _ = self.call_s3api(req)
+        # note: with s3_acl enabled the precondition may be evaluated by the
+        # acl HEAD subrequest, so filter calls only by path
+        for sw_method, sw_path, sw_hdrs in self.swift.calls_with_headers:
+            if sw_path == '/v1/AUTH_test/bucket/object':
+                self.assertEqual('x-object-sysmeta-s3api-etag,'
+                                 'x-object-sysmeta-swift3-etag',
+                                 sw_hdrs.get('X-Backend-Etag-Is-At'),
+                                 (sw_method, sw_path, sw_hdrs))
+        return status.split()[0]
+
+    def test_object_GET_if_match_legacy_swift3_etag(self):
+        # objects uploaded by the legacy swift3 middleware have their S3-style
+        # etag under the swift3 sysmeta name
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('200', status)
+
+    def test_object_HEAD_if_match_legacy_swift3_etag(self):
+        # objects uploaded by the legacy swift3 middleware have their S3-style
+        # etag under the swift3 sysmeta name
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('200', status)
+
+    def test_object_GET_if_match_legacy_swift3_etag_mismatch(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"not-%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('412', status)
+
+    def test_object_HEAD_if_match_legacy_swift3_etag_mismatch(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"not-%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('412', status)
+
+    def test_object_GET_if_none_match_legacy_swift3_etag(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-None-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('304', status)
+
+    def test_object_HEAD_if_none_match_legacy_swift3_etag(self):
+        legacy_etag = '%s-2' % self.etag
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-None-Match': '"%s"' % legacy_etag},
+            {'X-Object-Sysmeta-Swift3-Etag': legacy_etag})
+        self.assertEqual('304', status)
+
+    def test_object_GET_if_match_s3api_etag_preferred(self):
+        # if both are set then the s3api etag is authoritative
+        legacy_etag = '%s-2' % self.etag
+        resp_headers = {'X-Object-Sysmeta-S3api-Etag': '%s-3' % self.etag,
+                        'X-Object-Sysmeta-Swift3-Etag': legacy_etag}
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"%s-3"' % self.etag}, resp_headers)
+        self.assertEqual('200', status)
+
+        status = self._do_test_object_GETorHEAD_conditional(
+            'GET', {'If-Match': '"%s"' % legacy_etag}, resp_headers)
+        self.assertEqual('412', status)
+
+    def test_object_HEAD_if_match_s3api_etag_preferred(self):
+        # if both are set then the s3api etag is authoritative
+        legacy_etag = '%s-2' % self.etag
+        resp_headers = {'X-Object-Sysmeta-S3api-Etag': '%s-3' % self.etag,
+                        'X-Object-Sysmeta-Swift3-Etag': legacy_etag}
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"%s-3"' % self.etag}, resp_headers)
+        self.assertEqual('200', status)
+
+        status = self._do_test_object_GETorHEAD_conditional(
+            'HEAD', {'If-Match': '"%s"' % legacy_etag}, resp_headers)
+        self.assertEqual('412', status)
+
     def test_object_HEAD_error(self):
         # HEAD does not return the body even an error response in the
         # specifications of the REST API.
@@ -1028,11 +1123,20 @@ class BaseS3ApiObj(object):
                              S3Timestamp(exp_last_modified).s3xmlformat)
             self.assertEqual(elem.find('ETag').text, '"%s"' % self.etag)
 
+            exp_src_path = src_path.strip('/').partition('?')[0]
+            method, path, sw_headers = self.swift.calls_with_headers[0]
+            self.assertEqual('HEAD', method)
+            self.assertEqual('/v1/AUTH_test/%s' % exp_src_path, path)
+            self.assertEqual('x-object-sysmeta-s3api-etag,'
+                             'x-object-sysmeta-swift3-etag',
+                             sw_headers.get('x-backend-etag-is-at'))
+
             _, _, sw_headers = self.swift.calls_with_headers[-1]
             self.assertEqual(sw_headers['X-Copy-From'], '/some/source')
             self.assertTrue(sw_headers.get('X-Fresh-Metadata') is None)
             self.assertEqual(sw_headers['Content-Length'], '0')
             self.assertNotIn('X-Timestamp', sw_headers)
+            self.assertNotIn('x-backend-etag-is-at', sw_headers)
 
         do_test('/some/source')
         do_test('/some/source?')
@@ -1040,6 +1144,130 @@ class BaseS3ApiObj(object):
         # Some clients (like Boto) don't include the leading slash;
         # AWS seems to tolerate this so we should, too
         do_test('some/source')
+
+    def test_object_PUT_copy_source_headers(self):
+        # verify that only recognised copy-source headers are propagated from
+        # the x-amz-copy-source- header namespace
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        older_date = 'Thu, 31 Mar 2014 12:00:00 GMT'
+        newer_date = 'Sat, 02 Apr 2014 12:00:00 GMT'
+        req_headers = {
+            'X-Amz-Copy-Source-If-Match': self.etag,
+            'X-Amz-Copy-Source-If-None-Match': 'other-etag',
+            'X-Amz-Copy-Source-If-Modified-Since': older_date,
+            'X-Amz-Copy-Source-If-Unmodified-Since': newer_date,
+            'X-Amz-Copy-Source-X-Backend-Naughty': 'ignored',
+        }
+        status, headers, body = self._call_object_copy(
+            '/some/source', req_headers)
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[0]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/some/source', path)
+        self.assertEqual(self.etag, swift_headers['If-Match'])
+        self.assertEqual('other-etag', swift_headers['If-None-Match'])
+        self.assertEqual(older_date, swift_headers['If-Modified-Since'])
+        self.assertEqual(newer_date, swift_headers['If-Unmodified-Since'])
+        # unrecognised header is not propagated...
+        self.assertNotIn('X-Backend-Naughty', swift_headers)
+
+    def test_object_PUT_copy_if_match_s3api_etag(self):
+        s3api_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-S3Api-Etag': s3api_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source', {'X-Amz-Copy-Source-If-Match': s3api_etag})
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[0]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/some/source', path)
+        self.assertEqual(s3api_etag, swift_headers['If-Match'])
+
+    def test_object_PUT_copy_s3api_etag_mismatch(self):
+        s3api_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-S3Api-Etag': s3api_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source',
+            {'X-Amz-Copy-Source-If-Match': 'not-' + s3api_etag})
+
+        self.assertEqual('412', status.split()[0])
+
+    def test_object_PUT_copy_legacy_swift3_etag(self):
+        legacy_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-Swift3-Etag': legacy_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source', {'X-Amz-Copy-Source-If-Match': legacy_etag})
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[0]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/some/source', path)
+        self.assertEqual(legacy_etag, swift_headers['If-Match'])
+
+    def test_object_PUT_copy_legacy_swift3_etag_mismatch(self):
+        legacy_etag = '%s-2' % self.etag
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+            'X-Object-Sysmeta-Swift3-Etag': legacy_etag,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        status, headers, body = self._call_object_copy(
+            '/some/source',
+            {'X-Amz-Copy-Source-If-Match': 'not-' + legacy_etag})
+
+        self.assertEqual('412', status.split()[0])
+        self.assertEqual('PreconditionFailed', self._get_error_code(body))
 
     def test_object_PUT_copy_metadata_replace(self):
         status, headers, body = \
@@ -1678,7 +1906,11 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
              '?prefix=object&versions=True'),
         ], self.swift.calls)
 
-    def test_object_DELETE_current_version_id_is_missing(self):
+    def _do_test_object_DELETE_current_version_id_restores_fallback(
+            self, version_put_resp):
+        # verify that when a DELETE tries to restore the first of several older
+        # versions scraped from a (stale) listing, but the version object does
+        # not actually exist, then the next oldest version is restored.
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
                             swob.HTTPOk, self.response_headers, None)
         resp_headers = {'X-Object-Current-Version-Id': 'null'}
@@ -1696,9 +1928,11 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
         }]
         self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
                             json.dumps(old_versions))
+        # first attempt to restore
         self.swift.register('PUT', '/v1/AUTH_test/bucket/object'
                             '?version-id=1574341899.21751',
-                            swob.HTTPPreconditionFailed, {}, None)
+                            version_put_resp, {}, None)
+        # fallback attempt to restore
         self.swift.register('PUT', '/v1/AUTH_test/bucket/object'
                             '?version-id=1574333192.15190',
                             swob.HTTPCreated, {}, None)
@@ -1728,6 +1962,72 @@ class TestS3ApiObj(BaseS3ApiObj, S3ApiTestCase):
             ('PUT', '/v1/AUTH_test/bucket/object'
              '?version-id=1574333192.15190'),
         ], self.swift.calls)
+
+    def test_object_DELETE_current_version_id_restores_fallback_412(self):
+        self._do_test_object_DELETE_current_version_id_restores_fallback(
+            swob.HTTPPreconditionFailed
+        )
+
+    def test_object_DELETE_current_version_id_restores_fallback_404(self):
+        self._do_test_object_DELETE_current_version_id_restores_fallback(
+            swob.HTTPNotFound
+        )
+
+    def _do_test_object_DELETE_current_version_id_restores_no_fallback(
+            self, version_put_resp):
+        # verify that when a DELETE tries to restore the only older version
+        # scraped from a (stale) listing, but the version object does not
+        # actually exist, then the client gets 204.
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',
+                            swob.HTTPOk, self.response_headers, None)
+        resp_headers = {'X-Object-Current-Version-Id': 'null'}
+        self.swift.register('DELETE', '/v1/AUTH_test/bucket/object'
+                            '?symlink=get&version-id=1574358170.12293',
+                            swob.HTTPNoContent, resp_headers, None)
+        old_versions = [{
+            'name': 'object',
+            'version_id': '1574341899.21751',
+            'content_type': 'application/missing',
+        }]
+        self.swift.register('GET', '/v1/AUTH_test/bucket', swob.HTTPOk, {},
+                            json.dumps(old_versions))
+        self.swift.register('PUT', '/v1/AUTH_test/bucket/object'
+                            '?version-id=1574341899.21751',
+                            version_put_resp, {}, None)
+        req = Request.blank('/bucket/object?versionId=1574358170.12293',
+                            method='DELETE', headers={
+                                'Authorization': 'AWS test:tester:hmac',
+                                'Date': self.get_date_header()})
+        fake_info = {
+            'status': 204,
+            'sysmeta': {
+                'versions-container': '\x00versions\x00bucket',
+            }
+        }
+        with patch('swift.common.middleware.s3api.s3request.'
+                   'get_container_info', return_value=fake_info):
+            status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '204', body)
+        self.assertEqual([
+            ('HEAD', '/v1/AUTH_test/bucket/object'
+             '?symlink=get&version-id=1574358170.12293'),
+            ('DELETE', '/v1/AUTH_test/bucket/object'
+             '?symlink=get&version-id=1574358170.12293'),
+            ('GET', '/v1/AUTH_test/bucket'
+             '?prefix=object&versions=True'),
+            ('PUT', '/v1/AUTH_test/bucket/object'
+             '?version-id=1574341899.21751'),
+        ], self.swift.calls)
+
+    def test_object_DELETE_current_version_id_restores_no_fallback_412(self):
+        self._do_test_object_DELETE_current_version_id_restores_no_fallback(
+            swob.HTTPPreconditionFailed
+        )
+
+    def test_object_DELETE_current_version_id_restores_no_fallback_404(self):
+        self._do_test_object_DELETE_current_version_id_restores_no_fallback(
+            swob.HTTPNotFound
+        )
 
     def test_object_DELETE_current_version_id_GET_error(self):
         self.swift.register('HEAD', '/v1/AUTH_test/bucket/object',

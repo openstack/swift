@@ -14,8 +14,9 @@
 # limitations under the License.
 import time
 
+from swift.common.utils import md5
 from test.s3api import BaseS3TestCase, status_from_error, code_from_error, \
-    etag_from_resp
+    etag_from_resp, size_from_resp
 from botocore.exceptions import ClientError
 
 
@@ -125,6 +126,13 @@ class BaseMultiPartUploadTestCase(BaseS3TestCase):
                 self.assertNotIn('VersionId', resp)
             else:
                 self.assertEqual(version, resp['VersionId'])
+
+    def get_sanitized_listing(self, bucket):
+        resp = self.client.list_objects_v2(Bucket=bucket)
+        objs = resp.get('Contents', [])
+        for obj in objs:
+            self._sanitize_obj_listing(obj)
+        return objs
 
 
 class TestMultiPartUpload(BaseMultiPartUploadTestCase):
@@ -604,9 +612,18 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self._verify_part_num_response(
             self.client.head_object, key_dest, mpu_etag_dst)
 
-    def test_copy_mpu_from_parts(self):
+    def test_copy_mpu_to_mpu_by_parts(self):
+        # verify copy of an mpu source object; copied in parts to a new mpu
         key_src = self.create_name('copy-from-from-src')
         mpu_etag_src = self.upload_mpu(key_src)
+        exp_size = self.num_parts * self.part_size
+        objs = self.get_sanitized_listing(self.bucket_name)
+        self.assertEqual([{
+            'ETag': mpu_etag_src,
+            'Key': key_src,
+            'Size': exp_size,
+            'StorageClass': 'STANDARD',
+        }], objs)
 
         # client wanting to copy object would first HEAD
         head_object_resp = self.client.head_object(
@@ -638,6 +655,9 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
                     'Bucket': self.bucket_name,
                     'Key': key_src,
                 },
+                # aws-cli sends x-amz-copy-source-if-match since version 2.32.2
+                # see https://bugs.launchpad.net/swift/+bug/2147177
+                CopySourceIfMatch=mpu_etag_src,
                 CopySourceRange=copy_range, UploadId=upload_id)
             self.assertEqual(200, copy_resp[
                 'ResponseMetadata']['HTTPStatusCode'])
@@ -657,6 +677,80 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertEqual(200, complete_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual(complete_mpu_resp['ETag'], mpu_etag_src)
+        objs = self.get_sanitized_listing(self.bucket_name)
+        self.assertEqual(
+            [{
+                'ETag': mpu_etag_src,
+                'Key': key_dest,
+                'Size': exp_size,
+                'StorageClass': 'STANDARD',
+            }, {
+                'ETag': mpu_etag_src,
+                'Key': key_src,
+                'Size': exp_size,
+                'StorageClass': 'STANDARD',
+            }], objs)
+
+    def test_copy_mpu_to_object(self):
+        # verify copy of an mpu source object; copied to a regular object
+        key_src = self.create_name('copy-mpu-src')
+        key_dest = self.create_name('copy-mpu-dest')
+        self.upload_mpu(key_src)
+        exp_size = self.num_parts * self.part_size
+        exp_body = ''.join(self._make_part_bodies()).encode('utf-8')
+
+        src_get_resp = self.client.get_object(
+            Bucket=self.bucket_name, Key=key_src)
+        self.assertEqual(
+            200, src_get_resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(exp_size, size_from_resp(src_get_resp))
+        self.assertEqual(exp_body, src_get_resp['Body'].read())
+        # the source etag is the mpu "hash of part hashes" form...
+        src_etag = etag_from_resp(src_get_resp)
+        self.assertEqual('-%d"' % self.num_parts, src_etag[-3:])
+        objs = self.get_sanitized_listing(self.bucket_name)
+        self.assertEqual([{
+            'ETag': src_etag,
+            'Key': key_src,
+            'Size': exp_size,
+            'StorageClass': 'STANDARD',
+        }], objs)
+
+        copy_resp = self.client.copy_object(
+            Bucket=self.bucket_name,
+            Key=key_dest,
+            CopySource={'Bucket': self.bucket_name, 'Key': key_src},
+            # see https://bugs.launchpad.net/swift/+bug/2147177 ...
+            CopySourceIfMatch=src_etag,
+        )
+        self.assertEqual(200, copy_resp['ResponseMetadata']['HTTPStatusCode'])
+
+        dest_get_resp = self.client.get_object(
+            Bucket=self.bucket_name, Key=key_dest)
+        self.assertEqual(
+            200, dest_get_resp['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual(exp_size, size_from_resp(dest_get_resp))
+        self.assertEqual(exp_body, dest_get_resp['Body'].read())
+        # the dest etag should be the md5 of the whole body...
+        exp_dest_etag = '"%s"' % md5(exp_body).hexdigest()
+        objs = self.get_sanitized_listing(self.bucket_name)
+        self.assertEqual(
+            [{
+                'ETag': exp_dest_etag,
+                'Key': key_dest,
+                'Size': exp_size,
+                'StorageClass': 'STANDARD',
+            }, {
+                'ETag': src_etag,
+                'Key': key_src,
+                'Size': exp_size,
+                'StorageClass': 'STANDARD',
+            }], objs)
+        # XXX Swift makes inconsistent etags
+        # See https://bugs.launchpad.net/swift/+bug/2163751
+        # dest_etag = etag_from_resp(dest_get_resp)
+        # self.assertEqual(exp_dest_etag, dest_etag)
+        # self.assertNotEqual(dest_etag, src_etag)
 
     def test_create_list_abort_multipart_uploads(self):
         key_name = self.create_name('key')

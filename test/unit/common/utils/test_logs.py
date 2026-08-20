@@ -23,6 +23,7 @@ import socket
 import sys
 import time
 import unittest
+import uuid
 from swift.common.concurrency import eventlet, green_http_client
 import functools
 from unittest import mock
@@ -59,18 +60,24 @@ def reset_loggers():
     get_swift_logger(None).thread_locals = (None, None)
 
 
-def reset_logger_state(f):
+def with_isolated_logger(f):
     @functools.wraps(f)
     def wrapper(self, *args, **kwargs):
-        reset_loggers()
-        try:
-            return f(self, *args, **kwargs)
-        finally:
-            reset_loggers()
+        get_isolated_logger = functools.partial(
+            get_swift_logger, log_route='test-%s' % uuid.uuid4().hex)
+        return f(self, get_isolated_logger, *args, **kwargs)
     return wrapper
 
 
-class TestUtilsLogs(unittest.TestCase):
+class BaseTestCase(unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        reset_loggers()
+        self.addCleanup(reset_loggers)
+
+
+class TestUtilsLogs(BaseTestCase):
 
     def test_NullLogger(self):
         # Test swift.common.utils.NullLogger
@@ -450,11 +457,11 @@ class TestUtilsLogs(unittest.TestCase):
         self.assertEqual(sio.getvalue(),
                          'WARNING: MY_SERVER test\n')
 
-    @reset_logger_state
-    def test_clean_logger_exception(self):
+    @with_isolated_logger
+    def test_clean_logger_exception(self, get_isolated_logger):
         # setup stream logging
         sio = StringIO()
-        logger = get_swift_logger(None)
+        logger = get_isolated_logger(None)
         handler = logging.StreamHandler(sio)
         logger.logger.addHandler(handler)
 
@@ -588,11 +595,11 @@ class TestUtilsLogs(unittest.TestCase):
         finally:
             logger.logger.removeHandler(handler)
 
-    @reset_logger_state
-    def test_swift_log_formatter_max_line_length(self):
+    @with_isolated_logger
+    def test_swift_log_formatter_max_line_length(self, get_isolated_logger):
         # setup stream logging
         sio = StringIO()
-        logger = get_swift_logger(None)
+        logger = get_isolated_logger(None)
         handler = logging.StreamHandler(sio)
         formatter = utils.SwiftLogFormatter(max_line_length=10)
         handler.setFormatter(formatter)
@@ -644,11 +651,11 @@ class TestUtilsLogs(unittest.TestCase):
         finally:
             logger.logger.removeHandler(handler)
 
-    @reset_logger_state
-    def test_swift_log_formatter(self):
+    @with_isolated_logger
+    def test_swift_log_formatter(self, get_isolated_logger):
         # setup stream logging
         sio = StringIO()
-        logger = get_swift_logger(None)
+        logger = get_isolated_logger(None)
         handler = logging.StreamHandler(sio)
         handler.setFormatter(utils.SwiftLogFormatter())
         logger.logger.addHandler(handler)
@@ -709,11 +716,11 @@ class TestUtilsLogs(unittest.TestCase):
         finally:
             logger.logger.removeHandler(handler)
 
-    @reset_logger_state
-    def test_get_prefixed_swift_logger(self):
+    @with_isolated_logger
+    def test_get_prefixed_swift_logger(self, get_isolated_logger):
         # setup stream logging
         sio = StringIO()
-        base_logger = get_swift_logger(None)
+        base_logger = get_isolated_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
         logger = get_prefixed_swift_logger(base_logger, 'some prefix: ')
@@ -740,11 +747,12 @@ class TestUtilsLogs(unittest.TestCase):
         finally:
             base_logger.logger.removeHandler(handler)
 
-    @reset_logger_state
-    def test_get_prefixed_swift_logger_exception_method(self):
+    @with_isolated_logger
+    def test_get_prefixed_swift_logger_exception_method(
+            self, get_isolated_logger):
         # setup stream logging
         sio = StringIO()
-        base_logger = get_swift_logger(None)
+        base_logger = get_isolated_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
         logger = get_prefixed_swift_logger(base_logger, 'some prefix: ')
@@ -797,11 +805,12 @@ class TestUtilsLogs(unittest.TestCase):
         finally:
             base_logger.logger.removeHandler(handler)
 
-    @reset_logger_state
-    def test_get_prefixed_swift_logger_non_string_values(self):
+    @with_isolated_logger
+    def test_get_prefixed_swift_logger_non_string_values(
+            self, get_isolated_logger):
         # setup stream logging
         sio = StringIO()
-        base_logger = get_swift_logger(None)
+        base_logger = get_isolated_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
         logger = get_prefixed_swift_logger(base_logger, 'some prefix: ')
@@ -837,11 +846,12 @@ class TestUtilsLogs(unittest.TestCase):
         finally:
             logger.logger.removeHandler(handler)
 
-    @reset_logger_state
-    def test_get_prefixed_swift_logger_replaces_prefix(self):
+    @with_isolated_logger
+    def test_get_prefixed_swift_logger_replaces_prefix(
+            self, get_isolated_logger):
         # setup stream logging
         sio = StringIO()
-        base_logger = get_swift_logger(None)
+        base_logger = get_isolated_logger(None)
         handler = logging.StreamHandler(sio)
         base_logger.logger.addHandler(handler)
         logger1 = get_prefixed_swift_logger(base_logger, 'one: ')
@@ -902,10 +912,10 @@ class TestUtilsLogs(unittest.TestCase):
         self.assertEqual(cloned_adapted_logger.thread_locals, ('x', 'y'))
         self.assertIs(adapted_logger.logger, cloned_adapted_logger.logger)
 
-    @reset_logger_state
-    def test_capture_stdio(self):
+    @with_isolated_logger
+    def test_capture_stdio(self, get_isolated_logger):
         # stubs
-        logger = get_swift_logger(None, 'dummy')
+        logger = get_isolated_logger(None, 'dummy')
 
         # mock utils system modules
         mock_os = MockOs()
@@ -940,7 +950,7 @@ class TestUtilsLogs(unittest.TestCase):
         mock_sys = MockSys()
         with mock.patch.object(utils.logs, 'os', mock_os), \
                 mock.patch.object(utils.logs, 'sys', mock_sys):
-            logger = get_swift_logger(None, log_to_console=True)
+            logger = get_isolated_logger(None, log_to_console=True)
 
             # test console log
             utils.logs.capture_stdio(logger, capture_stdout=False,
@@ -957,20 +967,20 @@ class TestUtilsLogs(unittest.TestCase):
             self.assertFalse(isinstance(mock_sys.stderr,
                                         utils.logs.LoggerFileObject))
 
-    @reset_logger_state
-    def test_get_swift_logger_console(self):
-        logger = get_swift_logger(None)
+    @with_isolated_logger
+    def test_get_swift_logger_console(self, get_isolated_logger):
+        logger = get_isolated_logger(None)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
         self.assertFalse(console_handlers)
-        logger = get_swift_logger(None, log_to_console=True)
+        logger = get_isolated_logger(None, log_to_console=True)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
         self.assertTrue(console_handlers)
         # make sure you can't have two console handlers
         self.assertEqual(len(console_handlers), 1)
         old_handler = console_handlers[0]
-        logger = get_swift_logger(None, log_to_console=True)
+        logger = get_isolated_logger(None, log_to_console=True)
         console_handlers = [h for h in logger.logger.handlers if
                             isinstance(h, logging.StreamHandler)]
         self.assertEqual(len(console_handlers), 1)
@@ -1119,9 +1129,10 @@ class TestUtilsLogs(unittest.TestCase):
                                        'md5', '54LT'))
 
 
-class TestSwiftLogAdapter(unittest.TestCase):
+class TestSwiftLogAdapter(BaseTestCase):
 
     def setUp(self):
+        super().setUp()
         self.core_logger = logging.getLogger('test')
         self.core_logger.setLevel(logging.INFO)
         self.sio = StringIO()
@@ -1164,7 +1175,6 @@ class TestSwiftLogAdapter(unittest.TestCase):
         self.assertEqual('INFO: my-server hello my-txn-id 1.2.3.4\n',
                          self.read_sio())
 
-    @reset_logger_state
     def test_thread_locals(self):
         adapter1 = SwiftLogAdapter(self.core_logger, 'foo')
         adapter2 = SwiftLogAdapter(self.core_logger, 'foo')
@@ -1198,7 +1208,6 @@ class TestSwiftLogAdapter(unittest.TestCase):
         self.assertEqual(('5678', '5.6.7.8'), adapter1.thread_locals)
         self.assertEqual(('5678', '5.6.7.8'), adapter2.thread_locals)
 
-    @reset_logger_state
     def test_thread_locals_stacked_adapter(self):
         adapter1 = SwiftLogAdapter(self.core_logger, 'foo')
         # adapter2 is stacked on adapter1
@@ -1234,8 +1243,9 @@ class TestSwiftLogAdapter(unittest.TestCase):
         mocked.assert_called_with('Caught: Connection refused')
 
 
-class TestPipeMutex(unittest.TestCase):
+class TestPipeMutex(BaseTestCase):
     def setUp(self):
+        super().setUp()
         self.mutex = utils.PipeMutex()
 
     def tearDown(self):
@@ -1417,8 +1427,9 @@ class TestPipeMutex(unittest.TestCase):
         eventlet.debug.hub_prevent_multiple_readers(True)
 
 
-class TestNoopMutex(unittest.TestCase):
+class TestNoopMutex(BaseTestCase):
     def setUp(self):
+        super().setUp()
         self.mutex = utils.NoopMutex()
 
     def test_acquire_release_api(self):

@@ -348,6 +348,7 @@ class TestTempURL(unittest.TestCase):
         self.assertIn('expires', resp.headers)
         self.assertEqual(req.environ['swift.authorize_override'], True)
         self.assertEqual(req.environ['REMOTE_USER'], '.wsgi.tempurl')
+        self.assertIn('inline', self.tempurl.app.request.params)
 
     def test_get_valid_with_prefix(self):
         method = 'GET'

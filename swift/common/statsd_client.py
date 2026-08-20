@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """ Statsd Client """
-
 import time
 import warnings
 import re
@@ -177,12 +176,13 @@ def get_labeled_statsd_client(conf=None, logger=None):
                 'invalid character in statsd user label '
                 'configuration {0!r}: {1!r}'.format(
                     k, result.group(0)))
-        result = USER_VALUE_PATTERN.search(v)
-        if result is not None:
-            raise ValueError(
-                'invalid character in configuration {0!r} '
-                'value {1!r}: {2!r}'.format(
-                    k, v, result.group(0)))
+        if v is not None:
+            result = USER_VALUE_PATTERN.search(v)
+            if result is not None:
+                raise ValueError(
+                    'invalid character in configuration {0!r} '
+                    'value {1!r}: {2!r}'.format(
+                        k, v, result.group(0)))
         conf_label = STATSD_USER_LABEL_NAMESPACE + conf_label
         default_labels[conf_label] = v
 
@@ -521,6 +521,9 @@ class LabeledStatsdClient(AbstractStatsdClient):
     collectors to maintain. For example, labels should NOT be used for object
     names or transaction ids.
 
+    Label values that are literal None will be sent as an empty string to avoid
+    confusion with label values that are the string 'None'.
+
     :param host: Statsd host name. If ``None`` then metrics are not sent.
     :param port: Statsd host port.
     :param default_sample_rate: The default rate at which metrics should be
@@ -559,12 +562,14 @@ class LabeledStatsdClient(AbstractStatsdClient):
         all_labels = dict(self.default_labels)
         if labels:
             all_labels.update(labels)
+        sanitised_labels = {k: (v if v is not None else '')
+                            for k, v in sorted(all_labels.items())}
         return self.label_formatter(
             metric,
             value,
             metric_type,
             sample_rate,
-            sorted(all_labels.items()))
+            sanitised_labels.items())
 
     def update_stats(self, metric, value, *, labels=None, sample_rate=None):
         """
@@ -646,3 +651,38 @@ class LabeledStatsdClient(AbstractStatsdClient):
         return super().transfer_rate(metric, elapsed_time, byte_xfer,
                                      labels=labels,
                                      sample_rate=sample_rate)
+
+
+class LabelsMap(dict):
+    """
+    Implements a custom map whose ``setdefault()`` method allows None values to
+    be replaced. This enables a label key to be set with a default unknown
+    value (i.e. None), ensuring that the label key will be included in a
+    statsd metric, but also allowing the value to be subsequently updated with
+    a known value.
+
+    The normal setdefault behaviour is preserved after a known (non-None) value
+    has been set.
+
+    The normal set behavior is preserved; a None value can replace a non-None
+    value.
+
+    The ``__contains__`` behavior of the map is not changed; ``key in map``
+    will be ``True`` for a map that has a key with value ``None``.
+    """
+    __slots__ = ()
+
+    def setdefault(self, key, value=None):
+        """
+        If the key does not already exist, or exists with value ``None`` and
+        ``value`` is not ``None``, then the key is updated to the given value.
+        Otherwise, the map is unchanged.
+
+        :return: the resulting value for ``key`` in the map. This may be either
+            the given value, or an existing value if the map is unchanged.
+        """
+        result = super().setdefault(key, value)
+        if result is None and value is not None:
+            self[key] = value
+            return value
+        return result

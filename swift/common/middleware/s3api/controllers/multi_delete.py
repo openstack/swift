@@ -22,6 +22,8 @@ from swift.common.swob import str_to_wsgi
 from swift.common.utils import public, StreamingPile
 from swift.common.registry import get_swift_info
 
+from swift.common.middleware.s3api.acl_handlers import \
+    MultiObjectDeleteAclHandler
 from swift.common.middleware.s3api.controllers.base import Controller, \
     bucket_operation
 from swift.common.middleware.s3api.etree import Element, SubElement, \
@@ -36,6 +38,9 @@ class MultiObjectDeleteController(Controller):
     Handles Delete Multiple Objects, which is logged as a MULTI_OBJECT_DELETE
     operation in the S3 server log.
     """
+    acl_handler = MultiObjectDeleteAclHandler
+    resource_type = 'MULTI_OBJECT_DELETE'
+
     def _gen_error_body(self, error, elem, delete_list):
         for key, version in delete_list:
             error_elem = SubElement(elem, 'Error')

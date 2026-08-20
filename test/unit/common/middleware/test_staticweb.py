@@ -635,7 +635,7 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
         self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
-        self.assertIn(b'<a href="2.txt?temp_url_prefix=subdir/&amp;'
+        self.assertIn(b'<a href="./2%2Etxt?temp_url_prefix=subdir/&amp;'
                       b'temp_url_expires=2024-12-31T00%3A00%3A00&amp;'
                       b'temp_url_sig=the-sig">2.txt</a>', resp.body)
 
@@ -646,7 +646,7 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
         self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
-        self.assertIn(b'<a href="2.txt?temp_url_prefix=subdir/&amp;'
+        self.assertIn(b'<a href="./2%2Etxt?temp_url_prefix=subdir/&amp;'
                       b'temp_url_expires=2024-12-31T00%3A00%3A00&amp;'
                       b'temp_url_sig=the-sig&amp;temp_url_ip_range='
                       b'127.0.0.1">2.txt</a>', resp.body)
@@ -658,7 +658,7 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
         self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
-        self.assertIn(b'<a href="2.txt?temp_url_prefix=subdir/&amp;'
+        self.assertIn(b'<a href="./2%2Etxt?temp_url_prefix=subdir/&amp;'
                       b'temp_url_expires=2024-12-31T00%3A00%3A00&amp;'
                       b'temp_url_sig=the-sig&amp;temp_url_ip_range='
                       b'127.0.0.1&amp;inline">2.txt</a>', resp.body)
@@ -670,7 +670,7 @@ class TestStaticWeb(unittest.TestCase):
         ).get_response(self.test_staticweb)
         self.assertEqual(resp.status_int, 200)
         self.assertIn(b'Listing of /v1/a/c4/subdir/', resp.body)
-        self.assertIn(b'<a href="2.txt">2.txt</a>', resp.body)
+        self.assertIn(b'<a href="./2%2Etxt">2.txt</a>', resp.body)
 
     def test_container4unknown(self):
         resp = Request.blank(

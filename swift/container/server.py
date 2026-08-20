@@ -269,17 +269,17 @@ class ContainerController(BaseStorageServer):
                 with Timeout(self.node_timeout):
                     account_response = conn.getresponse()
                     account_response.read()
-                    if account_response.status == HTTP_NOT_FOUND:
-                        account_404s += 1
-                    elif not is_success(account_response.status):
-                        self.logger.error(
-                            'ERROR Account update failed '
-                            'with %(ip)s:%(port)s/%(device)s (will retry '
-                            'later): Response %(status)s %(reason)s',
-                            {'ip': account_ip, 'port': account_port,
-                             'device': account_device,
-                             'status': account_response.status,
-                             'reason': account_response.reason})
+                if account_response.status == HTTP_NOT_FOUND:
+                    account_404s += 1
+                elif not is_success(account_response.status):
+                    self.logger.error(
+                        'ERROR Account update failed '
+                        'with %(ip)s:%(port)s/%(device)s (will retry '
+                        'later): Response %(status)s %(reason)s',
+                        {'ip': account_ip, 'port': account_port,
+                         'device': account_device,
+                         'status': account_response.status,
+                         'reason': account_response.reason})
             except (Exception, Timeout):
                 self.logger.exception(
                     'ERROR account update failed with '

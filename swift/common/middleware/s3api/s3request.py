@@ -41,7 +41,8 @@ from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
     HTTP_CLIENT_CLOSED_REQUEST
 
 from swift.proxy.controllers.base import get_container_info
-from swift.common.request_helpers import check_path_header
+from swift.common.request_helpers import check_path_header, \
+    update_etag_is_at_value
 
 from swift.common.middleware.s3api.controllers import ServiceController, \
     ObjectController, AclController, MultiObjectDeleteController, \
@@ -67,7 +68,7 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
     S3InputSHA256Mismatch, S3InputChecksumMismatch, \
     S3InputChecksumTrailerInvalid
 from swift.common.middleware.s3api.utils import utf8encode, \
-    S3Timestamp, mktime, MULTIUPLOAD_SUFFIX
+    S3Timestamp, mktime, MULTIUPLOAD_SUFFIX, swift3_object_sysmeta_header
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
 from swift.common.middleware.s3api.utils import sysmeta_header, \
     parse_host, parse_path, Config
@@ -94,6 +95,34 @@ SIGV2_TIMESTAMP_FORMAT = '%Y-%m-%dT%H:%M:%S'
 SIGV4_X_AMZ_DATE_FORMAT = '%Y%m%dT%H%M%SZ'
 SIGV4_CHUNK_MIN_SIZE = 8192
 SERVICE = 's3'  # useful for mocking out in tests
+
+
+SIGV4_MUST_BE_SIGNED_AMZ_PREFIXES = (
+    'x-amz-copy',
+    'x-amz-acl',
+    'x-amz-grant',
+    'x-amz-meta',
+)
+
+
+DISALLOWED_CLIENT_HEADERS = frozenset((
+    'x-copy-from',
+    'x-copy-from-account',
+    'x-symlink-target',
+    'x-symlink-target-account',
+    'x-object-manifest',
+    'x-static-large-object',
+))
+
+
+# the set of headers that are accepted in conjunction with x-amz-copy-source
+ALLOWED_COPY_SOURCE_HEADERS = frozenset((
+    'x-amz-copy-source-range',  # only for UploadPartCopy
+    'x-amz-copy-source-if-match',
+    'x-amz-copy-source-if-none-match',
+    'x-amz-copy-source-if-modified-since',
+    'x-amz-copy-source-if-unmodified-since',
+))
 
 
 CHECKSUMS_BY_HEADER = {
@@ -949,6 +978,14 @@ class SigV4Mixin(object):
                 (k.lower().strip(), ' '.join(_header_strip(v or '').split()))
                 for (k, v) in self.headers.items())
 
+        for key in headers_lower_dict:
+            key = swob.wsgi_to_str(key)
+            if (key not in self._signed_headers
+                    and key.startswith(SIGV4_MUST_BE_SIGNED_AMZ_PREFIXES)):
+                raise AccessDenied(
+                    'There were headers present in the request which were '
+                    'not signed', headers_not_signed=key)
+
         if 'host' in headers_lower_dict and re.match(
                 'Boto/2.[0-9].[0-2]',
                 headers_lower_dict.get('user-agent', '')):
@@ -1149,6 +1186,10 @@ class S3Request(swob.Request):
         # Avoids that swift.swob.Response replaces Location header value
         # by full URL when absolute path given. See swift.swob for more detail.
         self.environ['swift.leave_relative_location'] = True
+
+        for header in list(self.headers):
+            if header.lower() in DISALLOWED_CLIENT_HEADERS:
+                self.headers.pop(header, None)
 
     def validate_part_number(self, parts_count=None, check_max=True):
         """
@@ -1735,14 +1776,6 @@ class S3Request(swob.Request):
                                  'Content-MD5 OR x-amz-checksum-*')
         self.check_md5(body)
 
-    def _copy_source_headers(self):
-        env = {}
-        for key, value in self.environ.items():
-            if key.startswith('HTTP_X_AMZ_COPY_SOURCE_'):
-                env[key.replace('X_AMZ_COPY_SOURCE_', '')] = value
-
-        return swob.HeaderEnvironProxy(env)
-
     def check_copy_source(self, app):
         """
         check_copy_source checks the copy source existence and if copying an
@@ -1771,8 +1804,14 @@ class S3Request(swob.Request):
         src_bucket, src_obj = split_path(src_path, 0, 2, True)
 
         headers = swob.HeaderKeyDict()
-        headers.update(self._copy_source_headers())
-
+        # translate allowed copy-source headers...
+        for header in ALLOWED_COPY_SOURCE_HEADERS:
+            headers[header.replace('x-amz-copy-source-', '')] = \
+                self.headers.get(header)
+        update_etag_is_at_value(headers, sysmeta_header('object', 'etag'))
+        # objects uploaded by the legacy swift3 middleware stored the S3-style
+        # etag under a different sysmeta name
+        update_etag_is_at_value(headers, swift3_object_sysmeta_header('etag'))
         src_resp = self.get_response(app, 'HEAD', src_bucket,
                                      swob.str_to_wsgi(src_obj),
                                      headers=headers, query=query)
@@ -1816,10 +1855,6 @@ class S3Request(swob.Request):
             'string_to_sign_bytes': ' '.join(
                 format(b, '02x') for b in self.sig_checker.string_to_sign),
         }
-
-    @property
-    def controller_name(self):
-        return self.controller.__name__[:-len('Controller')]
 
     @property
     def controller(self):

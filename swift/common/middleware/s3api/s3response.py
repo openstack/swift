@@ -216,8 +216,8 @@ class S3Response(S3ResponseBase, swob.Response):
 
         return resp
 
-    def append_copy_resp_body(self, controller_name, last_modified):
-        elem = Element('Copy%sResult' % controller_name)
+    def append_copy_resp_body(self, result_elem_name, last_modified):
+        elem = Element(result_elem_name)
         SubElement(elem, 'LastModified').text = last_modified
         SubElement(elem, 'ETag').text = '"%s"' % self.etag
         self.headers['Content-Type'] = 'application/xml'

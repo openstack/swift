@@ -61,10 +61,10 @@ class TestS3ApiXxeInjection(S3ApiBaseBoto3):
         finally:
             self.conn.meta.events.unregister(
                 'before-sign.s3.*', self._clear_data)
-        if not params.get('Key') and '/?' not in url:
-            # Some combination of dependencies seems to cause bucket requests
-            # to not get the trailing slash despite signing with it? But only
-            # new-enough versions sign with the trailing slash
+        if not params.get('Key') and '/?' not in url \
+                and 'X-Amz-Algorithm' not in url:
+            # v2 signs the bucket path with a trailing slash but omits it from
+            # the URL, so add it back. v4 (X-Amz-Algorithm) signs without it.
             url = url.replace('?', '/?')
         return url
 

@@ -235,7 +235,7 @@ class TestStaticWeb(Base):
         if title is None:
             title = unquote(path)
         expected_in = ['Listing of %s' % title] + [
-            '<a href="{0}">{1}</a>'.format(quote(link), link)
+            '<a href="./{0}">{1}</a>'.format(quote(link), link)
             for link in links]
         expected_not_in = notins
         if css:
@@ -517,13 +517,16 @@ class TestStaticWebTempurl(Base):
         if parms is None:
             parms = self.whole_container_parms
         return (
-            '<a href="%s?temp_url_prefix=%s&amp;temp_url_expires=%s&amp;'
-            'temp_url_sig=%s">%s</a>' % (
+            '<a href="./%s?temp_url_prefix=%s&amp;temp_url_expires=%s&amp;'
+            'temp_url_sig=%s%s">%s</a>' % (
                 name,
                 parms['temp_url_prefix'],
                 quote(str(parms['temp_url_expires'])),
                 parms['temp_url_sig'],
-                name))
+                '&amp;inline' if 'inline' in parms else '',
+                name,
+            )
+        )
 
     def test_unauthed(self):
         status = self.env.conn.make_request(
@@ -579,6 +582,20 @@ class TestStaticWebTempurl(Base):
         self.assertIn('href="..', body)
         self.assertIn(self.link('dir/obj'), body)
         self.assertIn(self.link('dir/subdir/'), body)
+
+    def test_get_dir_with_inline(self):
+        parms = dict(self.whole_container_parms, inline=1)
+        status = self.env.conn.make_request(
+            'GET',
+            self.env.container.path + [self.env.objects['dir/'].name, ''],
+            parms=parms,
+            cfg={'no_auth_token': True})
+        self.assertEqual(status, 200)
+        body = self.env.conn.response.read().decode('utf-8')
+        self.assertIn('Listing of /v1/', body)
+        self.assertIn('href="..', body)
+        self.assertIn(self.link('dir/obj', parms), body)
+        self.assertIn(self.link('dir/subdir/', parms), body)
 
     def test_get_dir_with_iso_expiry(self):
         iso_expiry = time.strftime(

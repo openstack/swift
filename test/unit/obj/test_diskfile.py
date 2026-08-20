@@ -498,6 +498,60 @@ class TestDiskFileModuleMethods(unittest.TestCase):
             self.assertRaises(OSError, diskfile.quarantine_renamer,
                               self.devices, qbit)
 
+    def test_quarantine_dir_renamer_hash(self):
+        for policy in POLICIES:
+            df = self._create_diskfile(policy=policy)
+            mkdirs(df._datadir)
+            suffix_dir = os.path.dirname(df._datadir)
+            qbit = os.path.join(df._datadir, 'qbit')
+            with open(qbit, 'w') as f:
+                f.write('abc')
+
+            # Quarantine hash dir
+            exp_dir = os.path.join(self.devices,
+                                   'quarantined',
+                                   diskfile.get_data_dir(policy),
+                                   os.path.basename(df._datadir))
+            to_dir = diskfile.quarantine_dir_renamer(self.devices, df._datadir)
+
+            self.assertEqual(to_dir, exp_dir)
+            self.assertTrue(os.path.isdir(to_dir))
+            self.assertTrue(os.path.isfile(os.path.join(to_dir, 'qbit')))
+            self.assertFalse(os.path.exists(df._datadir))
+            self.assertTrue(os.path.isdir(suffix_dir))
+            with self.assertRaises(OSError) as cm:
+                diskfile.quarantine_dir_renamer(self.devices, df._datadir)
+            self.assertEqual(errno.ENOENT, cm.exception.errno)
+
+    def test_quarantine_dir_renamer_suffix(self):
+        for policy in POLICIES:
+            df = self._create_diskfile(policy=policy)
+            mkdirs(df._datadir)
+            suffix_dir = os.path.dirname(df._datadir)
+            qbit = os.path.join(df._datadir, 'qbit')
+            with open(qbit, 'w') as f:
+                f.write('abc')
+
+            # Quarantine suffix dir
+            exp_dir = os.path.join(self.devices,
+                                   'quarantined',
+                                   diskfile.get_data_dir(policy),
+                                   os.path.basename(suffix_dir))
+            qbit = os.path.join(suffix_dir, 'qbit')
+            with open(qbit, 'w') as f:
+                f.write('abc')
+            to_dir = diskfile.quarantine_dir_renamer(self.devices, suffix_dir)
+            hash_dir_qr = os.path.join(to_dir, os.path.basename(df._datadir))
+
+            self.assertEqual(to_dir, exp_dir)
+            self.assertTrue(os.path.isdir(to_dir))
+            self.assertTrue(os.path.isdir(hash_dir_qr))
+            self.assertFalse(os.path.exists(suffix_dir))
+
+            with self.assertRaises(OSError) as cm:
+                diskfile.quarantine_dir_renamer(self.devices, suffix_dir)
+            self.assertEqual(errno.ENOENT, cm.exception.errno)
+
     def test_get_data_dir(self):
         self.assertEqual(diskfile.get_data_dir(POLICIES[0]),
                          diskfile.DATADIR_BASE)
@@ -1798,7 +1852,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta, \
                 mock.patch(self._manager_mock(
-                    'quarantine_renamer')) as quarantine_renamer:
+                    'quarantine_dir_renamer')) as quarantine_dir_renamer:
             osexc = OSError()
             osexc.errno = errno.ENOTDIR
             cleanup.side_effect = osexc
@@ -1807,10 +1861,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 DiskFileNotExist,
                 self.df_mgr.get_diskfile_from_hash,
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
-            quarantine_renamer.assert_called_once_with(
+            quarantine_dir_renamer.assert_called_once_with(
                 '/srv/dev/',
-                ('/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/' +
-                 'made-up-filename'))
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
 
     def test_get_diskfile_from_hash_no_data(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -1819,7 +1872,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta, \
                 mock.patch(self._manager_mock(
-                    'quarantine_renamer')) as quarantine_renamer:
+                    'quarantine_dir_renamer')) as quarantine_dir_renamer:
             osexc = OSError()
             osexc.errno = errno.ENODATA
             cleanup.side_effect = osexc
@@ -1828,10 +1881,9 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 DiskFileNotExist,
                 self.df_mgr.get_diskfile_from_hash,
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
-            quarantine_renamer.assert_called_once_with(
+            quarantine_dir_renamer.assert_called_once_with(
                 '/srv/dev/',
-                ('/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/' +
-                 'made-up-filename'))
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
 
     def test_get_diskfile_from_hash_unclean(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -1840,7 +1892,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                     'cleanup_ondisk_files')) as cleanup, \
                 mock.patch('swift.obj.diskfile.read_metadata') as readmeta, \
                 mock.patch(self._manager_mock(
-                    'quarantine_renamer')) as quarantine_renamer:
+                    'quarantine_dir_renamer')) as quarantine_dir_renamer:
             osexc = OSError()
             osexc.errno = EUCLEAN
             cleanup.side_effect = osexc
@@ -1849,10 +1901,51 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
                 DiskFileNotExist,
                 self.df_mgr.get_diskfile_from_hash,
                 'dev', '9', '9a7175077c01a23ade5956b8a2bba900', POLICIES[0])
-            quarantine_renamer.assert_called_once_with(
+            quarantine_dir_renamer.assert_called_once_with(
                 '/srv/dev/',
-                ('/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900/' +
-                 'made-up-filename'))
+                '/srv/dev/objects/9/900/9a7175077c01a23ade5956b8a2bba900')
+
+    def _check_quarantine_suffix(self, err):
+        dev_path = '/srv/dev/'
+        part = '9'
+        hsh = '9a7175077c01a23ade5956b8a2bba900'
+        suffix = hsh[-3:]
+        policy = 0
+        suffix_dir = os.path.join(dev_path, 'objects', part, suffix)
+        hash_dir = os.path.join(suffix_dir, hsh)
+        qr_dir = os.path.join(dev_path, 'quarantined', part, suffix)
+
+        cleanup_err = OSError(err, os.strerror(err))
+        self.assertEqual(cleanup_err.errno, err)  # sanity
+
+        self.df_mgr.get_dev_path = mock.MagicMock(return_value=dev_path)
+        with mock.patch(self._manager_mock('diskfile_cls')), \
+                mock.patch(self._manager_mock(
+                    'cleanup_ondisk_files')) as cleanup_mock, \
+                mock.patch(self._manager_mock(
+                    'quarantine_dir_renamer')) as qd_mock:
+            # when cleanup raises an error we try to quarantine
+            cleanup_mock.side_effect = cleanup_err
+            # first quarantine_dir call will raise error, second will return
+            # quarantined path
+            qd_mock.side_effect = [OSError, qr_dir]
+
+            with self.assertRaises(DiskFileNotExist):
+                self.df_mgr.get_diskfile_from_hash(dev_path,
+                                                   part,
+                                                   hsh,
+                                                   policy)
+        # qd_mock called twice, second time with suffix_dir
+        self.assertEqual([
+            mock.call(dev_path, hash_dir),
+            mock.call(dev_path, suffix_dir),
+        ], qd_mock.call_args_list)
+
+    def test_get_diskfile_from_hash_fs_corrupt_nested_enodata(self):
+        self._check_quarantine_suffix(errno.ENODATA)
+
+    def test_get_diskfile_from_hash_fs_corrupt_nested_euclean(self):
+        self._check_quarantine_suffix(errno.EUCLEAN)
 
     def test_get_diskfile_from_hash_no_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -4978,6 +5071,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertEqual(
                 'Failed to open %s: [Errno %d] -ENODATA fool!'
                 % (df._data_file, errno.ENODATA), str(err.exception))
+        self.assertTrue(os.path.exists(df._quarantined_dir))
 
     def test_quarantine_ioerror_euclean(self):
         df = self._get_open_disk_file()
@@ -5005,6 +5099,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
         self.assertRaises(DiskFileQuarantined, df.open)
+        self.assertTrue(os.path.exists(df._quarantined_dir))
 
         # make sure the right thing got quarantined; the suffix dir should not
         # have moved, as that could have many objects in it
@@ -6206,7 +6301,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                     pass
                 else:
                     self.fail("Expected OSError exception")
-        self.assertFalse(writer._put_succeeded)
+        self.assertIsNone(writer._tmppath)
         self.assertTrue(_m_renamer.called)
         self.assertTrue(_m_unlink.called)
         self.assertNotIn('error', self.logger.all_log_lines())
@@ -6320,8 +6415,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             with df.create(size=100) as writer:
                 writer.write(data)
                 writer.put(metadata)
-                self.assertTrue(writer._put_succeeded)
-
+        self.assertIsNone(writer._tmppath)
         self.assertFalse(_m_renamer.called)
 
     def test_diskfile_writer_timing_breakdown(self):
@@ -9273,6 +9367,47 @@ class TestSuffixHashes(BaseUnitTestCase):
             msg = 'expected %r != %r for policy %r' % (
                 expected, hashes, policy)
             self.assertEqual(hashes, expected, msg)
+
+    def test_hash_suffix_cleanup_ondisk_files_fs_corrupt_quarantined(self):
+        for policy in self.iter_policies():
+            for err in (errno.ENODATA, EUCLEAN):
+                df = self.df_router[policy].get_diskfile(
+                    self.existing_device, '0', 'a', 'c', 'o', policy=policy)
+                os.makedirs(df._datadir)
+                suffix_path = os.path.dirname(df._datadir)
+                suffix = os.path.basename(suffix_path)
+                orig_listdir = os.listdir
+                orig_quarantine_dir_renamer = diskfile.quarantine_dir_renamer
+
+                def mock_listdir(path):
+                    if path == df._datadir:
+                        raise OSError(err, 'os-error')
+                    return orig_listdir(path)
+
+                def mock_quarantine_dir_renamer(device_path, from_dir):
+                    if from_dir == df._datadir:
+                        raise OSError()
+                    return orig_quarantine_dir_renamer(device_path, from_dir)
+
+                df_mgr = self.df_router[policy]
+                with mock.patch('os.listdir', side_effect=mock_listdir), \
+                    mock.patch('swift.obj.diskfile.BaseDiskFileManager.'
+                               'quarantine_dir_renamer',
+                               side_effect=mock_quarantine_dir_renamer):
+                    hashes = df_mgr.get_hashes(self.existing_device,
+                                               '0',
+                                               [suffix],
+                                               policy)
+                self.assertEqual(hashes, {})
+
+                self.assertFalse(os.path.exists(suffix_path))
+                quarantine_dir = os.path.join(self.devices,
+                                              self.existing_device,
+                                              'quarantined')
+                quarantined_path = os.path.join(quarantine_dir,
+                                                diskfile.get_data_dir(policy),
+                                                os.path.basename(suffix_path))
+                self.assertTrue(os.path.exists(quarantined_path))
 
     def test_hash_suffix_rmdir_hsh_path_oserror(self):
         for policy in self.iter_policies():

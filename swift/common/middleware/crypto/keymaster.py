@@ -133,8 +133,9 @@ class KeyMasterContext(WSGIContext):
             key_acct, key_cont, key_obj = (
                 self.account, self.container, self.obj)
 
-        if (secret_id, version) in self._keys:
-            return self._keys[(secret_id, version)]
+        cache_key = (key_acct, key_cont, key_obj, secret_id, version)
+        if cache_key in self._keys:
+            return self._keys[cache_key]
 
         keys = {}
         account_path = '/' + key_acct
@@ -180,7 +181,7 @@ class KeyMasterContext(WSGIContext):
                         key_id=None, *args, **kwargs)
                     keys['all_ids'].extend(alternate_keys.get('all_ids', []))
 
-                self._keys[(secret_id, version)] = keys
+                self._keys[cache_key] = keys
 
             return keys
         except UnknownSecretIdError:

@@ -43,3 +43,8 @@ if __version__ is None:
     _version_info = pbr.version.VersionInfo('swift')
     __version__ = _version_info.release_string()
     __canonical_version__ = _version_info.version_string()
+
+
+import warnings
+
+warnings.filterwarnings('ignore', message='\nEventlet is deprecated\\.')

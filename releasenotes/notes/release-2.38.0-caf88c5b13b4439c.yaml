@@ -1,0 +1,117 @@
+---
+features:
+  - |
+    Return ``x-amz-server-side-encryption: AES256`` header in GET and HEAD
+    S3 responses when the object data is encrypted.
+
+  - |
+    Added a ``--dev-id-bytes`` argument to the ``swift-ring-builder write_ring``
+    subcommand to allow operators to test rings with wide device IDs prior
+    to having more than 64k devices.
+
+  - |
+    Allow operators to pass either raw or URL-quoted paths to
+    ``swift-manage-shard-ranges show``. Notably, this better allows the tool
+    to work with the reserved namespace used for object versioning.
+
+  - |
+    The object server now logs timing information for "slow" DELETEs, where
+    "slow" is configurable via a new ``slow_delete_log_threshold_seconds``
+    option (default two minutes). See etc/object-server.conf-sample for more
+    information.
+
+deprecations:
+  - |
+    The internal-client.conf hard-coded in the container sync daemon is now
+    deprecated; in a future release operators will need to either have an
+    internal-client.conf or point to such a config with the
+    ``internal_client_conf_path`` option.
+
+security:
+  - |
+    Block client-supplied container-update headers. Previously, these could
+    be used to perform server-side request forgery (SSRF) attacks. Refer to
+    `CVE-2026-50221 <https://www.cve.org/CVERecord?id=CVE-2026-50221>`__ for
+    more information.
+
+  - |
+    Restrict the types of data that may be sent between object servers and
+    replicators. Previously, if an object server were compromised, it could
+    use REPLICATE responses to attempt to compromise other nodes through
+    their replicators.
+
+  - |
+    Fixed an infinite loop when attempting to read from a truncated
+    aws-chunked input. This could be used as a Denial-of-Service vector
+    as the proxy-server process stopped handling other requests. Refer to
+    `CVE-2026-49017 <https://www.cve.org/CVERecord?id=CVE-2026-49017>`__ for
+    more information.
+
+fixes:
+  - |
+    S3 API fixes:
+
+    * Send ``Connection: close`` headers with RequestTimeout responses. This
+      reduces HTTP framing issues with many common clients.
+
+    * Fixed restore-on-delete behavior for versioned buckets when there were
+      no prior versions of the object but another object was prefixed by the
+      target object name.
+
+    * Reject ``publicAccessBlock`` requests as not implemented, rather than
+      making requests against the bucket as though the subresource was not
+      specified.
+
+    * Fixed pagination of versioned listings with ``NextVersionIdMarker``.
+
+    * Reject oversized chunked S3 XML request bodies, such as multi-delete
+      and complete-multipart-upload requests, rather than parsing only the
+      allowed prefix.
+
+  - |
+    Object versioning fixes:
+
+    * Fixed listings with ``?version-id-marker=null``.
+
+    * A PUT with ``?version-id=null`` now results in a 400, rather than 500,
+      response.
+
+    * Prepare for a future release that may use more complex version IDs.
+
+  - |
+    Object relinker fixes:
+
+    * Log unhandled exceptions in relinker workers.
+
+    * Improved filtering of already-processed hashes.
+
+  - |
+    Static large object manifests submitted with ``Transfer-Encoding: chunked``
+    are now rejected when they exceed ``max_manifest_size``, matching
+    fixed-length manifest uploads.
+
+  - |
+    Account and container servers now explicitly close DB connections during
+    the request cycle. Previously, Swift could maintain open file handles on
+    Python 3.11 and later that would prevent drive unmounts.
+
+  - |
+    The container sync daemon will now use internal-client.conf if it exists
+    rather than its own hard-coded config.
+
+  - |
+    The object server now drops page cache for the correct range of bytes
+    when serving ranged GETs.
+
+  - |
+    Fix an error in how sharded listings are aggregated that could produce
+    incorrect listings when shards do not agree on the correct storage policy.
+
+  - |
+    Improved ssync logging to always include remote address and path.
+
+  - |
+    Improved consistency of proxy-logging metric labels.
+
+  - |
+    Various other minor bug fixes and improvements.

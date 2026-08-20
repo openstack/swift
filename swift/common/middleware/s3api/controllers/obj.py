@@ -26,17 +26,22 @@ from swift.common.registry import get_swift_info
 
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
-from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
+from swift.common.middleware.s3api.acl_handlers import ObjectAclHandler
+from swift.common.middleware.s3api.utils import S3Timestamp, \
+    sysmeta_header, swift3_object_sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \
-    PreconditionFailed, KeyTooLongError
+    PreconditionFailed, KeyTooLongError, NoSuchBucket
 
 
 class ObjectController(Controller):
     """
     Handles requests on objects
     """
+    acl_handler = ObjectAclHandler
+    resource_type = 'OBJECT'
+
     def _gen_head_range_resp(self, req_range, resp):
         """
         Swift doesn't handle Range header for HEAD requests.
@@ -85,6 +90,9 @@ class ObjectController(Controller):
         if had_match:
             # Update where to look
             update_etag_is_at_header(req, sysmeta_header('object', 'etag'))
+            # objects uploaded by the legacy swift3 middleware stored the
+            # S3-style etag under a different sysmeta name
+            update_etag_is_at_header(req, swift3_object_sysmeta_header('etag'))
 
         object_name = req.object_name
         version_id = req.params.get('versionId')
@@ -176,7 +184,7 @@ class ObjectController(Controller):
         if 'X-Amz-Copy-Source' in req.headers:
             last_modified_ts = S3Timestamp(
                 parse_date_header(resp.headers['Last-Modified']))
-            resp.append_copy_resp_body(req.controller_name,
+            resp.append_copy_resp_body('CopyObjectResult',
                                        last_modified_ts.s3xmlformat)
             # delete object metadata from response
             for key in list(resp.headers.keys()):
@@ -200,20 +208,25 @@ class ObjectController(Controller):
         resp = None
         for item in old_versions:
             if item['name'] != req.object_name:
+                # no more versions to try
                 break
             if item['content_type'] == DELETE_MARKER_CONTENT_TYPE:
-                resp = None
+                # 'restoring' a delete marker is a no-op
                 break
             try:
                 resp = req.get_response(self.app, 'PUT', query={
                     'version-id': item['version_id']})
-            except PreconditionFailed:
-                self.logger.debug('skipping failed PUT?version-id=%s' %
+                # if that worked, we'll go ahead and fix up the status code
+                resp.status_int = HTTP_NO_CONTENT
+                break
+            except (PreconditionFailed, NoSuchBucket):
+                # note: object_versioning will return 404 for the PUT if the
+                # source object for the restored version cannot be found (e.g.
+                # if the versions listing is stale), but S3Request maps a 404
+                # for a PUT to NoSuchBucket, so we catch that here to avoid it
+                # propagating to the client.
+                self.logger.debug('skipping failed PUT?version-id=%s',
                                   item['version_id'])
-                continue
-            # if that worked, we'll go ahead and fix up the status code
-            resp.status_int = HTTP_NO_CONTENT
-            break
         return resp
 
     @public

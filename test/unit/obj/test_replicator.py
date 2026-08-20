@@ -2126,6 +2126,107 @@ class TestObjectReplicator(BaseUnitTestCase):
     @mock.patch('swift.obj.replicator.tpool.execute')
     @mock.patch('swift.obj.replicator.http_connect', autospec=True)
     @mock.patch('swift.obj.replicator._do_listdir')
+    def test_update_with_handoff_delete(
+            self, mock_do_listdir, mock_http, mock_tpool_execute):
+
+        def set_default(self):
+            self.replicator.suffix_count = 0
+            self.replicator.suffix_sync = 0
+            self.replicator.suffix_hash = 0
+            self.replicator.last_replication_count = 0
+            self.replicator._zero_stats()
+            self.replicator.partition_times = []
+
+        # operator says to accept reduced durability to keep rebalance moving
+        self.replicator.handoff_delete = 2
+        self.headers = {'Content-Length': '0',
+                        'user-agent': 'object-replicator %s' % os.getpid()}
+        mock_tpool_execute.return_value = (0, {})
+
+        all_jobs = self.replicator.collect_jobs()
+        jobs = [job for job in all_jobs if not job['delete']]
+
+        good_resp = mock.MagicMock()
+        good_resp.status = 200
+        good_resp.read.return_value = pickle.dumps({})
+        bad_resp = mock.MagicMock()
+        bad_resp.status = 507
+        mock_http.return_value = answer = mock.MagicMock()
+        expected_listdir_calls = [
+            mock.call(int(job['partition']),
+                      self.replicator.replication_cycle)
+            for job in jobs]
+        do_listdir_results = [False, False, True, False, True, False]
+        mock_do_listdir.side_effect = do_listdir_results
+        expected_tpool_calls = [
+            mock.call(self.replicator._df_router[job['policy']]._get_hashes,
+                      job['device'], job['partition'], job['policy'],
+                      do_listdir=do_listdir)
+            for job, do_listdir in zip(jobs, do_listdir_results)
+        ]
+        for job in jobs:
+            set_default(self)
+            answer.getresponse.side_effect = [good_resp, bad_resp]
+            self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+            self.replicator.update(job)
+            error_lines = self.logger.get_lines_for_level('error')
+            expected = []
+            error = '%s responded as unmounted'
+            # Just the primaries
+            for node in job['nodes'][1:]:
+                node_str = utils.node_to_string(node, replication=True)
+                expected.append(error % node_str)
+            # Never goes to handoffs
+            self.assertEqual(expected, error_lines)
+            self.assertEqual(len(self.replicator.partition_times), 1)
+            self.assertEqual(mock_http.call_count, len(job['nodes']))
+            reqs = []
+            for node in job['nodes']:
+                reqs.append(mock.call(node['ip'], node['port'], node['device'],
+                                      job['partition'], 'REPLICATE', '',
+                                      headers=self.headers))
+            if job['partition'] == '0':
+                self.assertEqual(self.replicator.suffix_hash, 0)
+            mock_http.assert_has_calls(reqs, any_order=True)
+            mock_http.reset_mock()
+            self.logger.clear()
+        mock_do_listdir.assert_has_calls(expected_listdir_calls)
+        mock_tpool_execute.assert_has_calls(expected_tpool_calls)
+        mock_do_listdir.side_effect = None
+        mock_do_listdir.return_value = False
+
+        for job in jobs:
+            set_default(self)
+            answer.getresponse.side_effect = [bad_resp, bad_resp, good_resp]
+            self.headers['X-Backend-Storage-Policy-Index'] = int(job['policy'])
+            self.replicator.update(job)
+            error_lines = self.logger.get_lines_for_level('error')
+            expected = []
+            error = '%s responded as unmounted'
+            # Just the primaries
+            for node in job['nodes']:
+                node_str = utils.node_to_string(node, replication=True)
+                expected.append(error % node_str)
+            self.assertEqual(expected, error_lines)
+            self.assertEqual(len(self.replicator.partition_times), 1)
+            # Goes to only one handoff
+            self.assertEqual(mock_http.call_count, len(job['nodes']) + 1)
+            reqs = []
+            for node in job['nodes']:
+                reqs.append(mock.call(node['ip'], node['port'], node['device'],
+                                      job['partition'], 'REPLICATE', '',
+                                      headers=self.headers))
+            if job['partition'] == '0':
+                self.assertEqual(self.replicator.suffix_hash, 0)
+            mock_http.assert_has_calls(reqs, any_order=True)
+            mock_http.reset_mock()
+            self.logger.clear()
+        mock_do_listdir.assert_has_calls(expected_listdir_calls)
+        mock_tpool_execute.assert_has_calls(expected_tpool_calls)
+
+    @mock.patch('swift.obj.replicator.tpool.execute')
+    @mock.patch('swift.obj.replicator.http_connect', autospec=True)
+    @mock.patch('swift.obj.replicator._do_listdir')
     def test_update_local_hash_changes_during_replication(
             self, mock_do_listdir, mock_http, mock_tpool_execute):
         mock_http.return_value = answer = mock.MagicMock()

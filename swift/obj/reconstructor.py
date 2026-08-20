@@ -917,11 +917,12 @@ class ObjectReconstructor(Daemon):
             attempts_remaining -= 1
             conn = None
             try:
-                with Timeout(self.http_timeout):
+                with Timeout(self.conn_timeout):
                     conn = http_connect(
                         node['replication_ip'], node['replication_port'],
                         node['device'], job['partition'], 'REPLICATE',
                         '', headers=headers)
+                with Timeout(self.http_timeout):
                     resp = conn.getresponse()
                 if resp.status == HTTP_INSUFFICIENT_STORAGE:
                     self.logger.error(

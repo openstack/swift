@@ -775,6 +775,20 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(self._get_error_code(body), 'InvalidArgument')
 
+    def test_bucket_GET_str_list_type(self):
+        bucket_name = 'junk'
+
+        req = Request.blank('/%s?list-type=invalid' % bucket_name,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual('400 Bad Request', status)
+        elem = fromstring(body, 'Error')
+        self.assertEqual('InvalidArgument', elem.find('./Code').text)
+        self.assertEqual('list-type', elem.find('./ArgumentName').text)
+        self.assertEqual('invalid', elem.find('./ArgumentValue').text)
+
     def test_bucket_GET_negative_max_keys(self):
         bucket_name = 'junk'
 
@@ -833,6 +847,85 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         # "start-after" is converted to "marker"
         self.assertEqual(args['marker'], 'b')
         self.assertEqual(args['prefix'], 'c')
+
+    def _assert_invalid_utf8_list_param(self, query_string, argument_name):
+        req = Request.blank('/junk?%s' % query_string,
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, _headers, body = self.call_s3api(req)
+        self.assertEqual('400 Bad Request', status)
+        elem = fromstring(body, 'Error')
+        self.assertEqual('InvalidArgument', elem.find('./Code').text)
+        self.assertEqual(argument_name, elem.find('./ArgumentName').text)
+        self.assertEqual('%98', elem.find('./ArgumentValue').text)
+
+    def test_bucket_GET_with_invalid_utf8_queries(self):
+        self._assert_invalid_utf8_list_param('delimiter=\x98', 'delimiter')
+        self._assert_invalid_utf8_list_param('marker=\x98', 'marker')
+        self._assert_invalid_utf8_list_param('prefix=\x98', 'prefix')
+
+    def test_bucket_GET_v2_with_invalid_utf8_queries(self):
+        self._assert_invalid_utf8_list_param(
+            'list-type=2&delimiter=\x98', 'delimiter')
+        self._assert_invalid_utf8_list_param(
+            'list-type=2&prefix=\x98', 'prefix')
+        self._assert_invalid_utf8_list_param(
+            'list-type=2&start-after=\x98', 'start-after')
+
+    def test_bucket_GET_versions_with_invalid_utf8_queries(self):
+        self._assert_invalid_utf8_list_param('versions=\x98', 'versions')
+        self._assert_invalid_utf8_list_param(
+            'versions&delimiter=\x98', 'delimiter')
+        self._assert_invalid_utf8_list_param(
+            'versions&prefix=\x98', 'prefix')
+        self._assert_invalid_utf8_list_param(
+            'versions&key-marker=\x98', 'key-marker')
+        self._assert_invalid_utf8_list_param(
+            'versions&key-marker=foo&version-id-marker=\x98',
+            'version-id-marker')
+
+    def test_bucket_GET_v2_continuation_token(self):
+        continuation_token = 'Zm9v'  # foo in base64
+        for query_string, argument_value in (
+                ('list-type=2&continuation-token=', ''),
+                ('list-type=2&continuation-token=' + continuation_token,
+                 continuation_token)):
+            req = Request.blank('/junk?%s' % query_string,
+                                environ={'REQUEST_METHOD': 'GET'},
+                                headers={
+                                    'Authorization': 'AWS test:tester:hmac',
+                                    'Date': self.get_date_header()})
+            status, _headers, body = self.call_s3api(req)
+            self.assertEqual('200 OK', status)
+            elem = fromstring(body, 'ListBucketResult')
+
+            result_val = elem.find('./ContinuationToken').text
+            if result_val is not None:
+                self.assertEqual(result_val, argument_value)
+            else:
+                self.assertEqual('', argument_value)
+
+    def test_bucket_GET_v2_with_invalid_continuation_token(self):
+        for query_string, argument_value in (
+                ('list-type=2&continuation-token=not-valid', 'not-valid'),
+                ('list-type=2&continuation-token=\x98', '%98'),
+                ('list-type=2&continuation-token=mA%3D%3D', 'mA%3D%3D')):
+            req = Request.blank('/junk?%s' % query_string,
+                                environ={'REQUEST_METHOD': 'GET'},
+                                headers={
+                                    'Authorization': 'AWS test:tester:hmac',
+                                    'Date': self.get_date_header()})
+            status, _headers, body = self.call_s3api(req)
+            self.assertEqual('400 Bad Request', status)
+            elem = fromstring(body, 'Error')
+            self.assertEqual('InvalidArgument', elem.find('./Code').text)
+            self.assertEqual('continuation-token',
+                             elem.find('./ArgumentName').text)
+            self.assertEqual(argument_value,
+                             elem.find('./ArgumentValue').text)
+            self.assertIn('The continuation token provided is incorrect',
+                          elem.find('./Message').text)
 
     def test_bucket_GET_with_nonascii_queries(self):
         bucket_name = 'junk'

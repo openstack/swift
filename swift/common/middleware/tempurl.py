@@ -634,6 +634,9 @@ class TempURL(object):
             qs['temp_url_prefix'] = temp_url_prefix
         if filename:
             qs['filename'] = filename
+        if inline_disposition:
+            # Preserve this so staticweb can include it on URLs it generates
+            qs['inline'] = ''
         env['QUERY_STRING'] = urlencode(qs)
 
         ctx = WSGIContext(self.app)

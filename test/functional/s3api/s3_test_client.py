@@ -192,9 +192,10 @@ def tear_down_s3(conn):
                             Key=upload['Key'],
                             UploadId=upload['UploadId'])
 
-                    resp = conn.list_objects(Bucket=bucket)
-                    for obj in resp.get('Contents', []):
-                        conn.delete_object(Bucket=bucket, Key=obj['Key'])
+                    resp = conn.list_object_versions(Bucket=bucket)
+                    for obj in resp.get('Versions', []):
+                        conn.delete_object(Bucket=bucket, Key=obj['Key'],
+                                           VersionId=obj['VersionId'])
                     try:
                         conn.delete_bucket(Bucket=bucket)
                     except ClientError as e:
