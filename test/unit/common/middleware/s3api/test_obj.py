@@ -1145,6 +1145,43 @@ class BaseS3ApiObj(object):
         # AWS seems to tolerate this so we should, too
         do_test('some/source')
 
+    def test_object_PUT_copy_source_headers(self):
+        # verify that only recognised copy-source headers are propagated from
+        # the x-amz-copy-source- header namespace
+        account = 'test:tester'
+        grants = [Grant(User(account), 'FULL_CONTROL')]
+        head_headers = encode_acl(
+            'object', ACL(Owner(account, account), grants))
+        head_headers.update({
+            'Etag': self.etag,
+            'Last-Modified': self.last_modified,
+        })
+        self.swift.register('HEAD', '/v1/AUTH_test/some/source',
+                            swob.HTTPOk, head_headers, None)
+
+        older_date = 'Thu, 31 Mar 2014 12:00:00 GMT'
+        newer_date = 'Sat, 02 Apr 2014 12:00:00 GMT'
+        req_headers = {
+            'X-Amz-Copy-Source-If-Match': self.etag,
+            'X-Amz-Copy-Source-If-None-Match': 'other-etag',
+            'X-Amz-Copy-Source-If-Modified-Since': older_date,
+            'X-Amz-Copy-Source-If-Unmodified-Since': newer_date,
+            'X-Amz-Copy-Source-X-Backend-Naughty': 'ignored',
+        }
+        status, headers, body = self._call_object_copy(
+            '/some/source', req_headers)
+
+        self.assertEqual('200', status.split()[0])
+        method, path, swift_headers = self.swift.calls_with_headers[0]
+        self.assertEqual('HEAD', method)
+        self.assertEqual('/v1/AUTH_test/some/source', path)
+        self.assertEqual(self.etag, swift_headers['If-Match'])
+        self.assertEqual('other-etag', swift_headers['If-None-Match'])
+        self.assertEqual(older_date, swift_headers['If-Modified-Since'])
+        self.assertEqual(newer_date, swift_headers['If-Unmodified-Since'])
+        # unrecognised header is not propagated...
+        self.assertNotIn('X-Backend-Naughty', swift_headers)
+
     def test_object_PUT_copy_if_match_s3api_etag(self):
         s3api_etag = '%s-2' % self.etag
         account = 'test:tester'

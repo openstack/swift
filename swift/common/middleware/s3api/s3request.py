@@ -115,6 +115,16 @@ DISALLOWED_CLIENT_HEADERS = frozenset((
 ))
 
 
+# the set of headers that are accepted in conjunction with x-amz-copy-source
+ALLOWED_COPY_SOURCE_HEADERS = frozenset((
+    'x-amz-copy-source-range',  # only for UploadPartCopy
+    'x-amz-copy-source-if-match',
+    'x-amz-copy-source-if-none-match',
+    'x-amz-copy-source-if-modified-since',
+    'x-amz-copy-source-if-unmodified-since',
+))
+
+
 CHECKSUMS_BY_HEADER = {
     'x-amz-checksum-crc32': checksum.crc32,
     'x-amz-checksum-crc32c': checksum.crc32c,
@@ -1766,14 +1776,6 @@ class S3Request(swob.Request):
                                  'Content-MD5 OR x-amz-checksum-*')
         self.check_md5(body)
 
-    def _copy_source_headers(self):
-        env = {}
-        for key, value in self.environ.items():
-            if key.startswith('HTTP_X_AMZ_COPY_SOURCE_'):
-                env[key.replace('X_AMZ_COPY_SOURCE_', '')] = value
-
-        return swob.HeaderEnvironProxy(env)
-
     def check_copy_source(self, app):
         """
         check_copy_source checks the copy source existence and if copying an
@@ -1802,7 +1804,10 @@ class S3Request(swob.Request):
         src_bucket, src_obj = split_path(src_path, 0, 2, True)
 
         headers = swob.HeaderKeyDict()
-        headers.update(self._copy_source_headers())
+        # translate allowed copy-source headers...
+        for header in ALLOWED_COPY_SOURCE_HEADERS:
+            headers[header.replace('x-amz-copy-source-', '')] = \
+                self.headers.get(header)
         update_etag_is_at_value(headers, sysmeta_header('object', 'etag'))
         # objects uploaded by the legacy swift3 middleware stored the S3-style
         # etag under a different sysmeta name
