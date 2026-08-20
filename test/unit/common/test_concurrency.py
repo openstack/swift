@@ -26,7 +26,8 @@ import threading
 from swift.common.concurrency import (
     Pool, USE_EVENTLET, Timeout, spawn, tpool, SwiftPool, sleep, reset_pool,
     SwiftPile, socket_timeout_enter, socket_timeout_exit, set_read_timeout,
-    run_wsgi_server, signal_for, clear_connect_timeout)
+    run_wsgi_server, signal_for, clear_connect_timeout, trampoline,
+    INCOMPLETE)
 
 
 class TestSocketTimeoutHelpers(unittest.TestCase):
@@ -667,6 +668,80 @@ class TestSpawn(unittest.TestCase):
         with self.assertRaises(Exception) as ctx:
             result.wait()
         self.assertEqual(str(ctx.exception), 'reason')
+
+    @unittest.skipIf(USE_EVENTLET, "ThreadWithResult.result is threading-only")
+    def test_returning_none_is_not_mistaken_for_incomplete(self):
+        started = threading.Event()
+        release = threading.Event()
+
+        def returns_none():
+            started.set()
+            release.wait(5)
+
+        result = spawn(returns_none)
+        self.addCleanup(release.set)
+        self.assertTrue(started.wait(5))
+        self.assertIs(result.result, INCOMPLETE)
+        self.assertFalse(result.dead)
+        release.set()
+        self.assertIsNone(result.wait())
+        self.assertIsNone(result.result)
+        self.assertTrue(result.dead)
+
+
+class TestSleep(unittest.TestCase):
+    def test_sleep_zero_and_default_do_not_raise(self):
+        self.assertIsNone(sleep(0))
+        self.assertIsNone(sleep())
+
+    def test_sleep_actually_sleeps(self):
+        start = time.monotonic()
+        sleep(0.05)
+        self.assertGreaterEqual(time.monotonic() - start, 0.04)
+
+
+@unittest.skipIf(USE_EVENTLET, "threading trampoline only")
+class TestTrampoline(unittest.TestCase):
+    def _socketpair(self):
+        rd, wr = socket.socketpair()
+        self.addCleanup(rd.close)
+        self.addCleanup(wr.close)
+        return rd, wr
+
+    def test_returns_once_readable(self):
+        rd, wr = self._socketpair()
+        wr.sendall(b'x')
+        trampoline(rd.fileno(), read=True, timeout=5)
+        self.assertEqual(rd.recv(1), b'x')
+
+    def test_returns_when_writable(self):
+        rd, wr = self._socketpair()
+        trampoline(wr.fileno(), write=True, timeout=5)
+
+    def test_returns_on_timeout_without_raising(self):
+        rd, wr = self._socketpair()
+        start = time.monotonic()
+        trampoline(rd.fileno(), read=True, timeout=0.05)
+        self.assertGreaterEqual(time.monotonic() - start, 0.04)
+
+    def test_blocks_until_another_thread_writes(self):
+        rd, wr = self._socketpair()
+
+        def writer():
+            sleep(0.05)
+            wr.sendall(b'x')
+
+        t = threading.Thread(target=writer)
+        t.start()
+        self.addCleanup(t.join)
+        trampoline(rd.fileno(), read=True, timeout=5)
+        self.assertEqual(rd.recv(1), b'x')
+
+    def test_requires_read_or_write(self):
+        rd, wr = self._socketpair()
+        with self.assertRaises(ValueError) as ctx:
+            trampoline(rd.fileno(), timeout=5)
+        self.assertIn('read=True or write=True', str(ctx.exception))
 
 
 @unittest.skipIf(USE_EVENTLET, "threading socket_timeout helpers only")

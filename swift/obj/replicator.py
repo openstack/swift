@@ -25,7 +25,7 @@ import time
 import itertools
 
 from swift.common.concurrency import (
-    spawn, spawn_n, SwiftPool, LightQueue, Empty, tpool, Timeout, sleep,
+    spawn, SwiftPool, LightQueue, Empty, tpool, Timeout, sleep,
     subprocess, interruptible_sleep, wait_subprocess, read_subprocess
 )
 
@@ -1174,7 +1174,7 @@ class ObjectReplicator(Daemon):
             self.is_multiprocess_worker = True
             self._emplace_log_prefix(multiprocess_worker_index)
         self.logger.info("Starting object replicator in daemon mode.")
-        spawn_n(self._child_process_reaper)
+        spawn(self._child_process_reaper)
         # Run the replicator continually
         while True:
             self._zero_stats()

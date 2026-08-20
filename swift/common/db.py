@@ -125,6 +125,12 @@ class GreenDBConnection(sqlite3.Connection):
             timeout = BROKER_TIMEOUT
         self.timeout = timeout
         self.db_file = database
+        # timeout=0 makes sqlite3 raise on a locked db rather than wait for
+        # the lock in C, which would block the whole eventlet hub;
+        # _db_timeout() waits in Python instead. Once eventlet is gone this
+        # could pass self.timeout through and drop _db_timeout(), but measure
+        # first: sqlite3 retries on its own schedule, so which writer wins
+        # under contention would change.
         super().__init__(database, timeout=0, *args, **kwargs)
 
     def cursor(self, cls=None):

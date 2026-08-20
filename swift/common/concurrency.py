@@ -51,6 +51,11 @@ if USE_EVENTLET:
 del config_false_value
 
 
+# Marks a spawned call that has not returned yet, so a function returning None
+# is distinguishable from one still running.
+INCOMPLETE = object()
+
+
 if USE_EVENTLET:
     import eventlet  # noqa: F401
     import eventlet.debug
@@ -371,34 +376,46 @@ else:
             self.restore_timeout()
 
     def sleep(seconds=0):
+        # Differs from eventlet's sleep twice over, as there is no hub to
+        # yield to: sleep(0) is a no-op, and a surrounding Timeout cannot
+        # interrupt it, so `with Timeout(0.5): sleep(10)` blocks the full 10s.
+        # Use interruptible_sleep() where a daemon must wake early.
         if seconds:
             time.sleep(seconds)
 
     # Helper functions to replace eventlet spawn with a threading equivalent
     _spawn_kill_local = threading.local()
 
-    class ThreadResult(object):
+    class ThreadWithResult(threading.Thread):
+        """A daemon thread holding the call's return value or exception.
+
+        Starts on construction and offers the same wait()/dead/kill() surface
+        as EventletResult, so callers need not branch on the mode.
+        """
+
         def __init__(self, func, args, kwargs):
-            self.result = None
+            super().__init__(daemon=True)
+            self._func = func
+            self._func_args = args
+            self._func_kwargs = kwargs
+            self.result = INCOMPLETE
             self.exc = None
             self._kill_hook = None
-            self.thread = threading.Thread(
-                target=self.run, args=(func, args, kwargs))
-            self.thread.daemon = True
-            self.thread.start()
+            self.start()
 
-        def run(self, func, args, kwargs):
+        def run(self):
             _spawn_kill_local.handle = self
             try:
-                self.result = func(*args, **kwargs)
+                self.result = self._func(*self._func_args,
+                                         **self._func_kwargs)
             except BaseException as e:
                 self.exc = e
             finally:
                 _spawn_kill_local.handle = None
 
         def wait(self, timeout=None):
-            self.thread.join(timeout=timeout)
-            if self.thread.is_alive():
+            self.join(timeout=timeout)
+            if self.is_alive():
                 raise Timeout(timeout)
             if self.exc:
                 raise self.exc
@@ -406,7 +423,7 @@ else:
 
         @property
         def dead(self):
-            return not self.thread.is_alive()
+            return not self.is_alive()
 
         def kill(self):
             # Real threads can't be interrupted, but a stoppable callable can
@@ -452,7 +469,7 @@ else:
             return func(*args, **kwargs)
 
     def spawn(func, *args, **kwargs):
-        return ThreadResult(func, args, kwargs)
+        return ThreadWithResult(func, args, kwargs)
 
     # eventlet spawn_n is spawn without a return value; reuse spawn here.
     spawn_n = spawn
@@ -866,6 +883,14 @@ else:
             return self._futures.popleft().result()
 
     def trampoline(fd, read=None, write=None, timeout=None, **kwargs):
+        """Wait for ``fd``, replacing eventlet.hubs.trampoline.
+
+        eventlet suspends the calling greenthread; here the calling thread
+        blocks in select(), which is all the callers need.
+        """
+        if not read and not write:
+            # eventlet asserts on this; a select() on neither list never wakes
+            raise ValueError('trampoline() requires read=True or write=True')
         rlist = [fd] if read else []
         wlist = [fd] if write else []
         select.select(rlist, wlist, [fd], timeout)
@@ -1387,4 +1412,5 @@ __all__ = [
     'spawn_n',
     'ChunkReadError',
     'current_id',
+    'INCOMPLETE',
 ]
