@@ -650,6 +650,56 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         for k, v in symlink_expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
 
+    def test_PUT_callback_footers_persisted_on_version_object(self):
+        ts_now = self.ts()
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
+            swob.HTTPCreated, {}, '')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        put_body = 'stuff' * 100
+
+        def update_footers(footers):
+            footers['X-Object-Sysmeta-Test-Footer'] = 'from-callback'
+
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id',
+                     'swift.callback.update_footers': update_footers})
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        version_path = self.build_versions_path(
+            obj='o', version=(~ts_now).internal)
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT', version_path),
+            ('PUT', '/v1/a/c/o'),
+        ])
+
+        version_put_call = self.app.call_list[1]
+        self.assertEqual(
+            'from-callback',
+            version_put_call.footers['X-Object-Sysmeta-Test-Footer'])
+        version_metadata, _version_body = self.app.uploaded[version_path]
+        self.assertEqual(
+            'from-callback',
+            version_metadata['X-Object-Sysmeta-Test-Footer'])
+
+        symlink_put_call = self.app.call_list[2]
+        self.assertNotIn('swift.callback.update_footers',
+                         symlink_put_call.req.environ)
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer',
+                         symlink_put_call.footers)
+
     def test_PUT_timestamp_set_by_object_versioning(self):
         # verify timestamps set by versioning
         self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
