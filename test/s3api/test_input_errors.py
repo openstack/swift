@@ -1437,10 +1437,11 @@ class InputErrorsMixin(object):
             headers={'x-amz-content-sha256': 'UNSIGNED-PAYLOAD'})
         self.assertOK(resp)
 
+        dest_name = self.create_name('range-copy')
         req_range = 'bytes=0-2'
         resp = self.conn.make_request(
             self.bucket_name,
-            self.create_name('range-copy'),
+            dest_name,
             method='PUT',
             headers={
                 'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
@@ -1460,6 +1461,17 @@ class InputErrorsMixin(object):
         self.assertIn('<ArgumentName>Range</ArgumentName>', respbody)
         self.assertIn(
             '<ArgumentValue>%s</ArgumentValue>' % req_range, respbody)
+
+        # check the copy was not made...
+        resp = self.conn.make_request(
+            self.bucket_name,
+            dest_name,
+            method='GET',
+            headers={'x-amz-content-sha256': 'UNSIGNED-PAYLOAD'}
+        )
+        respbody = resp.content.decode('utf8')
+        self.assertEqual((resp.status_code, resp.reason),
+                         (404, 'Not Found'), respbody)
 
     def test_get_object_no_sha(self):
         obj_name = self.create_name('get-object')

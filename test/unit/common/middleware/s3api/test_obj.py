@@ -1452,10 +1452,7 @@ class BaseS3ApiObj(object):
             elem.find('./Message').text)
         self.assertEqual('Range', elem.find('./ArgumentName').text)
         self.assertEqual(req_range, elem.find('./ArgumentValue').text)
-        self.assertNotIn(
-            ('HEAD', '/v1/AUTH_test/some/source'), self.swift.calls)
-        self.assertNotIn(
-            ('PUT', '/v1/AUTH_test/bucket/object'), self.swift.calls)
+        self.assertFalse(self.swift.calls)
 
     def test_object_POST_error(self):
         code = self._test_method_error('POST', '/bucket/object', None)

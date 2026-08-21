@@ -1778,15 +1778,22 @@ class S3Request(swob.Request):
 
     def check_copy_source(self, app):
         """
-        check_copy_source checks the copy source existence and if copying an
-        object to itself, for illegal request parameters
+        If the request is a copy, checks for invalid request headers and
+        parameters, and checks the copy source existence.
 
+        :param app: a wsgi application to which a source HEAD request is made
         :returns: the source HEAD response
         """
         try:
             src_path = self.headers['X-Amz-Copy-Source']
         except KeyError:
             return None
+
+        if 'Range' in self.headers:
+            # note: UploadPartCopy may already have caught this in
+            # validate_part_number
+            raise InvalidArgument('Range', self.headers['Range'],
+                                  'RANGE is not supported in Copy!')
 
         src_path, qs = src_path.partition('?')[::2]
         parsed = parse_qsl(qs, True)
