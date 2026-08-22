@@ -266,7 +266,7 @@ class S3ApiTestCase(BaseUnitTestCase):
         return self.call_app(req, app=self.s3api, **kwargs)
 
 
-def _gen_test_headers(owner, grants=[], resource='container'):
+def _gen_test_headers(owner, grants=None, resource='container'):
     if not grants:
         grants = [Grant(User('test:tester'), 'FULL_CONTROL')]
     return encode_acl(resource, ACL(owner, grants))
@@ -301,7 +301,7 @@ class S3ApiTestCaseAcl(S3ApiTestCase):
             self.default_owner, [Grant(AllUsers(), 'READ')])
         authenticated_headers = _gen_test_headers(
             self.default_owner, [Grant(AuthenticatedUsers(), 'READ')],
-            'bucket')
+            'container')
 
         sticky_s3acl_headers = {
             '/v1/AUTH_test/bucket': container_headers,

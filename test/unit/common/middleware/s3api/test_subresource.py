@@ -24,7 +24,7 @@ from swift.common.middleware.s3api.subresource import User, \
     ACLPrivate, ACLPublicRead, ACLPublicReadWrite, ACLAuthenticatedRead, \
     ACLBucketOwnerRead, ACLBucketOwnerFullControl, Owner, ACL, encode_acl, \
     decode_acl, canned_acl_grantees, Grantee
-from swift.common.middleware.s3api.utils import sysmeta_header
+from swift.common.middleware.s3api.utils import s3api_sysmeta_header
 from swift.common.middleware.s3api.exception import InvalidSubresource
 
 
@@ -224,7 +224,7 @@ class TestS3ApiSubresource(unittest.TestCase):
             {'Owner': 'test:tester',
              'Grant': [{'Permission': 'FULL_CONTROL',
                         'Grantee': 'test:tester'}]}
-        headers = {sysmeta_header('container', 'acl'):
+        headers = {s3api_sysmeta_header('container', 'acl'):
                    json.dumps(access_control_policy)}
         acl = decode_acl('container', headers, self.allow_no_owner)
 
@@ -239,7 +239,7 @@ class TestS3ApiSubresource(unittest.TestCase):
             {'Owner': 'test:tester',
              'Grant': [{'Permission': 'FULL_CONTROL',
                         'Grantee': 'test:tester'}]}
-        headers = {sysmeta_header('object', 'acl'):
+        headers = {s3api_sysmeta_header('object', 'acl'):
                    json.dumps(access_control_policy)}
         acl = decode_acl('object', headers, self.allow_no_owner)
 
@@ -258,14 +258,14 @@ class TestS3ApiSubresource(unittest.TestCase):
         self.assertEqual(len(acl.grants), 0)
 
     def test_decode_acl_empty_list(self):
-        headers = {sysmeta_header('container', 'acl'): '[]'}
+        headers = {s3api_sysmeta_header('container', 'acl'): '[]'}
         acl = decode_acl('container', headers, self.allow_no_owner)
         self.assertIsInstance(acl, ACL)
         self.assertIsNone(acl.owner.id)
         self.assertEqual(len(acl.grants), 0)
 
     def test_decode_acl_with_invalid_json(self):
-        headers = {sysmeta_header('container', 'acl'): '['}
+        headers = {s3api_sysmeta_header('container', 'acl'): '['}
         self.assertRaises(
             InvalidSubresource, decode_acl, 'container',
             headers, self.allow_no_owner)
@@ -274,7 +274,8 @@ class TestS3ApiSubresource(unittest.TestCase):
         acl = ACLPrivate(Owner(id='test:tester',
                                name='test:tester'))
         acp = encode_acl('container', acl)
-        header_value = json.loads(acp[sysmeta_header('container', 'acl')])
+        header_value = json.loads(
+            acp[s3api_sysmeta_header('container', 'acl')])
 
         self.assertTrue('Owner' in header_value)
         self.assertTrue('Grant' in header_value)
@@ -285,7 +286,7 @@ class TestS3ApiSubresource(unittest.TestCase):
         acl = ACLPrivate(Owner(id='test:tester',
                                name='test:tester'))
         acp = encode_acl('object', acl)
-        header_value = json.loads(acp[sysmeta_header('object', 'acl')])
+        header_value = json.loads(acp[s3api_sysmeta_header('object', 'acl')])
 
         self.assertTrue('Owner' in header_value)
         self.assertTrue('Grant' in header_value)
@@ -302,7 +303,7 @@ class TestS3ApiSubresource(unittest.TestCase):
         acl = ACL.from_headers(headers, Owner('test:tester', 'test:tester'))
         acp = encode_acl('container', acl)
 
-        header_value = acp[sysmeta_header('container', 'acl')]
+        header_value = acp[s3api_sysmeta_header('container', 'acl')]
         header_value = json.loads(header_value)
 
         self.assertTrue('Owner' in header_value)

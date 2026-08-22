@@ -86,7 +86,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     BucketAlreadyOwnedByYou, ServiceUnavailable, PreconditionFailed, \
     S3NotImplemented
 from swift.common.middleware.s3api.utils import unique_id, \
-    MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
+    MULTIUPLOAD_SUFFIX, S3Timestamp, s3api_sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
 from swift.common.storage_policy import POLICIES
@@ -127,8 +127,8 @@ def _get_upload_info(req, app, upload_id):
         policy_index = req.policy_index
         try:
             resp = req.get_response(app, 'HEAD')
-            if resp.sysmeta_headers.get(sysmeta_header(
-                    'object', 'upload-id')) == upload_id:
+            if resp.s3api_sysmeta_headers.get(
+                    s3api_sysmeta_header('object', 'upload-id')) == upload_id:
                 return resp, False
         except NoSuchKey:
             pass
@@ -444,11 +444,13 @@ class UploadsController(Controller):
         seg_container = req.container_name + MULTIUPLOAD_SUFFIX
         content_type = req.headers.get('Content-Type')
         if content_type:
-            req.headers[sysmeta_header('object', 'has-content-type')] = 'yes'
             req.headers[
-                sysmeta_header('object', 'content-type')] = content_type
+                s3api_sysmeta_header('object', 'has-content-type')] = 'yes'
+            req.headers[
+                s3api_sysmeta_header('object', 'content-type')] = content_type
         else:
-            req.headers[sysmeta_header('object', 'has-content-type')] = 'no'
+            req.headers[
+                s3api_sysmeta_header('object', 'has-content-type')] = 'no'
         req.headers['Content-Type'] = 'application/directory'
 
         try:
@@ -682,7 +684,7 @@ class UploadController(Controller):
             raise ServiceUnavailable(reason='mpu_clock_skew')
 
         headers = {'Accept': 'application/json',
-                   sysmeta_header('object', 'upload-id'): upload_id}
+                   s3api_sysmeta_header('object', 'upload-id'): upload_id}
         for key, val in resp.headers.items():
             _key = key.lower()
             if _key.startswith('x-amz-meta-'):
@@ -691,11 +693,11 @@ class UploadController(Controller):
                           'content-disposition', 'expires', 'cache-control'):
                 headers[key] = val
 
-        hct_header = sysmeta_header('object', 'has-content-type')
-        if resp.sysmeta_headers.get(hct_header) == 'yes':
-            content_type = resp.sysmeta_headers.get(
-                sysmeta_header('object', 'content-type'))
-        elif hct_header in resp.sysmeta_headers:
+        hct_header = s3api_sysmeta_header('object', 'has-content-type')
+        if resp.s3api_sysmeta_headers.get(hct_header) == 'yes':
+            content_type = resp.s3api_sysmeta_headers.get(
+                s3api_sysmeta_header('object', 'content-type'))
+        elif hct_header in resp.s3api_sysmeta_headers:
             # has-content-type is present but false, so no content type was
             # set on initial upload. In that case, we won't set one on our
             # PUT request. Swift will end up guessing one based on the
@@ -757,10 +759,11 @@ class UploadController(Controller):
             raise
 
         s3_etag = '%s-%d' % (s3_etag_hasher.hexdigest(), len(manifest))
-        s3_etag_header = sysmeta_header('object', 'etag')
+        s3_etag_header = s3api_sysmeta_header('object', 'etag')
         # This header should only already be present if the upload marker
         # has been cleaned up and the current target uses the same upload-id
-        already_uploaded_s3_etag = resp.sysmeta_headers.get(s3_etag_header)
+        already_uploaded_s3_etag = resp.s3api_sysmeta_headers.get(
+            s3_etag_header)
         if already_uploaded_s3_etag == s3_etag:
             # If the segments to use haven't changed, the work is already done
             return HTTPOk(body=_make_complete_body(req, s3_etag, False),

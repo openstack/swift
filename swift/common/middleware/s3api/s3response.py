@@ -20,10 +20,10 @@ from functools import partial
 from swift.common import header_key_dict
 from swift.common import swob
 from swift.common.utils import config_true_value
-from swift.common.request_helpers import is_sys_meta
+from swift.common.request_helpers import get_sys_meta_prefix, is_sys_meta
 
 from swift.common.middleware.s3api.utils import snake_to_camel, \
-    sysmeta_prefix, sysmeta_header, convert_swift_to_s3_cipher, \
+    s3api_sysmeta_header, convert_swift_to_s3_cipher, \
     is_swift3_sysmeta, is_s3api_sysmeta
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 from swift.common.middleware.versioned_writes.object_versioning import \
@@ -129,65 +129,67 @@ class S3Response(S3ResponseBase, swob.Response):
 
     def __init__(self, *args, **kwargs):
         swob.Response.__init__(self, *args, **kwargs)
-
-        s3_sysmeta_headers = swob.HeaderKeyDict()
-        sw_headers = swob.HeaderKeyDict()
-        headers = HeaderKeyDict()
+        self.s3api_sysmeta_headers = swob.HeaderKeyDict()
+        self.sysmeta_headers = self.s3api_sysmeta_headers  # backwards compat
+        # Used for pure swift header handling at the request layer
+        self.sw_headers = swob.HeaderKeyDict()
+        s3_headers = HeaderKeyDict()  # note: this is not a swob.HeaderKeyDict
         self.is_slo = False
 
         for key, val in self.headers.items():
+            # Separate S3API sysmeta from headers for normal response
+            # translation below. Normalize legacy Swift3 sysmeta to S3API;
+            # leave other sysmeta and non-sysmeta in sw_headers.
             if is_sys_meta('object', key) or is_sys_meta('container', key):
                 _server_type = key.split('-')[1]
                 if is_swift3_sysmeta(_server_type, key):
                     # To be compatible with older swift3, translate swift3
                     # sysmeta to s3api sysmeta here
-                    key = sysmeta_prefix(_server_type) + \
-                        key[len('x-%s-sysmeta-swift3-' % _server_type):]
+                    swift3_prefix = (get_sys_meta_prefix(_server_type) +
+                                     'swift3-')
+                    sysmeta_name = key[len(swift3_prefix):]
+                    key = s3api_sysmeta_header(_server_type, sysmeta_name)
 
-                    if key not in s3_sysmeta_headers:
+                    if key not in self.s3api_sysmeta_headers:
                         # To avoid overwrite s3api sysmeta by older swift3
                         # sysmeta set the key only when the key does not exist
-                        s3_sysmeta_headers[key] = val
+                        self.s3api_sysmeta_headers[key] = val
                 elif is_s3api_sysmeta(_server_type, key):
-                    s3_sysmeta_headers[key] = val
+                    self.s3api_sysmeta_headers[key] = val
                 else:
-                    sw_headers[key] = val
+                    self.sw_headers[key] = val
             else:
-                sw_headers[key] = val
+                self.sw_headers[key] = val
 
         # Handle swift headers
-        for key, val in sw_headers.items():
+        for key, val in self.sw_headers.items():
             s3_pair = translate_swift_to_s3(key, val)
             if s3_pair is None:
                 continue
-            headers[s3_pair[0]] = s3_pair[1]
+            s3_headers[s3_pair[0]] = s3_pair[1]
 
-        self.is_slo = config_true_value(sw_headers.get(
+        self.is_slo = config_true_value(self.sw_headers.get(
             'x-static-large-object'))
 
         # Check whether we stored the AWS-style etag on upload
-        override_etag = s3_sysmeta_headers.get(
-            sysmeta_header('object', 'etag'))
+        override_etag = self.s3api_sysmeta_headers.get(
+            s3api_sysmeta_header('object', 'etag'))
         if override_etag not in (None, ''):
             # Multipart uploads in AWS have ETags like
             #   <MD5(part_etag1 || ... || part_etagN)>-<number of parts>
-            headers['etag'] = override_etag
-        elif self.is_slo and 'etag' in headers:
+            s3_headers['etag'] = override_etag
+        elif self.is_slo and 'etag' in s3_headers:
             # Many AWS clients use the presence of a '-' to decide whether
             # to attempt client-side download validation, so even if we
             # didn't store the AWS-style header, tack on a '-N'. (Use 'N'
             # because we don't actually know how many parts there are.)
-            headers['etag'] += '-N'
+            s3_headers['etag'] += '-N'
 
-        self.headers = headers
+        self.headers = s3_headers
 
         if self.etag:
             # add double quotes to the etag header
             self.etag = self.etag
-
-        # Used for pure swift header handling at the request layer
-        self.sw_headers = sw_headers
-        self.sysmeta_headers = s3_sysmeta_headers
 
     @classmethod
     def from_swift_resp(cls, sw_resp):

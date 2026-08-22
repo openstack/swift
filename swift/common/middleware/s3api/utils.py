@@ -34,22 +34,30 @@ from swift.common.utils import serialize_header, parse_header
 MULTIUPLOAD_SUFFIX = '+segments'
 
 
-def sysmeta_prefix(resource):
+def s3api_sysmeta_prefix(resource):
     """
     Returns the system metadata prefix for given resource type.
+
+    :param resource: one of ``'object'`` or ``'container'`` (case
+        insensitive).
+    :raises ValueError: if resource is not a recognized resource type.
     """
-    if resource.lower() == 'object':
-        return 'x-object-sysmeta-s3api-'
-    else:
-        return 'x-container-sysmeta-s3api-'
+    if resource.lower() not in ('object', 'container'):
+        raise ValueError('Unknown resource type: %r' % resource)
+    return get_sys_meta_prefix(resource) + 's3api-'
 
 
-def sysmeta_header(resource, name):
+def s3api_sysmeta_header(resource, name):
     """
     Returns the ``s3api`` namespace system metadata header for given resource
     type and name.
     """
-    return sysmeta_prefix(resource) + name
+    return s3api_sysmeta_prefix(resource) + name
+
+
+# Keep the original short spellings as backwards compatibility aliases.
+sysmeta_prefix = s3api_sysmeta_prefix
+sysmeta_header = s3api_sysmeta_header
 
 
 def is_s3api_sysmeta(server_type, name):
@@ -431,14 +439,15 @@ def install_copy_hook(environ):
         # to the sink req, so first clear *all* s3api sysmeta, and then set
         # only the s3api sysmeta that is explicitly wanted in sink_req...
         etag_override_key = get_container_update_override_key('etag').lower()
-        s3_mpu = sysmeta_header('object', 'upload-id') in sink_req.headers
+        is_s3_mpu = s3api_sysmeta_header(
+            'object', 'upload-id') in sink_req.headers
         for key, value in dict(sink_req.headers).items():
             lower_key = key.lower()
             if (is_s3api_sysmeta('object', lower_key)
                     or is_swift3_object_sysmeta(lower_key)):
                 del sink_req.headers[key]
-            elif s3_mpu and lower_key in ('x-object-sysmeta-slo-etag',
-                                          'x-object-sysmeta-slo-size'):
+            elif is_s3_mpu and lower_key in ('x-object-sysmeta-slo-etag',
+                                             'x-object-sysmeta-slo-size'):
                 # s3api assumes responsibility for the SLO sysmeta for an MPU
                 del sink_req.headers[key]
             elif lower_key == etag_override_key:
@@ -449,7 +458,7 @@ def install_copy_hook(environ):
             # else: not relevant to s3api
 
         # acl sysmeta from the req takes precedence over any from the source
-        acl_header = sysmeta_header('object', 'acl')
+        acl_header = s3api_sysmeta_header('object', 'acl')
         sink_req.headers[acl_header] = (req.headers.get(acl_header)
                                         or source_resp.headers.get(acl_header))
 

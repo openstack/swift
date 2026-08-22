@@ -32,13 +32,28 @@ strs = [
 
 
 class TestS3ApiUtils(unittest.TestCase):
-    def test_sysmeta_header(self):
+    def test_s3api_sysmeta_prefix(self):
+        self.assertEqual('x-object-sysmeta-s3api-',
+                         utils.s3api_sysmeta_prefix('object'))
+        self.assertEqual('x-container-sysmeta-s3api-',
+                         utils.s3api_sysmeta_prefix('container'))
+        self.assertEqual('x-object-sysmeta-s3api-',
+                         utils.s3api_sysmeta_prefix('OBJECT'))
+        with self.assertRaises(ValueError) as cm:
+            utils.s3api_sysmeta_prefix('bucket')
+        self.assertIn('Unknown resource type', str(cm.exception))
+
+    def test_s3api_sysmeta_header(self):
         self.assertEqual('x-object-sysmeta-s3api-etag',
-                         utils.sysmeta_header('object', 'etag'))
+                         utils.s3api_sysmeta_header('object', 'etag'))
         self.assertEqual('x-object-sysmeta-s3api-etag',
-                         utils.sysmeta_header('OBJECT', 'etag'))
+                         utils.s3api_sysmeta_header('OBJECT', 'etag'))
         self.assertEqual('x-container-sysmeta-s3api-foo',
-                         utils.sysmeta_header('container', 'foo'))
+                         utils.s3api_sysmeta_header('container', 'foo'))
+
+    def test_sysmeta_aliases(self):
+        self.assertIs(utils.sysmeta_prefix, utils.s3api_sysmeta_prefix)
+        self.assertIs(utils.sysmeta_header, utils.s3api_sysmeta_header)
 
     def test_swift3_object_sysmeta_header(self):
         self.assertEqual('x-object-sysmeta-swift3-etag',

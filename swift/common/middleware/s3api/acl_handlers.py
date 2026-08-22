@@ -55,7 +55,7 @@ from swift.common.middleware.s3api.s3response import MissingSecurityHeader, \
 from swift.common.middleware.s3api.etree import fromstring, XMLSyntaxError, \
     DocumentInvalid
 from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, \
-    sysmeta_header
+    s3api_sysmeta_header
 
 
 class BaseAclHandler(object):
@@ -386,8 +386,8 @@ class UploadsAclHandler(MultiUploadAclHandler):
                                        resp.bucket_acl.owner,
                                        Owner(self.user_id, self.user_id))
             acl_headers = encode_acl('object', req_acl)
-            self.req.headers[sysmeta_header('object', 'tmpacl')] = \
-                acl_headers[sysmeta_header('object', 'acl')]
+            self.req.headers[s3api_sysmeta_header('object', 'tmpacl')] = \
+                acl_headers[s3api_sysmeta_header('object', 'acl')]
             self.acl_checked = True
 
 
@@ -411,8 +411,9 @@ class UploadAclHandler(MultiUploadAclHandler):
         container = self.req.container_name + MULTIUPLOAD_SUFFIX
         obj = '%s/%s' % (self.obj, self.req.params['uploadId'])
         resp = self.req._get_response(app, 'HEAD', container, obj)
-        self.req.headers[sysmeta_header('object', 'acl')] = \
-            resp.sysmeta_headers.get(sysmeta_header('object', 'tmpacl'))
+        self.req.headers[s3api_sysmeta_header('object', 'acl')] = \
+            resp.s3api_sysmeta_headers.get(
+                s3api_sysmeta_header('object', 'tmpacl'))
 
 
 """

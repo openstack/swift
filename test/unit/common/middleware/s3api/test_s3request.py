@@ -77,13 +77,13 @@ def _gen_test_acl_header(owner, permission=None, grantee=None,
 
 class FakeResponse(object):
     def __init__(self, s3_acl):
-        self.sysmeta_headers = {}
+        self.s3api_sysmeta_headers = {}
         if s3_acl:
             owner = Owner(id='test:tester', name='test:tester')
-            self.sysmeta_headers.update(
+            self.s3api_sysmeta_headers.update(
                 _gen_test_acl_header(owner, 'FULL_CONTROL',
                                      resource='container'))
-            self.sysmeta_headers.update(
+            self.s3api_sysmeta_headers.update(
                 _gen_test_acl_header(owner, 'FULL_CONTROL',
                                      resource='object'))
 
