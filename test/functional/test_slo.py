@@ -51,12 +51,6 @@ def group_file_contents(file_contents):
         for char, grp in itertools.groupby(byte_iter)]
 
 
-def md5hex(s):
-    if not isinstance(s, bytes):
-        s = s.encode('ascii')
-    return md5(s, usedforsecurity=False).hexdigest()
-
-
 class TestSloEnv(BaseEnv):
     slo_enabled = None  # tri-state: None initially, then True/False
 
@@ -466,7 +460,7 @@ class TestSlo(Base):
 
         # data for segments
         segments = [b'one', b'two', b'three', b'four']
-        etags = [md5hex(segment) for segment in segments]
+        etags = [tf.md5hex(segment) for segment in segments]
 
         def put_manifest(url, token, parsed, conn, object_segments,
                          x_delete_after):

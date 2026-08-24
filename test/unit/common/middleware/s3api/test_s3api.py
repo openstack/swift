@@ -29,6 +29,7 @@ from paste.deploy import loadwsgi
 from urllib.parse import unquote, quote
 
 import swift.common.middleware.s3api
+from swift.common.middleware.copy import ServerSideCopyMiddleware
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
 from swift.common.middleware.s3api.s3response import ErrorResponse, \
     AccessDenied
@@ -296,6 +297,38 @@ class TestS3ApiMiddleware(S3ApiTestCase):
         status, headers, body = self.call_s3api(req)
         self.assertEqual(body, b'FAKE APP')
         self.assertFalse(self.statsd.calls['increment'])
+
+    def test_non_s3_request_passthrough_copy(self):
+        # verify passthrough copy request has s3api copy hook installed and
+        # s3api sysmeta is stripped from copy source
+        copy_mw = ServerSideCopyMiddleware(self.swift, {})
+        self.s3api.app = copy_mw
+        self.swift.register('GET', '/v1/a/c/src', swob.HTTPOk,
+                            {'x-object-sysmeta-s3api-etag': 's3-etag',
+                             'x-object-sysmeta-slo-etag': 'slo-etag',
+                             'x-object-sysmeta-not-s3api-etag': 'not-s3-etag'},
+                            b'test')
+        self.swift.register('PUT', '/v1/a/c/dest', swob.HTTPCreated, {}, b'')
+
+        req = Request.blank('/v1/a/c/dest',
+                            method='PUT',
+                            headers={'X-Copy-From': 'c/src'})
+        status, headers, body = self.call_s3api(req)
+
+        self.assertEqual('201 Created', status)
+        self.assertEqual([('GET', '/v1/a/c/src'),
+                          ('PUT', '/v1/a/c/dest')],
+                         self.swift.calls)
+        put_call = self.swift.call_list[1]
+        self.assertNotIn('x-object-sysmeta-s3api-etag', put_call.headers)
+        self.assertEqual(
+            'slo-etag',
+            put_call.headers.get('x-object-sysmeta-slo-etag'))
+        self.assertEqual(
+            'not-s3-etag',
+            put_call.headers.get('x-object-sysmeta-not-s3api-etag'))
+        self.assertIn('swift.callback.copy_source_hook',
+                      put_call.env)
 
     def test_bad_format_authorization(self):
         req = Request.blank('/something',

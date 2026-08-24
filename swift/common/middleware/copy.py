@@ -112,6 +112,39 @@ If a request is sent without the query parameter, an attempt will be made to
 copy the whole object but will fail if the object size is
 greater than 5GB.
 
+----------------
+Copy Source Hook
+----------------
+Middleware to the left of the server side copy middleware may register a
+callback in the WSGI environ under the key
+``swift.callback.copy_source_hook``. The callback is invoked during a copy,
+after this middleware has populated the destination (sink) request with
+headers from the source response, but before the destination PUT request is
+sent. It gives a middleware the opportunity to inspect or modify the request
+that will store the copied object. In particular, it allows a middleware to
+take responsibility for any sysmeta that it owns, which may not be
+appropriate to copy verbatim to the destination object.
+
+The callback has the signature::
+
+    copy_source_hook(req, source_resp, sink_req)
+
+where ``req`` is the original client copy request, ``source_resp`` is the
+response to the source object GET, and ``sink_req`` is the PUT request that
+will create the destination object.
+
+A callback may modify ``sink_req``, for example by adding or removing
+headers, or by wrapping ``sink_req.environ['wsgi.input']`` in order to
+observe the copied object body. A callback should not consume
+``source_resp.app_iter``.
+
+Middleware should use the ``register_copy_source_hook`` function to install a
+callback. This helper function will ensure that any previously registered
+callback is called before the newly registered hook.
+
+If a callback raises an exception then the source response body is closed and
+the exception is propagated; the destination object is not created.
+
 """
 
 from swift.common.utils import get_logger, config_true_value, FileLikeIter, \
@@ -127,6 +160,17 @@ from swift.common.request_helpers import copy_header_subset, remove_items, \
 from swift.common.wsgi import WSGIContext, make_subrequest
 from swift.common.concurrency import eventlet
 from swift.common.request_helpers import get_heartbeat_response_body
+
+
+def register_copy_source_hook(env, hook):
+    previous = env.get('swift.callback.copy_source_hook')
+
+    def chained(req, source_resp, sink_req):
+        if previous:
+            previous(req, source_resp, sink_req)
+        hook(req, source_resp, sink_req)
+
+    env['swift.callback.copy_source_hook'] = chained
 
 
 def _check_copy_from_header(req):
@@ -503,6 +547,17 @@ class ServerSideCopyMiddleware(object):
         if not req.headers.get('content-type'):
             sink_req.headers['Content-Type'] = \
                 source_resp.headers['Content-Type']
+
+        # Middleware left of copy can add a callback to inspect or modify the
+        # PUT request that will receive the source response body.
+        copy_source_hook = sink_req.environ.get(
+            'swift.callback.copy_source_hook')
+        if copy_source_hook:
+            try:
+                copy_source_hook(req, source_resp, sink_req)
+            except Exception:
+                close_if_possible(source_resp.app_iter)
+                raise
 
         # Create response headers for PUT response
         resp_headers = self._create_response_headers(source_path,

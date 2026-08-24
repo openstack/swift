@@ -22,6 +22,7 @@ from unittest import SkipTest
 import os
 
 import test.functional as tf
+from swift.common.swob import normalize_etag
 from test.functional.s3api.s3_test_client import (
     Connection, get_boto3_conn, tear_down_s3)
 try:
@@ -90,6 +91,12 @@ class S3ApiBase(unittest.TestCase):
         if etag is not None:
             self.assertTrue('etag' in headers)  # sanity
             self.assertEqual(etag, headers['etag'].strip('"'))
+
+    def assertEtagsEqual(self, etag1, etag2):
+        self.assertEqual(normalize_etag(etag1), normalize_etag(etag2))
+
+    def assertEtagsNotEqual(self, etag1, etag2):
+        self.assertNotEqual(normalize_etag(etag1), normalize_etag(etag2))
 
 
 class S3ApiBaseBoto3(S3ApiBase):

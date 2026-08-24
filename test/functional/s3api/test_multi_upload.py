@@ -25,7 +25,7 @@ from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement
 from swift.common.middleware.s3api.utils import MULTIUPLOAD_SUFFIX, mktime, \
     S3Timestamp
-from swift.common.utils import md5
+from swift.common.swob import normalize_etag
 
 from test.functional.s3api import S3ApiBase, SigV4Mixin, \
     skip_boto2_sort_header_bug
@@ -51,6 +51,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         self.min_segment_size = int(tf.cluster_info['s3api'].get(
             'min_segment_size', 5242880))
+        self.part_content = b'a' * self.min_segment_size
 
     def _gen_comp_xml(self, etags, step=1):
         elem = Element('CompleteMultipartUpload')
@@ -75,7 +76,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
     def _upload_part(self, bucket, key, upload_id, content=None, part_num=1):
         query = 'partNumber=%s&uploadId=%s' % (part_num, upload_id)
-        content = content if content else b'a' * self.min_segment_size
+        content = content if content else self.part_content
         with self.quiet_boto_logging():
             status, headers, body = self.conn.make_request(
                 'PUT', bucket, key, body=content, query=query)
@@ -198,7 +199,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         # Upload Part
         key, upload_id = uploads[0]
         content = b'a' * self.min_segment_size
-        etag = md5(content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(content)
         status, headers, body = \
             self._upload_part(bucket, key, upload_id, content)
         self.assertEqual(status, 200)
@@ -215,7 +216,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         src_bucket = 'bucket2'
         src_obj = 'obj3'
         src_content = b'b' * self.min_segment_size
-        etag = md5(src_content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(src_content)
 
         # prepare src obj
         self.conn.make_request('PUT', src_bucket)
@@ -324,8 +325,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         concatted_etags = b''.join(
             etag.strip('"').encode('ascii') for etag in etags)
         exp_etag = '"%s-%s"' % (
-            md5(binascii.unhexlify(concatted_etags),
-                usedforsecurity=False).hexdigest(), len(etags))
+            tf.md5hex(binascii.unhexlify(concatted_etags)), len(etags))
         etag = elem.find('ETag').text
         self.assertEqual(etag, exp_etag)
 
@@ -342,8 +342,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertEqual(headers['cache-control'], 'no-cache')
         self.assertEqual(headers['x-amz-meta-baz'], 'quux')
 
-        swift_etag = '"%s"' % md5(
-            concatted_etags, usedforsecurity=False).hexdigest()
+        swift_etag = '"%s"' % tf.md5hex(concatted_etags)
         # TODO: GET via swift api, check against swift_etag
 
         # Should be safe to retry
@@ -395,7 +394,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         self.assertIsNotNone(last_modified)
 
         exp_content = b'a' * self.min_segment_size
-        etag = md5(exp_content, usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(exp_content)
         self.assertEqual(resp_etag, etag)
 
         # Also check that the etag is correct in part listings
@@ -954,9 +953,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         src_content = b'y' * (self.min_segment_size // 2) + b'z' * \
             self.min_segment_size
         src_range = 'bytes=0-%d' % (self.min_segment_size - 1)
-        etag = md5(
-            src_content[:self.min_segment_size],
-            usedforsecurity=False).hexdigest()
+        etag = tf.md5hex(src_content[:self.min_segment_size])
 
         # prepare src obj
         self.conn.make_request('PUT', src_bucket)
@@ -1027,10 +1024,177 @@ class TestS3ApiMultiUpload(S3ApiBase):
         concatted_etags = b''.join(
             etag.strip('"').encode('ascii') for etag in etags)
         exp_etag = '"%s-%s"' % (
-            md5(binascii.unhexlify(concatted_etags),
-                usedforsecurity=False).hexdigest(), len(etags))
+            tf.md5hex(binascii.unhexlify(concatted_etags)), len(etags))
         etag = elem.find('ETag').text
         self.assertEqual(etag, exp_etag)
+        return etag
+
+    def _create_mpu_object_with_metadata(self, bucket, key, meta_headers):
+        results_generator = self._initiate_multi_uploads_result_generator(
+            bucket, [key], headers=[meta_headers])
+        status, headers, body = next(results_generator)
+        self.assertEqual(status, 200, body)
+        elem = fromstring(body, 'InitiateMultipartUploadResult')
+        upload_id = elem.find('UploadId').text
+        self.assertIsNotNone(upload_id)
+
+        status, headers, body = \
+            self._upload_part(bucket, key, upload_id, self.part_content)
+        self.assertEqual(status, 200)
+        part_etag = headers['etag']
+
+        return self._complete_mpu_upload(bucket, key, upload_id, [part_etag])
+
+    def _get_listing_etag_for_key(self, bucket, key):
+        status, headers, body = self.conn.make_request('GET', bucket)
+        self.assertEqual(status, 200)
+        elem = fromstring(body, 'ListBucketResult')
+        for o in elem.findall('./Contents'):
+            if o.find('Key').text == key:
+                return o.find('ETag').text
+        self.fail('key %r not found in listing of bucket %r' % (key, bucket))
+
+    def test_mpu_object_copy(self):
+        # verify copying from an mpu to a regular object
+        bucket = 'bucket'
+        obj = 'mpu-object'
+        dst_obj = 'mpu-object-copy'
+        src_etag = self._create_mpu_object_with_metadata(
+            bucket, obj, {'X-Amz-Meta-Foo': 'bar'})
+
+        # verify metadata and etag via HEAD on the source object
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+        self.assertEqual(headers['etag'], src_etag)
+        self.assertEqual(self._get_listing_etag_for_key(bucket, obj), src_etag)
+
+        # server-side copy the object via the S3 API
+        copy_headers = {'X-Amz-Copy-Source': '/%s/%s' % (bucket, obj)}
+        status, headers, body = \
+            self.conn.make_request('PUT', bucket, dst_obj, copy_headers)
+        self.assertEqual(status, 200)
+        self.assertCommonResponseHeaders(headers)
+
+        # dest etag is the md5 hash of the object content
+        exp_dst_etag = '"%s"' % tf.md5hex(self.part_content)
+        copy_resp_etag = fromstring(body, 'CopyObjectResult').find('ETag').text
+        self.assertEqual(copy_resp_etag, exp_dst_etag)
+
+        # verify metadata and etag were preserved on the copy via HEAD
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, dst_obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+        self.assertEqual(headers['etag'], exp_dst_etag)
+
+        # and the copy's etag is also reflected in the bucket listing
+        self.assertEqual(self._get_listing_etag_for_key(bucket, dst_obj),
+                         exp_dst_etag)
+
+    def test_mpu_object_copy_via_swift_api(self):
+        # verify copying from an mpu to a regular object using swift api
+        bucket = 'bucket'
+        obj = 'mpu-object'
+        dst_obj = 'mpu-object-copy-native'
+        src_etag_s3 = self._create_mpu_object_with_metadata(
+            bucket, obj, {'X-Amz-Meta-Foo': 'bar'})
+
+        # verify metadata and etag via S3 HEAD on the source object
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+        self.assertEtagsEqual(headers['etag'], src_etag_s3)
+
+        sw_conn = SwiftConnection(tf.config)
+        sw_conn.authenticate()
+        src_file_swift = sw_conn.get_account().container(bucket).file(obj)
+        src_file_swift.initialize()
+        self.assertEqual(src_file_swift.metadata.get('foo'), 'bar')
+        src_etag_swift = src_file_swift.etag
+        # swift api exposes the slo etag but s3api exposes the s3 etag
+        self.assertEtagsNotEqual(src_etag_swift, src_etag_s3)
+        self.assertEtagsEqual(self._get_listing_etag_for_key(bucket, obj),
+                              src_etag_s3)
+
+        # copy the object using the native Swift API
+        src_file_swift.copy(bucket, dst_obj)
+        # verify metadata was preserved on the copy, via native Swift HEAD
+        dst_file_swift = sw_conn.get_account().container(bucket).file(dst_obj)
+        dst_file_swift.initialize()
+        self.assertEqual(dst_file_swift.metadata.get('foo'), 'bar')
+        # ...the dest obj is no longer an SLO so the etag will be the md5 hash
+        # of the object content
+        self.assertNotIn('x_manifest_etag', dst_file_swift.info())
+        dst_etag_swift = dst_file_swift.etag
+        exp_dst_etag = '"%s"' % tf.md5hex(self.part_content)
+        self.assertEtagsEqual(exp_dst_etag, dst_etag_swift)
+        self.assertEtagsNotEqual(dst_etag_swift, src_etag_swift)
+        self.assertEtagsNotEqual(dst_etag_swift, src_etag_s3)
+
+        # an S3 HEAD on the copy exposes the new etag
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, dst_obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+        self.assertEtagsEqual(headers['etag'], dst_etag_swift)
+        # and the dest etag is also reflected in the bucket listing
+        self.assertEtagsEqual(self._get_listing_etag_for_key(bucket, dst_obj),
+                              exp_dst_etag)
+
+    def test_mpu_object_copy_manifest_via_swift_api(self):
+        # verify copying from an mpu to a regular object using swift api and
+        # multipart-manifest=get
+        bucket = 'bucket'
+        obj = 'mpu-object'
+        dst_obj = 'mpu-object-copy-native'
+        src_etag_s3 = self._create_mpu_object_with_metadata(
+            bucket, obj, {'X-Amz-Meta-Foo': 'bar'})
+
+        # verify metadata and etag via S3 HEAD on the source object
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, obj)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+        self.assertEtagsEqual(headers['etag'], src_etag_s3)
+
+        sw_conn = SwiftConnection(tf.config)
+        sw_conn.authenticate()
+        src_file_swift = sw_conn.get_account().container(bucket).file(obj)
+        src_file_swift.initialize()
+        self.assertEqual(src_file_swift.metadata.get('foo'), 'bar')
+        src_etag_swift = src_file_swift.etag
+        # swift api exposes the slo etag but s3api exposes the s3 etag
+        self.assertEtagsNotEqual(src_etag_swift, src_etag_s3)
+        self.assertEtagsEqual(self._get_listing_etag_for_key(bucket, obj),
+                              src_etag_s3)
+
+        # copy the object manifest using the native Swift API
+        src_file_swift.copy(bucket, dst_obj,
+                            parms={'multipart-manifest': 'get'})
+        # verify metadata was preserved on the copy, via native Swift HEAD
+        dst_file_swift = sw_conn.get_account().container(bucket).file(dst_obj)
+        dst_file_swift.initialize()
+        self.assertEqual(dst_file_swift.metadata.get('foo'), 'bar')
+        # ...the dest obj is an SLO
+        self.assertIn('x_manifest_etag', dst_file_swift.info())
+        dst_etag_swift = dst_file_swift.etag
+        self.assertEtagsEqual(src_etag_swift, dst_etag_swift)
+        self.assertEtagsNotEqual(dst_etag_swift, src_etag_s3)
+
+        # accessing the object via s3api
+        status, headers, body = \
+            self.conn.make_request('HEAD', bucket, dst_obj)
+        # '-N' is appended to the etag to indicate it is an slo
+        exp_s3_dst_etag = '"%s"' % (normalize_etag(dst_etag_swift) + '-N')
+        self.assertEqual(status, 200)
+        self.assertEqual(headers['x-amz-meta-foo'], 'bar')
+        self.assertEtagsEqual(headers['etag'], exp_s3_dst_etag)
+        # and the dest etag is also reflected in the bucket listing
+        self.assertEtagsEqual(self._get_listing_etag_for_key(bucket, dst_obj),
+                              exp_s3_dst_etag)
 
     @skip_boto2_sort_header_bug
     def test_mpu_copy_part_from_range_then_complete(self):
@@ -1069,7 +1233,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         for part_num in range(2):
             # Upload Part
             content = (chr(97 + part_num) * self.min_segment_size).encode()
-            etag = md5(content, usedforsecurity=False).hexdigest()
+            etag = tf.md5hex(content)
             status, headers, body = \
                 self._upload_part(src_bucket, src_obj, src_upload_id,
                                   content, part_num=part_num + 1)
@@ -1169,7 +1333,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
         src_obj = 'obj4'
         src_content = b'y' * (self.min_segment_size // 2) + b'z' * \
             self.min_segment_size
-        etags = [md5(src_content, usedforsecurity=False).hexdigest()]
+        etags = [tf.md5hex(src_content)]
 
         # prepare null-version src obj
         self.conn.make_request('PUT', src_bucket)
@@ -1187,7 +1351,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         src_obj2 = 'obj5'
         src_content2 = b'stub'
-        etags.append(md5(src_content2, usedforsecurity=False).hexdigest())
+        etags.append(tf.md5hex(src_content2))
 
         # prepare src obj w/ real version
         self.conn.make_request('PUT', src_bucket, src_obj2, body=src_content2)
@@ -1288,7 +1452,7 @@ class TestS3ApiMultiUpload(S3ApiBase):
 
         # Complete Multipart Upload
         key, upload_id = uploads[0]
-        etags = [md5(content, usedforsecurity=False).hexdigest()]
+        etags = [tf.md5hex(content)]
         xml = self._gen_comp_xml(etags)
         status, headers, body = \
             self._complete_multi_upload(bucket, key, upload_id, xml)

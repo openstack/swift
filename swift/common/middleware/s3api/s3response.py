@@ -23,7 +23,8 @@ from swift.common.utils import config_true_value
 from swift.common.request_helpers import is_sys_meta
 
 from swift.common.middleware.s3api.utils import snake_to_camel, \
-    sysmeta_prefix, sysmeta_header, convert_swift_to_s3_cipher
+    sysmeta_prefix, sysmeta_header, convert_swift_to_s3_cipher, \
+    is_swift3_sysmeta, is_s3api_sysmeta
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
@@ -134,19 +135,10 @@ class S3Response(S3ResponseBase, swob.Response):
         headers = HeaderKeyDict()
         self.is_slo = False
 
-        def is_swift3_sysmeta(sysmeta_key, server_type):
-            swift3_sysmeta_prefix = (
-                'x-%s-sysmeta-swift3' % server_type).lower()
-            return sysmeta_key.lower().startswith(swift3_sysmeta_prefix)
-
-        def is_s3api_sysmeta(sysmeta_key, server_type):
-            s3api_sysmeta_prefix = sysmeta_prefix(_server_type).lower()
-            return sysmeta_key.lower().startswith(s3api_sysmeta_prefix)
-
         for key, val in self.headers.items():
             if is_sys_meta('object', key) or is_sys_meta('container', key):
                 _server_type = key.split('-')[1]
-                if is_swift3_sysmeta(key, _server_type):
+                if is_swift3_sysmeta(_server_type, key):
                     # To be compatible with older swift3, translate swift3
                     # sysmeta to s3api sysmeta here
                     key = sysmeta_prefix(_server_type) + \
@@ -156,7 +148,7 @@ class S3Response(S3ResponseBase, swob.Response):
                         # To avoid overwrite s3api sysmeta by older swift3
                         # sysmeta set the key only when the key does not exist
                         s3_sysmeta_headers[key] = val
-                elif is_s3api_sysmeta(key, _server_type):
+                elif is_s3api_sysmeta(_server_type, key):
                     s3_sysmeta_headers[key] = val
                 else:
                     sw_headers[key] = val

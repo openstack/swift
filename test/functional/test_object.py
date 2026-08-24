@@ -793,6 +793,22 @@ class TestObject(unittest.TestCase):
         if tf.skip:
             raise SkipTest
 
+        now = time.time()
+        delete_at = str(int(now + 100))
+        metadata = {'x-object-meta-fruit': 'banana',
+                    'x-delete-at': delete_at}
+
+        def put(url, token, parsed, conn):
+            headers = {'X-Auth-Token': token}
+            headers.update(metadata)
+            conn.request('PUT', '%s/%s/%s' % (
+                parsed.path, self.container, self.obj
+            ), 'test', headers)
+            return check_response(conn)
+
+        resp = retry(put)
+        self.assertEqual(resp.status, 201)
+
         source = '%s/%s' % (self.container, self.obj)
         dest = '%s/%s' % (self.container, 'test_copy')
 
@@ -806,6 +822,8 @@ class TestObject(unittest.TestCase):
         source_contents = resp.read()
         self.assertEqual(resp.status, 200)
         self.assertEqual(source_contents, b'test')
+        self.assertEqual(resp.headers['x-object-meta-fruit'], 'banana')
+        self.assertEqual(resp.headers['x-delete-at'], delete_at)
 
         # copy source to dest with X-Copy-From
         def put(url, token, parsed, conn):
@@ -828,6 +846,8 @@ class TestObject(unittest.TestCase):
         dest_contents = resp.read()
         self.assertEqual(resp.status, 200)
         self.assertEqual(dest_contents, source_contents)
+        self.assertEqual(resp.headers['x-object-meta-fruit'], 'banana')
+        self.assertEqual(resp.headers['x-delete-at'], delete_at)
 
         # delete the copy
         def delete(url, token, parsed, conn):
@@ -857,6 +877,8 @@ class TestObject(unittest.TestCase):
         dest_contents = resp.read()
         self.assertEqual(resp.status, 200)
         self.assertEqual(dest_contents, source_contents)
+        self.assertEqual(resp.headers['x-object-meta-fruit'], 'banana')
+        self.assertEqual(resp.headers['x-delete-at'], delete_at)
 
         # copy source to dest with COPY and range
         def copy(url, token, parsed, conn):
@@ -874,6 +896,8 @@ class TestObject(unittest.TestCase):
         dest_contents = resp.read()
         self.assertEqual(resp.status, 200)
         self.assertEqual(dest_contents, source_contents[1:3])
+        self.assertEqual(resp.headers['x-object-meta-fruit'], 'banana')
+        self.assertEqual(resp.headers['x-delete-at'], delete_at)
 
         # delete the copy
         resp = retry(delete)

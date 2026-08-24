@@ -3195,6 +3195,18 @@ def parse_header(value):
     return token, dict(params)
 
 
+def serialize_header(token, params):
+    """
+    Return a string header value starting with the token and followed by ';'
+    separated key-value pairs.
+
+    :param token: the first part of the header.
+    :param params: a dict of params to append to the ``token``.
+    :return: the header value as a string.
+    """
+    return token + ''.join('; %s=%s' % kv for kv in params.items())
+
+
 def extract_swift_bytes(content_type):
     """
     Parse a content-type and return a tuple containing:

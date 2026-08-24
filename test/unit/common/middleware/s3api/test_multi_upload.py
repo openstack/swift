@@ -906,7 +906,7 @@ class BaseS3ApiMultiUpload(object):
             'X-Object-Sysmeta-Container-Update-Override-Etag',
             'X-Object-Sysmeta-Swift3-Etag',
         ):
-            self.assertEqual(headers[header], '')
+            self.assertNotIn(header, headers)
 
     def test_upload_part_copy_source_headers(self):
         # verify that only recognised copy-source headers are propagated from
