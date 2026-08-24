@@ -651,13 +651,17 @@ class _SwiftArbiter(gunicorn.arbiter.Arbiter):
             super().reload()
         except TopologyChanged as err:
             self.log.error('Ignoring reload: %s', err)
+            self.app.report_failure(err)
 
 
 class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
-    def __init__(self, load_app, build_cfg, logger):
+    def __init__(self, load_app, build_cfg, logger, report_failure=None):
         self.load_app = load_app
         self.build_cfg = build_cfg
         self.swift_logger = logger
+        # swift-reload waits for a readiness a refused reload never sends,
+        # so say so instead of letting it sit until its timeout
+        self.report_failure = report_failure or (lambda reason: None)
         super().__init__()
 
     def load_config(self):
@@ -674,9 +678,10 @@ class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
             cfg = self.build_cfg()
         except TopologyChanged:
             raise               # _SwiftArbiter.reload() stops the reload
-        except Exception:
+        except Exception as err:
             self.swift_logger.exception(
                 'Ignoring invalid configuration during Gunicorn reload')
+            self.report_failure(err)
             return
         self.cfg = cfg
         if self.cfg.spew:
@@ -926,8 +931,27 @@ def _set_request_limits(cfg):
 
 _ARBITER_RETRY_MAX = 60.0
 
+# marks a refused reload on an arbiter's report pipe
+_REPORT_REFUSED = b'refused:'
 
-def _supervise_per_port(get_desired, logger, run_one_port, on_ready):
+
+def _one_line(reason):
+    """Reports are newline framed, so a reason has to fit on one line."""
+    text = str(reason).encode('utf8', 'replace')
+    return b' '.join(text.split()) + b'\n'
+
+
+def _notify_reload_refused(logger, pid, reason):
+    """Tell swift-reload the reload did not happen. Without this it waits
+    for a readiness that is never coming, and times out minutes later.
+    """
+    systemd_notify(logger=logger, pid=pid,
+                   msg=b'ERRNO=%d\nSTATUS=%s' % (
+                       errno.EINVAL, _one_line(reason).strip()))
+
+
+def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
+                        on_failure):
     """Run one gunicorn arbiter per port and keep the set matching the ring.
 
     Each arbiter binds a single socket, so a wedged disk can only stall its
@@ -936,6 +960,7 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready):
 
     :param get_desired: callable returning (enabled, ports) to serve now
     :param run_one_port: callable(port, ready_fd) run in the child
+    :param on_failure: called with a reason when a reload is refused
     :param on_ready: called once every wanted arbiter has reported ready,
                      and again after each reload
     """
@@ -1062,28 +1087,30 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready):
         return max(0.0, min(waiting)) if waiting else 1.0
 
     def refresh_desired():
-        """Re-read the ring. Returns False when the mode was turned off,
-        which a reload cannot do.
+        """Re-read the ring. Returns a reason when the reload is refused,
+        else None.
         """
         enabled, ports = get_desired()
         if not enabled:
-            logger.error('servers_per_port cannot be turned off by a reload; '
-                         'restart the server to change topology')
-            return False
+            reason = ('servers_per_port cannot be turned off by a reload; '
+                      'restart the server to change topology')
+            logger.error(reason)
+            return reason
         desired.clear()
         desired.update(ports)
-        return True
+        return None
 
-    def reload_accepted():
-        """Re-read the ring for a SIGHUP. False keeps the running arbiters
-        rather than half-applying a change they should not see.
+    def refusal():
+        """Why this SIGHUP is refused, or None to go ahead. A refused
+        reload keeps the running arbiters rather than half-applying a change
+        they should not see.
         """
         try:
             return refresh_desired()
-        except Exception:
+        except Exception as err:
             logger.exception('Ignoring failed reload; keeping the running '
                              'arbiters')
-            return False
+            return 'could not read the new configuration: %s' % err
 
     def arm_reports():
         """Ask every arbiter for a fresh report. Each one reloads exactly
@@ -1108,6 +1135,11 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready):
             # reports are newline terminated; hold on to any partial tail
             done, _, ready_buf[pid] = ready_buf.get(pid, b'').rpartition(b'\n')
             for line in done.split(b'\n'):
+                if line.startswith(_REPORT_REFUSED):
+                    on_failure('port %s: %s' % (
+                        children.get(pid),
+                        line[len(_REPORT_REFUSED):].decode('utf8', 'replace')))
+                    continue
                 try:
                     generation = int(line)
                 except ValueError:
@@ -1177,11 +1209,15 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready):
                     hangup = True
                 else:
                     forward(signum)     # SIGUSR1 just reopens logs
-            if hangup and reload_accepted():
-                arm_reports()
-                reported.clear()
-                notified = False
-                forward(signal.SIGHUP)
+            if hangup:
+                refused = refusal()
+                if refused:
+                    on_failure(refused)
+                else:
+                    arm_reports()
+                    reported.clear()
+                    notified = False
+                    forward(signal.SIGHUP)
             reap()
             if set(children.values()) != desired:
                 apply_desired()
@@ -1582,16 +1618,34 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             # this arbiter counts its own reloads; the config built above in
             # the supervisor to validate the file is not one of them
             generation[0] = 0
+
+            def refused(reason):
+                # not the service pid: report up to the supervisor, which
+                # holds the socket swift-reload is listening on
+                try:
+                    os.write(ready_fd, _REPORT_REFUSED + _one_line(reason))
+                except OSError:
+                    pass
+
             return SwiftGunicornApp(
                 load_app, functools.partial(build_cfg, port, ready_fd),
-                logger).run()
+                logger, refused).run()
 
         def all_ready():
             systemd_notify(logger=logger, pid=supervisor_pid)
 
-        _supervise_per_port(get_desired, logger, run_one_port, all_ready)
+        def reload_refused(reason):
+            _notify_reload_refused(logger, supervisor_pid, reason)
+
+        _supervise_per_port(get_desired, logger, run_one_port, all_ready,
+                            reload_refused)
     else:
-        SwiftGunicornApp(load_app, build_cfg, logger).run()
+        service_pid = os.getpid()
+
+        def reload_refused(reason):
+            _notify_reload_refused(logger, service_pid, reason)
+
+        SwiftGunicornApp(load_app, build_cfg, logger, reload_refused).run()
 
     logger.notice('Exited (%s)', os.getpid())
     return 0

@@ -414,6 +414,7 @@ class TestSupervisePerPort(unittest.TestCase):
         self.logger = mock.MagicMock()
         self.handlers = {}
         self.killed = []
+        self.refusals = []
         self.pipes = []
         self.ready = []
         self.real_pipe = os.pipe
@@ -483,7 +484,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             return wsgi_gunicorn._supervise_per_port(
                 desired, self.logger, lambda port, fd: None,
-                lambda: self.ready.append(True))
+                lambda: self.ready.append(True), self.refusals.append)
 
     def _started(self):
         return [c.args[1] for c in self.logger.notice.call_args_list
@@ -545,7 +546,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, get_ports()), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         self.assertEqual([6200, 6201], self._started())
         self.assertIn((100, signal.SIGHUP), self.killed)
@@ -577,7 +578,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, get_ports()), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         # 6201's arbiter is told to go, 6200's is not restarted
         self.assertEqual([6200, 6201], self._started())
@@ -605,7 +606,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200]), self.logger, lambda port, fd: None,
-                lambda: None)
+                lambda: None, self.refusals.append)
 
         self.assertEqual([False], seen)
 
@@ -645,7 +646,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200]), self.logger, lambda port, fd: None,
-                lambda: self.ready.append(True))
+                lambda: self.ready.append(True), self.refusals.append)
 
         # once at startup, once after the reload
         self.assertEqual(2, len(self.ready))
@@ -678,7 +679,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 get_desired, self.logger, lambda port, fd: None,
-                lambda: self.ready.append(True))
+                lambda: self.ready.append(True), self.refusals.append)
 
     def test_reload_to_an_empty_ring_stops_the_arbiters(self):
         # this node may legitimately have lost its last local port; that is
@@ -725,7 +726,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, get_ports()), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         self.assertEqual([6200], self._started())
         self.assertEqual(1, self.logger.exception.call_count)
@@ -760,7 +761,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, get_ports()), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         self.assertIn((100, signal.SIGUSR1), self.killed)
         self.assertNotIn((100, signal.SIGHUP), self.killed)
@@ -785,7 +786,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200, 6201]), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         self.assertEqual([(100, signal.SIGQUIT), (101, signal.SIGQUIT)],
                          sorted(self.killed))
@@ -806,7 +807,7 @@ class TestSupervisePerPort(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 wsgi_gunicorn._supervise_per_port(
                     lambda: (True, [6200, 6201]), self.logger,
-                    lambda port, fd: None, lambda: None)
+                    lambda port, fd: None, lambda: None, self.refusals.append)
 
         self.assertEqual([(100, signal.SIGTERM), (101, signal.SIGTERM)],
                          sorted(self.killed))
@@ -848,7 +849,8 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200, 6201]), self.logger,
-                lambda port, fd: None, lambda: self.ready.append(True))
+                lambda port, fd: None, lambda: self.ready.append(True),
+                self.refusals.append)
 
         # 6201 was retried on a later pass rather than left missing
         self.assertEqual([6200, 6201], sorted(self._started()))
@@ -873,7 +875,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, []), self.logger, lambda port, fd: None,
-                lambda: self.ready.append(True))
+                lambda: self.ready.append(True), self.refusals.append)
 
         self.assertEqual([True], self.ready)
 
@@ -916,7 +918,8 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200]), self.logger,
-                lambda port, fd: None, lambda: self.ready.append(True))
+                lambda port, fd: None, lambda: self.ready.append(True),
+                self.refusals.append)
 
         # only the startup report counts; the late one is the old config
         self.assertEqual(1, len(self.ready))
@@ -958,7 +961,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200]), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         # the clock never advances, so the failed port is not re-forked
         self.assertEqual(1, len(starts))
@@ -999,7 +1002,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200]), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         self.assertGreater(len(starts), 1024)
         delays = [call[0][-1] for call in self.logger.error.call_args_list
@@ -1037,11 +1040,45 @@ class TestSupervisePerPort(unittest.TestCase):
                 return (True, [6200])
 
             wsgi_gunicorn._supervise_per_port(
-                get_desired, self.logger, lambda port, fd: None, lambda: None)
+                get_desired, self.logger, lambda port, fd: None,
+                lambda: None, self.refusals.append)
 
         self.assertEqual(
             1, len([s for p, s in self.killed if s == signal.SIGHUP]))
         self.assertEqual(2, len(reloads))     # startup, then the one reload
+
+    def test_a_refused_reload_is_reported_not_just_logged(self):
+        self._reload_then_stop([(True, [6200]), (False, [])], pids=[100])
+        self.assertEqual(1, len(self.refusals))
+        self.assertIn('restart the server', self.refusals[0])
+
+    def test_an_arbiter_can_report_its_own_refused_reload(self):
+        rounds = []
+
+        def refuse_then_stop(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) == 1:
+                os.write(self.pipes[-1][2], wsgi_gunicorn._REPORT_REFUSED
+                         + b'bad threads value\n')
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=refuse_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger, lambda port, fd: None,
+                lambda: None, self.refusals.append)
+
+        self.assertEqual(['port 6200: bad threads value'], self.refusals)
 
     def test_ttin_and_ttou_reach_the_arbiters(self):
         sent = []
@@ -1067,7 +1104,7 @@ class TestSupervisePerPort(unittest.TestCase):
                                n, h)):
             wsgi_gunicorn._supervise_per_port(
                 lambda: (True, [6200]), self.logger,
-                lambda port, fd: None, lambda: None)
+                lambda port, fd: None, lambda: None, self.refusals.append)
 
         self.assertIn((100, signal.SIGTTIN), self.killed)
         self.assertIn((100, signal.SIGTTOU), self.killed)
@@ -1082,8 +1119,10 @@ class _BuildCfgHarness(unittest.TestCase):
         captured = {}
 
         class FakeApp(object):
-            def __init__(self, load_app, build_cfg, logger):
+            def __init__(self, load_app, build_cfg, logger,
+                         report_failure=None):
                 captured['build_cfg'] = build_cfg
+                captured['report_failure'] = report_failure
 
             def run(self):
                 pass
@@ -1127,6 +1166,7 @@ class TestTopologyIsFixedAtStartup(_BuildCfgHarness):
         app = wsgi_gunicorn.SwiftGunicornApp.__new__(
             wsgi_gunicorn.SwiftGunicornApp)
         app.swift_logger = mock.MagicMock()
+        app.report_failure = mock.MagicMock()
         app.cfg = 'the running config'
 
         app.build_cfg = mock.Mock(side_effect=TopologyChanged('nope'))
@@ -1135,9 +1175,11 @@ class TestTopologyIsFixedAtStartup(_BuildCfgHarness):
         self.assertEqual('the running config', app.cfg)
 
         app.build_cfg = mock.Mock(side_effect=ValueError('bad bind'))
-        app.reload()              # any other bad edit is just logged
+        app.reload()              # any other bad edit keeps the old config
         self.assertEqual('the running config', app.cfg)
         self.assertTrue(app.swift_logger.exception.called)
+        # but swift-reload still has to hear that it did not happen
+        self.assertEqual(1, app.report_failure.call_count)
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
@@ -1194,6 +1236,9 @@ class TestReloadValidatesBeforeApplying(_BuildCfgHarness):
         self.assertEqual([], touched)
         self.assertIn('needs a restart',
                       str(arbiter.log.error.call_args[0][-1]))
+        # and swift-reload is told, rather than waiting for a readiness
+        # that this reload is never going to send
+        self.assertEqual(1, arbiter.app.report_failure.call_count)
 
     def test_only_a_config_that_built_is_a_new_generation(self):
         holder = [{'servers_per_port': '0'}]

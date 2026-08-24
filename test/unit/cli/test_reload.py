@@ -160,6 +160,35 @@ class TestMain(unittest.TestCase):
             mock.call(123, signal.SIGUSR1),
         ])
 
+    def test_refused_reload_fails_instead_of_waiting(self):
+        self.mock_validate.return_value = (
+            ['/usr/bin/swift-object-server', '/etc/swift/object-server.conf'],
+            'swift-object-server',
+        )
+        self.mock_notify_server().__enter__().receive.side_effect = [
+            b'RELOADING=1',
+            b'ERRNO=22\nSTATUS=servers_per_port needs a restart',
+            b'READY=1',          # never reached
+        ]
+        with self.assertRaises(SystemExit) as caught:
+            reload.main(['123'])
+        self.assertEqual(caught.exception.args, (reload.EXIT_RELOAD_FAILED,))
+        self.assertIn('servers_per_port needs a restart',
+                      self.mock_stderr.getvalue())
+
+    def test_a_refusal_without_a_reason_still_fails(self):
+        self.mock_validate.return_value = (
+            ['/usr/bin/swift-object-server', '/etc/swift/object-server.conf'],
+            'swift-object-server',
+        )
+        self.mock_notify_server().__enter__().receive.side_effect = [
+            b'ERRNO=22',
+        ]
+        with self.assertRaises(SystemExit) as caught:
+            reload.main(['123'])
+        self.assertEqual(caught.exception.args, (reload.EXIT_RELOAD_FAILED,))
+        self.assertIn('no reason given', self.mock_stderr.getvalue())
+
     @mock.patch('time.time', side_effect=[1, 10, 100, 400])
     def test_timeout(self, mock_time):
         self.mock_validate.return_value = (

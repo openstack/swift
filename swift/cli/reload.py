@@ -71,6 +71,13 @@ def validate_manager_pid(pid):
     return cmd, scripts[0]
 
 
+def _status(fields):
+    for field in fields:
+        if field.startswith(b"STATUS="):
+            return field[len(b"STATUS="):].decode("utf8", "replace")
+    return "no reason given"
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(__doc__)
     parser.add_argument("pid", type=int,
@@ -136,8 +143,8 @@ def main(args=None):
                 try:
                     ready = False
                     while not ready:
-                        data = notifications.receive()
-                        for data in data.split(b"\n"):
+                        fields = notifications.receive().split(b"\n")
+                        for data in fields:
                             if args.verbose:
                                 if data in (b"READY=1", b"RELOADING=1",
                                             b"STOPPING=1"):
@@ -146,8 +153,14 @@ def main(args=None):
                                 else:
                                     print("Received notification %r" % data)
 
-                            if data == b"READY=1":
-                                ready = True
+                        if any(f.startswith(b"ERRNO=") for f in fields):
+                            # the server kept running on its old config, so
+                            # no readiness is coming
+                            print("Failed to reload %s: %s"
+                                  % (script, _status(fields)), file=sys.stderr)
+                            exit(EXIT_RELOAD_FAILED)
+                        if b"READY=1" in fields:
+                            ready = True
                 except socket.timeout:
                     print("Timed out reloading %s" % script, file=sys.stderr)
                     exit(EXIT_RELOAD_TIMEOUT)
