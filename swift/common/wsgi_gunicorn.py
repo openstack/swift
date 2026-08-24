@@ -905,6 +905,15 @@ def common_config():
     # Defaults to 30 seconds, should be less than common.manager.KILL_WAIT
     cfg.set('graceful_timeout', 5)
 
+    _set_request_limits(cfg)
+
+    return cfg
+
+
+def _set_request_limits(cfg):
+    """Size the request limits from the current constraints. Re-applied once
+    a reload has read new ones out of swift.conf.
+    """
     cfg.set('limit_request_fields', int(constraints.MAX_HEADER_COUNT * 1.6))
     # eventlet rejected a header line >= MAX_HEADER_SIZE (400) and a request
     # line >= MAX_REQUEST_LINE (414); gunicorn defaults to 4094 and rejects
@@ -913,8 +922,6 @@ def common_config():
     # its CRLF but the request line without, so the offsets differ (-1 / -3).
     cfg.set('limit_request_field_size', constraints.MAX_HEADER_SIZE - 1)
     cfg.set('limit_request_line', constraints.MAX_REQUEST_LINE - 3)
-
-    return cfg
 
 
 _ARBITER_RETRY_MAX = 60.0
@@ -1392,15 +1399,10 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
     def build_cfg(port=None, ready_fd=None):
         global _CLIENT_TIMEOUT
-        constraints.reload_constraints()
-        # Also re-read storage policies from swift.conf so a reload picks up
-        # policy changes, not just [swift-constraints] (reload_constraints
-        # only reloads the latter).
-        reload_storage_policies()
         rconf = appconfig(conf_path, name=app_section)
         # Bound the gthread request-read phase by client_timeout (read by the
         # patched TConn.init); gunicorn has no equivalent socket-read timeout.
-        _CLIENT_TIMEOUT = float(rconf.get('client_timeout', 60))
+        client_timeout = float(rconf.get('client_timeout', 60))
         if port is None:
             if _servers_per_port_enabled(rconf, app_section) != started_spp:
                 # a single arbiter would bind every ring port and hand them
@@ -1491,9 +1493,19 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             except OSError:
                 pass
         cfg.set('post_worker_init', notify_ready)
-        # Only a config that built counts as a new generation. If this call
-        # raised, gunicorn reloads with the old one and respawns its workers
-        # from it; they must not look like the reload being waited for.
+
+        # Everything above only built this config, so a file the server
+        # refuses leaves the running one alone. It is known good now, so
+        # apply the parts of it that live outside the config.
+        constraints.reload_constraints()
+        # Storage policies come from swift.conf too, and reload_constraints()
+        # only reloads [swift-constraints].
+        reload_storage_policies()
+        _set_request_limits(cfg)
+        _CLIENT_TIMEOUT = client_timeout
+        # A config that raised is not a new generation: gunicorn respawns
+        # the workers from the one it kept, and they must not look like the
+        # reload being waited for.
         generation[0] += 1
         return cfg
 

@@ -1073,11 +1073,9 @@ class TestSupervisePerPort(unittest.TestCase):
         self.assertIn((100, signal.SIGTTOU), self.killed)
 
 
-@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
-class TestTopologyIsFixedAtStartup(unittest.TestCase):
-    """One arbiter per port or a single arbiter is decided at startup; a
-    reload that flips servers_per_port would leave one arbiter holding every
-    listener, so it is rejected instead.
+class _BuildCfgHarness(unittest.TestCase):
+    """Runs run_wsgi far enough to grab the real build_cfg closure, so a
+    test can drive a reload the way SwiftGunicornApp.reload() does.
     """
 
     def _capture_build_cfg(self, conf_values):
@@ -1113,7 +1111,17 @@ class TestTopologyIsFixedAtStartup(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         wsgi_gunicorn.run_wsgi('x.conf', 'object-server')
+        self.reload_constraints = wsgi_gunicorn.constraints.reload_constraints
+        self.reload_policies = wsgi_gunicorn.reload_storage_policies
         return captured['build_cfg']
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestTopologyIsFixedAtStartup(_BuildCfgHarness):
+    """One arbiter per port or a single arbiter is decided at startup; a
+    reload that flips servers_per_port would leave one arbiter holding every
+    listener, so it is rejected instead.
+    """
 
     def test_a_topology_change_is_the_one_reload_error_not_swallowed(self):
         app = wsgi_gunicorn.SwiftGunicornApp.__new__(
@@ -1130,6 +1138,41 @@ class TestTopologyIsFixedAtStartup(unittest.TestCase):
         app.reload()              # any other bad edit is just logged
         self.assertEqual('the running config', app.cfg)
         self.assertTrue(app.swift_logger.exception.called)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestReloadValidatesBeforeApplying(_BuildCfgHarness):
+    """A reload gunicorn goes on to reject must not have changed anything
+    outside the config it was building.
+    """
+
+    def test_a_bad_value_leaves_the_running_settings_alone(self):
+        holder = [{'client_timeout': '30'}]
+        build_cfg = self._capture_build_cfg(holder)
+        build_cfg()
+        self.assertEqual(30, wsgi_gunicorn._CLIENT_TIMEOUT)
+        before = (self.reload_constraints.call_count,
+                  self.reload_policies.call_count)
+
+        holder[0] = {'client_timeout': '90', 'threads': 'sixteen'}
+        with self.assertRaises(ValueError):
+            build_cfg()
+
+        self.assertEqual(30, wsgi_gunicorn._CLIENT_TIMEOUT)
+        self.assertEqual(before, (self.reload_constraints.call_count,
+                                  self.reload_policies.call_count))
+
+    def test_constraints_read_by_the_reload_reach_the_request_limits(self):
+        original = wsgi_gunicorn.constraints.MAX_HEADER_SIZE
+        self.addCleanup(setattr, wsgi_gunicorn.constraints,
+                        'MAX_HEADER_SIZE', original)
+        build_cfg = self._capture_build_cfg([{}])
+        self.reload_constraints.side_effect = lambda: setattr(
+            wsgi_gunicorn.constraints, 'MAX_HEADER_SIZE', original + 100)
+
+        cfg = build_cfg()
+
+        self.assertEqual(original + 99, cfg.limit_request_field_size)
 
     def test_a_rejected_reload_never_reaches_the_workers(self):
         # Gunicorn asks the app for its new config before it touches
