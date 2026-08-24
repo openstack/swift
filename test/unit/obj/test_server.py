@@ -66,7 +66,7 @@ from swift.common.utils.timestamp import Timestamp
 from swift.common import constraints
 from swift.common.request_helpers import get_reserved_name
 from swift.common.statsd_client import LabeledStatsdClient
-from swift.common.swob import Request, WsgiBytesIO, \
+from swift.common.swob import Request, Response, WsgiBytesIO, \
     HTTPRequestedRangeNotSatisfiable, date_header_format
 from swift.common.splice import splice
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
@@ -10937,6 +10937,42 @@ class TestZeroCopy(unittest.TestCase):
         contents = response.read()
         self.assertEqual(contents, b'obj contents')
 
+    def test_GET_really_zero_copies_and_keeps_the_connection(self):
+        url_path = '/sda1/2100/a/c/o'
+        self.http_conn.request('PUT', url_path, 'obj contents',
+                               {'X-Timestamp': '127082564.24709',
+                                'Content-Type': 'application/test'})
+        self.assertEqual(self.http_conn.getresponse().read(), b'')
+
+        sent = []
+        orig = diskfile.DiskFileReader.zero_copy_send
+
+        def counting_zero_copy_send(self, wsockfd):
+            sent.append(wsockfd)
+            return orig(self, wsockfd)
+
+        with mock.patch.object(diskfile.DiskFileReader, 'zero_copy_send',
+                               counting_zero_copy_send):
+            for _ in range(2):
+                self.http_conn.request('GET', url_path)
+                response = self.http_conn.getresponse()
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.read(), b'obj contents')
+        self.assertEqual(2, len(sent))
+
+    def test_GET_big_twice_on_one_connection(self):
+        obj_contents = b'A' * 4 * 1024 * 1024
+        url_path = '/sda1/2100/a/c/o'
+        self.http_conn.request('PUT', url_path, obj_contents,
+                               {'X-Timestamp': '1402600322.52126',
+                                'Content-Type': 'application/test'})
+        self.http_conn.getresponse().read()
+        for _ in range(2):
+            self.http_conn.request('GET', url_path)
+            response = self.http_conn.getresponse()
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), obj_contents)
+
     def test_GET_big(self):
         # Test with a large-ish object to make sure we handle full socket
         # buffers correctly.
@@ -11108,6 +11144,68 @@ class TestConfigOptionHandling(unittest.TestCase):
         self.assertEqual(config['reclaim_age'], '600')
         for policy in POLICIES:
             self.assertEqual(app._diskfile_router[policy].reclaim_age, 600)
+
+
+class TestZeroCopyGate(unittest.TestCase):
+    """The WSGI server hands the app a wrapped input rather than its own
+    stream class, so the zero-copy gate goes by whether the socket is
+    reachable through it.
+    """
+
+    def setUp(self):
+        skip_if_no_xattrs()
+        self.testdir = mkdtemp(suffix='obj_server_zero_copy_gate')
+        self.addCleanup(rmtree, self.testdir)
+        mkdirs(os.path.join(self.testdir, 'sda1', 'tmp'))
+        self.object_controller = object_server.ObjectController(
+            {'devices': self.testdir, 'mount_check': 'false'},
+            logger=debug_logger())
+
+    def _GET(self, wsgi_input):
+        sent = []
+
+        class FakeAppIter:
+            def can_zero_copy_send(self):
+                return True
+
+            def zero_copy_send(self, fd):
+                sent.append(fd)
+
+        res = Response(status=200)
+        res.app_iter = FakeAppIter()
+        req = Request.blank('/sda1/p/a/c/o',
+                            environ={'REQUEST_METHOD': 'GET',
+                                     'wsgi.input': wsgi_input})
+        with mock.patch.object(self.object_controller, 'GET',
+                               return_value=res):
+            body = self.object_controller(req.environ, lambda *args: None)
+        return body, sent
+
+    def test_a_wrapped_input_still_zero_copies(self):
+        body, sent = self._GET(FakeWrappedInput())
+        self.assertEqual(b'', b''.join(body))
+        self.assertEqual([FakeWrappedInput.FILENO], sent)
+
+    def test_an_input_without_a_socket_sends_normally(self):
+        _, sent = self._GET(WsgiBytesIO(b''))
+        self.assertEqual([], sent)
+
+
+class FakeWrappedInput:
+    """Stands in for the wsgi.input wrappers, which reach the socket by
+    delegation rather than by being the server's own stream class.
+    """
+
+    FILENO = 42
+
+    def get_socket(self):
+        return self
+
+    def fileno(self):
+        return self.FILENO
+
+    def setsockopt(self, *args):
+        pass
 
 
 if __name__ == '__main__':

@@ -1278,16 +1278,6 @@ def set_green_maxheaders(count):
         green_http_client._MAXHEADERS = count
 
 
-def wsgi_input_class():
-    # Stream class the WSGI server hands the app as the raw input. Imported
-    # lazily so gunicorn is only loaded where it is actually used (the server),
-    # not in every process that imports this module.
-    if USE_EVENTLET:
-        return wsgi.Input
-    from gunicorn.http.body import Body
-    return Body
-
-
 def get_swift_http_protocols():
     # The eventlet WSGI server's HTTP protocol handler classes, or (None, None)
     # without eventlet where there is no eventlet WSGI server to extend.
