@@ -19,6 +19,7 @@ import unittest
 from unittest import mock
 from unittest.mock import MagicMock
 
+import signal
 import socket
 
 from swift.common.concurrency import USE_EVENTLET
@@ -28,7 +29,8 @@ from test import import_gunicorn_or_skip
 if not USE_EVENTLET:
     import_gunicorn_or_skip()
     import swift.common.wsgi_gunicorn as wsgi_gunicorn
-    from swift.common.wsgi_gunicorn import ChunkedInput, _bind_str, \
+    from swift.common.wsgi_gunicorn import ChunkedInput, TopologyChanged, \
+        _bind_str, \
         _check_can_bind, _resolve_worker_count, _check_binds_bindable, \
         _binds_and_workers
 
@@ -400,3 +402,787 @@ class TestSwiftGunicornApp(unittest.TestCase):
 
         self.assertIs(app.cfg, new_cfg)
         logger.exception.assert_not_called()
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestSupervisePerPort(unittest.TestCase):
+    """servers_per_port runs one arbiter per port, each bound to a single
+    socket, so a wedged disk stalls only its own port's workers.
+    """
+
+    def setUp(self):
+        self.logger = mock.MagicMock()
+        self.handlers = {}
+        self.killed = []
+        self.pipes = []
+        self.ready = []
+        self.real_pipe = os.pipe
+        self.addCleanup(self._close_pipes)
+
+    def _close_pipes(self):
+        for pair in self.pipes:
+            for fd in pair:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    def _record_kill(self, pid, signum):
+        self.killed.append((pid, signum))
+
+    def _pipe(self):
+        pair = self.real_pipe()          # os.pipe is patched below
+        # the supervisor closes its copy of the write end after forking; keep
+        # a dup so a test can play the child and report ready later
+        self.pipes.append(pair + (os.dup(pair[1]),))
+        return pair
+
+    def _child_reports_ready(self, index=-1, generation=1):
+        # an arbiter's workers report the generation of the config they came
+        # up on; the supervisor only counts the one it asked for
+        os.write(self.pipes[index][2], b'%d\n' % generation)
+
+    def _run(self, ports, pids, waitpids=(), stop_after=1, child_ready=True):
+        """Drive the supervisor. `ports` may be a list (static) or a callable.
+        `waitpids` is what os.waitpid() returns in turn.
+        """
+        pid_iter = iter(pids)
+        waits = list(waitpids)
+        rounds = [0]
+
+        def fake_fork():
+            pid = next(pid_iter)
+            if child_ready:
+                os.write(self.pipes[-1][1], b'1\n')
+            return pid
+
+        def fake_select(r, w, x, timeout):
+            rounds[0] += 1
+            if rounds[0] >= stop_after:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        def fake_waitpid(pid, flags):
+            if flags and waits:
+                nxt = waits.pop(0)
+                return nxt if nxt is not None else (0, 0)
+            if flags:
+                return (0, 0)
+            raise ChildProcessError()
+
+        get_ports = ports if callable(ports) else (lambda: ports)
+        desired = lambda: (True, get_ports())
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=fake_fork), \
+                mock.patch('os.waitpid', side_effect=fake_waitpid), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=fake_select), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            return wsgi_gunicorn._supervise_per_port(
+                desired, self.logger, lambda port, fd: None,
+                lambda: self.ready.append(True))
+
+    def _started(self):
+        return [c.args[1] for c in self.logger.notice.call_args_list
+                if 'Started arbiter' in c.args[0]]
+
+    def test_one_arbiter_per_port(self):
+        self._run([6200, 6201, 6202], pids=[100, 101, 102])
+        self.assertEqual([6200, 6201, 6202], self._started())
+
+    def test_stop_signal_is_forwarded_to_every_arbiter(self):
+        self._run([6200, 6201], pids=[100, 101])
+        self.assertEqual([(100, signal.SIGTERM), (101, signal.SIGTERM)],
+                         sorted(self.killed))
+
+    def test_a_stop_signal_is_not_swallowed_by_pep_475(self):
+        # os.wait() is retried across a handled signal, so the loop has to be
+        # woken through the pipe rather than by an interrupted wait
+        self._run([6200], pids=[100])
+        self.assertEqual([(100, signal.SIGTERM)], self.killed)
+
+    def test_dead_arbiter_is_replaced_on_its_own_port(self):
+        # it had been serving (reported ready), so no start-up backoff
+        self._run([6200, 6201], pids=[100, 101, 102],
+                  waitpids=[None, (101, 0)], stop_after=3)
+        self.assertEqual([6200, 6201, 6201], self._started())
+
+    def test_ready_is_reported_once_every_arbiter_is_up(self):
+        self._run([6200, 6201], pids=[100, 101])
+        self.assertEqual([True], self.ready)
+
+    def test_not_ready_while_an_arbiter_is_still_starting(self):
+        self._run([6200, 6201], pids=[100, 101], child_ready=False)
+        self.assertEqual([], self.ready)
+
+    def test_reload_starts_an_arbiter_for_a_new_ring_port(self):
+        ports = [[6200]]
+
+        def get_ports():
+            return ports[0]
+
+        def hup_then_stop(r, w, x, timeout):
+            if len(ports[0]) == 1:
+                ports[0] = [6200, 6201]        # a new port appears in the ring
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100, 101])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork',
+                           side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=hup_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, get_ports()), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        self.assertEqual([6200, 6201], self._started())
+        self.assertIn((100, signal.SIGHUP), self.killed)
+
+    def test_reload_stops_an_arbiter_whose_port_left_the_ring(self):
+        ports = [[6200, 6201]]
+
+        def get_ports():
+            return ports[0]
+
+        def hup_then_stop(r, w, x, timeout):
+            if len(ports[0]) == 2:
+                ports[0] = [6200]
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100, 101])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork',
+                           side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=hup_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, get_ports()), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        # 6201's arbiter is told to go, 6200's is not restarted
+        self.assertEqual([6200, 6201], self._started())
+        self.assertIn((101, signal.SIGTERM), self.killed)
+
+    def test_ready_pipes_never_block_the_loop(self):
+        # a slow arbiter must not wedge the supervisor in os.read(); PEP 475
+        # retries an interrupted read, so a signal could not free it either
+        seen = []
+
+        def probe(r, w, x, timeout):
+            seen.append(os.get_blocking(self.pipes[-1][0]))
+            self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=probe), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger, lambda port, fd: None,
+                lambda: None)
+
+        self.assertEqual([False], seen)
+
+    def test_ready_is_reported_again_after_a_reload(self):
+        rounds = []
+
+        def hup_then_stop(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) == 1:
+                pass                           # let startup readiness land
+            elif len(rounds) == 2:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            elif len(rounds) == 3:
+                # the old generation reporting again must not count
+                self._child_reports_ready(generation=1)
+            elif len(rounds) == 4:
+                self._child_reports_ready(generation=2)   # reloaded workers
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100])
+
+        def fork_and_report():
+            pid = next(pid_iter)
+            self._child_reports_ready()
+            return pid
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=fork_and_report), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=hup_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger, lambda port, fd: None,
+                lambda: self.ready.append(True))
+
+        # once at startup, once after the reload
+        self.assertEqual(2, len(self.ready))
+
+    def _reload_then_stop(self, desired_seq, pids):
+        """Run a reload that swaps what get_desired() returns, then stop."""
+        seq = list(desired_seq)
+        state = {'i': 0}
+
+        def get_desired():
+            return seq[min(state['i'], len(seq) - 1)]
+
+        def hup_then_stop(r, w, x, timeout):
+            if state['i'] == 0:
+                state['i'] = 1
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter(pids)
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=hup_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                get_desired, self.logger, lambda port, fd: None,
+                lambda: self.ready.append(True))
+
+    def test_reload_to_an_empty_ring_stops_the_arbiters(self):
+        # this node may legitimately have lost its last local port; that is
+        # not the same as the mode being turned off
+        self._reload_then_stop([(True, [6200, 6201]), (True, [])],
+                               pids=[100, 101])
+        self.assertEqual([6200, 6201], self._started())
+        self.assertIn((100, signal.SIGTERM), self.killed)
+        self.assertIn((101, signal.SIGTERM), self.killed)
+
+    def test_reload_cannot_turn_servers_per_port_off(self):
+        # changing topology needs a restart; keep serving what we have
+        self._reload_then_stop([(True, [6200, 6201]), (False, [])],
+                               pids=[100, 101])
+        self.assertEqual([6200, 6201], self._started())
+        self.assertIn('restart the server to change topology',
+                      self.logger.error.call_args[0][0])
+
+    def test_a_failing_reload_keeps_the_running_arbiters(self):
+        calls = [0]
+
+        def get_ports():
+            calls[0] += 1
+            if calls[0] == 1:
+                return [6200]
+            raise ValueError('bad servers_per_port')
+
+        def hup_then_stop(r, w, x, timeout):
+            if calls[0] == 1:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=hup_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, get_ports()), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        self.assertEqual([6200], self._started())
+        self.assertEqual(1, self.logger.exception.call_count)
+
+    def test_sigusr1_is_forwarded_as_itself(self):
+        # gunicorn's SIGUSR1 reopens logs; it must not become a full reload
+        reloads = [0]
+
+        def usr1_then_stop(r, w, x, timeout):
+            reloads[0] += 1
+            if reloads[0] == 1:
+                self.handlers[signal.SIGUSR1](signal.SIGUSR1, None)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        ports_read = [0]
+
+        def get_ports():
+            ports_read[0] += 1
+            return [6200]
+
+        pid_iter = iter([100])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=usr1_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, get_ports()), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        self.assertIn((100, signal.SIGUSR1), self.killed)
+        self.assertNotIn((100, signal.SIGHUP), self.killed)
+        self.assertEqual(1, ports_read[0])      # no reconcile for SIGUSR1
+
+    def test_sigquit_stops_the_arbiters(self):
+        # gunicorn's quick-shutdown signal: sent to what used to be the
+        # arbiter pid, it must still reach the per-port arbiters
+        def quit_now(r, w, x, timeout):
+            self.handlers[signal.SIGQUIT](signal.SIGQUIT, None)
+            return ([], [], [])
+
+        pid_iter = iter([100, 101])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=quit_now), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200, 6201]), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        self.assertEqual([(100, signal.SIGQUIT), (101, signal.SIGQUIT)],
+                         sorted(self.killed))
+
+    def test_arbiters_are_stopped_when_the_loop_raises(self):
+        # otherwise they keep their listeners and a restart collides
+        pid_iter = iter([100, 101])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select',
+                           side_effect=RuntimeError('boom')), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            with self.assertRaises(RuntimeError):
+                wsgi_gunicorn._supervise_per_port(
+                    lambda: (True, [6200, 6201]), self.logger,
+                    lambda port, fd: None, lambda: None)
+
+        self.assertEqual([(100, signal.SIGTERM), (101, signal.SIGTERM)],
+                         sorted(self.killed))
+
+    def test_no_readiness_while_a_wanted_port_has_no_arbiter(self):
+        # a fork that fails must not let the reload report success, and the
+        # missing arbiter must be retried without waiting for another SIGHUP
+        forks = []
+
+        def flaky_fork():
+            forks.append(1)
+            if len(forks) == 2:
+                raise OSError(errno.EAGAIN, 'cannot fork')
+            return 100 + len(forks)
+
+        rounds = []
+
+        def spin(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) >= 3:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        clock = [0.0]
+
+        def tick():
+            clock[0] += 5.0          # past any start-up backoff
+            return clock[0]
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=flaky_fork), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('time.monotonic', side_effect=tick), \
+                mock.patch('select.select', side_effect=spin), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200, 6201]), self.logger,
+                lambda port, fd: None, lambda: self.ready.append(True))
+
+        # 6201 was retried on a later pass rather than left missing
+        self.assertEqual([6200, 6201], sorted(self._started()))
+        # and readiness was never claimed while it was absent
+        self.assertEqual([], self.ready)
+
+    def test_empty_topology_still_reports_ready(self):
+        # a node with no local ring ports must still notify a Type=notify
+        # service manager, as the eventlet strategy does
+        def stop_now(r, w, x, timeout):
+            self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=AssertionError), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=stop_now), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, []), self.logger, lambda port, fd: None,
+                lambda: self.ready.append(True))
+
+        self.assertEqual([True], self.ready)
+
+    def test_rejected_topology_change_does_not_reload_the_arbiters(self):
+        # forwarding HUP first would let every child apply the new config
+        self._reload_then_stop([(True, [6200]), (False, [])], pids=[100])
+        self.assertNotIn((100, signal.SIGHUP), self.killed)
+
+    def test_a_late_old_generation_report_is_not_readiness(self):
+        rounds = []
+
+        def hup_then_stop(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) == 1:
+                pass                          # startup readiness lands
+            elif len(rounds) == 2:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            elif len(rounds) == 3:
+                # a worker still starting under the old config reports late
+                self._child_reports_ready(generation=1)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100])
+
+        def fork_and_report():
+            pid = next(pid_iter)
+            self._child_reports_ready()
+            return pid
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=fork_and_report), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=hup_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger,
+                lambda port, fd: None, lambda: self.ready.append(True))
+
+        # only the startup report counts; the late one is the old config
+        self.assertEqual(1, len(self.ready))
+
+    def test_a_failing_arbiter_is_backed_off(self):
+        starts = []
+        clock = [0.0]
+
+        def fork_fail():
+            starts.append(1)
+            return 100 + len(starts)
+
+        rounds = []
+
+        def spin(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) >= 4:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        exits = [(101, 1)]
+
+        def waitpid(pid, flags):
+            if flags and exits:
+                return exits.pop(0)
+            if flags:
+                return (0, 0)
+            raise ChildProcessError()
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=fork_fail), \
+                mock.patch('os.waitpid', side_effect=waitpid), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('time.monotonic', side_effect=lambda: clock[0]), \
+                mock.patch('select.select', side_effect=spin), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        # the clock never advances, so the failed port is not re-forked
+        self.assertEqual(1, len(starts))
+
+    def test_a_port_that_never_starts_does_not_overflow_the_backoff(self):
+        # 2.0 ** 1024 raises OverflowError, and a port reaches that many
+        # failures in about a day at the 60s ceiling; the exception would
+        # then take every healthy arbiter down with it
+        starts = []
+        alive = []
+        clock = [0.0]
+
+        def fork_fail():
+            starts.append(100 + len(starts))
+            alive.append(starts[-1])
+            return starts[-1]
+
+        def spin(r, w, x, timeout):
+            clock[0] += 3600.0           # always past the next retry
+            if len(starts) > 1100:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        def waitpid(pid, flags):
+            if not flags:
+                raise ChildProcessError()
+            return (alive.pop(0), 1) if alive else (0, 0)
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=fork_fail), \
+                mock.patch('os.waitpid', side_effect=waitpid), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('time.monotonic', side_effect=lambda: clock[0]), \
+                mock.patch('select.select', side_effect=spin), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        self.assertGreater(len(starts), 1024)
+        delays = [call[0][-1] for call in self.logger.error.call_args_list
+                  if 'next try' in call[0][0]]
+        self.assertEqual(60.0, max(delays))
+
+    def test_a_burst_of_hangups_is_one_reload(self):
+        # a child may see a single delivery for several HUPs, so arming for
+        # more generations than it will reach would hang the reload
+        rounds = []
+
+        def hup_twice_then_stop(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) == 1:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        reloads = []
+        pid_iter = iter([100])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select',
+                           side_effect=hup_twice_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            def get_desired():
+                reloads.append(1)
+                return (True, [6200])
+
+            wsgi_gunicorn._supervise_per_port(
+                get_desired, self.logger, lambda port, fd: None, lambda: None)
+
+        self.assertEqual(
+            1, len([s for p, s in self.killed if s == signal.SIGHUP]))
+        self.assertEqual(2, len(reloads))     # startup, then the one reload
+
+    def test_ttin_and_ttou_reach_the_arbiters(self):
+        sent = []
+
+        def signals_then_stop(r, w, x, timeout):
+            if not sent:
+                sent.append(1)
+                self.handlers[signal.SIGTTIN](signal.SIGTTIN, None)
+                self.handlers[signal.SIGTTOU](signal.SIGTTOU, None)
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100])
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=lambda: next(pid_iter)), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=signals_then_stop), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger,
+                lambda port, fd: None, lambda: None)
+
+        self.assertIn((100, signal.SIGTTIN), self.killed)
+        self.assertIn((100, signal.SIGTTOU), self.killed)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestTopologyIsFixedAtStartup(unittest.TestCase):
+    """One arbiter per port or a single arbiter is decided at startup; a
+    reload that flips servers_per_port would leave one arbiter holding every
+    listener, so it is rejected instead.
+    """
+
+    def _capture_build_cfg(self, conf_values):
+        captured = {}
+
+        class FakeApp(object):
+            def __init__(self, load_app, build_cfg, logger):
+                captured['build_cfg'] = build_cfg
+
+            def run(self):
+                pass
+
+        conf = {'__file__': 'x.conf'}
+        patches = [
+            mock.patch.object(wsgi_gunicorn, 'check_config_gunicorn',
+                              return_value=(conf, mock.MagicMock(), {})),
+            mock.patch.object(wsgi_gunicorn, 'SwiftGunicornApp', FakeApp),
+            mock.patch.object(wsgi_gunicorn, 'appconfig',
+                              side_effect=lambda *a, **kw: conf_values[0]),
+            mock.patch.object(wsgi_gunicorn.constraints,
+                              'reload_constraints'),
+            mock.patch.object(wsgi_gunicorn, 'reload_storage_policies'),
+            mock.patch.object(wsgi_gunicorn, '_binds_and_workers',
+                              return_value=('0.0.0.0:6200', 2)),
+            mock.patch.object(wsgi_gunicorn, 'clean_up_daemon_hygiene'),
+            mock.patch.object(wsgi_gunicorn, '_tune_malloc'),
+            mock.patch.object(wsgi_gunicorn, '_check_binds_bindable'),
+            mock.patch.object(wsgi_gunicorn, '_check_can_bind'),
+            mock.patch.object(wsgi_gunicorn, 'capture_stdio'),
+            mock.patch.object(wsgi_gunicorn, 'systemd_notify'),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        wsgi_gunicorn.run_wsgi('x.conf', 'object-server')
+        return captured['build_cfg']
+
+    def test_a_topology_change_is_the_one_reload_error_not_swallowed(self):
+        app = wsgi_gunicorn.SwiftGunicornApp.__new__(
+            wsgi_gunicorn.SwiftGunicornApp)
+        app.swift_logger = mock.MagicMock()
+        app.cfg = 'the running config'
+
+        app.build_cfg = mock.Mock(side_effect=TopologyChanged('nope'))
+        with self.assertRaises(TopologyChanged):
+            app.reload()          # the arbiter has to see this one
+        self.assertEqual('the running config', app.cfg)
+
+        app.build_cfg = mock.Mock(side_effect=ValueError('bad bind'))
+        app.reload()              # any other bad edit is just logged
+        self.assertEqual('the running config', app.cfg)
+        self.assertTrue(app.swift_logger.exception.called)
+
+    def test_a_rejected_reload_never_reaches_the_workers(self):
+        # Gunicorn asks the app for its new config before it touches
+        # anything, so refusing there leaves the running server alone
+        arbiter = wsgi_gunicorn._SwiftArbiter.__new__(
+            wsgi_gunicorn._SwiftArbiter)
+        arbiter._stats = {'reloads': 0}
+        arbiter.log = mock.MagicMock()
+        arbiter.cfg = mock.MagicMock(env={}, address=[])
+        arbiter.app = mock.MagicMock()
+        arbiter.app.reload.side_effect = TopologyChanged('needs a restart')
+        touched = []
+        arbiter.setup = lambda app: touched.append('setup')
+        arbiter.spawn_worker = lambda: touched.append('spawn_worker')
+        arbiter.manage_workers = lambda: touched.append('manage_workers')
+
+        arbiter.reload()
+
+        self.assertEqual([], touched)
+        self.assertIn('needs a restart',
+                      str(arbiter.log.error.call_args[0][-1]))
+
+    def test_only_a_config_that_built_is_a_new_generation(self):
+        holder = [{'servers_per_port': '0'}]
+        build_cfg = self._capture_build_cfg(holder)
+        read_fd, write_fd = os.pipe()
+        self.addCleanup(os.close, read_fd)
+        self.addCleanup(os.close, write_fd)
+
+        def report(cfg):
+            cfg.post_worker_init(mock.MagicMock())
+            return os.read(read_fd, 64)
+
+        running = build_cfg(6200, write_fd)
+        first = report(running)
+
+        holder[0] = {'servers_per_port': '0', 'threads': 'sixteen'}
+        with self.assertRaises(ValueError):
+            build_cfg(6200, write_fd)
+        # gunicorn respawns the workers from the config it kept
+        self.assertEqual(first, report(running))
+
+        holder[0] = {'servers_per_port': '0'}
+        self.assertNotEqual(first, report(build_cfg(6200, write_fd)))
+
+    def test_reload_cannot_turn_servers_per_port_on(self):
+        # the documented migration is enable-then-SIGHUP; under gunicorn that
+        # would silently give one arbiter every listener
+        holder = [{'servers_per_port': '0'}]
+        build_cfg = self._capture_build_cfg(holder)
+        build_cfg()                       # the running topology still applies
+
+        holder[0] = {'servers_per_port': '2'}
+        with self.assertRaises(TopologyChanged) as caught:
+            build_cfg()
+        self.assertIn('restart the server', str(caught.exception))

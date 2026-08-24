@@ -213,17 +213,18 @@ appear in the [DEFAULT] config section).
 
 .. note::
 
-   ``servers_per_port`` behaves differently when Swift runs without eventlet
-   (``USE_EVENTLET=false``), where the object-server is served by gunicorn.
-   gunicorn's single arbiter binds every local ring port and all of its
-   worker threads accept on all of those ports, so this mode restores
-   listeners on each port but does **not** provide the per-port *process*
-   isolation that the eventlet implementation does -- a slow disk's port is
-   not fenced off into its own worker processes. The number of workers is
-   still scaled by ``servers_per_port`` times the number of local ports.
-   Changed ring ports are also picked up on a reload (SIGHUP) rather than
-   being polled continuously at ``ring_check_interval``, so push a ring with
-   new ports and then reload the object-server.
+   Without eventlet (``USE_EVENTLET=false``) the object-server is served by
+   gunicorn, and ``servers_per_port`` runs one gunicorn arbiter per local
+   ring port, each bound to that port alone with ``servers_per_port``
+   workers. A slow disk therefore ties up only its own port's workers, as it
+   does under eventlet.
+
+   Changed ring ports are picked up on a reload (SIGHUP) rather than being
+   polled continuously at ``ring_check_interval``, so push a ring with new
+   ports and then reload the object-server. Turning ``servers_per_port`` on
+   or off is a change of process topology and needs a full restart -- a
+   reload that flips it is refused before anything is replaced, and the
+   server keeps running as it was.
 
 .. _general-service-configuration:
 

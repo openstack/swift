@@ -41,10 +41,14 @@
 #   OTHER DEALINGS IN THE SOFTWARE.
 
 import errno
+import functools
 import os
+import signal
 import re
+import select
 import socket
 import string
+import sys
 import time
 from io import BytesIO
 from urllib.parse import unquote
@@ -68,6 +72,7 @@ from swift.common.utils import capture_stdio, config_fallocate_value, \
 import gunicorn.util
 import gunicorn.sock
 import gunicorn.app.base
+import gunicorn.arbiter
 from gunicorn import debug
 import gunicorn.http.message
 import gunicorn.http.wsgi
@@ -629,6 +634,25 @@ def _map_chunk_read_error(err):
     return ChunkReadError(str(err))
 
 
+class TopologyChanged(Exception):
+    """servers_per_port was turned on or off in the config file. How many
+    processes run and which sockets they bind is settled at startup, so this
+    needs a restart rather than a reload.
+    """
+
+
+class _SwiftArbiter(gunicorn.arbiter.Arbiter):
+    def reload(self):
+        # Arbiter.reload() asks the app for its new config before it touches
+        # anything else, so refusing there and catching it here leaves the
+        # running server alone. Returning from SwiftGunicornApp.reload()
+        # would not: the arbiter would carry on and replace every worker.
+        try:
+            super().reload()
+        except TopologyChanged as err:
+            self.log.error('Ignoring reload: %s', err)
+
+
 class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
     def __init__(self, load_app, build_cfg, logger):
         self.load_app = load_app
@@ -648,6 +672,8 @@ class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
         # intact instead of making the arbiter rebind its default address.
         try:
             cfg = self.build_cfg()
+        except TopologyChanged:
+            raise               # _SwiftArbiter.reload() stops the reload
         except Exception:
             self.swift_logger.exception(
                 'Ignoring invalid configuration during Gunicorn reload')
@@ -658,6 +684,16 @@ class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
 
     def load(self):
         return self.load_app()
+
+    def run(self):
+        # as BaseApplication.run(), but with the arbiter that can refuse a
+        # reload outright
+        try:
+            _SwiftArbiter(self).run()
+        except RuntimeError as err:
+            print('\nError: %s\n' % err, file=sys.stderr)
+            sys.stderr.flush()
+            sys.exit(1)
 
 
 class _CountingInput:
@@ -881,6 +917,289 @@ def common_config():
     return cfg
 
 
+_ARBITER_RETRY_MAX = 60.0
+
+
+def _supervise_per_port(get_desired, logger, run_one_port, on_ready):
+    """Run one gunicorn arbiter per port and keep the set matching the ring.
+
+    Each arbiter binds a single socket, so a wedged disk can only stall its
+    own port's workers -- the isolation eventlet gets by forking per port,
+    with no gunicorn internals patched.
+
+    :param get_desired: callable returning (enabled, ports) to serve now
+    :param run_one_port: callable(port, ready_fd) run in the child
+    :param on_ready: called once every wanted arbiter has reported ready,
+                     and again after each reload
+    """
+    children = {}                      # pid -> port
+    ready_fds = {}                     # pid -> read end of its ready pipe
+    ready_gen = {}                     # pid -> generation its report must be
+    ready_buf = {}                     # pid -> unparsed bytes from its pipe
+    reported = set()                   # pids that have reported ready
+    desired = set()                    # ports we should be serving
+    retry_at = {}                      # port -> monotonic time to retry
+    failures = {}                      # port -> consecutive failed starts
+    stop_signal = []
+    reload_signals = []
+    passthrough_signals = []
+
+    # Signals only set a flag; PEP 475 retries an interrupted wait or read,
+    # so the loop is woken through this pipe instead.
+    wake_r, wake_w = os.pipe()
+    os.set_blocking(wake_r, False)
+    os.set_blocking(wake_w, False)
+    old_wakeup_fd = signal.set_wakeup_fd(wake_w)
+
+    def note_stop(signum, _frame):
+        stop_signal.append(signum)
+
+    def note_reload(signum, _frame):
+        reload_signals.append(signum)
+
+    def note_passthrough(signum, _frame):
+        passthrough_signals.append(signum)
+
+    for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT):
+        signal.signal(signum, note_stop)
+    for signum in (signal.SIGHUP, signal.SIGUSR1):
+        signal.signal(signum, note_reload)
+    # TTIN/TTOU used to reach a gunicorn arbiter directly; keep them working
+    for signum in (signal.SIGTTIN, signal.SIGTTOU):
+        signal.signal(signum, note_passthrough)
+
+    def forward(signum):
+        for pid in list(children):
+            try:
+                os.kill(pid, signum)
+            except OSError:
+                pass
+
+    def drop(pid):
+        children.pop(pid, None)
+        reported.discard(pid)
+        ready_gen.pop(pid, None)
+        ready_buf.pop(pid, None)
+        fd = ready_fds.pop(pid, None)
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+    def spawn(port):
+        read_fd, write_fd = os.pipe()
+        try:
+            pid = os.fork()
+        except OSError:
+            os.close(read_fd)
+            os.close(write_fd)
+            logger.exception('Could not fork an arbiter for port %d', port)
+            note_failure(port)
+            return
+        if pid == 0:
+            os.close(read_fd)
+            signal.set_wakeup_fd(-1)
+            # the arbiter installs its own handlers; drop the parent's
+            for signum in (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT,
+                           signal.SIGHUP, signal.SIGUSR1, signal.SIGTTIN,
+                           signal.SIGTTOU):
+                signal.signal(signum, signal.SIG_DFL)
+            status = 1
+            try:
+                status = run_one_port(port, write_fd) or 0
+            finally:
+                os._exit(status)
+        os.close(write_fd)
+        os.set_blocking(read_fd, False)
+        children[pid] = port
+        ready_fds[pid] = read_fd
+        ready_gen[pid] = 1                 # its first config counts as ready
+        logger.notice('Started arbiter for port %d (PID %d)', port, pid)
+
+    def note_failure(port):
+        """Back off a port that keeps dying, so a permanently broken config
+        cannot become a fork/exit loop.
+        """
+        failures[port] = failures.get(port, 0) + 1
+        # cap the exponent too: 2.0 ** 1024 raises OverflowError, and a
+        # port can fail that often in a day at the 60s ceiling
+        delay = min(2.0 ** min(failures[port] - 1, 16), _ARBITER_RETRY_MAX)
+        retry_at[port] = time.monotonic() + delay
+        logger.error('Arbiter for port %d failed %d time(s); next try in %ss',
+                     port, failures[port], delay)
+
+    def apply_desired():
+        """Move towards `desired`. A port that cannot start yet is retried
+        later, and readiness waits until every wanted port is up.
+        """
+        for pid, port in list(children.items()):
+            if port not in desired:
+                logger.notice('Port %d left the ring; stopping PID %d',
+                              port, pid)
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                drop(pid)
+        now = time.monotonic()
+        for port in sorted(desired - set(children.values())):
+            if retry_at.get(port, 0) > now:
+                continue
+            spawn(port)
+
+    def next_timeout():
+        """Sleep only until the soonest retry is due."""
+        waiting = [t - time.monotonic() for port, t in retry_at.items()
+                   if port in desired and port not in set(children.values())]
+        return max(0.0, min(waiting)) if waiting else 1.0
+
+    def refresh_desired():
+        """Re-read the ring. Returns False when the mode was turned off,
+        which a reload cannot do.
+        """
+        enabled, ports = get_desired()
+        if not enabled:
+            logger.error('servers_per_port cannot be turned off by a reload; '
+                         'restart the server to change topology')
+            return False
+        desired.clear()
+        desired.update(ports)
+        return True
+
+    def reload_accepted():
+        """Re-read the ring for a SIGHUP. False keeps the running arbiters
+        rather than half-applying a change they should not see.
+        """
+        try:
+            return refresh_desired()
+        except Exception:
+            logger.exception('Ignoring failed reload; keeping the running '
+                             'arbiters')
+            return False
+
+    def arm_reports():
+        """Ask every arbiter for a fresh report. Each one reloads exactly
+        once per SIGHUP, so a worker still starting up under the old config
+        reports the old generation and no longer counts.
+        """
+        for pid in children:
+            ready_gen[pid] = ready_gen.get(pid, 1) + 1
+
+    def collect_ready():
+        for pid, fd in list(ready_fds.items()):
+            while True:
+                try:
+                    data = os.read(fd, 64)
+                except BlockingIOError:
+                    break
+                except OSError:
+                    data = b''
+                if not data:
+                    break
+                ready_buf[pid] = ready_buf.get(pid, b'') + data
+            # reports are newline terminated; hold on to any partial tail
+            done, _, ready_buf[pid] = ready_buf.get(pid, b'').rpartition(b'\n')
+            for line in done.split(b'\n'):
+                try:
+                    generation = int(line)
+                except ValueError:
+                    continue
+                if generation >= ready_gen.get(pid, 1):
+                    reported.add(pid)
+
+    def reap():
+        while True:
+            try:
+                pid, status = os.waitpid(-1, os.WNOHANG)
+            except ChildProcessError:
+                return
+            if pid == 0:
+                return
+            port = children.get(pid)
+            was_ready = pid in reported
+            drop(pid)
+            if port is None or stop_signal:
+                continue
+            logger.error('Arbiter for port %d (PID %d) exited with %s',
+                         port, pid, status)
+            if was_ready:
+                failures.pop(port, None)      # it had been serving; retry now
+                retry_at.pop(port, None)
+            else:
+                note_failure(port)
+
+    def shut_down(signum):
+        forward(signum)
+        while children:
+            try:
+                pid, _status = os.waitpid(-1, 0)
+            except ChildProcessError:
+                break
+            except OSError as err:
+                if err.errno == errno.EINTR:
+                    continue
+                raise
+            drop(pid)
+
+    try:
+        refresh_desired()
+        apply_desired()
+        notified = False
+        while not stop_signal:
+            try:
+                select.select([wake_r] + list(ready_fds.values()), [], [],
+                              next_timeout())
+            except OSError as err:
+                if err.errno != errno.EINTR:
+                    raise
+            try:
+                while os.read(wake_r, 64):
+                    pass
+            except (BlockingIOError, OSError):
+                pass
+            while passthrough_signals:
+                forward(passthrough_signals.pop(0))
+            hangup = False
+            while reload_signals:
+                signum = reload_signals.pop(0)
+                if signum == signal.SIGHUP:
+                    # Signals do not queue, so a child can see one delivery
+                    # for a burst of them. Reload once for the lot, or the
+                    # supervisor waits for a generation no arbiter reaches.
+                    hangup = True
+                else:
+                    forward(signum)     # SIGUSR1 just reopens logs
+            if hangup and reload_accepted():
+                arm_reports()
+                reported.clear()
+                notified = False
+                forward(signal.SIGHUP)
+            reap()
+            if set(children.values()) != desired:
+                apply_desired()
+            collect_ready()
+            if (not notified and set(children.values()) == desired
+                    and reported >= set(children)):
+                on_ready()              # an empty topology is ready too
+                notified = True
+        shut_down(stop_signal[0])
+    except BaseException:
+        # never leave arbiters running with nothing supervising them
+        shut_down(signal.SIGTERM)
+        raise
+    finally:
+        signal.set_wakeup_fd(old_wakeup_fd)
+        for pid in list(ready_fds):
+            drop(pid)
+        for fd in (wake_r, wake_w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+    return 0
+
+
 def _bind_str(ip, port):
     # gunicorn's address parser needs IPv6 hosts bracketed ([::1]:6200);
     # a bare "::1:6200" or ":::6200" fails to parse.
@@ -983,6 +1302,25 @@ def _resolve_worker_count(conf, logger):
     return workers
 
 
+def _servers_per_port_enabled(conf, app_section):
+    """True when this server should run one arbiter per ring port."""
+    return (app_section == 'object-server'
+            and bool(int(conf.get('servers_per_port', '0') or 0)))
+
+
+def _servers_per_port_ports(conf, app_section):
+    """(enabled, sorted local ring ports). The ports may legitimately be
+    empty -- this node may have none in the ring -- which is not the same as
+    the mode being off.
+    """
+    if not _servers_per_port_enabled(conf, app_section):
+        return False, []
+    ip = conf.get('bind_ip', '0.0.0.0')
+    cache = BindPortsCache(conf.get('swift_dir', '/etc/swift'),
+                           conf.get('ring_ip', ip))
+    return True, sorted(cache.all_bind_ports_for_node())
+
+
 def _binds_and_workers(conf, app_section, logger):
     # (bind, workers) for a freshly read conf; bind is a list of "ip:port"
     # for servers_per_port, else a single "ip:port". The mode is derived
@@ -1042,11 +1380,17 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         return loadapp(conf['__file__'], global_conf=global_conf,
                        allow_modify_pipeline=allow_modify_pipeline)
 
+    # The process topology is fixed at startup: one arbiter per port, or a
+    # single arbiter. build_cfg rejects a reload that flips it.
+    started_spp = _servers_per_port_enabled(conf, app_section)
+
     # Configure gunicorn. build_cfg is re-invoked on every (re)load (see
     # SwiftGunicornApp.load_config), so re-read the conf file here: a reload
     # (SIGHUP) then picks up changed bind/workers/threads/TLS/user, not just
     # the reloaded app pipeline. reload_constraints() re-reads swift.conf.
-    def build_cfg():
+    generation = [0]
+
+    def build_cfg(port=None, ready_fd=None):
         global _CLIENT_TIMEOUT
         constraints.reload_constraints()
         # Also re-read storage policies from swift.conf so a reload picks up
@@ -1057,7 +1401,19 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         # Bound the gthread request-read phase by client_timeout (read by the
         # patched TConn.init); gunicorn has no equivalent socket-read timeout.
         _CLIENT_TIMEOUT = float(rconf.get('client_timeout', 60))
-        bind, workers = _binds_and_workers(rconf, app_section, logger)
+        if port is None:
+            if _servers_per_port_enabled(rconf, app_section) != started_spp:
+                # a single arbiter would bind every ring port and hand them
+                # all to every worker, so the mode cannot be switched by a
+                # reload; keep the running config (SwiftGunicornApp.reload)
+                raise TopologyChanged(
+                    'servers_per_port cannot be turned on or off by a '
+                    'reload; restart the server to change topology')
+            bind, workers = _binds_and_workers(rconf, app_section, logger)
+        else:
+            # one arbiter of a servers_per_port set: only its own socket
+            bind = _bind_str(rconf.get('bind_ip', '0.0.0.0'), port)
+            workers = max(1, int(rconf.get('servers_per_port', '0') or 0))
         cfg = common_config()
         cfg.set('bind', bind)
         cfg.set('workers', workers)
@@ -1125,8 +1481,20 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
 
         def notify_ready(worker):
             os.environ.pop('NOTIFY_SOCKET', None)
-            systemd_notify(logger=logger, pid=master_pid)
+            if ready_fd is None:
+                systemd_notify(logger=logger, pid=master_pid)
+                return
+            # a per-port arbiter is not the service's main pid: tell the
+            # supervisor, which notifies systemd once every port is up
+            try:
+                os.write(ready_fd, b'%d\n' % generation[0])
+            except OSError:
+                pass
         cfg.set('post_worker_init', notify_ready)
+        # Only a config that built counts as a new generation. If this call
+        # raised, gunicorn reloads with the old one and respawns its workers
+        # from it; they must not look like the reload being waited for.
+        generation[0] += 1
         return cfg
 
     if kwargs.get('test_config'):
@@ -1186,7 +1554,32 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     logger.notice('Starting gunicorn/gthread server on %s with %d workers',
                   bind, workers)
 
-    SwiftGunicornApp(load_app, build_cfg, logger).run()
+    # servers_per_port: one arbiter per port, each bound to a single socket,
+    # so a wedged disk stalls only its own port. A single arbiter would hand
+    # every worker every listener.
+    if _servers_per_port_enabled(conf, app_section):
+        supervisor_pid = os.getpid()
+
+        def get_desired():
+            # re-read on every reconcile so a reloaded ring adds or drops
+            # arbiters, the way eventlet polls at ring_check_interval
+            return _servers_per_port_ports(
+                appconfig(conf_path, name=app_section), app_section)
+
+        def run_one_port(port, ready_fd):
+            # this arbiter counts its own reloads; the config built above in
+            # the supervisor to validate the file is not one of them
+            generation[0] = 0
+            return SwiftGunicornApp(
+                load_app, functools.partial(build_cfg, port, ready_fd),
+                logger).run()
+
+        def all_ready():
+            systemd_notify(logger=logger, pid=supervisor_pid)
+
+        _supervise_per_port(get_desired, logger, run_one_port, all_ready)
+    else:
+        SwiftGunicornApp(load_app, build_cfg, logger).run()
 
     logger.notice('Exited (%s)', os.getpid())
     return 0
