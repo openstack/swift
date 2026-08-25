@@ -2405,6 +2405,66 @@ class TestRequest(S3ApiTestCase):
         resp_body = sigv4_req.environ['wsgi.input'].read()
         self.assertEqual(body, resp_body)
 
+    def test_checksum_value_validated_on_put(self):
+        req = Request.blank(
+            '/bucket/object', method='PUT', body=b'body',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-crc32': 'absolute garbage'})
+
+        with self.assertRaises(InvalidRequest) as result:
+            S3Request(req.environ)
+
+        self.assertIn(
+            b'<Message>Value for x-amz-checksum-crc32 header is invalid.'
+            b'</Message>',
+            result.exception.body)
+
+    def test_checksum_value_validated_on_delete_post(self):
+        req = Request.blank(
+            '/bucket?delete', method='POST', body=b'<Delete/>',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-crc32': 'absolute garbage'})
+
+        with self.assertRaises(InvalidRequest) as result:
+            S3Request(req.environ)
+
+        self.assertIn(
+            b'<Message>Value for x-amz-checksum-crc32 header is invalid.'
+            b'</Message>',
+            result.exception.body)
+
+    def test_checksum_value_not_validated_on_post(self):
+        req = Request.blank(
+            '/bucket/object?uploadId=X', method='POST', body=b'<Complete/>',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-crc32': 'absolute garbage'})
+
+        try:
+            s3req = S3Request(req.environ)
+        except ErrorResponse as err:
+            self.fail('Unexpected exception raised: %s' % err)
+
+        self.assertEqual(
+            'absolute garbage', s3req.headers['x-amz-checksum-crc32'])
+
+    def test_checksum_algorithm_still_validated_on_post(self):
+        req = Request.blank(
+            '/bucket/object?uploadId=X', method='POST', body=b'<Complete/>',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-garbage': 'absolute garbage'})
+
+        with self.assertRaises(InvalidRequest) as result:
+            S3Request(req.environ)
+
+        self.assertIn(
+            b'<Message>The algorithm type you specified in '
+            b'x-amz-checksum- header is invalid.</Message>',
+            result.exception.body)
+
 
 class TestSigV4Request(S3ApiTestCase):
     def setUp(self):

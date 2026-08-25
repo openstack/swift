@@ -19,7 +19,7 @@ import hashlib
 from unittest import SkipTest
 
 from swift.common.utils import base64_str
-from swift.common.utils.checksum import crc32c
+from swift.common.utils.checksum import crc32, crc32c
 from test.s3api import BaseS3TestCaseWithBucket
 
 TEST_BODY = b'123456789'
@@ -597,4 +597,64 @@ class TestObjectChecksums(BaseS3TestCaseWithBucket):
             UploadId=upload_id,
         )
         self.assertEqual(204, abort_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+
+    def test_multipart_mpu_composite_checksum(self):
+        obj_name = self.create_name('composite-checksum-mpu')
+        create_mpu_resp = self.client.create_multipart_upload(
+            Bucket=self.bucket_name, Key=obj_name,
+            ChecksumAlgorithm='CRC32', ChecksumType='COMPOSITE')
+        self.assertEqual(200, create_mpu_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        upload_id = create_mpu_resp['UploadId']
+        part_body = b'\x00' * 5 * 1024 * 1024
+        part_crc32 = base64_str(crc32(part_body).digest())
+
+        upload_part_resp = self.client.upload_part(
+            Bucket=self.bucket_name,
+            Key=obj_name,
+            UploadId=upload_id,
+            PartNumber=1,
+            Body=part_body,
+            ChecksumCRC32=part_crc32,
+        )
+        self.assertEqual(200, upload_part_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+        # then do another
+        upload_part_resp = self.client.upload_part(
+            Bucket=self.bucket_name,
+            Key=obj_name,
+            UploadId=upload_id,
+            PartNumber=2,
+            Body=part_body,
+            ChecksumCRC32=part_crc32,
+        )
+        self.assertEqual(200, upload_part_resp[
+            'ResponseMetadata']['HTTPStatusCode'])
+
+        # AWS accepts `<b64digest>-<count>`: the crc32 of the concatenated
+        # raw part digests, then the part count
+        composite_checksum = '%s-2' % base64_str(
+            crc32(binascii.a2b_base64(part_crc32) * 2).digest())
+
+        complete_mpu_resp = self.client.complete_multipart_upload(
+            Bucket=self.bucket_name, Key=obj_name,
+            MultipartUpload={
+                'Parts': [
+                    {
+                        'PartNumber': 1,
+                        'ETag': upload_part_resp['ETag'],
+                        'ChecksumCRC32': part_crc32,
+                    },
+                    {
+                        'PartNumber': 2,
+                        'ETag': upload_part_resp['ETag'],
+                        'ChecksumCRC32': part_crc32,
+                    },
+                ],
+            },
+            UploadId=upload_id,
+            ChecksumCRC32=composite_checksum,
+        )
+        self.assertEqual(200, complete_mpu_resp[
             'ResponseMetadata']['HTTPStatusCode'])

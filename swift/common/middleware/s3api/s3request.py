@@ -1059,8 +1059,18 @@ class S3Request(swob.Request):
             self.sig_checker = SigCheckerV2(self)
         aws_sha256 = self.headers.get('x-amz-content-sha256')
         if self.method in ('PUT', 'POST'):
+            if self.method == 'PUT':
+                verify_checksum = True
+            elif 'delete' in self.params:
+                verify_checksum = True
+            else:
+                # For some POST requests the checksum header does not refer to
+                # the request body, and may not be base64 (e.g. MPU complete),
+                # so don't try to validate it.
+                verify_checksum = False
+
             checksum_hasher, checksum_header, checksum_trailer = \
-                self._validate_checksum_headers()
+                self._validate_checksum_headers(verify_checksum)
             if _is_streaming(aws_sha256):
                 if checksum_trailer:
                     streaming_input = self._install_streaming_input_wrapper(
@@ -1077,18 +1087,6 @@ class S3Request(swob.Request):
                 self._install_non_streaming_input_wrapper(aws_sha256)
                 checksum_key = checksum_header
                 checksum_source = self.headers
-
-            if self.method == 'PUT':
-                verify_checksum = True
-            elif self.method == 'POST':
-                if 'delete' in self.params:
-                    verify_checksum = True
-                else:
-                    # S3 doesn't check the checksum for some POSTs (e.g. MPU
-                    # complete)
-                    verify_checksum = False
-            else:
-                verify_checksum = False
 
             if checksum_key and verify_checksum:
                 self._install_checksumming_input_wrapper(
@@ -1488,7 +1486,7 @@ class S3Request(swob.Request):
         _validate_checksum_header_cardinality(len(checksum_headers))
         return checksum_headers
 
-    def _validate_checksum_headers(self):
+    def _validate_checksum_headers(self, validate_value):
         """
         A checksum for the request is specified by a checksum header of the
         form:
@@ -1505,11 +1503,14 @@ class S3Request(swob.Request):
         header or trailer and a hasher for the checksum algorithm that it
         declares.
 
+        :param validate_value: When True, require the checksum header value to
+            be raw base64 for its algorithm. Set to False when an operation
+            will independently validate the value.
         :raises InvalidRequest: if any of the following conditions occur: more
             than one checksum header is declared; the checksum header specifies
             an invalid algorithm; the algorithm does not match the value of any
             ``x-amz-sdk-checksum-algorithm`` header that is also present; the
-            checksum value is invalid.
+            checksum value is invalid when validate_value is True.
         :raises S3NotImplemented: if the declared algorithm is valid but not
             supported.
         :return: a tuple of
@@ -1528,12 +1529,13 @@ class S3Request(swob.Request):
             checksum_trailer = None
             checksum_header, b64digest = list(checksum_headers.items())[0]
             checksum_hasher = _get_checksum_hasher(checksum_header)
-            try:
-                # early check on the value...
-                validate_checksum_value(checksum_hasher, b64digest)
-            except ValueError:
-                raise InvalidRequest(
-                    'Value for %s header is invalid.' % checksum_header)
+            if validate_value:
+                try:
+                    # early check on the value...
+                    validate_checksum_value(checksum_hasher, b64digest)
+                except ValueError:
+                    raise InvalidRequest(
+                        'Value for %s header is invalid.' % checksum_header)
         elif checksum_trailer_headers:
             checksum_header = None
             checksum_trailer = checksum_trailer_headers[0]
