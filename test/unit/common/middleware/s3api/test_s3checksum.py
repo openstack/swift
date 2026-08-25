@@ -19,10 +19,12 @@ import unittest
 from unittest import mock
 
 from swift.common.middleware.s3api.s3checksum import \
-    ChecksummingInput, get_checksum_hasher
+    ChecksummingInput, get_checksum_hasher, validate_checksum_value
 from swift.common.middleware.s3api.exception import \
     S3InputChecksumMismatch, S3InputChecksumTrailerInvalid
 from swift.common.utils import checksum
+
+from test.unit import requires_crc32c, requires_crc64nvme
 
 
 class TestChecksummingInput(unittest.TestCase):
@@ -52,8 +54,9 @@ class TestChecksummingInput(unittest.TestCase):
             BytesIO(body), len(body), checksum.crc32(),
             'x-amz-checksum-crc32', checksum_source)
 
-        with self.assertRaises(S3InputChecksumMismatch):
+        with self.assertRaises(S3InputChecksumMismatch) as raised:
             wrapped.read()
+        self.assertEqual(('CRC32',), raised.exception.args)
         self.assertTrue(wrapped.wsgi_input.closed)
 
     def test_invalid_checksum_source(self):
@@ -104,8 +107,9 @@ class TestChecksummingInput(unittest.TestCase):
             BytesIO(body), len(body) + 1, checksum.crc32(),
             'x-amz-checksum-crc32', checksum_source)
 
-        with self.assertRaises(S3InputChecksumMismatch):
+        with self.assertRaises(S3InputChecksumMismatch) as raised:
             wrapped.read()
+        self.assertEqual(('CRC32',), raised.exception.args)
         self.assertTrue(wrapped.wsgi_input.closed)
 
     def test_body_is_too_long(self):
@@ -119,48 +123,69 @@ class TestChecksummingInput(unittest.TestCase):
             BytesIO(body), len(body) - 1, checksum.crc32(),
             'x-amz-checksum-crc32', checksum_source)
 
-        with self.assertRaises(S3InputChecksumMismatch):
+        with self.assertRaises(S3InputChecksumMismatch) as raised:
             wrapped.read()
+        self.assertEqual(('CRC32',), raised.exception.args)
         self.assertTrue(wrapped.wsgi_input.closed)
 
 
-class TestModuleFunctions(unittest.TestCase):
+class TestGetChecksumHasher(unittest.TestCase):
+    def _check_hasher(self, crc):
+        hasher = get_checksum_hasher('x-amz-checksum-%s' % crc)
+        self.assertEqual(crc, hasher.name)
+
     def test_get_checksum_hasher(self):
-        def do_test(crc):
-            hasher = get_checksum_hasher('x-amz-checksum-%s' % crc)
-            self.assertEqual(crc, hasher.name)
+        self._check_hasher('crc32')
+        self._check_hasher('sha1')
+        self._check_hasher('sha256')
 
-        do_test('crc32')
-        do_test('sha1')
-        do_test('sha256')
+    @requires_crc32c
+    def test_get_checksum_hasher_crc32c(self):
+        self._check_hasher('crc32c')
 
-        try:
-            checksum._select_crc32c_impl()
-        except NotImplementedError:
-            # This *should* always have a kernel implementation available as
-            # a fallback, but debian packaging (at least) has bumped into
-            # issues with even *that* not being available before
-            pass
-        else:
-            do_test('crc32c')
-
-        try:
-            checksum._select_crc64nvme_impl()
-        except NotImplementedError:
-            pass
-        else:
-            do_test('crc64nvme')
+    @requires_crc64nvme
+    def test_get_checksum_hasher_crc64nvme(self):
+        self._check_hasher('crc64nvme')
 
     def test_get_checksum_hasher_invalid(self):
+        # the algorithm is not recognised
         def do_test(crc):
             with self.assertRaises(NotImplementedError):
                 get_checksum_hasher('x-amz-checksum-%s' % crc)
 
-        with mock.patch.object(checksum, '_select_crc64nvme_impl',
-                               side_effect=NotImplementedError):
-            do_test('crc64nvme')
         do_test('nonsense')
         do_test('')
+
+    def test_get_checksum_hasher_no_implementation(self):
+        # the algorithm is known but the platform has no implementation
+        with mock.patch.object(checksum, '_select_crc32c_impl',
+                               side_effect=NotImplementedError):
+            with self.assertRaises(NotImplementedError):
+                get_checksum_hasher('x-amz-checksum-crc32c')
+        with mock.patch.object(checksum, '_select_crc64nvme_impl',
+                               side_effect=NotImplementedError):
+            with self.assertRaises(NotImplementedError):
+                get_checksum_hasher('x-amz-checksum-crc64nvme')
+
+
+class TestValidateChecksumValue(unittest.TestCase):
+    def test_valid_value(self):
+        hasher = checksum.crc32(b'123456789')
+        self.assertEqual(4, len(hasher.digest()))
+        b64digest = base64.b64encode(hasher.digest()).decode('ascii')
+        self.assertEqual(hasher.digest(),
+                         validate_checksum_value(hasher, b64digest))
+
+    def test_wrong_size_value(self):
+        hasher = checksum.crc32(b'123456789')
+        b64digest = base64.b64encode(b'x' * 8).decode('ascii')
+        with self.assertRaises(ValueError):
+            validate_checksum_value(hasher, b64digest)
+
+    def test_not_base64_value(self):
+        hasher = checksum.crc32(b'123456789')
+        with self.assertRaises(ValueError):
+            validate_checksum_value(hasher, 'not-a-valid-checksum')
 
 
 if __name__ == '__main__':
