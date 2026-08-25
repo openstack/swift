@@ -72,7 +72,7 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
 from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX, swift3_object_sysmeta_header
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
-from swift.common.middleware.s3api.utils import sysmeta_header, \
+from swift.common.middleware.s3api.utils import s3api_sysmeta_header, \
     parse_host, parse_path, Config
 from swift.common.middleware.s3api.exception import \
     InvalidBucketNameParseError, InvalidURIParseError
@@ -184,7 +184,7 @@ def _header_acl_property(resource):
         setattr(self, '_%s' % resource, value)
 
     def deleter(self):
-        self.headers[sysmeta_header(resource, 'acl')] = ''
+        self.headers[s3api_sysmeta_header(resource, 'acl')] = ''
 
     return property(getter, setter, deleter,
                     doc='Get and set the %s acl property' % resource)
@@ -1745,7 +1745,8 @@ class S3Request(swob.Request):
         for header in ALLOWED_COPY_SOURCE_HEADERS:
             headers[header.replace('x-amz-copy-source-', '')] = \
                 self.headers.get(header)
-        update_etag_is_at_value(headers, sysmeta_header('object', 'etag'))
+        update_etag_is_at_value(
+            headers, s3api_sysmeta_header('object', 'etag'))
         # objects uploaded by the legacy swift3 middleware stored the S3-style
         # etag under a different sysmeta name
         update_etag_is_at_value(headers, swift3_object_sysmeta_header('etag'))
@@ -2350,7 +2351,8 @@ class S3Request(swob.Request):
         resp = self.get_response(app, 'HEAD', obj=obj, query=query)
         if not resp.is_slo:
             return {}
-        elif resp.sysmeta_headers.get(sysmeta_header('object', 'etag')):
+        elif resp.s3api_sysmeta_headers.get(
+                s3api_sysmeta_header('object', 'etag')):
             # Even if allow_async_delete is turned off, SLO will just handle
             # the delete synchronously, so we don't need to check before
             # setting async=on
@@ -2435,9 +2437,9 @@ class S3AclRequest(S3Request):
         resp = self._get_response(
             app, method, container, obj, headers, body, query)
         resp.bucket_acl = decode_acl(
-            'container', resp.sysmeta_headers, self.conf.allow_no_owner)
+            'container', resp.s3api_sysmeta_headers, self.conf.allow_no_owner)
         resp.object_acl = decode_acl(
-            'object', resp.sysmeta_headers, self.conf.allow_no_owner)
+            'object', resp.s3api_sysmeta_headers, self.conf.allow_no_owner)
 
         return resp
 
