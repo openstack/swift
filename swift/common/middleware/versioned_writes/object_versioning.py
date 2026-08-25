@@ -400,6 +400,14 @@ class ObjectContext(ObjectVersioningContext):
             put_req.content_length = req.content_length
         byte_counter = ByteCountingReader(req.environ['wsgi.input'])
         put_req.environ['wsgi.input'] = byte_counter
+
+        if 'swift.callback.update_footers' in req.environ:
+            # Move the footer callback to the internal PUT that reads the
+            # client body. The original request is later reused to write the
+            # symlink to the actual object with versioning, and the
+            # body-derived footers should not be applied to that symlink PUT.
+            put_req.environ['swift.callback.update_footers'] = \
+                req.environ.pop('swift.callback.update_footers')
         req.body = b''
         # move metadata over, including sysmeta
 
