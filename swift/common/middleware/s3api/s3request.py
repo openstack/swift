@@ -45,8 +45,7 @@ from swift.common.request_helpers import check_path_header, \
     update_etag_is_at_value
 
 from swift.common.middleware.s3api.s3checksum import CHECKSUMS_BY_HEADER, \
-    ChecksummingInput, get_checksum_hasher, \
-    validate_checksum_value as _validate_checksum_value
+    ChecksummingInput, get_checksum_hasher, validate_checksum_value
 from swift.common.middleware.s3api.controllers import ServiceController, \
     ObjectController, AclController, MultiObjectDeleteController, \
     LocationController, LoggingStatusController, PartController, \
@@ -1531,7 +1530,7 @@ class S3Request(swob.Request):
             checksum_hasher = _get_checksum_hasher(checksum_header)
             try:
                 # early check on the value...
-                _validate_checksum_value(checksum_hasher, b64digest)
+                validate_checksum_value(checksum_hasher, b64digest)
             except ValueError:
                 raise InvalidRequest(
                     'Value for %s header is invalid.' % checksum_header)
