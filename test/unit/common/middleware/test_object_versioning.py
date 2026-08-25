@@ -699,6 +699,85 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                          symlink_put_call.req.environ)
         self.assertNotIn('X-Object-Sysmeta-Test-Footer',
                          symlink_put_call.footers)
+        # the original PUT no longer has the callback
+        self.assertNotIn('swift.callback.update_footers', req.environ)
+
+    def test_PUT_overwrite_unversioned_object_callback_footers(self):
+        # The footer callback must be applied only to the PUT that reads the
+        # client body; neither the PUT that copies the pre-existing version
+        # into the versions container nor the symlink PUT should see it.
+        ts_old, ts_new = self.ts(), self.ts()
+        exp_old_version = (~ts_old).internal
+        exp_new_version = (~ts_new).internal
+        old_version_path = self.build_versions_path(
+            obj='o', version=exp_old_version)
+        new_version_path = self.build_versions_path(
+            obj='o', version=exp_new_version)
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            {'x-timestamp': ts_old.normal,
+             'x-backend-timestamp': ts_old.internal,
+             'last-modified': date_header_format(ts_old)},
+            'passed')
+        self.app.register('PUT', old_version_path, swob.HTTPCreated, {}, '')
+        self.app.register('PUT', new_version_path, swob.HTTPCreated, {}, '')
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+
+        callback_calls = []
+
+        def update_footers(footers):
+            callback_calls.append(footers)
+            footers['X-Object-Sysmeta-Test-Footer'] = 'from-callback'
+
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id',
+                     'swift.callback.update_footers': update_footers})
+        with mock_timestamp_now(ts_new):
+            status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT', old_version_path),
+            ('PUT', new_version_path),
+            ('PUT', '/v1/a/c/o'),
+        ])
+        # the callback fired exactly once, for the PUT of the client body
+        self.assertEqual(1, len(callback_calls))
+
+        # the copy of the pre-existing version has no footers
+        copy_current_put_call = self.app.call_list[1]
+        self.assertNotIn('swift.callback.update_footers',
+                         copy_current_put_call.req.environ)
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer',
+                         copy_current_put_call.footers)
+        old_metadata, _old_body = self.app.uploaded[old_version_path]
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer', old_metadata)
+
+        # the new version, written from the client body, has the footers
+        new_version_put = self.app.call_list[2]
+        self.assertEqual(
+            'from-callback',
+            new_version_put.footers['X-Object-Sysmeta-Test-Footer'])
+        new_metadata, _new_body = self.app.uploaded[new_version_path]
+        self.assertEqual('from-callback',
+                         new_metadata['X-Object-Sysmeta-Test-Footer'])
+
+        # the symlink does not
+        symlink_put_call = self.app.call_list[3]
+        self.assertNotIn('swift.callback.update_footers',
+                         symlink_put_call.req.environ)
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer',
+                         symlink_put_call.footers)
+        # the original PUT no longer has the callback
+        self.assertNotIn('swift.callback.update_footers', req.environ)
 
     def test_PUT_timestamp_set_by_object_versioning(self):
         # verify timestamps set by versioning
