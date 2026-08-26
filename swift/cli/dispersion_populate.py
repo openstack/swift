@@ -24,9 +24,15 @@ from swift.common.concurrency import GreenPool, patcher, sleep, Pool
 from configparser import ConfigParser
 
 from swift.common.internal_client import SimpleClient
+from swift.common.exceptions import ClientException
 from swift.common.ring import Ring
 from swift.common.utils import compute_eta, get_time_units, config_true_value
 from swift.common.storage_policy import POLICIES
+from swift.cli.dispersion import (
+    all_container_dispersion_names, container_dispersion_names,
+    object_dispersion_container, object_dispersion_containers_to_purge,
+    object_dispersion_names, obsolete_container_dispersion_names,
+    obsolete_object_dispersion_containers, warn_on_obsolete_samples)
 
 insecure = False
 
@@ -61,8 +67,42 @@ def put_object(connpool, container, obj, report):
         raise
 
 
+def delete_container(connpool, container, report):
+    global retries_done
+    try:
+        with connpool.item() as conn:
+            conn.delete_container(container)
+            retries_done += conn.attempts - 1
+        report(True)
+    except Exception:
+        report(False)
+        raise
+
+
+def delete_object(connpool, container, obj, report):
+    global retries_done
+    try:
+        with connpool.item() as conn:
+            conn.delete_object(container, obj)
+            retries_done += conn.attempts - 1
+        report(True)
+    except Exception:
+        report(False)
+        raise
+
+
+def purge_report(success):
+    """Record worker results for the failure check after waitall."""
+    global deleted, purge_failed
+    if not success:
+        traceback.print_exc()
+        purge_failed = True
+    else:
+        deleted += 1
+
+
 def report(success):
-    global begun, created, item_type, next_report, need_to_create, retries_done
+    global created, next_report
     if not success:
         traceback.print_exc()
         exit('Gave up due to error(s).')
@@ -79,6 +119,7 @@ def report(success):
 
 def main():
     global begun, created, item_type, next_report, need_to_create, retries_done
+    global deleted, purge_failed
     patcher.monkey_patch()
     try:
         # Delay importing so urllib3 will import monkey-patched modules
@@ -104,11 +145,17 @@ Usage: %%prog [options] [conf_file]
                       help='Allow accessing insecure keystone server. '
                            'The keystone\'s certificate will not be verified.')
     parser.add_option('--no-overlap', action='store_true', default=False,
-                      help="No overlap of partitions if running populate \
-                      more than once. Will increase coverage by amount shown \
-                      in dispersion.conf file")
+                      help='Add configured coverage on partitions not already '
+                           'covered by canonical samples; cannot be used '
+                           'with --purge')
     parser.add_option('-P', '--policy-name', dest='policy_name',
                       help="Specify storage policy name")
+    parser.add_option('-s', '--section', dest='section',
+                      help="Read overrides from this dispersion.conf section")
+    parser.add_option(
+        '--purge', action='store_true', default=False,
+        help='Delete dispersion data selected by --container-only or '
+             '--object-only before repopulating it')
 
     options, args = parser.parse_args()
 
@@ -118,14 +165,22 @@ Usage: %%prog [options] [conf_file]
     c = ConfigParser()
     if not c.read(conffile):
         exit('Unable to read config file: %s' % conffile)
+    if not c.has_section('dispersion'):
+        exit('Unable to find [dispersion] in config file: %s' % conffile)
     conf = dict(c.items('dispersion'))
+    if options.section:
+        if not c.has_section(options.section):
+            exit('Unable to find [%s] in config file: %s' %
+                 (options.section, conffile))
+        conf.update(c.items(options.section))
 
-    if options.policy_name is None:
+    policy_name = options.policy_name or conf.get('policy_name')
+    if policy_name is None:
         policy = POLICIES.default
     else:
-        policy = POLICIES.get_by_name(options.policy_name)
+        policy = POLICIES.get_by_name(policy_name)
         if policy is None:
-            exit('Unable to find policy: %s' % options.policy_name)
+            exit('Unable to find policy: %s' % policy_name)
     print('Using storage policy: %s ' % policy.name)
 
     swift_dir = conf.get('swift_dir', '/etc/swift')
@@ -144,11 +199,23 @@ Usage: %%prog [options] [conf_file]
     object_populate = config_true_value(
         conf.get('object_populate', 'yes')) and not options.container_only
 
+    if options.purge and options.no_overlap:
+        exit('--purge and --no-overlap are mutually exclusive')
+    if options.purge and options.container_only == options.object_only:
+        exit('--purge requires exactly one of --container-only or '
+             '--object-only')
+    if options.purge and options.object_only and policy_name is None:
+        exit('--object-only --purge requires an explicit policy_name')
     if not (object_populate or container_populate):
         exit("Neither container or object populate is set to run")
+    if container_populate and policy is not POLICIES.default:
+        exit('Container dispersion is shared by all storage policies; '
+             'use --object-only with a non-default policy.')
 
     coropool = GreenPool(size=concurrency)
     retries_done = 0
+    deleted = 0
+    purge_failed = False
 
     os_options = {'endpoint_type': endpoint_type}
     if user_domain_name:
@@ -167,116 +234,167 @@ Usage: %%prog [options] [conf_file]
                           insecure=insecure)
     account = url.rsplit('/', 1)[1]
     connpool = Pool(max_size=concurrency)
-    headers = {}
-    headers['X-Storage-Policy'] = policy.name
+    object_headers = {'X-Storage-Policy': policy.name}
     connpool.create = lambda: SimpleClient(
         url=url, token=token, retries=retries)
 
     if container_populate:
-        container_ring = Ring(swift_dir, ring_name='container')
-        parts_left = dict((x, x)
-                          for x in range(container_ring.partition_count))
+        with connpool.item() as conn:
+            listing = conn.get_account(
+                prefix='dispersion_', full_listing=True)[1]
+        existing_containers = []
+        if options.purge:
+            for container in all_container_dispersion_names(listing):
+                coropool.spawn(delete_container, connpool, container,
+                               purge_report)
+                sleep()
+            coropool.waitall()
+            if purge_failed:
+                exit('Gave up due to error(s).')
+            print('Deleted %d container samples, %d retries' %
+                  (deleted, retries_done))
+        else:
+            warn_on_obsolete_samples(
+                'container', obsolete_container_dispersion_names(listing))
+            if options.no_overlap:
+                existing_containers = container_dispersion_names(listing)
 
-        if options.no_overlap:
-            with connpool.item() as conn:
-                containers = [cont['name'] for cont in conn.get_account(
-                    prefix='dispersion_%d' % policy.idx, full_listing=True)[1]]
-            containers_listed = len(containers)
-            if containers_listed > 0:
-                for container in containers:
-                    partition, _junk = container_ring.get_nodes(account,
-                                                                container)
-                    if partition in parts_left:
-                        del parts_left[partition]
+        if dispersion_coverage > 0:
+            container_ring = Ring(swift_dir, ring_name='container')
+            parts_left = dict((x, x)
+                              for x in range(container_ring.partition_count))
 
-        item_type = 'containers'
-        created = 0
-        retries_done = 0
-        need_to_create = need_to_queue = \
-            dispersion_coverage / 100.0 * container_ring.partition_count
-        begun = next_report = time()
-        next_report += 2
-        suffix = 0
-        while need_to_queue >= 1 and parts_left:
-            container = 'dispersion_%d_%d' % (policy.idx, suffix)
-            part = container_ring.get_part(account, container)
-            if part in parts_left:
-                if suffix >= options.container_suffix_start:
-                    coropool.spawn(put_container, connpool, container, report,
-                                   headers)
-                    sleep()
-                else:
-                    report(True)
-                del parts_left[part]
-                need_to_queue -= 1
-            suffix += 1
-        coropool.waitall()
-        elapsed, elapsed_unit = get_time_units(time() - begun)
-        print('\r\x1B[KCreated %d containers for dispersion reporting, '
-              '%d%s, %d retries' %
-              ((need_to_create - need_to_queue), round(elapsed), elapsed_unit,
-               retries_done))
-        if options.no_overlap:
-            con_coverage = container_ring.partition_count - len(parts_left)
-            print('\r\x1B[KTotal container coverage is now %.2f%%.' %
-                  ((float(con_coverage) / container_ring.partition_count
-                    * 100)))
-        stdout.flush()
+            for container in existing_containers:
+                partition, _junk = container_ring.get_nodes(account, container)
+                if partition in parts_left:
+                    del parts_left[partition]
+
+            item_type = 'containers'
+            created = 0
+            retries_done = 0
+            need_to_create = need_to_queue = \
+                dispersion_coverage / 100.0 * container_ring.partition_count
+            begun = next_report = time()
+            next_report += 2
+            suffix = 0
+            while need_to_queue >= 1 and parts_left:
+                container = 'dispersion_%d' % suffix
+                part = container_ring.get_part(account, container)
+                if part in parts_left:
+                    if suffix >= options.container_suffix_start:
+                        coropool.spawn(put_container, connpool, container,
+                                       report, {})
+                        sleep()
+                    else:
+                        report(True)
+                    del parts_left[part]
+                    need_to_queue -= 1
+                suffix += 1
+            coropool.waitall()
+            elapsed, elapsed_unit = get_time_units(time() - begun)
+            print('\r\x1B[KCreated %d containers for dispersion reporting, '
+                  '%d%s, %d retries' %
+                  ((need_to_create - need_to_queue), round(elapsed),
+                   elapsed_unit, retries_done))
+            if options.no_overlap:
+                con_coverage = container_ring.partition_count - len(parts_left)
+                print('\r\x1B[KTotal container coverage is now %.2f%%.' %
+                      ((float(con_coverage) / container_ring.partition_count
+                        * 100)))
+            stdout.flush()
 
     if object_populate:
-        container = 'dispersion_objects_%d' % policy.idx
-        put_container(connpool, container, None, headers)
-        object_ring = Ring(swift_dir, ring_name=policy.ring_name)
-        parts_left = dict((x, x) for x in range(object_ring.partition_count))
-
-        if options.no_overlap:
-            with connpool.item() as conn:
-                obj_container = [cont_b['name'] for cont_b in conn.get_account(
-                    prefix=container, full_listing=True)[1]]
-            if obj_container:
+        container = object_dispersion_container(policy.idx)
+        existing_objects = []
+        if options.purge:
+            for sample_container in object_dispersion_containers_to_purge(
+                    policy.idx):
                 with connpool.item() as conn:
-                    objects = [o['name'] for o in
-                               conn.get_container(container,
-                                                  prefix='dispersion_',
-                                                  full_listing=True)[1]]
-                for my_object in objects:
-                    partition = object_ring.get_part(account, container,
-                                                     my_object)
-                    if partition in parts_left:
-                        del parts_left[partition]
-
-        item_type = 'objects'
-        created = 0
-        retries_done = 0
-        need_to_create = need_to_queue = \
-            dispersion_coverage / 100.0 * object_ring.partition_count
-        begun = next_report = time()
-        next_report += 2
-        suffix = 0
-        while need_to_queue >= 1 and parts_left:
-            obj = 'dispersion_%d' % suffix
-            part = object_ring.get_part(account, container, obj)
-            if part in parts_left:
-                if suffix >= options.object_suffix_start:
-                    coropool.spawn(
-                        put_object, connpool, container, obj, report)
+                    try:
+                        listing = conn.get_container(
+                            sample_container, prefix='dispersion_',
+                            full_listing=True)[1]
+                    except ClientException as err:
+                        if err.http_status != 404:
+                            raise
+                        continue
+                for obj in object_dispersion_names(listing):
+                    coropool.spawn(delete_object, connpool, sample_container,
+                                   obj, purge_report)
                     sleep()
-                else:
-                    report(True)
-                del parts_left[part]
-                need_to_queue -= 1
-            suffix += 1
-        coropool.waitall()
-        elapsed, elapsed_unit = get_time_units(time() - begun)
-        print('\r\x1B[KCreated %d objects for dispersion reporting, '
-              '%d%s, %d retries' %
-              ((need_to_create - need_to_queue), round(elapsed), elapsed_unit,
-               retries_done))
-        if options.no_overlap:
-            obj_coverage = object_ring.partition_count - len(parts_left)
-            print('\r\x1B[KTotal object coverage is now %.2f%%.' %
-                  ((float(obj_coverage) / object_ring.partition_count * 100)))
-        stdout.flush()
+                coropool.waitall()
+                if purge_failed:
+                    exit('Gave up due to error(s).')
+                with connpool.item() as conn:
+                    conn.delete_container(sample_container)
+                    retries_done += conn.attempts - 1
+                print('Deleted object dispersion container %s.' %
+                      sample_container)
+            print('Deleted %d object samples for policy %s, %d retries' %
+                  (deleted, policy.name, retries_done))
+        else:
+            with connpool.item() as conn:
+                listing = conn.get_account(
+                    prefix='dispersion_objects', full_listing=True)[1]
+            warn_on_obsolete_samples(
+                'object', obsolete_object_dispersion_containers(
+                    listing, policy.idx))
+            if options.no_overlap and dispersion_coverage > 0 and \
+                    container in {item['name'] for item in listing}:
+                with connpool.item() as conn:
+                    listing = conn.get_container(
+                        container, prefix='dispersion_',
+                        full_listing=True)[1]
+                existing_objects = object_dispersion_names(listing)
+
+        if dispersion_coverage > 0:
+            container_created = False
+            object_ring = Ring(swift_dir, ring_name=policy.ring_name)
+            parts_left = dict((x, x)
+                              for x in range(object_ring.partition_count))
+
+            for obj in existing_objects:
+                partition = object_ring.get_part(account, container, obj)
+                if partition in parts_left:
+                    del parts_left[partition]
+
+            item_type = 'objects'
+            created = 0
+            retries_done = 0
+            need_to_create = need_to_queue = \
+                dispersion_coverage / 100.0 * object_ring.partition_count
+            begun = next_report = time()
+            next_report += 2
+            suffix = 0
+            while need_to_queue >= 1 and parts_left:
+                obj = 'dispersion_%d' % suffix
+                part = object_ring.get_part(account, container, obj)
+                if part in parts_left:
+                    if suffix >= options.object_suffix_start:
+                        if not container_created:
+                            put_container(connpool, container, None,
+                                          object_headers)
+                            container_created = True
+                        coropool.spawn(
+                            put_object, connpool, container, obj, report)
+                        sleep()
+                    else:
+                        report(True)
+                    del parts_left[part]
+                    need_to_queue -= 1
+                suffix += 1
+            coropool.waitall()
+            elapsed, elapsed_unit = get_time_units(time() - begun)
+            print('\r\x1B[KCreated %d objects for dispersion reporting, '
+                  '%d%s, %d retries' %
+                  ((need_to_create - need_to_queue), round(elapsed),
+                   elapsed_unit, retries_done))
+            if options.no_overlap:
+                obj_coverage = object_ring.partition_count - len(parts_left)
+                print('\r\x1B[KTotal object coverage is now %.2f%%.' %
+                      ((float(obj_coverage) / object_ring.partition_count
+                        * 100)))
+            stdout.flush()
 
 
 if __name__ == '__main__':

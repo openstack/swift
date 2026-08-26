@@ -24,7 +24,7 @@
 
 .SH SYNOPSIS
 .LP
-.B swift-dispersion-populate [--container-suffix-start] [--object-suffix-start] [--container-only|--object-only] [--insecure] [conf_file]
+.B swift-dispersion-populate [--container-suffix-start] [--object-suffix-start] [--container-only|--object-only] [--no-overlap] [--purge] [-P policy_name] [-s section] [--insecure] [conf_file]
 
 .SH DESCRIPTION
 .PP
@@ -71,9 +71,33 @@ Only run object population
 .IP "\fB--container-only\fR"
 Only run container population
 .IP "\fB--no-overlap\fR"
-Increase coverage by amount in dispersion_coverage option with no overlap of existing partitions (if run more than once)
+Increase coverage by the configured dispersion_coverage percentage using
+partitions not already covered by canonical samples. Obsolete names are
+ignored. Cannot be combined with \fB--purge\fR.
 .IP "\fB-P, --policy-name\fR"
-Specify storage policy name
+Specify the object storage policy name. A non-default policy requires
+\fB--object-only\fR.
+.IP "\fB-s, --section\fR"
+Read overrides from the named dispersion.conf section.
+.IP "\fB--purge\fR"
+Delete the dispersion data selected by exactly one of
+\fB--container-only\fR or \fB--object-only\fR. Container purge deletes both
+dispersion_<suffix> and dispersion_<policy-index>_<suffix> samples. Object
+purge requires an explicit policy, deletes its expected samples, and then
+deletes its sample container. After deletion succeeds, populate canonical
+samples using the configured coverage. For policy 0 it handles both
+dispersion_objects and dispersion_objects_0. Unexpected contents cause
+container deletion to fail and prevent population. Cannot be combined with
+\fB--no-overlap\fR. With dispersion_coverage = 0, delete the selected samples
+without creating replacements or an empty object sample container.
+
+.PP
+Population uses dispersion_<suffix> container samples, where the integer
+suffix selects a hash path rather than a policy index. Policy 0 object samples
+use dispersion_objects; other policies use dispersion_objects_<policy-index>.
+Policy-indexed container samples and dispersion_objects_0 are obsolete.
+Population without --purge warns about obsolete names and excludes them from
+overlap discovery. Purge removes obsolete names without warning.
 
 .SH CONFIGURATION
 .PD 0
