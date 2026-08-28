@@ -19,7 +19,8 @@ import unittest
 from unittest import mock
 
 from swift.common.middleware.s3api.s3checksum import \
-    ChecksummingInput, get_checksum_hasher, validate_checksum_value
+    ChecksummingInput, get_checksum_hasher, validate_checksum_value, \
+    normalize_checksum_algorithm
 from swift.common.middleware.s3api.exception import \
     S3InputChecksumMismatch, S3InputChecksumTrailerInvalid
 from swift.common.utils import checksum
@@ -186,6 +187,15 @@ class TestValidateChecksumValue(unittest.TestCase):
         hasher = checksum.crc32(b'123456789')
         with self.assertRaises(ValueError):
             validate_checksum_value(hasher, 'not-a-valid-checksum')
+
+
+class TestModuleFunctions(unittest.TestCase):
+    def test_normalize_checksum_algorithm(self):
+        self.assertEqual('CRC32', normalize_checksum_algorithm('crc32'))
+        self.assertEqual('CRC32', normalize_checksum_algorithm('  CRC32  '))
+        # note: the normalize function does not *validate* the value; S3
+        # rejects hyphenated spellings with InvalidRequest
+        self.assertEqual('CRC-32', normalize_checksum_algorithm('crc-32'))
 
 
 if __name__ == '__main__':

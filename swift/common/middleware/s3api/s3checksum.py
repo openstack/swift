@@ -29,6 +29,13 @@ CHECKSUMS_BY_HEADER = {
 }
 
 
+def normalize_checksum_algorithm(algorithm):
+    """Return a normalized S3 checksum algorithm name."""
+    # Only case is insignificant: S3 rejects hyphenated spellings such as
+    # SHA-256 and CRC-32C with InvalidRequest.
+    return algorithm.strip().upper()
+
+
 def get_checksum_hasher(header):
     """
     Return a checksum hasher for an x-amz-checksum-* header.

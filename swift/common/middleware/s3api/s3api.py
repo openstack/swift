@@ -154,7 +154,8 @@ from swift.common.wsgi import PipelineWrapper, loadcontext, WSGIContext
 from swift.common.statsd_client import get_labeled_statsd_client
 
 from swift.common.middleware import app_property
-from swift.common.middleware.s3api.s3checksum import CHECKSUMS_BY_HEADER
+from swift.common.middleware.s3api.s3checksum import CHECKSUMS_BY_HEADER, \
+    normalize_checksum_algorithm
 from swift.common.middleware.s3api.exception import NotS3Request, \
     InvalidSubresource
 from swift.common.middleware.s3api import s3request
@@ -181,7 +182,6 @@ WELL_KNOWN_SPECIFIC_SHA256_VALUES = (
 # https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html#AmazonS3-Type-Object-ChecksumAlgorithm
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
-# docs are unclear whether the header value is the (un-)hyphenated form
 
 # algorithms for x-amz-checksum-algorithm/ x-amz-sdk-checksum-algorithm
 WELL_KNOWN_CHECKSUM_ALGORITHMS = (
@@ -382,7 +382,10 @@ class S3ApiMiddleware(object):
                     label_val = 'unknown'
             elif hdr_key in ('x-amz-checksum-algorithm',
                              'x-amz-sdk-checksum-algorithm'):
-                hdr_val_normalised = hdr_val.upper().replace('-', '')
+                # docs are unclear whether the header value is the
+                # (un-)hyphenated form
+                hdr_val_normalised = normalize_checksum_algorithm(
+                    hdr_val).replace('-', '')
                 if hdr_val_normalised in WELL_KNOWN_CHECKSUM_ALGORITHMS:
                     label_val = hdr_val_normalised
                 else:
