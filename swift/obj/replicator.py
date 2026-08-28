@@ -128,7 +128,7 @@ class ObjectReplicator(Daemon):
         :param conf: configuration object obtained from ConfigParser
         :param logger: an instance of ``SwiftLogAdapter``.
         """
-        self.conf = conf
+        self.conf = conf  # Required by DaemonStrategy
         self.logger = \
             logger or get_logger(conf, log_route='object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
@@ -177,7 +177,11 @@ class ObjectReplicator(Daemon):
         self._next_rcache_update = time.time() + self.stats_interval
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.node_timeout = float(conf.get('node_timeout', 10))
-        self.sync_method = getattr(self, conf.get('sync_method') or 'rsync')
+        self.sync_method = conf.get('sync_method') or 'rsync'
+        if self.sync_method not in ('rsync', 'ssync'):
+            raise ValueError(f"sync_method must be either 'rsync' or "
+                             f"'ssync', not {self.sync_method!r}")
+        self.sync_method_fn = getattr(self, self.sync_method)
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
         self.default_headers = {
             'Content-Length': '0',
@@ -339,7 +343,7 @@ class ObjectReplicator(Daemon):
 
         :returns: boolean and dictionary, boolean indicating success or failure
         """
-        return self.sync_method(node, job, suffixes, *args, **kwargs)
+        return self.sync_method_fn(node, job, suffixes, *args, **kwargs)
 
     def load_object_ring(self, policy):
         """
@@ -542,7 +546,7 @@ class ObjectReplicator(Daemon):
                     for node in job['nodes']:
                         stats.rsync += 1
                         kwargs = {}
-                        if self.conf.get('sync_method', 'rsync') == 'ssync' \
+                        if self.sync_method == 'ssync' \
                                 and node['region'] in synced_remote_regions:
                             kwargs['remote_check_objs'] = \
                                 synced_remote_regions[node['region']]
@@ -574,7 +578,7 @@ class ObjectReplicator(Daemon):
                         all(responses)
                 if delete_handoff:
                     stats.remove += 1
-                    if (self.conf.get('sync_method', 'rsync') == 'ssync' and
+                    if (self.sync_method == 'ssync' and
                             delete_objs is not None):
                         self.logger.info("Removing %s objects",
                                          len(delete_objs))

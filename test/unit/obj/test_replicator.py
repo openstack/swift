@@ -359,6 +359,23 @@ class TestObjectReplicator(BaseUnitTestCase):
         self.replicator.all_devs_info = set()
         self.df_mgr = diskfile.DiskFileManager(self.conf, self.logger)
 
+    def test_sync_method_validation(self):
+        r = object_replicator.ObjectReplicator({})
+        self.assertEqual(r.sync_method, 'rsync')
+
+        r = object_replicator.ObjectReplicator({'sync_method': ''})
+        self.assertEqual(r.sync_method, 'rsync')
+
+        for value in ('rsync', 'ssync'):
+            r = object_replicator.ObjectReplicator({'sync_method': value})
+            self.assertEqual(r.sync_method, value)
+
+        with self.assertRaises(ValueError) as caught:
+            object_replicator.ObjectReplicator({'sync_method': 'sync'})
+        self.assertEqual(caught.exception.args[0],
+                         "sync_method must be either 'rsync' or 'ssync', "
+                         "not 'sync'")
+
     def test_run_once_no_local_device_in_ring(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
                     bind_ip='1.1.1.1', recon_cache_path=self.recon_cache,
@@ -1207,7 +1224,6 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertFalse(os.path.exists(part_path))
 
     def test_delete_partition_default_sync_method(self):
-        self.replicator.conf.pop('sync_method')
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
@@ -1277,7 +1293,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             def _fake_ssync(node, job, suffixes, **kwargs):
                 return True, {ohash: ts}
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             self.assertFalse(os.path.exists(whole_path_from))
             self.assertFalse(os.path.exists(suffix_dir_path))
@@ -1580,7 +1596,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertTrue(os.path.exists(part_path))
 
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             def _fake_ssync(node, job, suffixes, **kwargs):
                 success = True
@@ -1593,7 +1609,7 @@ class TestObjectReplicator(BaseUnitTestCase):
                 self.call_nums += 1
                 return success, ret_val
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             # The file should still exist
             self.assertTrue(os.path.exists(whole_path_from))
@@ -1627,7 +1643,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.path.exists(part_path))
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             def _fake_ssync(node, job, suffixes, **kwags):
                 success = False
@@ -1640,7 +1656,7 @@ class TestObjectReplicator(BaseUnitTestCase):
                 self.call_nums += 1
                 return success, ret_val
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             # The file should still exist
             self.assertTrue(os.path.exists(whole_path_from))
@@ -1675,7 +1691,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.path.exists(part_path))
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             in_sync_objs = {}
 
@@ -1688,7 +1704,7 @@ class TestObjectReplicator(BaseUnitTestCase):
                     ret_val = in_sync_objs
                 return True, ret_val
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             self.assertEqual(3, self.call_nums)
             # The file should still exist
@@ -1717,7 +1733,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertTrue(os.path.exists(part_path))
 
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             def _fake_ssync(node, job, suffixes, **kwargs):
                 success = True
@@ -1745,7 +1761,7 @@ class TestObjectReplicator(BaseUnitTestCase):
 
                 return func
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             # The file should still exist
             self.assertTrue(os.path.exists(whole_path_from))
@@ -1927,9 +1943,9 @@ class TestObjectReplicator(BaseUnitTestCase):
                 self.replicator.replicate()
 
     def test_sync_just_calls_sync_method(self):
-        self.replicator.sync_method = mock.MagicMock()
+        self.replicator.sync_method_fn = mock.MagicMock()
         self.replicator.sync('node', 'job', 'suffixes')
-        self.replicator.sync_method.assert_called_once_with(
+        self.replicator.sync_method_fn.assert_called_once_with(
             'node', 'job', 'suffixes')
 
     @mock.patch('swift.obj.replicator.tpool.execute')
@@ -2258,7 +2274,8 @@ class TestObjectReplicator(BaseUnitTestCase):
         self.assertEqual(stats.hashmatch, 2)
 
     def test_rsync_compress_different_region(self):
-        self.assertEqual(self.replicator.sync_method, self.replicator.rsync)
+        self.assertEqual(self.replicator.sync_method, 'rsync')
+        self.assertEqual(self.replicator.sync_method_fn, self.replicator.rsync)
         jobs = self.replicator.collect_jobs()
         _m_rsync = mock.Mock(return_value=0)
         _m_os_path_exists = mock.Mock(return_value=True)
