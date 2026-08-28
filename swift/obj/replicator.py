@@ -576,16 +576,20 @@ class ObjectReplicator(Daemon):
                     stats.remove += 1
                     if (self.conf.get('sync_method', 'rsync') == 'ssync' and
                             delete_objs is not None):
+                        # Multi-region ssync will send at most one replica
+                        # per region, with the hope that intra-region
+                        # replication will resolve any other disparities
+                        # more cheaply by our next cycle. Progressively
+                        # delete anything that we see *has* been fully
+                        # replicated though.
                         self.logger.info("Removing %s objects",
                                          len(delete_objs))
                         _junk, error_paths = self.delete_handoff_objs(
                             job, delete_objs)
-                        # if replication works for a hand-off device and it
-                        # failed, the remote devices which are target of the
-                        # replication from the hand-off device will be marked.
-                        # Because cleanup after replication failed means
-                        # replicator needs to replicate again with the same
-                        # info.
+                        # error_paths will have stuff that successfully
+                        # replicated but whose suffix couldn't be deleted.
+                        # Since it was some kind of failure,  flag the
+                        # remotes (!?) in failure_devs_info.
                         if error_paths:
                             failure_devs_info.update(
                                 [(failure_dev['replication_ip'],
@@ -640,6 +644,10 @@ class ObjectReplicator(Daemon):
                 success_paths.append(object_path)
             except OSError as e:
                 if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
+                    # TODO: Can't we just quarantine?
+                    # At this point, we should know everything's fully
+                    # durable anyway, and then we could stop trying to
+                    # track success/error_paths at all
                     error_paths.append(object_path)
                     self.logger.exception(
                         "Unexpected error trying to cleanup suffix dir %r",
