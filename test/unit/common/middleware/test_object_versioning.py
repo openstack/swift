@@ -191,7 +191,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                              self.build_container_name('c'))))
         self.assertIn(SYSMETA_VERSIONS_ENABLED, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_ENABLED], 'True')
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
     @patch_policies([StoragePolicy(0, 'zero', True),
@@ -212,7 +212,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         # check for sysmeta header
         calls = self.app.calls_with_headers
         self.assertEqual(4, len(calls))
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
         # request to create versions container
@@ -276,6 +276,60 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    def test_enable_versioning_unauthed_does_not_create_versions_container(
+            self):
+        self.app.register('GET', '/v1/a', swob.HTTPOk, {}, '')
+        self.app.register('GET', '/v1/a/c', swob.HTTPNotFound, {}, '')
+        self.app.register('PUT', self.build_versions_path(),
+                          swob.HTTPOk, {}, '')
+        self.app.register('DELETE', self.build_versions_path(),
+                          swob.HTTPNoContent, {}, '')
+        self.app.register('PUT', '/v1/a/c', swob.HTTPUnauthorized, {}, '')
+
+        def fake_authorize(req):
+            self.authorized.append(req)
+            return swob.HTTPUnauthorized()
+
+        req = Request.blank('/v1/a/c',
+                            headers={'X-Versions-Enabled': 'true'},
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.authorize': fake_authorize})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '401 Unauthorized')
+
+        self.assertNotIn(('PUT', self.build_versions_path()), self.app.calls)
+        self.assertNotIn(
+            ('DELETE', self.build_versions_path()), self.app.calls)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
+    def test_enable_versioning_unauthed_does_not_delete_versions_container(
+            self):
+        self.app.register('GET', '/v1/a', swob.HTTPOk, {}, '')
+        self.app.register('GET', '/v1/a/c', swob.HTTPOk, {}, '')
+        self.app.register('PUT', self.build_versions_path(),
+                          swob.HTTPAccepted, {}, '')
+        self.app.register('DELETE', self.build_versions_path(),
+                          swob.HTTPNoContent, {}, '')
+        self.app.register('POST', '/v1/a/c', swob.HTTPForbidden, {}, '')
+
+        def fake_authorize(req):
+            self.authorized.append(req)
+            return swob.HTTPForbidden()
+
+        req = Request.blank('/v1/a/c',
+                            headers={'X-Versions-Enabled': 'true'},
+                            environ={'REQUEST_METHOD': 'POST',
+                                     'swift.authorize': fake_authorize})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '403 Forbidden')
+
+        self.assertNotIn(('PUT', self.build_versions_path()), self.app.calls)
+        self.assertNotIn(
+            ('DELETE', self.build_versions_path()), self.app.calls)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
     def test_same_policy_as_primary_container(self):
         self.app.register('GET', '/v1/a', swob.HTTPOk, {}, '')
         self.app.register('GET', '/v1/a/c', swob.HTTPNotFound, {}, '')
@@ -292,7 +346,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         # check for sysmeta header
         calls = self.app.calls_with_headers
         self.assertEqual(4, len(calls))
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
         # request to create versions container
@@ -368,7 +422,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertIn(SYSMETA_VERSIONS_ENABLED, req_headers)
         self.assertEqual(req_headers[SYSMETA_VERSIONS_ENABLED],
                          'True')
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
     def test_put_container_with_legacy_versioning(self):
