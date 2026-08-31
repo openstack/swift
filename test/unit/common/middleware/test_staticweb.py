@@ -62,6 +62,7 @@ meta_map = {
     'c13': {'meta': {'web-listings': 'f',
                      'web-listings-css': 'listing.css'}},
     'c14': {'meta': {'web-listings': 't'}},
+    'c15': {'meta': {'web-index': 'foo<bar>&baz'}},
 }
 
 
@@ -274,6 +275,8 @@ class FakeApp(object):
                                                                 start_response)
         elif env['PATH_INFO'] == '/v1/a/c14':
             return self.listing(env, start_response)
+        elif env['PATH_INFO'] == '/v1/a/c15/foo<bar>&baz':
+            return Response(status='404 Not Found')(env, start_response)
         else:
             raise Exception('Unknown path %r' % env['PATH_INFO'])
 
@@ -875,6 +878,14 @@ class TestStaticWeb(unittest.TestCase):
         self.assertEqual(resp.status_int, 404)
         self.assertNotIn(b'listing.css', resp.body)
         self.assertIn(b'<style', resp.body)
+
+    def test_index_not_found_escapes_web_index(self):
+        resp = Request.blank('/v1/a/c15/').get_response(
+            self.test_staticweb)
+        self.assertEqual(resp.status_int, 404)
+        self.assertIn(b'Index File Not Found', resp.body)
+        self.assertIn(b'foo&lt;bar&gt;&amp;baz', resp.body)
+        self.assertNotIn(b'foo<bar>&baz', resp.body)
 
     def test_subrequest_once_if_possible(self):
         resp = Request.blank(
