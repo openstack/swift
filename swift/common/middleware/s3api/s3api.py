@@ -198,6 +198,11 @@ WELL_KNOWN_CHECKSUM_HEADERS = (
     'x-amz-checksum-sha256',
     'x-amz-checksum-crc64nvme'
 )
+# types for x-amz-checksum-type
+WELL_KNOWN_CHECKSUM_TYPES = (
+    'COMPOSITE',
+    'FULL_OBJECT'
+)
 
 
 class ListingEtagMiddleware(object):
@@ -387,6 +392,12 @@ class S3ApiMiddleware(object):
                 hdr_val_normalised = normalize_checksum_algorithm(
                     hdr_val).replace('-', '')
                 if hdr_val_normalised in WELL_KNOWN_CHECKSUM_ALGORITHMS:
+                    label_val = hdr_val_normalised
+                else:
+                    label_val = 'unknown'
+            elif hdr_key == 'x-amz-checksum-type':
+                hdr_val_normalised = hdr_val.upper()
+                if hdr_val_normalised in WELL_KNOWN_CHECKSUM_TYPES:
                     label_val = hdr_val_normalised
                 else:
                     label_val = 'unknown'

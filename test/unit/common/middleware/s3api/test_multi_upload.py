@@ -1280,6 +1280,19 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
         self._test_object_multipart_upload_initiate(
             {'X-Amz-Checksum-Algorithm': 'CRC32',
              'X-Amz-Checksum-Type': 'COMPOSITE'}, fake_memcache)
+        self.assertEqual([
+            (('swift_s3_checksum_algo_request',), {
+                'labels': {
+                    'account': 'AUTH_test',
+                    'container': 'bucket+segments',
+                    'method': 'POST',
+                    'type': 'object',
+                    'status': 200,
+                    'header_x_amz_checksum_algorithm': 'CRC32',
+                    'header_x_amz_checksum_type': 'COMPOSITE',
+                },
+            }),
+        ], self.statsd.calls['increment'])
 
     def test_object_mpu_initiate_with_segment_bucket_mixed_policy(self):
         fake_memcache = FakeMemcache()
@@ -1593,6 +1606,23 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
     def test_object_multipart_upload_complete(self):
         self._do_test_object_multipart_upload_complete()
+
+    def test_object_multipart_upload_complete_with_checksum_type(self):
+        self._do_test_object_multipart_upload_complete(
+            extra_headers={'X-Amz-Checksum-Type': 'COMPOSITE'})
+        self.assertEqual([
+            (('swift_s3_checksum_algo_request',), {
+                'labels': {
+                    'account': 'AUTH_test',
+                    'container': 'bucket+segments',
+                    'method': 'POST',
+                    'type': 'object',
+                    'status': 200,
+                    'header_content_md5': 'b64_24',
+                    'header_x_amz_checksum_type': 'COMPOSITE',
+                },
+            }),
+        ], self.statsd.calls['increment'])
 
     def test_object_multipart_upload_complete_with_if_none_match_star(self):
         self._do_test_object_multipart_upload_complete(

@@ -2410,6 +2410,37 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                           'header_x_amz_checksum_algorithm': 'unknown'},
                          labels)
 
+    def test_emit_stats_x_amz_checksum_type(self):
+        def do_test(checksum_type):
+            headers = {
+                'X-Amz-Checksum-Type': checksum_type,
+            }
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'method': 'PUT',
+                              'type': 'UNKNOWN',
+                              'status': 400,
+                              'header_x_amz_checksum_type':
+                                  checksum_type.upper()},
+                             labels)
+        do_test('COMPOSITE')
+        do_test('FULL_OBJECT')
+        do_test('composite')
+        do_test('full_object')
+
+    def test_emit_stats_x_amz_checksum_type_unknown(self):
+        def do_test(checksum_type):
+            headers = {
+                'X-Amz-Checksum-Type': checksum_type,
+            }
+            labels = self._do_test_emit_header_stats(headers)
+            self.assertEqual({'method': 'PUT',
+                              'type': 'UNKNOWN',
+                              'status': 400,
+                              'header_x_amz_checksum_type': 'unknown'},
+                             labels)
+        do_test('cheese-fries')
+        do_test('glob')
+
     def test_access_user_id_logging(self):
         # verify that proxy logging gets access_user_id from S3 requests
         environ = {'REQUEST_METHOD': 'GET'}
