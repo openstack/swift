@@ -945,18 +945,18 @@ class TestReconciler(BaseUnitTestCase):
             (1, "/AUTH_bob/c/o2"): ts[1],
         })
 
-        order_recieved = []
+        order_received = []
 
         def fake_reconcile_object(account, container, obj, q_policy_index,
                                   q_ts, q_op, path, **kwargs):
-            order_recieved.append(obj)
+            order_received.append(obj)
             return True
 
         self.reconciler._reconcile_object = fake_reconcile_object
         self.assertEqual(self.reconciler.concurrency, 1)  # sanity
         deleted_container_entries = self._run_once()
-        self.assertEqual(order_recieved, ['o1', 'o2'])
-        # process in order recieved
+        self.assertEqual(order_received, ['o1', 'o2'])
+        # process in order received
         self.assertEqual(deleted_container_entries, [
             ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o1',
              Timestamp(ts[0], offset=2).internal),
@@ -974,11 +974,11 @@ class TestReconciler(BaseUnitTestCase):
             (1, "/AUTH_bob/c/o2"): ts[1],
         })
 
-        order_recieved = []
+        order_received = []
 
         def fake_reconcile_object(account, container, obj, q_policy_index,
                                   q_ts, q_op, path, **kwargs):
-            order_recieved.append(obj)
+            order_received.append(obj)
             if obj == 'o1':
                 # o1 takes longer than o2 for some reason
                 for i in range(10):
@@ -988,7 +988,7 @@ class TestReconciler(BaseUnitTestCase):
         self.reconciler._reconcile_object = fake_reconcile_object
         self.reconciler.concurrency = 2
         deleted_container_entries = self._run_once()
-        self.assertEqual(order_recieved, ['o1', 'o2'])
+        self.assertEqual(order_received, ['o1', 'o2'])
         # ... and so we finish o2 first
         self.assertEqual(deleted_container_entries, [
             ('.misplaced_objects', '3600', '1:/AUTH_bob/c/o2',
