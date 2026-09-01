@@ -24,7 +24,7 @@ import pickle
 import tempfile
 from contextlib import contextmanager
 from collections import defaultdict
-from errno import ENOENT, ENOTEMPTY, ENOTDIR
+from errno import ENOENT, ENOTEMPTY, ENOTDIR, EPERM
 
 from swift.common.concurrency import subprocess, Timeout, sleep
 
@@ -1770,9 +1770,9 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertTrue(os.path.exists(suffix_dir_path))
             self.assertTrue(os.path.exists(part_path))
 
-            # Fail with ENOTDIR
+            # Fail with EPERM
             with mock.patch('os.rmdir',
-                            raise_exception_rmdir(OSError, ENOTDIR)):
+                            raise_exception_rmdir(OSError, EPERM)):
                 self.replicator.replicate()
             self.assertEqual(mock_logger.get_lines_for_level('error'), [
                 'Unexpected error trying to cleanup suffix dir %r: ' %
@@ -1781,15 +1781,30 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertFalse(os.path.exists(whole_path_from))
             self.assertTrue(os.path.exists(suffix_dir_path))
             self.assertTrue(os.path.exists(part_path))
+            mock_logger.clear()
 
-            # Finally we can cleanup everything
-            self.replicator.replicate()
+            # Fail with ENOTDIR - which triggers quarantine
+            quarantine_dir = os.path.join(self.devices, 'sda', 'quarantined')
+            self.assertFalse(os.path.exists(quarantine_dir))
+            with mock.patch('os.rmdir',
+                            raise_exception_rmdir(OSError, ENOTDIR)):
+                self.replicator.replicate()
+            self.assertEqual(mock_logger.get_lines_for_level('error'), [
+                'Failed to delete %r ([Errno 20] Not a directory); '
+                'quarantining.' %
+                os.path.dirname(df._datadir),
+            ])
             self.assertFalse(os.path.exists(whole_path_from))
             self.assertFalse(os.path.exists(suffix_dir_path))
+            self.assertTrue(os.path.exists(quarantine_dir))
+            self.assertEqual(os.listdir(quarantine_dir), ['objects'])
+            self.assertEqual(
+                os.listdir(os.path.join(quarantine_dir, 'objects')),
+                [ohash[-3:]])
             self.assertTrue(os.path.exists(part_path))
+
+            # Next pass we can clean up everything
             self.replicator.replicate()
-            self.assertFalse(os.path.exists(whole_path_from))
-            self.assertFalse(os.path.exists(suffix_dir_path))
             self.assertFalse(os.path.exists(part_path))
 
     def test_run_once_recover_from_failure(self):

@@ -41,7 +41,8 @@ from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.obj import ssync_sender
-from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter
+from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter, \
+    quarantine_dir_renamer
 from swift.common.storage_policy import POLICIES, REPL_POLICY
 from swift.common.exceptions import PartitionLockTimeout
 
@@ -584,17 +585,7 @@ class ObjectReplicator(Daemon):
                         # replicated though.
                         self.logger.info("Removing %s objects",
                                          len(delete_objs))
-                        _junk, error_paths = self.delete_handoff_objs(
-                            job, delete_objs)
-                        # error_paths will have stuff that successfully
-                        # replicated but whose suffix couldn't be deleted.
-                        # Since it was some kind of failure,  flag the
-                        # remotes (!?) in failure_devs_info.
-                        if error_paths:
-                            failure_devs_info.update(
-                                [(failure_dev['replication_ip'],
-                                  failure_dev['device'])
-                                 for failure_dev in job['nodes']])
+                        self.delete_handoff_objs(job, delete_objs)
                     else:
                         self.delete_partition(job['path'])
                         handoff_partition_deleted = True
@@ -632,8 +623,6 @@ class ObjectReplicator(Daemon):
                 raise
 
     def delete_handoff_objs(self, job, delete_objs):
-        success_paths = []
-        error_paths = []
         for object_hash in delete_objs:
             object_path = storage_directory(job['obj_path'], job['partition'],
                                             object_hash)
@@ -641,18 +630,19 @@ class ObjectReplicator(Daemon):
             suffix_dir = dirname(object_path)
             try:
                 os.rmdir(suffix_dir)
-                success_paths.append(object_path)
             except OSError as e:
-                if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
-                    # TODO: Can't we just quarantine?
-                    # At this point, we should know everything's fully
-                    # durable anyway, and then we could stop trying to
-                    # track success/error_paths at all
-                    error_paths.append(object_path)
+                if e.errno in (errno.ENOENT, errno.ENOTEMPTY):
+                    continue
+                elif e.errno in (errno.ENOTDIR, errno.ENODATA, EUCLEAN):
+                    self.logger.error(
+                        'Failed to delete %r (%s); quarantining.',
+                        suffix_dir, e)
+                    quarantine_dir_renamer(dirname(job['obj_path']),
+                                           suffix_dir)
+                else:
                     self.logger.exception(
                         "Unexpected error trying to cleanup suffix dir %r",
                         suffix_dir)
-        return success_paths, error_paths
 
     def update(self, job):
         """
