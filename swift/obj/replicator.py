@@ -567,16 +567,14 @@ class ObjectReplicator(Daemon):
                         else:
                             delete_objs = delete_objs & cand_objs
 
-                if self.handoff_delete:
-                    # delete handoff if we have had handoff_delete successes
-                    successes_count = len([resp for resp in responses if resp])
-                    delete_handoff = successes_count >= min(
-                        self.handoff_delete, len(job['nodes']))
-                else:
-                    # delete handoff if all syncs were successful
-                    delete_handoff = len(responses) == len(job['nodes']) and \
-                        all(responses)
-                if delete_handoff:
+                successes_count = sum(1 for resp in responses if resp)
+                target_successes = min(
+                    # If handoff_delete configured, target that; otherwise all
+                    self.handoff_delete or len(job['nodes']),
+                    # ... but if handoff_delete is too high (for this policy),
+                    # target all instead
+                    len(job['nodes']))
+                if successes_count >= target_successes:
                     stats.remove += 1
                     if (self.sync_method == 'ssync' and
                             delete_objs is not None):
