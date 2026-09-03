@@ -212,6 +212,22 @@ class BaseObjectController(Controller):
         validate_internal_obj(
             self.account_name, self.container_name, self.object_name)
 
+    def get_node_count(self, req, policy, primary_node_count):
+        """Get the number of nodes to request for an object GET or HEAD."""
+        # TODO: make this per-policy configurable.
+        return self.app.request_node_count(primary_node_count)
+
+    def get_node_iter(self, req, policy):
+        ring = policy.object_ring
+        partition = ring.get_part(
+            self.account_name, self.container_name, self.object_name)
+        primary_node_count = len(ring.get_part_nodes(partition))
+        node_iter = NodeIter(
+            'object', self.app, ring, partition, self.logger, req,
+            policy=policy, node_count=self.get_node_count(
+                req, policy, primary_node_count))
+        return node_iter, partition
+
     def iter_nodes_local_first(self, ring, partition, request, policy=None,
                                local_handoffs_first=False):
         """
@@ -284,7 +300,6 @@ class BaseObjectController(Controller):
         policy_index = req.headers.get('X-Backend-Storage-Policy-Index',
                                        container_info['storage_policy'])
         policy = POLICIES.get_by_index(policy_index)
-        obj_ring = self.app.get_object_ring(policy_index)
         req.headers['X-Backend-Storage-Policy-Index'] = policy_index
         if is_open_expired(self.app, req):
             req.headers['X-Backend-Open-Expired'] = 'true'
@@ -292,11 +307,7 @@ class BaseObjectController(Controller):
             aresp = req.environ['swift.authorize'](req)
             if aresp:
                 return aresp
-        partition = obj_ring.get_part(
-            self.account_name, self.container_name, self.object_name)
-        node_iter = NodeIter(
-            'object', self.app, obj_ring, partition, self.logger, req,
-            policy=policy)
+        node_iter, partition = self.get_node_iter(req, policy)
 
         resp = self._get_or_head_response(req, node_iter, partition, policy)
 
@@ -2944,6 +2955,24 @@ class ECObjectController(BaseObjectController):
             else:
                 # got a stop
                 break
+
+    def get_node_count(self, req, policy, primary_node_count):
+        """
+        Get the number of nodes to request for an EC object GET or HEAD.
+
+        Start with the base controller's request node count to preserve its
+        shared GET and HEAD behavior. For HEAD, each EC fragment has a full
+        replica of the object's metadata, so cap the count at the configured
+        EC HEAD limit.
+        """
+        node_count = super().get_node_count(
+            req, policy, primary_node_count)
+        if req.method == 'HEAD':
+            policy_options = self.app.get_policy_options(policy)
+            node_count = min(
+                node_count,
+                policy_options.ec_head_node_count_fn(primary_node_count))
+        return node_count
 
     def _get_or_head_response(self, req, node_iter, partition, policy):
         update_etag_is_at_header(req, "X-Object-Sysmeta-Ec-Etag")
