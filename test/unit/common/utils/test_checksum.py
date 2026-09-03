@@ -93,6 +93,8 @@ class TestCRC32(unittest.TestCase):
     def check_crc_func(self, impl):
         self.assertEqual(zlib.crc32(b''), impl(b''))
         self.assertEqual(zlib.crc32(b'123456789'), impl(b'123456789'))
+        data = os.urandom(1024)
+        self.assertEqual(zlib.crc32(data), impl(data))
 
         partial = impl(b'12345')
         self.assertEqual(zlib.crc32(b'12345'), partial)
@@ -110,8 +112,23 @@ class TestCRC32(unittest.TestCase):
     def test_anycrc(self):
         self.check_crc_func(checksum.crc32_anycrc)
 
+    @unittest.skipIf(checksum.crc32_isal is None, 'No ISA-L CRC32')
+    def test_isal(self):
+        self.check_crc_func(checksum.crc32_isal)
+
+    def test_prefers_isal(self):
+        with mock.patch.object(checksum, 'crc32_isal') as mock_isal, \
+                mock.patch.object(checksum, 'crc32_anycrc'):
+            mock_isal.__name__ = 'crc32_isal'
+            self.assertIs(mock_isal, checksum._select_crc32_impl())
+            self.assertIs(mock_isal, checksum.crc32().crc_func)
+            checksum.log_selected_implementation(self.logger)
+        self.assertIn('Using crc32_isal implementation for CRC32.',
+                      self.logger.get_lines_for_level('info'))
+
     def test_prefers_anycrc(self):
-        with mock.patch.object(checksum, 'crc32_anycrc') as mock_anycrc:
+        with mock.patch.object(checksum, 'crc32_isal', None), \
+                mock.patch.object(checksum, 'crc32_anycrc') as mock_anycrc:
             mock_anycrc.__name__ = 'crc32_anycrc'
             self.assertIs(mock_anycrc, checksum._select_crc32_impl())
             self.assertIs(mock_anycrc, checksum.crc32().crc_func)
@@ -120,7 +137,8 @@ class TestCRC32(unittest.TestCase):
                       self.logger.get_lines_for_level('info'))
 
     def test_falls_back_to_zlib(self):
-        with mock.patch.object(checksum, 'crc32_anycrc', None):
+        with mock.patch.object(checksum, 'crc32_isal', None), \
+                mock.patch.object(checksum, 'crc32_anycrc', None):
             self.assertIs(zlib.crc32, checksum._select_crc32_impl())
             self.assertIs(zlib.crc32, checksum.crc32().crc_func)
             checksum.log_selected_implementation(self.logger)

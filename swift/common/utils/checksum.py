@@ -68,6 +68,20 @@ def find_isal():
 
 isal = find_isal()
 
+if hasattr(isal, 'crc32_gzip_refl'):  # isa-l >= 2.19
+    isal.crc32_gzip_refl.argtypes = [
+        ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint64]
+    isal.crc32_gzip_refl.restype = ctypes.c_uint32
+
+    def crc32_isal(data, value=0):
+        return isal.crc32_gzip_refl(
+            value,
+            data,
+            len(data),
+        )
+else:
+    crc32_isal = None
+
 if hasattr(isal, 'crc32_iscsi'):  # isa-l >= 2.16
     isal.crc32_iscsi.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_uint]
     isal.crc32_iscsi.restype = ctypes.c_uint
@@ -132,7 +146,7 @@ else:
 
 
 def _select_crc32_impl():
-    return crc32_anycrc or zlib.crc32
+    return crc32_isal or crc32_anycrc or zlib.crc32
 
 
 def _select_crc32c_impl():

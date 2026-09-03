@@ -253,13 +253,13 @@ class TestS3ApiMiddleware(S3ApiTestCase):
     def test_init_logs_checksum_implementation(self):
         with mock.patch('swift.common.middleware.s3api.s3api.get_logger',
                         return_value=self.logger), \
-                mock.patch('swift.common.utils.checksum.crc32_anycrc') \
+                mock.patch('swift.common.utils.checksum.crc32_isal') \
                 as mock_crc32, \
                 mock.patch('swift.common.utils.checksum.crc32c_isal') \
                 as mock_crc32c, \
                 mock.patch('swift.common.utils.checksum.crc64nvme_isal') \
                 as mock_crc64nvme:
-            mock_crc32.__name__ = 'crc32_anycrc'
+            mock_crc32.__name__ = 'crc32_isal'
             mock_crc32c.__name__ = 'crc32c_isal'
             mock_crc64nvme.__name__ = 'crc64nvme_isal'
             S3ApiMiddleware(None, {})
@@ -269,7 +269,7 @@ class TestS3ApiMiddleware(S3ApiTestCase):
                     'Labeled statsd mode: disabled (fake-swift)',
                 ],
                 'info': [
-                    'Using crc32_anycrc implementation for CRC32.',
+                    'Using crc32_isal implementation for CRC32.',
                     'Using crc32c_isal implementation for CRC32C.',
                     'Using crc64nvme_isal implementation for CRC64NVME.',
                 ],
