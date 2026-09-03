@@ -235,7 +235,8 @@ class ContainerUpdater(Daemon):
         :param dbfile: container DB to process
         """
         start_time = time.time()
-        broker = ContainerBroker(dbfile, logger=self.logger)
+        broker = ContainerBroker(dbfile, logger=self.logger,
+                                 quarantine_ok=True)
         try:
             info = broker.get_info()
         except LockTimeout as e:

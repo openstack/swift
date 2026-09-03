@@ -208,6 +208,12 @@ def get_max_len_sync_item(syncs, item, title):
     return max(list(map(len, map(map_func, syncs))) + [len(title)])
 
 
+def print_db_error(err):
+    print("Database error: %s" % err)
+    print("This command does not quarantine; the database has been "
+          "left in place.")
+
+
 def print_db_syncs(incoming, syncs):
     max_sync_point_len = get_max_len_sync_item(syncs, 'sync_point',
                                                "Sync Point")
@@ -475,35 +481,48 @@ def print_info(db_type, db_file, swift_dir='/etc/swift', stale_reads_ok=False,
     if not db_file.startswith(('/', './')):
         db_file = './' + db_file  # don't break if the bare db file is given
     if db_type == 'account':
-        broker = AccountBroker(db_file, stale_reads_ok=stale_reads_ok)
+        broker_class = AccountBroker
         datadir = ABDATADIR
     else:
-        broker = ContainerBroker(db_file, stale_reads_ok=stale_reads_ok)
+        broker_class = ContainerBroker
         datadir = CBDATADIR
+    broker = broker_class(db_file, stale_reads_ok=stale_reads_ok,
+                          quarantine_ok=False)
     try:
         info = broker.get_info()
+        account = info['account']
+        container = None
+        info['is_deleted'] = broker.is_deleted()
+        if db_type == 'container':
+            container = info['container']
+            info['is_root'] = broker.is_root_container()
+            sranges = broker.get_shard_ranges()
+            if sranges:
+                info['shard_ranges'] = sranges
+        metadata = broker.metadata
+    # NB: OperationalError is a subclass of DatabaseError, so this clause
+    # must stay ahead of the one below to avoid swallowing the wrong-db-type
+    # error.
     except sqlite3.OperationalError as err:
         if 'no such table' in str(err):
             print("Does not appear to be a DB of type \"%s\": %s"
                   % (db_type, db_file))
             raise InfoSystemExit()
         raise
-    account = info['account']
-    container = None
-    info['is_deleted'] = broker.is_deleted()
-    if db_type == 'container':
-        container = info['container']
-        info['is_root'] = broker.is_root_container()
-        sranges = broker.get_shard_ranges()
-        if sranges:
-            info['shard_ranges'] = sranges
+    except sqlite3.DatabaseError as err:
+        print_db_error(err)
+        raise InfoSystemExit()
     print_db_info_metadata(
-        db_type, info, broker.metadata, drop_prefixes, verbose)
+        db_type, info, metadata, drop_prefixes, verbose)
     if sync:
         # Print incoming / outgoing sync tables.
-        for incoming in (True, False):
-            print_db_syncs(incoming, broker.get_syncs(incoming,
-                                                      include_timestamp=True))
+        try:
+            for incoming in (True, False):
+                print_db_syncs(incoming, broker.get_syncs(
+                    incoming, include_timestamp=True))
+        except sqlite3.DatabaseError as err:
+            print_db_error(err)
+            raise InfoSystemExit()
     try:
         ring = Ring(swift_dir, ring_name=db_type)
     except Exception:

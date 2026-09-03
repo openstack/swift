@@ -15,6 +15,7 @@
 
 """Tests for swift.common.db"""
 import contextlib
+import warnings
 import os
 import unittest
 from tempfile import mkdtemp
@@ -44,6 +45,7 @@ from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.common.exceptions import LockTimeout
 from swift.common.swob import HTTPException
 
+from test.debug_logger import debug_logger
 from test.unit import make_timestamp_iter, generate_db_path, \
     BaseUnitTestCase, mock_normal_timestamp_now
 
@@ -915,6 +917,62 @@ class TestDatabaseBroker(TestDbBase):
                 str(raised.exception),
                 'Quarantined %s to %s due to corrupted database' %
                 (dbpath, qpath))
+
+    def test_get_quarantine_ok_false_leaves_db_in_place(self):
+        dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
+        mkdirs(dbpath)
+        qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'tests', 'db')
+        copy(os.path.join(os.path.dirname(__file__),
+                          'malformed_example.db'),
+             os.path.join(dbpath, '1.db'))
+        logger = debug_logger()
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'),
+                                quarantine_ok=False, logger=logger)
+        broker.db_type = 'test'
+        with self.assertRaises(sqlite3.DatabaseError) as raised, \
+                broker.get() as conn:
+            conn.execute('SELECT * FROM test')
+        self.assertEqual(str(raised.exception), 'malformed database')
+        self.assertEqual(
+            logger.get_lines_for_level('error'),
+            ['Database error in %s: malformed database; quarantining is '
+             'disabled for this broker, so the database has been left in '
+             'place'
+             % dbpath])
+        self.assertTrue(os.path.isdir(dbpath))
+        self.assertFalse(os.path.exists(qpath))
+
+    def test_quarantine_ok_default_is_deprecated(self):
+        db_file = os.path.join(self.testdir, 'deprecated.db')
+        with warnings.catch_warnings(record=True) as cm:
+            warnings.resetwarnings()
+            warnings.simplefilter('always', DeprecationWarning)
+            broker = DatabaseBroker(db_file)
+        deprecations = [w for w in cm
+                        if str(w.message).startswith('Constructing a broker')]
+        self.assertEqual(
+            ['Constructing a broker without quarantine_ok is deprecated; '
+             'pass ``quarantine_ok`` explicitly instead.'],
+            [str(w.message) for w in deprecations])
+        # the deprecated default keeps the behavior callers had before
+        self.assertTrue(broker.quarantine_ok)
+        # the warning blames the calling code rather than db.py, so it names
+        # the call site that has to be updated
+        self.assertTrue(deprecations[0].filename.endswith('test_db.py'),
+                        deprecations[0].filename)
+
+    def test_quarantine_ok_explicit_is_not_deprecated(self):
+        db_file = os.path.join(self.testdir, 'explicit.db')
+        # an explicit None is falsy, so it leaves the database in place
+        for value in (True, False, None):
+            with warnings.catch_warnings(record=True) as cm:
+                warnings.resetwarnings()
+                warnings.simplefilter('always', DeprecationWarning)
+                broker = DatabaseBroker(db_file, quarantine_ok=value)
+            self.assertEqual(
+                [], [str(w.message) for w in cm
+                     if str(w.message).startswith('Constructing a broker')])
+            self.assertEqual(value, broker.quarantine_ok)
 
     def test_get_raw_metadata_missing_container_info(self):
         # Test missing container_info/container_stat row

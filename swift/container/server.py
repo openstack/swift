@@ -180,6 +180,7 @@ class ContainerController(BaseStorageServer):
         kwargs.setdefault('account', account)
         kwargs.setdefault('container', container)
         kwargs.setdefault('logger', self.logger)
+        kwargs.setdefault('quarantine_ok', True)
         return ContainerBroker(db_path, **kwargs)
 
     def get_and_validate_policy_index(self, req):

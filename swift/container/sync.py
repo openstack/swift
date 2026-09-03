@@ -327,7 +327,8 @@ class ContainerSync(Daemon):
         """
         broker = None
         try:
-            broker = ContainerBroker(path, logger=self.logger)
+            broker = ContainerBroker(path, logger=self.logger,
+                                     quarantine_ok=True)
             # The path we pass to the ContainerBroker is a real path of
             # a container DB. If we get here, however, it means that this
             # path is linked from the sync_containers dir. In rare cases

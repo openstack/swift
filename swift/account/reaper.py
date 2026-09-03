@@ -194,7 +194,8 @@ class AccountReaper(Daemon):
                             self.start_time = time()
                             broker = \
                                 AccountBroker(os.path.join(hsh_path, fname),
-                                              logger=self.logger)
+                                              logger=self.logger,
+                                              quarantine_ok=True)
                             if broker.is_status_deleted() and \
                                     not broker.empty():
                                 self.reap_account(

@@ -1209,7 +1209,8 @@ def main(cli_args=None):
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
     broker = ContainerBroker(os.path.realpath(args.path_to_file),
                              logger=logger,
-                             skip_commits=args.skip_commits)
+                             skip_commits=args.skip_commits,
+                             quarantine_ok=False)
     try:
         broker.get_info()
     except Exception as exc:

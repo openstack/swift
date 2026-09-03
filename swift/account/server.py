@@ -102,6 +102,7 @@ class AccountController(BaseStorageServer):
         db_path = os.path.join(self.root, drive, db_dir, hsh + '.db')
         kwargs.setdefault('account', account)
         kwargs.setdefault('logger', self.logger)
+        kwargs.setdefault('quarantine_ok', True)
         return AccountBroker(db_path, **kwargs)
 
     def _deleted_response(self, broker, req, resp, body=''):

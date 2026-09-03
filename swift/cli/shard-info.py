@@ -48,7 +48,7 @@ def collect_brokers(conf_path, names2nodes):
         if os.path.isdir(datadir):
             dirs.append((datadir, node['id'], lambda *args: True))
     for part, object_file, node_id in roundrobin_datadirs(dirs):
-        broker = ContainerBroker(object_file)
+        broker = ContainerBroker(object_file, quarantine_ok=False)
         for node in c_ring.get_part_nodes(int(part)):
             if node['id'] == node_id:
                 node_index = str(node['index'])

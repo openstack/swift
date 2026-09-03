@@ -135,7 +135,8 @@ class DatabaseAuditor(Daemon):
         """
         start_time = time.time()
         try:
-            broker = self.broker_class(path, logger=self.logger)
+            broker = self.broker_class(path, logger=self.logger,
+                                       quarantine_ok=True)
             if not broker.is_deleted():
                 info = broker.get_info()
                 err = self._audit(info, broker)

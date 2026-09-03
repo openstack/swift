@@ -16,6 +16,7 @@
 """ Tests for swift.container.backend """
 import base64
 import errno
+import warnings
 import os
 import inspect
 import shutil
@@ -5569,6 +5570,52 @@ class TestContainerBroker(test_db.TestDbBase):
         lines = broker.logger.get_lines_for_level('warning')
         self.assertIn('Unexpected db files', lines[0])
         self.assertFalse(lines[1:])
+
+    @with_tempdir
+    def test_get_brokers_quarantine_ok_propagates(self, tempdir):
+        # A malformed retiring db, reached only via get_brokers() while
+        # sharding, must not be quarantined when the top-level broker
+        # declares quarantine_ok=False.
+        db_path = os.path.join(
+            tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=False)
+        broker.initialize(self.ts().internal, 0)
+        broker.enable_sharding(self.normal_ts())
+        self.assertTrue(broker.set_sharding_state())
+        retiring_db_path = broker.get_brokers()[0].db_file
+
+        size = os.path.getsize(retiring_db_path)
+        with open(retiring_db_path, 'r+b') as f:
+            f.truncate(size // 2)
+
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=False)
+        db_dir = os.path.dirname(db_path)
+        with self.assertRaises(sqlite3.DatabaseError) as raised:
+            broker.get_info()
+        self.assertEqual(str(raised.exception), 'malformed database')
+        self.assertTrue(os.path.exists(db_dir))
+        self.assertFalse(os.path.exists(os.path.join(tempdir, 'quarantined')))
+
+    def test_quarantine_ok_default_deprecation_blames_caller(self):
+        # ContainerBroker resolves the deprecated default itself instead of
+        # leaving it to DatabaseBroker, so the warning names the calling code
+        # rather than ContainerBroker.__init__, and fires only once
+        db_file = os.path.join(self.testdir, 'deprecated.db')
+        with warnings.catch_warnings(record=True) as cm:
+            warnings.resetwarnings()
+            warnings.simplefilter('always', DeprecationWarning)
+            broker = ContainerBroker(db_file)
+        deprecations = [w for w in cm
+                        if str(w.message).startswith('Constructing a broker')]
+        self.assertEqual(
+            ['Constructing a broker without quarantine_ok is deprecated; '
+             'pass ``quarantine_ok`` explicitly instead.'],
+            [str(w.message) for w in deprecations])
+        self.assertTrue(deprecations[0].filename.endswith('test_backend.py'),
+                        deprecations[0].filename)
+        self.assertTrue(broker.quarantine_ok)
 
     @with_tempdir
     def test_merge_shard_ranges(self, tempdir):
