@@ -393,11 +393,6 @@ class ObjectReplicator(Daemon):
             if proc:
                 proc.kill()
                 try:
-                    # Note: Python 2.7's subprocess.Popen class doesn't take
-                    # any arguments for wait(), but Python 3's does.
-                    # However, Eventlet's replacement Popen takes a timeout
-                    # argument regardless of Python version, so we don't
-                    # need any conditional code here.
                     proc.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
                     # Sometimes a process won't die immediately even after a
