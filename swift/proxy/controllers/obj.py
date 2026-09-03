@@ -1817,7 +1817,7 @@ class Putter(object):
     :param connect_duration: time taken to initiate the HTTPConnection
     :param watchdog: a spawned Watchdog instance that will enforce timeouts
     :param write_timeout: time limit to write a chunk to the connection socket
-    :param send_exception_handler: callback called when an exception occured
+    :param send_exception_handler: callback called when an exception occurred
                                    writing to the connection socket
     :param logger: a Logger instance
     :param chunked: boolean indicating if the request encoding is chunked
