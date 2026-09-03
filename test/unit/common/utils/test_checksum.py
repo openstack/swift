@@ -86,6 +86,48 @@ class TestModuleFunctions(unittest.TestCase):
                 importlib.reload(checksum)
 
 
+class TestCRC32(unittest.TestCase):
+    def setUp(self):
+        self.logger = debug_logger()
+
+    def check_crc_func(self, impl):
+        self.assertEqual(zlib.crc32(b''), impl(b''))
+        self.assertEqual(zlib.crc32(b'123456789'), impl(b'123456789'))
+
+        partial = impl(b'12345')
+        self.assertEqual(zlib.crc32(b'12345'), partial)
+        self.assertEqual(zlib.crc32(b'123456789'),
+                         impl(b'6789', partial))
+
+        initial = 0x12345678
+        self.assertEqual(zlib.crc32(b'with an initial CRC', initial),
+                         impl(b'with an initial CRC', initial))
+
+    def test_zlib(self):
+        self.check_crc_func(zlib.crc32)
+
+    @unittest.skipIf(checksum.crc32_anycrc is None, 'No anycrc CRC32')
+    def test_anycrc(self):
+        self.check_crc_func(checksum.crc32_anycrc)
+
+    def test_prefers_anycrc(self):
+        with mock.patch.object(checksum, 'crc32_anycrc') as mock_anycrc:
+            mock_anycrc.__name__ = 'crc32_anycrc'
+            self.assertIs(mock_anycrc, checksum._select_crc32_impl())
+            self.assertIs(mock_anycrc, checksum.crc32().crc_func)
+            checksum.log_selected_implementation(self.logger)
+        self.assertIn('Using crc32_anycrc implementation for CRC32.',
+                      self.logger.get_lines_for_level('info'))
+
+    def test_falls_back_to_zlib(self):
+        with mock.patch.object(checksum, 'crc32_anycrc', None):
+            self.assertIs(zlib.crc32, checksum._select_crc32_impl())
+            self.assertIs(zlib.crc32, checksum.crc32().crc_func)
+            checksum.log_selected_implementation(self.logger)
+        self.assertIn('Using zlib.crc32 implementation for CRC32.',
+                      self.logger.get_lines_for_level('info'))
+
+
 # If you're curious about the 0xe3069283, see "check" at
 # https://reveng.sourceforge.io/crc-catalogue/17plus.htm#crc.cat.crc-32-iscsi
 class TestCRC32C(unittest.TestCase):
@@ -245,7 +287,7 @@ class TestCRCHasher(unittest.TestCase):
         hasher = checksum.crc32()
         self.assertEqual('crc32', hasher.name)
         self.assertEqual(4, hasher.digest_size)
-        self.assertEqual(zlib.crc32, hasher.crc_func)
+        self.assertIs(checksum._select_crc32_impl(), hasher.crc_func)
         self.assertEqual(32, hasher.width)
         self.assertEqual(0, hasher.crc)
         self.assertEqual(b'\x00\x00\x00\x00', hasher.digest())
@@ -258,14 +300,14 @@ class TestCRCHasher(unittest.TestCase):
 
     def test_crc32_hasher_contructed_with_data(self):
         hasher = checksum.crc32(b'123456789')
-        self.assertEqual(zlib.crc32, hasher.crc_func)
+        self.assertIs(checksum._select_crc32_impl(), hasher.crc_func)
         self.assertEqual(0xcbf43926, hasher.crc)
         self.assertEqual(b'\xcb\xf4\x39\x26', hasher.digest())
         self.assertEqual('cbf43926', hasher.hexdigest())
 
     def test_crc32_hasher_initial_value(self):
         hasher = checksum.crc32(initial_value=0xcbf43926)
-        self.assertEqual(zlib.crc32, hasher.crc_func)
+        self.assertIs(checksum._select_crc32_impl(), hasher.crc_func)
         self.assertEqual(0xcbf43926, hasher.crc)
         self.assertEqual(b'\xcb\xf4\x39\x26', hasher.digest())
         self.assertEqual('cbf43926', hasher.hexdigest())
@@ -276,7 +318,7 @@ class TestCRCHasher(unittest.TestCase):
         self.assertEqual('cbf43926', hasher.hexdigest())
         hasher_copy = hasher.copy()
         self.assertEqual('crc32', hasher.name)
-        self.assertEqual(zlib.crc32, hasher_copy.crc_func)
+        self.assertIs(hasher.crc_func, hasher_copy.crc_func)
         self.assertEqual('cbf43926', hasher_copy.hexdigest())
         hasher_copy.update(b'foo')
         self.assertEqual('cbf43926', hasher.hexdigest())
