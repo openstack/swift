@@ -619,8 +619,6 @@ class TestSymlink(Base):
             self._test_put_symlink(
                 link_cont=container, link_obj=link_obj,
                 tgt_cont=container, tgt_obj=previous)
-
-            # set corrent link_obj to previous
             previous = link_obj
 
         # the last link is valid for symloop_max constraint
@@ -1692,7 +1690,7 @@ class TestSymlinkSloEnv(TestSloEnv):
 class TestSymlinkToSloSegments(Base):
     """
     This test class will contain various tests where the segments of the SLO
-    manifest are symlinks to the actual segments. Again the tests are basicaly
+    manifest are symlinks to the actual segments. Again the tests are basically
     a copy/paste of the tests in test_slo, only the manifest has been modified
     to contain symlinks as the segments.
     """

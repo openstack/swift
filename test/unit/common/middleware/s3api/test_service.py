@@ -27,8 +27,8 @@ from swift.common.middleware.s3api.subresource import ACL, Owner, encode_acl
 def create_bucket_list_json(buckets):
     """
     Create a json from bucket list
-    :param buckets: a list of tuples (or lists) consist of elements orderd as
-                    name, count, bytes
+    :param buckets: a list of tuples (or lists) consisting of elements
+                    ordered as name, count, bytes
     """
     bucket_list = [{'name': item[0], 'count': item[1], 'bytes': item[2]}
                    for item in buckets]

@@ -1,4 +1,3 @@
-# -*- coding:utf-8 -*-
 # Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -229,8 +228,8 @@ class TestMemcacheCommand(unittest.TestCase):
     def test_get_key_prefix(self):
         cmd = MemcacheCommand("set", "shard-updating-v2/a/c")
         self.assertEqual(cmd.key_prefix, "shard-updating-v2/a")
-        cmd = MemcacheCommand("set", "shard-listing-v2/accout/container3")
-        self.assertEqual(cmd.key_prefix, "shard-listing-v2/accout")
+        cmd = MemcacheCommand("set", "shard-listing-v2/account/container3")
+        self.assertEqual(cmd.key_prefix, "shard-listing-v2/account")
         cmd = MemcacheCommand(
             "set", "auth_reseller_name/token/X58E34EL2SDFLEY3")
         self.assertEqual(cmd.key_prefix, "auth_reseller_name/token")

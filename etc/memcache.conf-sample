@@ -25,7 +25,7 @@
 # How many errors can accumulate before a server is temporarily ignored.
 # error_suppression_limit = 10
 #
-# (Optional) Global toggle for TLS usage when comunicating with
+# (Optional) Global toggle for TLS usage when communicating with
 # the caching servers.
 # tls_enabled = false
 #
@@ -42,7 +42,7 @@
 # tls_certfile =
 #
 # (Optional) Path to a single file containing the client's private
-# key in. Otherwhise the private key will be taken from the file
+# key in. Otherwise the private key will be taken from the file
 # specified in tls_certfile. If tls_enabled is False, this option
 # is ignored.
 # tls_keyfile =

@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import shutil
 import unittest
 from contextlib import contextmanager
@@ -2009,7 +2010,7 @@ class TestDBReplicator(unittest.TestCase):
 
     @unit.with_tempdir
     def test_reclaim_tmp_files(self, tmpdir):
-        db_dir = os.path.join(tmpdir, 'containers/123/bla/some_bla/localtion/')
+        db_dir = os.path.join(tmpdir, 'containers/123/bla/some_bla/location/')
         mkdirs(db_dir)
 
         # Touch some files

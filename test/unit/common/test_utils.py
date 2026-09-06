@@ -934,7 +934,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(user_data[3], mock_os.called_funcs['setgid'][0])
         self.assertEqual(user_data[2], mock_os.called_funcs['setuid'][0])
 
-    def test_clean_up_daemon_hygene(self):
+    def test_clean_up_daemon_hygiene(self):
         required_func_calls = ('chdir', 'umask')
         # OSError if trying to get session leader, but setsid() OSError is
         # ignored by the code under test.
@@ -3173,7 +3173,7 @@ class TestCooperativeCachePopulator(unittest.TestCase):
 
     def test_fetch_data_cache_miss_without_token(self):
         # Test the request which doesn't acquire the token, then keep sleeping
-        # and trying to fetch data from the Memcached, but enventually all
+        # and trying to fetch data from the Memcached, but eventually all
         # retries exhausted with cache misses.
         num_tokens_per_session = random.randint(1, 3)
         retries = 0

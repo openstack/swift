@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import collections
 import errno
 import io
@@ -1919,8 +1920,8 @@ class TestObjectReplicator(BaseUnitTestCase):
                              'Expected %s but got %s for path %s' %
                              (expected_node_count[path_end], len(nodes), path))
         # partitions 0 and 2 attempt 3 calls each per policy to get_hashes = 12
-        # partitions 3 attempts 2 calls per policy to get_hashes = 4
-        # partitions 1 dosn't get_hashes because of revert
+        # partition 3 attempts 2 calls per policy to get_hashes = 4
+        # partition 1 doesn't get_hashes because of revert
         self.assertEqual(16, self.get_hash_count)
 
         # attempt to 16 times but succeeded only 15 times due to Timeout

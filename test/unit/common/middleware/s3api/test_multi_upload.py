@@ -1401,7 +1401,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
     @patch('swift.common.middleware.s3api.controllers.multi_upload.'
            'unique_id', lambda: 'X')
     def _test_object_multipart_upload_initiate_s3acl(
-            self, cache, existance_cached, should_head, should_put,
+            self, cache, existence_cached, should_head, should_put,
             bucket_policy_index=int(POLICIES.default),
             segment_bucket_policy_index=None):
         if segment_bucket_policy_index is None:
@@ -1435,9 +1435,9 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
                          '/v1/AUTH_test/bucket+segments/object/X')
         self._assert_policy_index(req.headers, headers,
                                   segment_bucket_policy_index)
-        # This is the get_container_info existance check :'(
+        # This is the get_container_info existence check :'(
         expected = []
-        if not existance_cached:
+        if not existence_cached:
             expected.append(('HEAD', '/v1/AUTH_test/bucket'))
         if should_head:
             expected.append(('HEAD', '/v1/AUTH_test/bucket+segments'))
@@ -1465,7 +1465,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
     def test_object_mpu_initiate_s3acl_with_segment_bucket(self):
         kwargs = {
-            'existance_cached': False,
+            'existence_cached': False,
             'should_head': True,
             'should_put': False,
         }
@@ -1474,7 +1474,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
     def test_object_mpu_initiate_s3acl_with_segment_bucket_mixed_policy(self):
         kwargs = {
-            'existance_cached': False,
+            'existence_cached': False,
             'should_head': True,
             'should_put': False,
         }
@@ -1489,7 +1489,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             get_cache_key('AUTH_test', 'bucket+segments'): {'status': 204},
         })
         kwargs = {
-            'existance_cached': True,
+            'existence_cached': True,
             'should_head': False,
             'should_put': False,
         }
@@ -1506,7 +1506,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
         self.swift.register('PUT', '/v1/AUTH_test/bucket+segments',
                             swob.HTTPCreated, {}, None)
         kwargs = {
-            'existance_cached': True,
+            'existence_cached': True,
             'should_head': False,
             'should_put': True,
         }
@@ -1523,7 +1523,7 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
         self.swift.register('PUT', '/v1/AUTH_test/bucket+segments',
                             swob.HTTPCreated, {}, None)
         kwargs = {
-            'existance_cached': True,
+            'existence_cached': True,
             'should_head': False,
             'should_put': True,
         }

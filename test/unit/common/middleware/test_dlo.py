@@ -1,4 +1,3 @@
-# coding: utf-8
 # Copyright (c) 2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -722,7 +721,7 @@ class TestDloGetManifest(DloTestCase):
         self.app.register(
             'GET', '/v1/AUTH_test/c/seg_02',
             swob.HTTPOk, {'Content-Length': '5', 'Etag': md5hex("bbbb")},
-            # Use a list so we can get a discrepency between content-length and
+            # Use a list so we can get a discrepancy between content-length and
             # number of bytes in the app_iter
             [b'b' * 4])
 

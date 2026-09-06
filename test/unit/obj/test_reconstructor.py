@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import itertools
 import json
 import unittest
@@ -1207,7 +1208,7 @@ class TestGlobalSetupObjectReconstructor(unittest.TestCase):
 
         mock_delete.assert_has_calls(expected_calls, any_order=True)
 
-        # N.B. in this next test sequence we acctually delete files after
+        # N.B. in this next test sequence we actually delete files after
         # revert, so the on-disk hashes can change.  In partition 1, if the
         # revert jobs (for frag_index 0 or 1) run before the sync job
         # (frag_index 4) all suffixes will get removed and the sync job won't
@@ -4046,7 +4047,7 @@ class TestObjectReconstructor(BaseTestObjectReconstructor):
                                                     remote_index)
         self.assertEqual(suffs, [])
 
-        # now with a mis-matched None key (missing durable)
+        # now with a mismatched None key (missing durable)
         remote_suff = {'123': {None: 'ghi', 0: 'def'}}
         suffs = self.reconstructor.get_suffix_delta(local_suff,
                                                     local_index,

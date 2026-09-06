@@ -852,7 +852,7 @@ use = egg:swift#memcache
 # How many errors can accumulate before a server is temporarily ignored.
 # error_suppression_limit = 10
 #
-# (Optional) Global toggle for TLS usage when comunicating with
+# (Optional) Global toggle for TLS usage when communicating with
 # the caching servers.
 # tls_enabled =
 #

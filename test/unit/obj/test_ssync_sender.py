@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import io
 import os
 import unittest
@@ -106,7 +107,7 @@ class SenderBase(BaseTest):
           [':MISSING_CHECK: START', '<obj hash> <ts>', ':MISSING_CHECK: END' ]
 
         Commands in the ssync protocol need to end with a \\r\\n. If you
-        decide to provide them (because request data tends to not incude them)
+        decide to provide them (because request data tends to not include them)
         then you can use the `cmds_with_newlines` flag to indicate this.
 
         """

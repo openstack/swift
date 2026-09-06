@@ -25,7 +25,7 @@ Read Only
 
 The ability to make an entire cluster or individual accounts read only is
 implemented as pluggable middleware.  When a cluster or an account is in read
-only mode, requests that would result in writes to the cluser are not allowed.
+only mode, requests that would result in writes to the cluster are not allowed.
 A 405 is returned on such requests.  "COPY", "DELETE", "POST", and
 "PUT" are the HTTP methods that are considered writes.
 

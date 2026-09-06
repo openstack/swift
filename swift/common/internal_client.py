@@ -220,7 +220,8 @@ class InternalClient(object):
             if params:
                 req.params = params
             try:
-                # execute in a separate greenthread to not polute corolocals
+                # execute in a separate greenthread to avoid
+                # polluting corolocals
                 resp = spawn(req.get_response, self.app).wait()
             except (Exception, Timeout) as e:
                 err = e

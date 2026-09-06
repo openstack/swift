@@ -258,7 +258,7 @@ class TestReconcilerUtils(BaseUnitTestCase):
         self.assertRaises(ValueError, reconciler.parse_raw_obj, obj_info)
         obj_info['content_type'] = 'foo'
         self.assertRaises(ValueError, reconciler.parse_raw_obj, obj_info)
-        obj_info['content_type'] = 'appliation/x-post'
+        obj_info['content_type'] = 'application/x-post'
         self.assertRaises(ValueError, reconciler.parse_raw_obj, obj_info)
         self.assertRaises(ValueError, reconciler.parse_raw_obj,
                           {'name': 'bogus'})

@@ -656,7 +656,7 @@ use = egg:swift#backend_ratelimit
 # Note: Be careful not to enable ``dequeue_from_legacy`` on too many expirers
 # as all legacy tasks are stored in a single hidden account and the same hidden
 # containers. On a large cluster one may inadvertently make the
-# acccount/container server for the hidden too busy.
+# account/container server for the hidden too busy.
 #
 # Note: the processes and process options can only be used in conjunction with
 # notes using `dequeue_from_legacy = true`.  These options are ignored on nodes

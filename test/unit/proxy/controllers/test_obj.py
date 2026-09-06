@@ -1339,7 +1339,7 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
                     delete_at_container='dac', delete_at_partition=2,
                     delete_at_nodes=del_at_nodes)
 
-                # caculate no of expected updates, see
+                # calculate no of expected updates, see
                 # test_container_update_backend_requests for explanation
                 n_expected_updates = min(max(
                     self.replicas(policy) - self.quorum(policy) +
@@ -6680,7 +6680,7 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
         headers = {'X-Object-Sysmeta-Ec-Content-Length': '10',
                    'X-Object-Sysmeta-Ec-Etag': 'foo'}
 
-        # sucsessful HEAD
+        # successful HEAD
         responses = [(200, b'', headers)]
         status_codes, body_iter, headers = zip(*responses)
         req = swift.common.swob.Request.blank('/v1/a/c/o', method='HEAD')

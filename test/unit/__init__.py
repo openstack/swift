@@ -1378,7 +1378,7 @@ def fake_ec_node_response(node_frags, policy):
             req['headers']['X-Backend-Storage-Policy-Index'])
         if int(policy) != requested_policy:
             AssertionError(
-                "Requested polciy doesn't fit the fake response policy")
+                "Requested policy doesn't fit the fake response policy")
         if not node_map:
             _build_node_map(req, policy)
 

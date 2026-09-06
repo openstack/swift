@@ -179,7 +179,7 @@ the concurrency level for the legacy queue.
     Be careful not to enable ``dequeue_from_legacy`` on too many expirers as
     all legacy tasks are stored in a single hidden account and the same hidden
     containers. On a large cluster one may inadvertently overload the
-    acccount/container servers handling the legacy expirer queue.
+    account/container servers handling the legacy expirer queue.
 
 .. note::
     When running legacy expirers, the daemon needs to run on a machine with

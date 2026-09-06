@@ -773,7 +773,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.initialize(Timestamp('1').internal, 0)
         for i, obj_spec in enumerate(obj_specs):
             # with object12 before object2 and shuffled ts.internal we
-            # shouldn't be able to accidently rely on any implicit ordering
+            # shouldn't be able to accidentally rely on any implicit ordering
             obj_name = 'object%s' % i
             pidx = random.choice(policy_indexes)
             ts, is_deleted = obj_spec
@@ -3516,7 +3516,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_newid(self, tempdir):
         # test DatabaseBroker.newid
         db_path = os.path.join(
-            tempdir, "d1234", 'contianers', 'part', 'suffix', 'hsh')
+            tempdir, "d1234", 'containers', 'part', 'suffix', 'hsh')
         os.makedirs(db_path)
         broker = ContainerBroker(os.path.join(db_path, 'my.db'),
                                  account='a', container='c')
@@ -3525,7 +3525,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.newid('someid')
         self.assertNotEqual(id, broker.get_info()['id'])
         # ends in the device name (from the path) unless it's an old
-        # container with just a uuid4 (tested in legecy broker
+        # container with just a uuid4 (tested in legacy broker
         # tests e.g *BeforeMetaData)
         if len(id) > 36:
             self.assertTrue(id.endswith('d1234'))
