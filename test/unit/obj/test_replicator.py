@@ -37,7 +37,7 @@ from swift.common import ring
 from swift.common.recon import RECON_OBJECT_FILE
 from swift.obj import diskfile, replicator as object_replicator
 from swift.common.storage_policy import StoragePolicy, POLICIES
-from swift.common.exceptions import PartitionLockTimeout
+from swift.common.exceptions import LockTimeout, PartitionLockTimeout
 
 
 def _ips(*args, **kwargs):
@@ -1822,6 +1822,60 @@ class TestObjectReplicator(BaseUnitTestCase):
             # Next pass we can clean up everything
             self.replicator.replicate()
             self.assertFalse(os.path.exists(part_path))
+
+    def test_delete_partition_ssync_quarantine_failure_continues(self):
+        self._test_delete_partition_ssync_quarantine_failure_continues(
+            OSError(EPERM, os.strerror(EPERM)))
+
+    def test_delete_partition_ssync_quarantine_lock_timeout_continues(self):
+        self._test_delete_partition_ssync_quarantine_failure_continues(
+            LockTimeout(None, 'quarantine-lock'))
+
+    def _test_delete_partition_ssync_quarantine_failure_continues(self, err):
+        self.replicator.logger = mock_logger = debug_logger('test-replicator')
+        candidates = {}
+        for obj in ('o1', 'o2'):
+            df = self.df_mgr.get_diskfile(
+                'sda', '1', 'a', 'c', obj, policy=POLICIES.legacy)
+            mkdirs(df._datadir)
+            ts = self.ts().internal
+            with open(os.path.join(df._datadir, ts + '.data'), 'wb') as f:
+                f.write(b'0')
+            ohash = hash_path('a', 'c', obj)
+            candidates[ohash] = ts
+        suffixes = {os.path.join(self.objects, '1', ohash[-3:])
+                    for ohash in candidates}
+        failed_quarantine_suffix = None
+        self.replicator.sync_method = 'ssync'
+
+        rmdir_func = os.rmdir
+
+        def raise_exception_rmdir(directory, dir_fd=None):
+            nonlocal failed_quarantine_suffix
+            if directory in suffixes and failed_quarantine_suffix is None:
+                failed_quarantine_suffix = directory
+            if directory == failed_quarantine_suffix:
+                raise OSError(ENOTDIR, os.strerror(ENOTDIR))
+            return rmdir_func(directory, dir_fd=dir_fd)
+
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)), \
+                mock.patch.object(self.replicator, 'sync_method_fn',
+                                  return_value=(True, candidates)), \
+                mock.patch('os.rmdir', raise_exception_rmdir), \
+                mock.patch('swift.obj.replicator.quarantine_dir_renamer',
+                           side_effect=err):
+            self.replicator.replicate()
+
+        self.assertIn(failed_quarantine_suffix, suffixes)
+        other_suffix, = suffixes - {failed_quarantine_suffix}
+        self.assertEqual(mock_logger.get_lines_for_level('error'), [
+            'Failed to delete %r ([Errno 20] Not a directory);'
+            ' quarantining.' % failed_quarantine_suffix,
+            'Failed to quarantine %r (%s)' % (failed_quarantine_suffix, err),
+        ])
+        self.assertTrue(os.path.isdir(failed_quarantine_suffix))
+        self.assertFalse(os.path.exists(other_suffix))
 
     def test_run_once_recover_from_failure(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,

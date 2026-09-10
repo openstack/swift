@@ -44,7 +44,7 @@ from swift.obj import ssync_sender
 from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter, \
     quarantine_dir_renamer
 from swift.common.storage_policy import POLICIES, REPL_POLICY
-from swift.common.exceptions import PartitionLockTimeout
+from swift.common.exceptions import LockTimeout, PartitionLockTimeout
 
 DEFAULT_RSYNC_TIMEOUT = 900
 
@@ -634,8 +634,12 @@ class ObjectReplicator(Daemon):
                     self.logger.error(
                         'Failed to delete %r (%s); quarantining.',
                         suffix_dir, e)
-                    quarantine_dir_renamer(dirname(job['obj_path']),
-                                           suffix_dir)
+                    try:
+                        quarantine_dir_renamer(dirname(job['obj_path']),
+                                               suffix_dir)
+                    except (OSError, LockTimeout) as e:
+                        self.logger.error("Failed to quarantine %r (%s)",
+                                          suffix_dir, e)
                 else:
                     self.logger.exception(
                         "Unexpected error trying to cleanup suffix dir %r",
