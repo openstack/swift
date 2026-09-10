@@ -318,7 +318,7 @@ from swift.common.registry import register_swift_info, register_sensitive_param
 from swift.common.wsgi import WSGIContext
 
 
-DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target'
+DISALLOWED_INCOMING_HEADERS = 'x-object-manifest x-symlink-target x-copy-from'
 
 #: Default headers to remove from incoming requests. Simply a whitespace
 #: delimited list of header names and names can optionally end with '*' to
