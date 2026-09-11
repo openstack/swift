@@ -280,21 +280,27 @@ def patch_gunicorn():
     orig_default_environ = gunicorn.http.wsgi.default_environ
 
     def swift_default_environ(req, sock, cfg):
-        # Strip Expect: 100-continue so gunicorn won't answer the handshake
-        # itself; Swift sends the 100 Continue later, via ChunkedInput.
+        # Keep every header for the app. An S3 client can include Expect in
+        # the signed headers. Remove Expect: 100-continue from the list that
+        # gunicorn uses, or gunicorn sends the 100 Continue response itself.
+        # Swift sends it later, from ChunkedInput.
+        headers_raw = req.headers
         headers = []
-        expect_continue = False
-        for name, value in req.headers:
+        expect_value = None
+        for name, value in headers_raw:
             if name == 'EXPECT' and value.lower() == '100-continue':
-                expect_continue = True
+                expect_value = value
             else:
                 headers.append((name, value))
+        expect_continue = expect_value is not None
         if expect_continue:
             req.headers = headers
             req._expected_100_continue = False  # Required for gunicorn >= 25
 
         env = orig_default_environ(req, sock, cfg)
-        env.update({"headers_raw": req.headers})  # needed by s3api
+        env['headers_raw'] = headers_raw  # needed by s3api
+        if expect_continue:
+            env['HTTP_EXPECT'] = expect_value
         env['gunicorn.socket'] = sock
         env['wsgi.input'].get_socket = lambda: sock  # used by obj/server.py
 

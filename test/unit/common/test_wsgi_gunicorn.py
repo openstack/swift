@@ -67,6 +67,50 @@ class TestChunkedInput(unittest.TestCase):
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestDefaultEnvironExpect(unittest.TestCase):
+    # gunicorn must not see Expect: 100-continue. The app must see it in
+    # HTTP_EXPECT and in headers_raw.
+    def _make_req(self, headers):
+        req = MagicMock()
+        req.headers = list(headers)
+        req.method = 'PUT'
+        req.query = ''
+        req.uri = '/v1/a/c/o'
+        req.version = (1, 1)
+        return req
+
+    def _default_environ(self, req):
+        import gunicorn.http.wsgi
+        from gunicorn.config import Config
+        wsgi_gunicorn.patch_gunicorn()
+        return gunicorn.http.wsgi.default_environ(req, MagicMock(), Config())
+
+    def test_expect_header_is_exposed_to_app(self):
+        headers = [('HOST', 'x'), ('EXPECT', '100-continue')]
+        req = self._make_req(headers)
+        req._expected_100_continue = True
+
+        env = self._default_environ(req)
+
+        self.assertEqual(env['HTTP_EXPECT'], '100-continue')
+        self.assertEqual(env['headers_raw'], headers)
+        self.assertEqual(req.headers, [('HOST', 'x')])
+        self.assertFalse(req._expected_100_continue)
+        self.assertIsInstance(env['wsgi.input'], ChunkedInput)
+
+    def test_without_expect_header(self):
+        headers = [('HOST', 'x'), ('CONTENT-LENGTH', '4')]
+        req = self._make_req(headers)
+
+        env = self._default_environ(req)
+
+        self.assertNotIn('HTTP_EXPECT', env)
+        self.assertEqual(env['headers_raw'], headers)
+        self.assertEqual(req.headers, headers)
+        self.assertNotIsInstance(env['wsgi.input'], ChunkedInput)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestBindStr(unittest.TestCase):
     def test_ipv4_unbracketed(self):
         self.assertEqual(_bind_str('0.0.0.0', 6200), '0.0.0.0:6200')
