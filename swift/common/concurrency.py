@@ -316,9 +316,10 @@ else:
             if self.seconds is not None and self.socket is not None:
                 try:
                     self.old_timeout = self.socket.gettimeout()
-                    self.socket.settimeout(
-                        min(t for t in (self.seconds, self.old_timeout)
-                            if t is not None))
+                    # Set the socket timeout to this value. The socket can
+                    # still have conn_timeout from http_connect. The deadline
+                    # watchdog still stops the read for an outer Timeout.
+                    self.socket.settimeout(self.seconds)
                 except OSError:
                     # socket already closed; nothing to bound and nothing to
                     # restore, so leave old_timeout unset.

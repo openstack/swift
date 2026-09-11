@@ -586,9 +586,18 @@ class TestTimeoutRestore(unittest.TestCase):
         rd, _ = self._socketpair()
         rd.settimeout(30)
         with Timeout(seconds=0, socket=rd):
-            # 0 wins the min(): the socket is armed non-blocking
+            # a Timeout of 0 makes the socket non-blocking
             self.assertEqual(rd.gettimeout(), 0)
         self.assertEqual(rd.gettimeout(), 30)
+
+    def test_shorter_socket_timeout_does_not_clip(self):
+        # http_connect leaves conn_timeout on the socket. A longer Timeout
+        # must set its own value.
+        rd, _ = self._socketpair()
+        rd.settimeout(0.5)
+        with Timeout(seconds=10, socket=rd):
+            self.assertEqual(rd.gettimeout(), 10)
+        self.assertEqual(rd.gettimeout(), 0.5)
 
     def test_closed_socket_on_enter_is_ignored(self):
         rd, _ = self._socketpair()
@@ -621,23 +630,20 @@ class TestTimeoutRestore(unittest.TestCase):
             # deadline cleared, so check_time is now a no-op
             to.check_time()
 
-    def test_nested_timeout_takes_min(self):
-        rd, _ = self._socketpair()
-        rd.settimeout(30)
-        with Timeout(seconds=30, socket=rd):
-            self.assertEqual(rd.gettimeout(), 30)
-            with Timeout(seconds=5, socket=rd):
-                self.assertEqual(rd.gettimeout(), 5)  # min(5, 30)
-            self.assertEqual(rd.gettimeout(), 30)  # restored
-
     def test_nested_timeout_not_loosened(self):
+        # The inner Timeout sets the socket timeout to 30 s. The deadline
+        # watchdog of the outer Timeout stops the read after 0.2 s.
         rd, _ = self._socketpair()
-        with Timeout(seconds=5, socket=rd):
-            self.assertEqual(rd.gettimeout(), 5)
-            with Timeout(seconds=30, socket=rd):
-                # inner must not loosen the bound past the outer 5s
-                self.assertEqual(rd.gettimeout(), 5)  # min(30, 5)
-            self.assertEqual(rd.gettimeout(), 5)
+        start = time.monotonic()
+        with self.assertRaises(Timeout) as ctx:
+            with Timeout(seconds=0.2, socket=rd) as outer:
+                with Timeout(seconds=30, socket=rd):
+                    self.assertEqual(rd.gettimeout(), 30)
+                    rd.recv(1)
+        self.assertIs(ctx.exception, outer)
+        elapsed = time.monotonic() - start
+        self.assertGreaterEqual(elapsed, 0.15)
+        self.assertLess(elapsed, 2.0)
 
 
 class TestSpawn(unittest.TestCase):
