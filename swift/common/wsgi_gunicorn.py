@@ -79,7 +79,13 @@ import gunicorn.http.wsgi
 import gunicorn.http.body
 from gunicorn.config import Config
 from gunicorn.glogging import Logger
-from gunicorn.workers.gthread import ThreadWorker, TConn, _DEFER
+from gunicorn.workers.gthread import ThreadWorker, TConn
+# gunicorn 25.2.0 added _DEFER. patch_gunicorn() reports an older gunicorn
+# with a RuntimeError that names the missing attributes.
+try:
+    from gunicorn.workers.gthread import _DEFER
+except ImportError:
+    _DEFER = None
 from gunicorn.http.unreader import SocketUnreader
 from gunicorn.http.body import Body, ChunkedReader
 from gunicorn.http.errors import (
@@ -87,7 +93,7 @@ from gunicorn.http.errors import (
     LimitRequestLine, LimitRequestHeaders, ForbiddenProxyRequest)
 # Deliberate chunk-parse rejections (all IOError/OSError subclasses, so they
 # must be re-raised before the EOF/socket-error handling below catches them).
-# InvalidChunkExtension was added in gunicorn 26.0.0; on our >=24.1.1 floor
+# InvalidChunkExtension was added in gunicorn 26.0.0; on our >=25.2.0 floor
 # older gunicorn never raises it, so include it only when available.
 _CHUNK_PARSE_ERRORS = (InvalidChunkSize, ChunkMissingTerminator)
 try:
@@ -154,6 +160,8 @@ def patch_gunicorn():
     ]
     _missing = ['%s.%s' % (cls.__name__, attr)
                 for cls, attr in _required if not hasattr(cls, attr)]
+    if _DEFER is None:
+        _missing.append('gthread._DEFER')
     if _missing:
         raise RuntimeError(
             'gunicorn %s is too old for the threading WSGI server: missing '

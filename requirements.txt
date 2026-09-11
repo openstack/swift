@@ -1,13 +1,9 @@
 eventlet>=0.25.0,!=0.34.3               # MIT
 greenlet>=0.4.14
-# Only used by the threading WSGI server (USE_EVENTLET=false); eventlet
-# deployments never import it (it is imported lazily, only in the non-eventlet
-# path). That server needs gunicorn's gthread wait_for_and_dispatch_events API,
-# which first appears in gunicorn 24.1.1 -- which itself requires Python >=3.10.
-# So it is only required (and only usable) on Python >=3.10; eventlet-mode
-# deployments on older Python don't need gunicorn at all. patch_gunicorn() also
-# enforces the API at startup with a clear error.
-gunicorn>=24.1.1; python_version>='3.10'
+# Only the threading WSGI server (USE_EVENTLET=false) imports gunicorn. It
+# wraps gthread internals that first appear in 25.2.0, which needs Python
+# >=3.10. patch_gunicorn() checks them at startup.
+gunicorn>=25.2.0; python_version>='3.10'
 PasteDeploy>=2.0.0
 lxml>=4.2.3
 requests>=2.14.2                        # Apache-2.0

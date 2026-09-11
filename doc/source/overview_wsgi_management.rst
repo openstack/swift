@@ -76,7 +76,7 @@ is as follows:
 .. note::
 
    Running without eventlet requires Python >= 3.10: the gunicorn version
-   Swift needs (>= 24.1.1) is not available on older interpreters, and
+   Swift needs (>= 25.2.0) is not available on older interpreters, and
    Swift rejects the mode at startup there. On Python 3.7--3.9, run with
    eventlet.
 

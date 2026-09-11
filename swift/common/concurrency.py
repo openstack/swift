@@ -1328,7 +1328,7 @@ def run_wsgi_server(conf_path, app_section, eventlet_runner, *args, **kwargs):
         # Probing gunicorn itself (rather than guarding the wsgi_gunicorn
         # import) lets any real import failure below surface untouched.
         raise RuntimeError(
-            'Running Swift without eventlet requires gunicorn >= 24.1.1, '
+            'Running Swift without eventlet requires gunicorn >= 25.2.0, '
             'which needs Python >= 3.10 (this is Python %d.%d). Install '
             'eventlet or upgrade Python.'
             % (sys.version_info[0], sys.version_info[1])) from err

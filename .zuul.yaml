@@ -373,7 +373,7 @@
       the SAIO servers itself, so they come up in threading mode.
     vars:
       # CentOS Stream 9's default Python is 3.9, but the threading WSGI
-      # server requires gunicorn >= 24.1.1, which requires Python >= 3.10.
+      # server requires gunicorn >= 25.2.0, which requires Python >= 3.10.
       swift_python_packages:
         - python3.11
         - python3.11-devel

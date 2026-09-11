@@ -290,6 +290,22 @@ class TestTuneMalloc(unittest.TestCase):
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestPatchGunicornCapabilityCheck(unittest.TestCase):
+    # gunicorn older than 25.2.0 has no _DEFER, so wsgi_gunicorn sets it to
+    # None at import.
+    def test_missing_defer_is_reported(self):
+        import gunicorn
+        with mock.patch.object(wsgi_gunicorn, '_GUNICORN_PATCHED', False), \
+                mock.patch.object(wsgi_gunicorn, '_DEFER', None):
+            with self.assertRaises(RuntimeError) as cm:
+                wsgi_gunicorn.patch_gunicorn()
+            self.assertFalse(wsgi_gunicorn._GUNICORN_PATCHED)
+        msg = str(cm.exception)
+        self.assertIn(gunicorn.__version__, msg)
+        self.assertIn('gthread._DEFER', msg)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
     """Only poller-bound outcomes should cost a trip to the main thread."""
 
