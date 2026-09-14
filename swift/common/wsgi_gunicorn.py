@@ -1623,8 +1623,9 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         supervisor_pid = os.getpid()
 
         def get_desired():
-            # re-read on every reconcile so a reloaded ring adds or drops
-            # arbiters, the way eventlet polls at ring_check_interval
+            # re-read the ring on SIGHUP so a reload adds or drops arbiters.
+            # There is no timer: unlike the eventlet ring_check_interval
+            # poll, a ring change takes effect only on a reload.
             return _servers_per_port_ports(
                 appconfig(conf_path, name=app_section), app_section)
 
