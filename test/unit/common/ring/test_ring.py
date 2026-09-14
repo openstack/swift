@@ -1108,6 +1108,40 @@ class TestRing(TestRingBase):
                 'handoff differs at position %d\n%s\n%s' % (
                     index, dev_ids[index:], exp_handoffs[index:]))
 
+    def test_get_more_nodes_keeps_ring_version_across_reload(self):
+        # Each tier layout selects the handoffs in a different stage.
+        for tier in ('region', 'zone', 'ip', None):
+            with self.subTest(tier=tier):
+                devs = []
+                for i in range(8):
+                    dev = {'id': i, 'region': 0, 'zone': 0, 'ip': '10.0.0.0',
+                           'port': 6200, 'device': 'sd%d' % i, 'weight': 1.0}
+                    if tier == 'ip':
+                        dev['ip'] = '10.0.0.%d' % i
+                    elif tier:
+                        dev[tier] = i
+                    devs.append(dev)
+                # Partition 0 has primaries 0 and 1, and handoffs 2 to 7.
+                tables = [array.array('H', [0, 2, 4, 6]),
+                          array.array('H', [1, 3, 5, 7])]
+                ring.RingData(tables, devs, 30).save(
+                    self.testgz, format_version=self.FORMAT_VERSION)
+                r = ring.Ring(self.testgz)
+                expected = list(r.get_more_nodes(0))
+                self.assertEqual(set(range(2, 8)),
+                                 {d['id'] for d in expected})
+                node_iter = r.get_more_nodes(0)
+                self.assertEqual(expected[0], next(node_iter))
+
+                # Another request reloads a ring without the handoff devices.
+                new_tables = [array.array('H', [0] * 4),
+                              array.array('H', [1] * 4)]
+                ring.RingData(new_tables, devs[:2], 30).save(
+                    self.testgz, format_version=self.FORMAT_VERSION)
+                r._reload(force=True)
+
+                self.assertEqual(expected[1:], list(node_iter))
+
     def test_get_more_nodes_with_zero_weight_region(self):
         rb = ring.RingBuilder(8, 3, 1)
         devs = [
