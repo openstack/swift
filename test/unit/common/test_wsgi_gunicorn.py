@@ -238,6 +238,43 @@ class TestBindsAndWorkers(unittest.TestCase):
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestServersPerPortPortsMemo(unittest.TestCase):
+    # the supervisor polls the ring every ring_check_interval; the memo must
+    # keep the BindPortsCache alive so only a changed ring file is re-read
+
+    def _conf(self, **kwargs):
+        conf = {'bind_ip': '1.2.3.4', 'servers_per_port': '3'}
+        conf.update(kwargs)
+        return conf
+
+    @mock.patch('swift.common.wsgi_gunicorn.BindPortsCache')
+    def test_polls_reuse_the_cache(self, mock_cache):
+        mock_cache.return_value.all_bind_ports_for_node.return_value = {6200}
+        memo = {}
+        for _ in range(3):
+            enabled, ports = wsgi_gunicorn._servers_per_port_ports(
+                self._conf(), 'object-server', memo)
+        self.assertTrue(enabled)
+        self.assertEqual([6200], ports)
+        self.assertEqual(1, mock_cache.call_count)
+        self.assertEqual(
+            3, mock_cache.return_value.all_bind_ports_for_node.call_count)
+
+    @mock.patch('swift.common.wsgi_gunicorn.BindPortsCache')
+    def test_cache_is_rebuilt_when_ring_ip_changes(self, mock_cache):
+        mock_cache.return_value.all_bind_ports_for_node.return_value = {6200}
+        memo = {}
+        wsgi_gunicorn._servers_per_port_ports(
+            self._conf(), 'object-server', memo)
+        wsgi_gunicorn._servers_per_port_ports(
+            self._conf(ring_ip='5.6.7.8'), 'object-server', memo)
+        self.assertEqual(
+            [mock.call('/etc/swift', '1.2.3.4'),
+             mock.call('/etc/swift', '5.6.7.8')],
+            mock_cache.call_args_list)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestCheckBindsBindable(unittest.TestCase):
     # --test-config must catch an unbindable bind (a bind_ip not on this host,
     # or a changed bind_port another process owns) -- else SIGHUP drops the
@@ -580,7 +617,8 @@ class TestSupervisePerPort(unittest.TestCase):
         # up on; the supervisor only counts the one it asked for
         os.write(self.pipes[index][2], b'%d\n' % generation)
 
-    def _run(self, ports, pids, waitpids=(), stop_after=1, child_ready=True):
+    def _run(self, ports, pids, waitpids=(), stop_after=1, child_ready=True,
+             select_effect=None, ring_check_interval=15.0):
         """Drive the supervisor. `ports` may be a list (static) or a callable.
         `waitpids` is what os.waitpid() returns in turn.
         """
@@ -614,14 +652,16 @@ class TestSupervisePerPort(unittest.TestCase):
                 mock.patch('os.fork', side_effect=fake_fork), \
                 mock.patch('os.waitpid', side_effect=fake_waitpid), \
                 mock.patch('os.kill', side_effect=self._record_kill), \
-                mock.patch('select.select', side_effect=fake_select), \
+                mock.patch('select.select',
+                           side_effect=select_effect or fake_select), \
                 mock.patch('signal.set_wakeup_fd', return_value=-1), \
                 mock.patch('signal.signal',
                            side_effect=lambda n, h: self.handlers.__setitem__(
                                n, h)):
             return wsgi_gunicorn._supervise_per_port(
                 desired, self.logger, lambda port, fd: None,
-                lambda: self.ready.append(True), self.refusals.append)
+                lambda: self.ready.append(True), self.refusals.append,
+                ring_check_interval)
 
     def _started(self):
         return [c.args[1] for c in self.logger.notice.call_args_list
@@ -687,6 +727,75 @@ class TestSupervisePerPort(unittest.TestCase):
 
         self.assertEqual([6200, 6201], self._started())
         self.assertIn((100, signal.SIGHUP), self.killed)
+
+    def test_ring_poll_starts_an_arbiter_for_a_new_ring_port(self):
+        # a rebalance adds a local port: the supervisor picks it up on its
+        # ring_check_interval poll, with no SIGHUP
+        ports = [[6200]]
+        rounds = [0]
+
+        def select_effect(r, w, x, timeout):
+            rounds[0] += 1
+            if rounds[0] == 1:
+                ports[0] = [6200, 6201]
+            if rounds[0] >= 3:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        self._run(lambda: ports[0], pids=[100, 101],
+                  select_effect=select_effect, ring_check_interval=1e-9)
+        self.assertEqual([6200, 6201], self._started())
+        self.assertEqual([], self.refusals)
+
+    def test_ring_poll_waits_for_the_interval(self):
+        # the ring changes, but the (default, 15s) interval has not passed:
+        # nothing is started yet
+        ports = [[6200]]
+        rounds = [0]
+
+        def select_effect(r, w, x, timeout):
+            rounds[0] += 1
+            if rounds[0] == 1:
+                ports[0] = [6200, 6201]
+            if rounds[0] >= 3:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        self._run(lambda: ports[0], pids=[100, 101],
+                  select_effect=select_effect)
+        self.assertEqual([6200], self._started())
+
+    def test_ring_poll_failure_keeps_the_running_arbiters(self):
+        # a bad read on the poll is not a refused reload: no on_failure
+        # report, no arbiter touched, try again next interval
+        calls = [0]
+
+        def get_ports():
+            calls[0] += 1
+            if calls[0] > 1:
+                raise OSError('ring unreadable')
+            return [6200]
+
+        self._run(get_ports, pids=[100], stop_after=3,
+                  ring_check_interval=1e-9)
+        self.assertGreater(calls[0], 1)
+        self.assertEqual([6200], self._started())
+        self.assertEqual([], self.refusals)
+        self.assertEqual([(100, signal.SIGTERM)], self.killed)
+
+    def test_ring_poll_deadline_bounds_the_sleep(self):
+        # a sub-second ring_check_interval must shorten the select() sleep,
+        # or the poll would slip to the 1s housekeeping tick
+        timeouts = []
+
+        def select_effect(r, w, x, timeout):
+            timeouts.append(timeout)
+            self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        self._run([6200], pids=[100], select_effect=select_effect,
+                  ring_check_interval=0.25)
+        self.assertLessEqual(timeouts[0], 0.25)
 
     def test_reload_stops_an_arbiter_whose_port_left_the_ring(self):
         ports = [[6200, 6201]]

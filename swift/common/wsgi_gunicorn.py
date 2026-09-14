@@ -990,7 +990,7 @@ def _notify_reload_refused(logger, pid, reason):
 
 
 def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
-                        on_failure):
+                        on_failure, ring_check_interval=15.0):
     """Run one gunicorn arbiter per port and keep the set matching the ring.
 
     Each arbiter binds a single socket, so a wedged disk can only stall its
@@ -1002,6 +1002,8 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
     :param on_failure: called with a reason when a reload is refused
     :param on_ready: called once every wanted arbiter has reported ready,
                      and again after each reload
+    :param ring_check_interval: seconds between ring re-reads, as the
+                                eventlet ServersPerPortStrategy polled
     """
     children = {}                      # pid -> port
     ready_fds = {}                     # pid -> read end of its ready pipe
@@ -1012,6 +1014,7 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
     retry_at = {}                      # port -> monotonic time to retry
     failures = {}                      # port -> consecutive failed starts
     stop_signal = []
+    last_ring_check = [time.monotonic()]  # a list, so closures can update it
     reload_signals = []
     passthrough_signals = []
 
@@ -1120,10 +1123,16 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
             spawn(port)
 
     def next_timeout():
-        """Sleep only until the soonest retry is due."""
-        waiting = [t - time.monotonic() for port, t in retry_at.items()
-                   if port in desired and port not in set(children.values())]
-        return max(0.0, min(waiting)) if waiting else 1.0
+        """Sleep only until the soonest deadline: a port retry, the next
+        ring check, or the 1s housekeeping tick.
+        """
+        deadlines = [t - time.monotonic() for port, t in retry_at.items()
+                     if port in desired
+                     and port not in set(children.values())]
+        deadlines.append(
+            last_ring_check[0] + ring_check_interval - time.monotonic())
+        deadlines.append(1.0)
+        return max(0.0, min(deadlines))
 
     def refresh_desired():
         """Re-read the ring. Returns a reason when the reload is refused,
@@ -1150,6 +1159,26 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
             logger.exception('Ignoring failed reload; keeping the running '
                              'arbiters')
             return 'could not read the new configuration: %s' % err
+
+    def poll_desired():
+        """Re-read the ring, as eventlet polled at ring_check_interval.
+        Nobody asked for a reload, so a bad read is not a refusal: keep
+        the current set and retry next interval. A topology flip on disk
+        waits for a restart or an explicit reload.
+        """
+        try:
+            enabled, ports = get_desired()
+        except Exception:
+            logger.exception('Ignoring failed ring check; keeping the '
+                             'running arbiters')
+            return
+        if not enabled:
+            return
+        if set(ports) != desired:
+            logger.notice('Ring check changed the port set to %s',
+                          sorted(ports))
+            desired.clear()
+            desired.update(ports)
 
     def arm_reports():
         """Ask every arbiter for a fresh report. Each one reloads exactly
@@ -1250,6 +1279,7 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
                     forward(signum)     # SIGUSR1 just reopens logs
             if hangup:
                 refused = refusal()
+                last_ring_check[0] = time.monotonic()
                 if refused:
                     on_failure(refused)
                 else:
@@ -1257,6 +1287,9 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
                     reported.clear()
                     notified = False
                     forward(signal.SIGHUP)
+            elif time.monotonic() - last_ring_check[0] >= ring_check_interval:
+                last_ring_check[0] = time.monotonic()
+                poll_desired()
             reap()
             if set(children.values()) != desired:
                 apply_desired()
@@ -1390,16 +1423,26 @@ def _servers_per_port_enabled(conf, app_section):
             and bool(int(conf.get('servers_per_port', '0') or 0)))
 
 
-def _servers_per_port_ports(conf, app_section):
+def _servers_per_port_ports(conf, app_section, memo=None):
     """(enabled, sorted local ring ports). The ports may legitimately be
     empty -- this node may have none in the ring -- which is not the same as
     the mode being off.
+
+    :param memo: dict that keeps the BindPortsCache between calls, so a
+                 poll re-reads only a changed ring. Rebuilt when swift_dir
+                 or ring_ip changes.
     """
     if not _servers_per_port_enabled(conf, app_section):
         return False, []
     ip = conf.get('bind_ip', '0.0.0.0')
-    cache = BindPortsCache(conf.get('swift_dir', '/etc/swift'),
-                           conf.get('ring_ip', ip))
+    key = (conf.get('swift_dir', '/etc/swift'), conf.get('ring_ip', ip))
+    if memo is None:
+        cache = BindPortsCache(*key)
+    else:
+        if memo.get('key') != key:
+            memo['key'] = key
+            memo['cache'] = BindPortsCache(*key)
+        cache = memo['cache']
     return True, sorted(cache.all_bind_ports_for_node())
 
 
@@ -1410,11 +1453,10 @@ def _binds_and_workers(conf, app_section, logger):
     # switch servers_per_port on or off.
     #
     # servers_per_port (object-server only) listens on every local ring port;
-    # a plain server listens on a single bind_port. gunicorn's single arbiter
-    # serves all bound sockets, so this restores listeners on every port but
-    # does NOT give the per-port process isolation of the eventlet
-    # ServersPerPortStrategy, and changed ring ports take effect on a reload
-    # (SIGHUP) rather than the eventlet ring_check_interval poll.
+    # a plain server listens on a single bind_port. At run time the per-port
+    # supervisor owns that port set (see _supervise_per_port); this function's
+    # servers_per_port branch only feeds the startup bind pre-check and
+    # --test-config.
     ip = conf.get('bind_ip', '0.0.0.0')
     spp = (app_section == 'object-server'
            and int(conf.get('servers_per_port', '0') or 0))
@@ -1647,12 +1689,14 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     if _servers_per_port_enabled(conf, app_section):
         supervisor_pid = os.getpid()
 
+        ports_memo = {}
+
         def get_desired():
-            # re-read the ring on SIGHUP so a reload adds or drops arbiters.
-            # There is no timer: unlike the eventlet ring_check_interval
-            # poll, a ring change takes effect only on a reload.
+            # called on SIGHUP and on the ring_check_interval poll; the
+            # memo keeps the BindPortsCache across polls
             return _servers_per_port_ports(
-                appconfig(conf_path, name=app_section), app_section)
+                appconfig(conf_path, name=app_section), app_section,
+                ports_memo)
 
         def run_one_port(port, ready_fd):
             # this arbiter counts its own reloads; the config built above in
@@ -1678,7 +1722,8 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
             _notify_reload_refused(logger, supervisor_pid, reason)
 
         _supervise_per_port(get_desired, logger, run_one_port, all_ready,
-                            reload_refused)
+                            reload_refused,
+                            float(conf.get('ring_check_interval', 15)))
     else:
         service_pid = os.getpid()
 
