@@ -357,6 +357,12 @@ def patch_gunicorn():
         if self.keepalived_conns and self.cfg.keepalive < 1:
             nearest = min(c.timeout for c in self.keepalived_conns)
             timeout = max(0, min(timeout, nearest - time.monotonic()))
+        if not self.alive:
+            # Draining (see swift_run below). The stock drain loop never
+            # calls notify(), so the arbiter would murder a long drain.
+            # Wake once per second to notify and to reap idle keepalives.
+            self.notify()
+            timeout = min(timeout, 1.0)
         return orig_wait_for_events(self, timeout)
 
     ThreadWorker.wait_for_and_dispatch_events = \
@@ -405,6 +411,23 @@ def patch_gunicorn():
         return orig_murder_keepalived(self)
 
     ThreadWorker.murder_keepalived = swift_murder_keepalived
+
+    # eventlet drained a replaced worker until its last request completed;
+    # gthread's run() stops the drain at cfg.graceful_timeout. Raise the
+    # deadline in the worker's post-fork copy of the config only: the
+    # arbiter's copy keeps graceful_timeout, so a stop still ends in
+    # SIGKILL after it. Zero (the unittest server) keeps its no-drain
+    # meaning.
+    _DRAIN_UNBOUNDED = 10 ** 9  # seconds
+
+    orig_run = ThreadWorker.run
+
+    def swift_run(self):
+        if self.cfg.graceful_timeout > 0:
+            self.cfg.set('graceful_timeout', _DRAIN_UNBOUNDED)
+        return orig_run(self)
+
+    ThreadWorker.run = swift_run
 
     # Every request ends by deferring finish_request() to the main thread:
     # the worker thread writes a byte to the wake-up pipe, the poller wakes,
@@ -921,7 +944,9 @@ def common_config():
     # Allow headers with underscores through
     cfg.set('header_map', 'dangerous')
 
-    # Defaults to 30 seconds, should be less than common.manager.KILL_WAIT
+    # Bounds the arbiter's stop() path: SIGTERM, this window, SIGKILL. Keep
+    # it below common.manager.KILL_WAIT. A worker replaced by a reload is
+    # not bound by it (see swift_run in patch_gunicorn).
     cfg.set('graceful_timeout', 5)
 
     _set_request_limits(cfg)
@@ -1684,10 +1709,9 @@ def server(sock, site, log=None, **kwargs):
     # starves the in-process proxy/backends under a full test run (e.g. an
     # EC GET whose fragments stall on busy backend threads).
     cfg.set('threads', 16)
-    # A stopped test server enters gunicorn's graceful shutdown, blocking up
-    # to graceful_timeout (5s) for in-flight connections to drain. A
-    # torn-down test server needn't wait; exit immediately so worker threads
-    # don't linger and accumulate across the test run.
+    # A torn-down test server must not wait for a drain (swift_run leaves
+    # zero alone); exit at once so worker threads do not linger and
+    # accumulate across the test run.
     cfg.set('graceful_timeout', 0)
 
     # eventlet's wsgi.server treats socket_timeout as the idle keep-alive

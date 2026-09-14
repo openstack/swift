@@ -350,6 +350,83 @@ class TestPatchGunicornCapabilityCheck(unittest.TestCase):
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestUnboundedDrain(unittest.TestCase):
+    """A worker replaced by a reload drains until its last request
+    completes, as under eventlet. graceful_timeout only bounds the
+    arbiter's stop() path.
+    """
+
+    def setUp(self):
+        wsgi_gunicorn.patch_gunicorn()
+        from gunicorn.workers.gthread import ThreadWorker
+        self.cls = ThreadWorker
+        self.worker = ThreadWorker.__new__(ThreadWorker)
+        self.worker.cfg = MagicMock()
+        self.worker.cfg.graceful_timeout = 5
+        self.worker.cfg.timeout = 3600
+        self.worker.cfg.keepalive = 5
+        self.worker.alive = False
+        self.worker.nr_conns = 0
+        self.worker.sockets = []
+        self.worker._accepting = False
+        self.worker.keepalived_conns = []
+        self.worker.poller = MagicMock()
+        self.worker.poller.select.return_value = []
+        self.worker.method_queue = MagicMock()
+        self.worker.tpool = MagicMock()
+        self.worker.tmp = MagicMock()
+
+    def test_zero_graceful_timeout_is_left_alone(self):
+        # the unittest server sets 0 to exit with no drain at all
+        self.worker.cfg.graceful_timeout = 0
+        self.cls.run(self.worker)
+        self.assertFalse(self.worker.cfg.set.called)
+
+    def test_drain_continues_past_the_stock_deadline(self):
+        # the config object must really update for the drain loop to see it
+        self.worker.cfg.set.side_effect = \
+            lambda name, value: setattr(self.worker.cfg, name, value)
+        self.worker.nr_conns = 1
+        waits = []
+
+        def fake_wait(timeout):
+            waits.append(timeout)
+            if len(waits) >= 10:
+                self.worker.nr_conns = 0
+
+        self.worker.wait_for_and_dispatch_events = fake_wait
+        self.worker.murder_keepalived = lambda: None
+        self.worker.murder_pending = lambda: None
+        fake_now = [0.0]
+
+        def fake_monotonic():
+            # 2 (fake) seconds per turn: 10 turns = 20s, far past the
+            # stock 5s window
+            fake_now[0] += 2.0
+            return fake_now[0]
+
+        with mock.patch('gunicorn.workers.gthread.time.monotonic',
+                        side_effect=fake_monotonic):
+            self.cls.run(self.worker)
+        self.assertEqual(10, len(waits))
+        # the raised deadline is "unbounded": far past any real request
+        self.assertGreater(self.worker.cfg.graceful_timeout, 365 * 24 * 3600)
+
+    def test_drain_wakeups_notify_and_are_clamped(self):
+        # the stock drain never notifies; the patch wakes once per second
+        # and refreshes the heartbeat
+        self.cls.wait_for_and_dispatch_events(self.worker, 10 ** 9)
+        self.worker.poller.select.assert_called_once_with(1.0)
+        self.assertEqual(1, self.worker.tmp.notify.call_count)
+
+    def test_live_wakeups_do_not_notify(self):
+        self.worker.alive = True
+        self.cls.wait_for_and_dispatch_events(self.worker, 2.0)
+        self.worker.poller.select.assert_called_once_with(2.0)
+        self.assertFalse(self.worker.tmp.notify.called)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
     """Only poller-bound outcomes should cost a trip to the main thread."""
 
