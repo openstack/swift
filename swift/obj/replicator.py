@@ -41,9 +41,10 @@ from swift.common.daemon import Daemon, run_daemon
 from swift.common.http import HTTP_OK, HTTP_INSUFFICIENT_STORAGE
 from swift.common.recon import RECON_OBJECT_FILE, DEFAULT_RECON_CACHE_PATH
 from swift.obj import ssync_sender
-from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter
+from swift.obj.diskfile import get_data_dir, get_tmp_dir, DiskFileRouter, \
+    quarantine_dir_renamer
 from swift.common.storage_policy import POLICIES, REPL_POLICY
-from swift.common.exceptions import PartitionLockTimeout
+from swift.common.exceptions import LockTimeout, PartitionLockTimeout
 
 DEFAULT_RSYNC_TIMEOUT = 900
 
@@ -128,7 +129,7 @@ class ObjectReplicator(Daemon):
         :param conf: configuration object obtained from ConfigParser
         :param logger: an instance of ``SwiftLogAdapter``.
         """
-        self.conf = conf
+        self.conf = conf  # Required by DaemonStrategy
         self.logger = \
             logger or get_logger(conf, log_route='object-replicator')
         self.devices_dir = conf.get('devices', '/srv/node')
@@ -177,7 +178,11 @@ class ObjectReplicator(Daemon):
         self._next_rcache_update = time.time() + self.stats_interval
         self.conn_timeout = float(conf.get('conn_timeout', 0.5))
         self.node_timeout = float(conf.get('node_timeout', 10))
-        self.sync_method = getattr(self, conf.get('sync_method') or 'rsync')
+        self.sync_method = conf.get('sync_method') or 'rsync'
+        if self.sync_method not in ('rsync', 'ssync'):
+            raise ValueError(f"sync_method must be either 'rsync' or "
+                             f"'ssync', not {self.sync_method!r}")
+        self.sync_method_fn = getattr(self, self.sync_method)
         self.network_chunk_size = int(conf.get('network_chunk_size', 65536))
         self.default_headers = {
             'Content-Length': '0',
@@ -339,7 +344,7 @@ class ObjectReplicator(Daemon):
 
         :returns: boolean and dictionary, boolean indicating success or failure
         """
-        return self.sync_method(node, job, suffixes, *args, **kwargs)
+        return self.sync_method_fn(node, job, suffixes, *args, **kwargs)
 
     def load_object_ring(self, policy):
         """
@@ -389,11 +394,6 @@ class ObjectReplicator(Daemon):
             if proc:
                 proc.kill()
                 try:
-                    # Note: Python 2.7's subprocess.Popen class doesn't take
-                    # any arguments for wait(), but Python 3's does.
-                    # However, Eventlet's replacement Popen takes a timeout
-                    # argument regardless of Python version, so we don't
-                    # need any conditional code here.
                     proc.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
                     # Sometimes a process won't die immediately even after a
@@ -542,7 +542,7 @@ class ObjectReplicator(Daemon):
                     for node in job['nodes']:
                         stats.rsync += 1
                         kwargs = {}
-                        if self.conf.get('sync_method', 'rsync') == 'ssync' \
+                        if self.sync_method == 'ssync' \
                                 and node['region'] in synced_remote_regions:
                             kwargs['remote_check_objs'] = \
                                 synced_remote_regions[node['region']]
@@ -563,34 +563,26 @@ class ObjectReplicator(Daemon):
                         else:
                             delete_objs = delete_objs & cand_objs
 
-                if self.handoff_delete:
-                    # delete handoff if we have had handoff_delete successes
-                    successes_count = len([resp for resp in responses if resp])
-                    delete_handoff = successes_count >= min(
-                        self.handoff_delete, len(job['nodes']))
-                else:
-                    # delete handoff if all syncs were successful
-                    delete_handoff = len(responses) == len(job['nodes']) and \
-                        all(responses)
-                if delete_handoff:
+                successes_count = sum(1 for resp in responses if resp)
+                target_successes = min(
+                    # If handoff_delete configured, target that; otherwise all
+                    self.handoff_delete or len(job['nodes']),
+                    # ... but if handoff_delete is too high (for this policy),
+                    # target all instead
+                    len(job['nodes']))
+                if successes_count >= target_successes:
                     stats.remove += 1
-                    if (self.conf.get('sync_method', 'rsync') == 'ssync' and
+                    if (self.sync_method == 'ssync' and
                             delete_objs is not None):
+                        # Multi-region ssync will send at most one replica
+                        # per region, with the hope that intra-region
+                        # replication will resolve any other disparities
+                        # more cheaply by our next cycle. Progressively
+                        # delete anything that we see *has* been fully
+                        # replicated though.
                         self.logger.info("Removing %s objects",
                                          len(delete_objs))
-                        _junk, error_paths = self.delete_handoff_objs(
-                            job, delete_objs)
-                        # if replication works for a hand-off device and it
-                        # failed, the remote devices which are target of the
-                        # replication from the hand-off device will be marked.
-                        # Because cleanup after replication failed means
-                        # replicator needs to replicate again with the same
-                        # info.
-                        if error_paths:
-                            failure_devs_info.update(
-                                [(failure_dev['replication_ip'],
-                                  failure_dev['device'])
-                                 for failure_dev in job['nodes']])
+                        self.delete_handoff_objs(job, delete_objs)
                     else:
                         self.delete_partition(job['path'])
                         handoff_partition_deleted = True
@@ -628,8 +620,6 @@ class ObjectReplicator(Daemon):
                 raise
 
     def delete_handoff_objs(self, job, delete_objs):
-        success_paths = []
-        error_paths = []
         for object_hash in delete_objs:
             object_path = storage_directory(job['obj_path'], job['partition'],
                                             object_hash)
@@ -637,14 +627,23 @@ class ObjectReplicator(Daemon):
             suffix_dir = dirname(object_path)
             try:
                 os.rmdir(suffix_dir)
-                success_paths.append(object_path)
             except OSError as e:
-                if e.errno not in (errno.ENOENT, errno.ENOTEMPTY):
-                    error_paths.append(object_path)
+                if e.errno in (errno.ENOENT, errno.ENOTEMPTY):
+                    continue
+                elif e.errno in (errno.ENOTDIR, errno.ENODATA, EUCLEAN):
+                    self.logger.error(
+                        'Failed to delete %r (%s); quarantining.',
+                        suffix_dir, e)
+                    try:
+                        quarantine_dir_renamer(dirname(job['obj_path']),
+                                               suffix_dir)
+                    except (OSError, LockTimeout) as e:
+                        self.logger.error("Failed to quarantine %r (%s)",
+                                          suffix_dir, e)
+                else:
                     self.logger.exception(
                         "Unexpected error trying to cleanup suffix dir %r",
                         suffix_dir)
-        return success_paths, error_paths
 
     def update(self, job):
         """

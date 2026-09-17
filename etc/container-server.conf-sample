@@ -329,6 +329,10 @@ use = egg:swift#backend_ratelimit
 # Server errors from requests will be retried by default
 # request_tries = 3
 #
+# Number of parallel container_sync_row operations per container for
+# new rows
+# sync_row_concurrency = 8
+#
 # Internal client config file path
 # internal_client_conf_path = /etc/swift/internal-client.conf
 #

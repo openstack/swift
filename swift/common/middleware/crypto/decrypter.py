@@ -203,6 +203,9 @@ class DecrypterObjContext(BaseDecrypterContext):
 
         :param put_keys: a dict of decryption keys used for object PUT.
         :param post_keys: a dict of decryption keys used for object POST.
+        :param update_cors_exposed: if True then ensure the response headers
+            include an ``Access-Control-Expose-Headers`` header populated with
+            decrypted user metadata headers.
         :return: A list of headers with any encrypted headers replaced by their
                  decrypted values.
         :raises HTTPInternalServerError: if any error occurs while decrypting

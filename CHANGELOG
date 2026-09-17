@@ -1,3 +1,65 @@
+swift (2.38.1)
+
+    * Fixed `Accept` header parsing to avoid excessive backtracking. Previously,
+      an unauthenticated user could send a malicious `Accept` header that would
+      keep a proxy-server process pegged at 100% CPU for several seconds.
+      Repeated requests would exhaust all available workers, leading to a
+      complete denial of service. Refer to CVE-2026-71190 for more information.
+
+    * S3 API fixes:
+
+      * Require that more `x-amz-*` headers be included in the set of signed
+        headers if present in the request. Previously an attacker could include
+        an unsigned `x-amz-copy-source` header with a valid presigned PUT to
+        copy arbitrary data accessible by the signer provided that the container
+        and object name were known. This required the default `s3_acl = False`
+        configuration. Refer to CVE-2026-71191 for more information.
+
+      * Limit native Swift control headers from S3 API requests. Previously these
+        could allow an attacker to copy arbitrary data to a bucket they control
+        provided they know the account, container, and object name to copy. This
+        required the non-default `s3_acl = True` configuration. Refer to
+        CVE-2026-71192 for more information.
+
+      * When deleting from a versioned bucket, an erroneous 404 NoSuchBucket
+        could previously be returned. Now, return a successful 204 response.
+
+      * Return client errors rather than server errors when object listing
+        parameters include invalid UTF-8.
+
+    * Staticweb listings authorized via prefix-based tempurls now preserve the
+      `?inline` parameter if provided.
+
+    * Staticweb listings better handle repeated slashes in object names.
+
+    * CORS preflight responses for object versions are now determined by the
+      user-facing container settings rather than the hidden versions container.
+
+    * Return more information when encrypted container listings can only be
+      partially decrypted.
+
+    * The container-sync process can now process multiple rows in parallel
+      during its initial attempt at syncing. A new configuration option,
+      `sync_row_concurrency` (default 8), is used to control the maximum
+      number of concurrent sync operations.
+
+    * Prevent a crash when `AF_ALG` socket creation is denied by policy (such
+      as may be the case with recent versions of Docker).
+
+    * Reduce how much the object-replicator will replicate to handoffs when
+      `handoff_delete` is configured, eliminating some cases where partitions
+      were written to handoffs just to be quickly deleted on the next replicator
+      pass.
+
+    * The object-replicator and object-reconstructor now respect the configured
+      `conn_timeout` when making `REPLICATE` requests.
+
+    * Labeled metrics from proxy-logging now always include an account label
+      (though the value may be blank if unknown).
+
+    * Various other minor bug fixes and improvements.
+
+
 swift (2.38.0)
 
     * Block client-supplied container-update headers. Previously, these could

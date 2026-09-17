@@ -270,6 +270,21 @@ class TestUtilsConfig(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     config.config_request_node_count_value(bad)
 
+    def test_config_request_node_count_value_with_config_name(self):
+        bad_value = "1.5 * replicas"
+        # config_name is optional, default is 'request_node_count'
+        with self.assertRaises(ValueError) as cm:
+            config.config_request_node_count_value(bad_value)
+        self.assertEqual(
+            "Invalid request_node_count value: '1.5 * replicas'",
+            str(cm.exception))
+        config_name = "special_node_count"
+        with self.assertRaises(ValueError) as cm:
+            config.config_request_node_count_value(bad_value, config_name)
+        self.assertEqual(
+            "Invalid special_node_count value: '1.5 * replicas'",
+            str(cm.exception))
+
     def test_config_auto_int_value(self):
         expectations = {
             # (value, default) : expected,

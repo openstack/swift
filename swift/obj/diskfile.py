@@ -1837,7 +1837,6 @@ class BaseDiskFileWriter(object):
         # Internal attributes
         self._upload_size = 0
         self._last_sync = 0
-        self._put_succeeded = False
 
     @property
     def manager(self):
@@ -1910,11 +1909,8 @@ class BaseDiskFileWriter(object):
             except OSError:
                 pass
             self._fd = None
-        if self._tmppath and not self._put_succeeded:
-            # Try removing the temp file only if put did NOT succeed.
-            #
-            # dfw.put_succeeded is set to True after renamer() succeeds in
-            # DiskFileWriter._finalize_put()
+        if self._tmppath:
+            # Try removing the temp file if it wasn't renamed.
             try:
                 # when mkstemp() was used
                 os.unlink(self._tmppath)
@@ -1979,6 +1975,10 @@ class BaseDiskFileWriter(object):
         if self._tmppath:
             # It was a named temp file created by mkstemp()
             renamer(self._tmppath, target_path)
+            # If rename is successful, clear self._tmppath. This is done to
+            # avoid unnecessary os.unlink() of tempfile later. As renamer() has
+            # succeeded, tempfile would no longer exist at its original path.
+            self._tmppath = None
         else:
             # It was an unnamed temp file created by open() with O_TMPFILE
             link_fd_to_path(self._fd, target_path,
@@ -2001,10 +2001,6 @@ class BaseDiskFileWriter(object):
                         'Relinking %s to %s failed: %s',
                         target_path, new_target_path, exc)
 
-        # If rename is successful, flag put as succeeded. This is done to avoid
-        # unnecessary os.unlink() of tempfile later. As renamer() has
-        # succeeded, the tempfile would no longer exist at its original path.
-        self._put_succeeded = True
         if cleanup:
             try:
                 self.manager.cleanup_ondisk_files(self._datadir)

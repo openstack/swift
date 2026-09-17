@@ -24,7 +24,7 @@ import pickle
 import tempfile
 from contextlib import contextmanager
 from collections import defaultdict
-from errno import ENOENT, ENOTEMPTY, ENOTDIR
+from errno import ENOENT, ENOTEMPTY, ENOTDIR, EPERM
 
 from swift.common.concurrency import subprocess, Timeout, sleep
 
@@ -37,7 +37,7 @@ from swift.common import ring
 from swift.common.recon import RECON_OBJECT_FILE
 from swift.obj import diskfile, replicator as object_replicator
 from swift.common.storage_policy import StoragePolicy, POLICIES
-from swift.common.exceptions import PartitionLockTimeout
+from swift.common.exceptions import LockTimeout, PartitionLockTimeout
 
 
 def _ips(*args, **kwargs):
@@ -358,6 +358,23 @@ class TestObjectReplicator(BaseUnitTestCase):
         self.replicator._zero_stats()
         self.replicator.all_devs_info = set()
         self.df_mgr = diskfile.DiskFileManager(self.conf, self.logger)
+
+    def test_sync_method_validation(self):
+        r = object_replicator.ObjectReplicator({})
+        self.assertEqual(r.sync_method, 'rsync')
+
+        r = object_replicator.ObjectReplicator({'sync_method': ''})
+        self.assertEqual(r.sync_method, 'rsync')
+
+        for value in ('rsync', 'ssync'):
+            r = object_replicator.ObjectReplicator({'sync_method': value})
+            self.assertEqual(r.sync_method, value)
+
+        with self.assertRaises(ValueError) as caught:
+            object_replicator.ObjectReplicator({'sync_method': 'sync'})
+        self.assertEqual(caught.exception.args[0],
+                         "sync_method must be either 'rsync' or 'ssync', "
+                         "not 'sync'")
 
     def test_run_once_no_local_device_in_ring(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
@@ -1207,7 +1224,6 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertFalse(os.path.exists(part_path))
 
     def test_delete_partition_default_sync_method(self):
-        self.replicator.conf.pop('sync_method')
         with mock.patch('swift.obj.replicator.http_connect',
                         mock_http_connect(200)):
             df = self.df_mgr.get_diskfile('sda', '1', 'a', 'c', 'o',
@@ -1277,7 +1293,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             def _fake_ssync(node, job, suffixes, **kwargs):
                 return True, {ohash: ts}
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             self.assertFalse(os.path.exists(whole_path_from))
             self.assertFalse(os.path.exists(suffix_dir_path))
@@ -1580,7 +1596,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertTrue(os.path.exists(part_path))
 
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             def _fake_ssync(node, job, suffixes, **kwargs):
                 success = True
@@ -1593,7 +1609,7 @@ class TestObjectReplicator(BaseUnitTestCase):
                 self.call_nums += 1
                 return success, ret_val
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             # The file should still exist
             self.assertTrue(os.path.exists(whole_path_from))
@@ -1627,7 +1643,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.path.exists(part_path))
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             def _fake_ssync(node, job, suffixes, **kwags):
                 success = False
@@ -1640,7 +1656,7 @@ class TestObjectReplicator(BaseUnitTestCase):
                 self.call_nums += 1
                 return success, ret_val
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             # The file should still exist
             self.assertTrue(os.path.exists(whole_path_from))
@@ -1675,7 +1691,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             part_path = os.path.join(self.objects, '1')
             self.assertTrue(os.path.exists(part_path))
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             in_sync_objs = {}
 
@@ -1688,7 +1704,7 @@ class TestObjectReplicator(BaseUnitTestCase):
                     ret_val = in_sync_objs
                 return True, ret_val
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             self.assertEqual(3, self.call_nums)
             # The file should still exist
@@ -1717,7 +1733,7 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertTrue(os.path.exists(part_path))
 
             self.call_nums = 0
-            self.conf['sync_method'] = 'ssync'
+            self.replicator.sync_method = 'ssync'
 
             def _fake_ssync(node, job, suffixes, **kwargs):
                 success = True
@@ -1745,7 +1761,7 @@ class TestObjectReplicator(BaseUnitTestCase):
 
                 return func
 
-            self.replicator.sync_method = _fake_ssync
+            self.replicator.sync_method_fn = _fake_ssync
             self.replicator.replicate()
             # The file should still exist
             self.assertTrue(os.path.exists(whole_path_from))
@@ -1770,9 +1786,9 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertTrue(os.path.exists(suffix_dir_path))
             self.assertTrue(os.path.exists(part_path))
 
-            # Fail with ENOTDIR
+            # Fail with EPERM
             with mock.patch('os.rmdir',
-                            raise_exception_rmdir(OSError, ENOTDIR)):
+                            raise_exception_rmdir(OSError, EPERM)):
                 self.replicator.replicate()
             self.assertEqual(mock_logger.get_lines_for_level('error'), [
                 'Unexpected error trying to cleanup suffix dir %r: ' %
@@ -1781,16 +1797,85 @@ class TestObjectReplicator(BaseUnitTestCase):
             self.assertFalse(os.path.exists(whole_path_from))
             self.assertTrue(os.path.exists(suffix_dir_path))
             self.assertTrue(os.path.exists(part_path))
+            mock_logger.clear()
 
-            # Finally we can cleanup everything
-            self.replicator.replicate()
+            # Fail with ENOTDIR - which triggers quarantine
+            quarantine_dir = os.path.join(self.devices, 'sda', 'quarantined')
+            self.assertFalse(os.path.exists(quarantine_dir))
+            with mock.patch('os.rmdir',
+                            raise_exception_rmdir(OSError, ENOTDIR)):
+                self.replicator.replicate()
+            self.assertEqual(mock_logger.get_lines_for_level('error'), [
+                'Failed to delete %r ([Errno 20] Not a directory); '
+                'quarantining.' %
+                os.path.dirname(df._datadir),
+            ])
             self.assertFalse(os.path.exists(whole_path_from))
             self.assertFalse(os.path.exists(suffix_dir_path))
+            self.assertTrue(os.path.exists(quarantine_dir))
+            self.assertEqual(os.listdir(quarantine_dir), ['objects'])
+            self.assertEqual(
+                os.listdir(os.path.join(quarantine_dir, 'objects')),
+                [ohash[-3:]])
             self.assertTrue(os.path.exists(part_path))
+
+            # Next pass we can clean up everything
             self.replicator.replicate()
-            self.assertFalse(os.path.exists(whole_path_from))
-            self.assertFalse(os.path.exists(suffix_dir_path))
             self.assertFalse(os.path.exists(part_path))
+
+    def test_delete_partition_ssync_quarantine_failure_continues(self):
+        self._test_delete_partition_ssync_quarantine_failure_continues(
+            OSError(EPERM, os.strerror(EPERM)))
+
+    def test_delete_partition_ssync_quarantine_lock_timeout_continues(self):
+        self._test_delete_partition_ssync_quarantine_failure_continues(
+            LockTimeout(None, 'quarantine-lock'))
+
+    def _test_delete_partition_ssync_quarantine_failure_continues(self, err):
+        self.replicator.logger = mock_logger = debug_logger('test-replicator')
+        candidates = {}
+        for obj in ('o1', 'o2'):
+            df = self.df_mgr.get_diskfile(
+                'sda', '1', 'a', 'c', obj, policy=POLICIES.legacy)
+            mkdirs(df._datadir)
+            ts = self.ts().internal
+            with open(os.path.join(df._datadir, ts + '.data'), 'wb') as f:
+                f.write(b'0')
+            ohash = hash_path('a', 'c', obj)
+            candidates[ohash] = ts
+        suffixes = {os.path.join(self.objects, '1', ohash[-3:])
+                    for ohash in candidates}
+        failed_quarantine_suffix = None
+        self.replicator.sync_method = 'ssync'
+
+        rmdir_func = os.rmdir
+
+        def raise_exception_rmdir(directory, dir_fd=None):
+            nonlocal failed_quarantine_suffix
+            if directory in suffixes and failed_quarantine_suffix is None:
+                failed_quarantine_suffix = directory
+            if directory == failed_quarantine_suffix:
+                raise OSError(ENOTDIR, os.strerror(ENOTDIR))
+            return rmdir_func(directory, dir_fd=dir_fd)
+
+        with mock.patch('swift.obj.replicator.http_connect',
+                        mock_http_connect(200)), \
+                mock.patch.object(self.replicator, 'sync_method_fn',
+                                  return_value=(True, candidates)), \
+                mock.patch('os.rmdir', raise_exception_rmdir), \
+                mock.patch('swift.obj.replicator.quarantine_dir_renamer',
+                           side_effect=err):
+            self.replicator.replicate()
+
+        self.assertIn(failed_quarantine_suffix, suffixes)
+        other_suffix, = suffixes - {failed_quarantine_suffix}
+        self.assertEqual(mock_logger.get_lines_for_level('error'), [
+            'Failed to delete %r ([Errno 20] Not a directory);'
+            ' quarantining.' % failed_quarantine_suffix,
+            'Failed to quarantine %r (%s)' % (failed_quarantine_suffix, err),
+        ])
+        self.assertTrue(os.path.isdir(failed_quarantine_suffix))
+        self.assertFalse(os.path.exists(other_suffix))
 
     def test_run_once_recover_from_failure(self):
         conf = dict(swift_dir=self.testdir, devices=self.devices,
@@ -1927,9 +2012,9 @@ class TestObjectReplicator(BaseUnitTestCase):
                 self.replicator.replicate()
 
     def test_sync_just_calls_sync_method(self):
-        self.replicator.sync_method = mock.MagicMock()
+        self.replicator.sync_method_fn = mock.MagicMock()
         self.replicator.sync('node', 'job', 'suffixes')
-        self.replicator.sync_method.assert_called_once_with(
+        self.replicator.sync_method_fn.assert_called_once_with(
             'node', 'job', 'suffixes')
 
     @mock.patch('swift.obj.replicator.tpool.execute')
@@ -2258,7 +2343,8 @@ class TestObjectReplicator(BaseUnitTestCase):
         self.assertEqual(stats.hashmatch, 2)
 
     def test_rsync_compress_different_region(self):
-        self.assertEqual(self.replicator.sync_method, self.replicator.rsync)
+        self.assertEqual(self.replicator.sync_method, 'rsync')
+        self.assertEqual(self.replicator.sync_method_fn, self.replicator.rsync)
         jobs = self.replicator.collect_jobs()
         _m_rsync = mock.Mock(return_value=0)
         _m_os_path_exists = mock.Mock(return_value=True)

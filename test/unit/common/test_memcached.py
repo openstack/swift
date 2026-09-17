@@ -1203,6 +1203,27 @@ class TestMemcached(unittest.TestCase):
 
             self.assertEqual(1, mock_sock.close.call_count)
 
+    def test_failed_connect_keeps_pool_size(self):
+        memcache_client = memcached.MemcacheRing(
+            ['1.2.3.4:11211'], logger=self.logger)
+        pool = memcache_client._client_cache['1.2.3.4:11211']
+        conn = (MagicMock(), MagicMock())
+        with mock.patch.object(pool, 'create',
+                               side_effect=[OSError(), conn, OSError()]):
+            # new connection: the pool releases the slot, nothing to put back
+            self.assertEqual(
+                [], list(memcache_client._get_conns(self.set_cmd)))
+            self.assertEqual([], list(pool.free_items))
+            self.assertEqual(0, pool.current_size)
+
+            # placeholder taken from the pool: get() itself puts it back
+            self.assertEqual(conn, pool.get())
+            pool.put((None, None))
+            with self.assertRaises(OSError):
+                pool.get()
+            self.assertEqual([(None, None)], list(pool.free_items))
+            self.assertEqual(1, pool.current_size)
+
     def test_item_size_warning_threshold(self):
         mock = MockMemcached()
         mocked_pool = MockedMemcachePool([(mock, mock)] * 2)

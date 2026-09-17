@@ -1451,6 +1451,52 @@ class InputErrorsMixin(object):
                 'x-amz-content-sha256': _sha256(TEST_BODY)})
         self.assertOK(resp)
 
+    def test_object_copy_with_range_error(self):
+        orig_name = self.create_name('range-original')
+        resp = self.conn.make_request(
+            self.bucket_name,
+            orig_name,
+            method='PUT',
+            body=TEST_BODY,
+            headers={'x-amz-content-sha256': 'UNSIGNED-PAYLOAD'})
+        self.assertOK(resp)
+
+        dest_name = self.create_name('range-copy')
+        req_range = 'bytes=0-2'
+        resp = self.conn.make_request(
+            self.bucket_name,
+            dest_name,
+            method='PUT',
+            headers={
+                'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
+                'x-amz-copy-source': '/%s/%s' % (
+                    self.bucket_name, orig_name),
+                'Range': req_range,
+            })
+
+        respbody = resp.content.decode('utf8')
+        self.assertEqual(
+            (resp.status_code, resp.reason),
+            (400, 'Bad Request'),
+            respbody)
+        self.assertIn('<Code>InvalidArgument</Code>', respbody)
+        self.assertIn(
+            '<Message>RANGE is not supported in Copy!</Message>', respbody)
+        self.assertIn('<ArgumentName>Range</ArgumentName>', respbody)
+        self.assertIn(
+            '<ArgumentValue>%s</ArgumentValue>' % req_range, respbody)
+
+        # check the copy was not made...
+        resp = self.conn.make_request(
+            self.bucket_name,
+            dest_name,
+            method='GET',
+            headers={'x-amz-content-sha256': 'UNSIGNED-PAYLOAD'}
+        )
+        respbody = resp.content.decode('utf8')
+        self.assertEqual((resp.status_code, resp.reason),
+                         (404, 'Not Found'), respbody)
+
     def test_get_object_no_sha(self):
         obj_name = self.create_name('get-object')
         resp = self.conn.make_request(

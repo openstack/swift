@@ -48,7 +48,7 @@ from swift.common.utils import json
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     MalformedACLError, S3NotImplemented, InvalidRequest, AccessDenied
 from swift.common.middleware.s3api.etree import Element, SubElement, tostring
-from swift.common.middleware.s3api.utils import sysmeta_header
+from swift.common.middleware.s3api.utils import s3api_sysmeta_header
 from swift.common.middleware.s3api.exception import InvalidSubresource
 
 XMLNS_XSI = 'http://www.w3.org/2001/XMLSchema-instance'
@@ -71,7 +71,7 @@ def encode_acl(resource, acl):
         grants.append(grant)
     header_value.update({"Grant": grants})
     headers = {}
-    key = sysmeta_header(resource, 'acl')
+    key = s3api_sysmeta_header(resource, 'acl')
     headers[key] = json.dumps(header_value, separators=(',', ':'))
 
     return headers
@@ -86,7 +86,7 @@ def decode_acl(resource, headers, allow_no_owner):
     """
     value = ''
 
-    key = sysmeta_header(resource, 'acl')
+    key = s3api_sysmeta_header(resource, 'acl')
     if key in headers:
         value = headers[key]
 

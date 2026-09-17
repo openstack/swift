@@ -28,7 +28,8 @@ from swift.common.registry import get_swift_info
 from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
 from swift.common.middleware.s3api.acl_handlers import ObjectAclHandler
-from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
+from swift.common.middleware.s3api.utils import S3Timestamp, \
+    s3api_sysmeta_header, swift3_object_sysmeta_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.s3response import S3NotImplemented, \
     InvalidRange, NoSuchKey, NoSuchVersion, InvalidArgument, HTTPNoContent, \
@@ -90,7 +91,11 @@ class ObjectController(Controller):
 
         if had_match:
             # Update where to look
-            update_etag_is_at_header(req, sysmeta_header('object', 'etag'))
+            update_etag_is_at_header(
+                req, s3api_sysmeta_header('object', 'etag'))
+            # objects uploaded by the legacy swift3 middleware stored the
+            # S3-style etag under a different sysmeta name
+            update_etag_is_at_header(req, swift3_object_sysmeta_header('etag'))
 
         object_name = req.object_name
         version_id = req.params.get('versionId')
@@ -173,6 +178,7 @@ class ObjectController(Controller):
             raise InvalidArgument('x-amz-copy-source-range',
                                   req.headers['X-Amz-Copy-Source-Range'],
                                   'Illegal copy header')
+
         req.check_copy_source(self.app)
         if not req.headers.get('Content-Type'):
             # can't setdefault because it can be None for some reason
@@ -251,7 +257,7 @@ class ObjectController(Controller):
 
     def _cleanup_mpu_sync(self, req, upload_id, backend_resp):
         parts_container = req.container_name + '+segments'
-        etag_key = sysmeta_header('object', 'etag')
+        etag_key = s3api_sysmeta_header('object', 'etag')
         etag = backend_resp.headers.get(etag_key)
         try:
             num_parts = int(etag.rsplit('-', 1)[1])
@@ -287,7 +293,7 @@ class ObjectController(Controller):
             # existing object became a version -> no cleanup
             return
 
-        upload_id_key = sysmeta_header('object', 'upload-id')
+        upload_id_key = s3api_sysmeta_header('object', 'upload-id')
         deleted_upload_ids = {}
         for backend_resp in resp.environ.get('swift.backend_responses', []):
             if not is_success(backend_resp.status):
