@@ -30,7 +30,7 @@ from swift.common.middleware.versioned_writes.object_versioning import \
     DELETE_MARKER_CONTENT_TYPE
 
 
-class HeaderKeyDict(header_key_dict.HeaderKeyDict):
+class S3HeaderKeyDict(header_key_dict.HeaderKeyDict):
     """
     Similar to the Swift's normal HeaderKeyDict class, but its key name is
     normalized as S3 clients expect.
@@ -122,7 +122,7 @@ class S3ResponseBase(object):
 
 class S3Response(S3ResponseBase, swob.Response):
     """
-    Similar to the Response class in Swift, but uses our HeaderKeyDict for
+    Similar to the Response class in Swift, but uses our S3HeaderKeyDict for
     headers instead of Swift's HeaderKeyDict.  This also translates Swift
     specific headers to S3 headers.
     """
@@ -133,7 +133,7 @@ class S3Response(S3ResponseBase, swob.Response):
         self.sysmeta_headers = self.s3api_sysmeta_headers  # backwards compat
         # Used for pure swift header handling at the request layer
         self.sw_headers = swob.HeaderKeyDict()
-        s3_headers = HeaderKeyDict()  # note: this is not a swob.HeaderKeyDict
+        s3_headers = S3HeaderKeyDict()
         self.is_slo = False
 
         for key, val in self.headers.items():
@@ -160,13 +160,14 @@ class S3Response(S3ResponseBase, swob.Response):
                     self.sw_headers[key] = val
             else:
                 self.sw_headers[key] = val
+        self.headers = s3_headers
 
         # Handle swift headers
         for key, val in self.sw_headers.items():
             s3_pair = translate_swift_to_s3(key, val)
             if s3_pair is None:
                 continue
-            s3_headers[s3_pair[0]] = s3_pair[1]
+            self.headers[s3_pair[0]] = s3_pair[1]
 
         self.is_slo = config_true_value(self.sw_headers.get(
             'x-static-large-object'))
@@ -177,15 +178,13 @@ class S3Response(S3ResponseBase, swob.Response):
         if override_etag not in (None, ''):
             # Multipart uploads in AWS have ETags like
             #   <MD5(part_etag1 || ... || part_etagN)>-<number of parts>
-            s3_headers['etag'] = override_etag
-        elif self.is_slo and 'etag' in s3_headers:
+            self.headers['etag'] = override_etag
+        elif self.is_slo and 'etag' in self.headers:
             # Many AWS clients use the presence of a '-' to decide whether
             # to attempt client-side download validation, so even if we
             # didn't store the AWS-style header, tack on a '-N'. (Use 'N'
             # because we don't actually know how many parts there are.)
-            s3_headers['etag'] += '-N'
-
-        self.headers = s3_headers
+            self.headers['etag'] += '-N'
 
         if self.etag:
             # add double quotes to the etag header
@@ -258,7 +257,7 @@ class ErrorResponse(S3ResponseBase, swob.HTTPException):
             app_iter=self._body_iter(),
             content_type='application/xml', *args,
             **kwargs)
-        self.headers = HeaderKeyDict(self.headers)
+        self.headers = S3HeaderKeyDict(self.headers)
 
     @property
     def summary(self):
