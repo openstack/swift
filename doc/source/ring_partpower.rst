@@ -154,6 +154,76 @@ and replicators should resume their job::
 
 Now you need to copy the updated .ring.gz again to all nodes.
 
+---------------------------------
+Audit after an early cleanup exit
+---------------------------------
+
+Audit is not a normal fourth step in a partition power increase. Its only
+intended use is recovery from exceptional circumstances in which requirements
+outside the operator's control forced a PPI to be marked finished before
+cleanup completed. Use it only when consistency-engine warnings or discovered
+dark data indicate that stale hash directories remain in old partition
+locations after such an early cleanup exit.
+
+Run the audit on every object storage node::
+
+    swift-object-relinker audit --policy <policy-name-or-index>
+
+.. note::
+
+    Unlike relink and cleanup, audit has no hint from the finished ring about
+    which policy had its partition power increased. The ``--policy`` flag is
+    therefore required for ``audit``.
+
+The audit is only available when no partition power increase is in progress;
+in other words, the ring's ``next_part_power`` must be ``None``. It scans the
+old, lower half of the partition namespace and calculates the expected current
+partition for each hash directory. A hash directory found in an ancestor of
+its expected partition is quarantined. A misplaced hash directory that is not
+such an ancestor is left in place and logged as a warning. By default, the
+audit considers ancestors from the two most recent partition power increases.
+This limit may be changed with ``--max-audit-history-quarantine-threshold``
+or the corresponding option in the ``[object-relinker]`` configuration section.
+
+.. warning::
+
+    A replicated policy requires special handling. Stop ``object-replicator``
+    on the affected storage nodes before starting audit, keep it stopped until
+    audit completes, and then restart it. Otherwise, primary peers may restore
+    a stale hash directory after audit quarantines it, preventing audit from
+    making lasting progress.
+
+    This peer restoration does not occur for an erasure-coded policy. A lone
+    stale fragment instead produces reconstructor errors when peers cannot
+    provide enough fragments to rebuild it. Those failures prevent the stale
+    fragment from becoming fully rebuilt, durable dark data. For example::
+
+        Unable to get enough responses (1/10 from 1 ok responses) to reconstruct ...
+
+.. important::
+
+    Because audit immediately quarantines matching hash directories, it is not
+    intended for use immediately after cleanup or as a substitute for
+    completing cleanup. If a PPI has only just been prematurely finished,
+    re-publishing the previous ring and re-running cleanup may be more
+    appropriate. Defining and validating that recovery procedure is future
+    work; audit does not implement it.
+
+The relinker persists progress for each device and policy data directory in
+``<devices>/<device>/relink.<data-dir>.json``. For example, with the default
+devices path, policy index 1 on device ``sda`` uses
+``/srv/node/sda/relink.objects-1.json``. An interrupted audit uses this file to
+resume at incomplete partitions, and a subsequent audit skips partitions that
+are already marked complete. Unlike relink and cleanup, a completed audit does
+not itself cause another ring-state change, so merely running the command again
+does not rescan those partitions.
+
+To perform a full rescan, make sure that no relinker process is running, remove
+the relevant state file from every device, and then run the audit again::
+
+    rm /srv/node/sda/relink.objects-1.json
+    swift-object-relinker audit --policy 1
+
 ----------
 Background
 ----------

@@ -17,6 +17,7 @@
 import argparse
 import datetime
 import errno
+from enum import Enum
 import fcntl
 import json
 import logging
@@ -42,12 +43,18 @@ from swift.common.recon import RECON_RELINKER_FILE, DEFAULT_RECON_CACHE_PATH
 LOCK_FILE = '.relink.{datadir}.lock'
 STATE_FILE = 'relink.{datadir}.json'
 STATE_TMP_FILE = '.relink.{datadir}.json.tmp'
-STEP_RELINK = 'relink'
-STEP_CLEANUP = 'cleanup'
 EXIT_SUCCESS = 0
 EXIT_NO_APPLICABLE_POLICY = 2
 EXIT_ERROR = 1
 DEFAULT_STATS_INTERVAL = 300.0
+DEFAULT_MAX_AUDIT_HISTORY_QUARANTINE_THRESHOLD = 2
+MAX_PART_POWER = 32
+
+
+class Step(Enum):
+    RELINK = 'relink'
+    CLEANUP = 'cleanup'
+    AUDIT = 'audit'
 
 
 def recursive_defaultdict():
@@ -89,7 +96,9 @@ def _zero_stats():
         'files': 0,
         'linked': 0,
         'removed': 0,
-        'errors': 0}
+        'quarantined': 0,
+        'errors': 0,
+        'warnings': 0}
 
 
 def _zero_collated_stats():
@@ -100,14 +109,47 @@ def _zero_collated_stats():
         'stats': _zero_stats()}
 
 
+def _is_ppi_ancestor(found_part, expected_part, max_num_ppi):
+    """
+    Determine if `expected_part` descended from `found_part` via a sequence of
+    partition power increase operations. The search is limited to at most
+    `max_num_ppi` operations.
+    """
+
+    if found_part < 0 or expected_part < 0:
+        raise ValueError(f"found_part={found_part} " +
+                         f"expected_part={expected_part} " +
+                         "values must be non-negative")
+
+    part_power_increment_validator(max_num_ppi)
+
+    if (found_part, expected_part) == (0, 0):
+        return True
+
+    num_ppi = 0
+    while expected_part > found_part and num_ppi < max_num_ppi:
+        expected_part >>= 1
+        num_ppi += 1
+
+    return expected_part == found_part and num_ppi > 0
+
+
 class Relinker(object):
-    def __init__(self, conf, logger, device_list=None, do_cleanup=False):
+    def __init__(self, conf, logger, device_list=None, step=Step.RELINK):
+        """
+        :param conf: relinker configuration options
+        :param logger: an instance of ``SwiftLogAdapter``
+        :param device_list: optional list of device names to process; all
+                            devices are processed by default
+        :param step: a ``Step`` enum member selecting the relink, cleanup, or
+                     audit operation
+        """
         self.conf = conf
         self.recon_cache = os.path.join(self.conf['recon_cache_path'],
                                         RECON_RELINKER_FILE)
         self.logger = logger
         self.device_list = device_list or []
-        self.do_cleanup = do_cleanup
+        self.step = step
         self.root = self.conf['devices']
         if len(self.device_list) == 1:
             self.root = os.path.join(self.root, list(self.device_list)[0])
@@ -141,8 +183,7 @@ class Relinker(object):
                 1 for part_done in self.states["state"].values()
                 if part_done)
             num_total_parts = len(self.states["state"])
-            step = STEP_CLEANUP if self.do_cleanup else STEP_RELINK
-            policy_dev_progress = {'step': step,
+            policy_dev_progress = {'step': self.step.value,
                                    'parts_done': num_parts_done,
                                    'total_parts': num_total_parts,
                                    'timestamp': time.time()}
@@ -234,17 +275,25 @@ class Relinker(object):
         # Remove all non partitions first (eg: auditor_status_ALL.json)
         partitions = [p for p in partitions if p.isdigit()]
 
-        relinking = (self.part_power != self.next_part_power)
-        if relinking:
+        if self.step == Step.RELINK:
             # All partitions in the upper half are new partitions and there is
             # nothing to relink there
             partitions = [part for part in partitions
                           if int(part) < 2 ** self.part_power]
-        elif "prev_part_power" in self.states:
+        elif self.step == Step.CLEANUP:
             # All partitions in the upper half are new partitions and there is
             # nothing to clean up there
+            if "prev_part_power" in self.states:
+                partitions = [part for part in partitions
+                              if int(part) <
+                              2 ** self.states["prev_part_power"]]
+        elif self.step == Step.AUDIT:
+            # All partitions in the upper half are new partitions and
+            # there is nothing to audit there
             partitions = [part for part in partitions
-                          if int(part) < 2 ** self.states["prev_part_power"]]
+                          if int(part) < 2 ** (self.part_power - 1)]
+        else:
+            raise ValueError('Unexpected step: %s' % self.step)
 
         # Format: { 'part': processed }
         if self.states["state"]:
@@ -257,7 +306,7 @@ class Relinker(object):
                 # there's nothing to be done. Err on the side of caution
                 # during cleanup, however.
                 for part in missing:
-                    self.states["state"][part] = relinking
+                    self.states["state"][part] = (self.step == Step.RELINK)
             partitions = [
                 str(part) for part, processed in self.states["state"].items()
                 if not processed]
@@ -323,12 +372,12 @@ class Relinker(object):
         #   |0                             2N|
         #   |                IIJJKKLLMMNNOOPP|
         for dirty_partition in self.linked_into_partitions:
-            if self.do_cleanup or \
+            if self.step == Step.CLEANUP or \
                     dirty_partition >= 2 ** self.states['part_power']:
                 self.diskfile_mgr.get_hashes(
                     device, dirty_partition, [], self.policy)
 
-        if self.do_cleanup:
+        if self.step == Step.CLEANUP:
             try:
                 hashes = self.diskfile_mgr.get_hashes(
                     device, int(partition), [], self.policy)
@@ -387,11 +436,15 @@ class Relinker(object):
         self._update_recon(device)
 
     def hashes_filter(self, suff_path, hashes):
+        if self.step == Step.AUDIT:
+            expected_part_power = self.part_power
+        else:
+            expected_part_power = self.next_part_power
         mismatched_hashes = list()
         for hsh in hashes:
             fname = os.path.join(suff_path, hsh)
             if fname != replace_partition_in_path(
-                    self.conf['devices'], fname, self.next_part_power):
+                    self.conf['devices'], fname, expected_part_power):
                 mismatched_hashes.append(hsh)
         return mismatched_hashes
 
@@ -432,7 +485,7 @@ class Relinker(object):
                     old_file, new_file)
                 success = True
             elif self.conf['clobber_hardlink_collisions']:
-                if self.do_cleanup:
+                if self.step == Step.CLEANUP:
                     # At this point your clients are already *in* the new part
                     # dir, if the "better" data was in the old part dir you're
                     # already hurting and maybe flipped back to retry the
@@ -493,6 +546,46 @@ class Relinker(object):
                 old_file, new_file)
         return success, created
 
+    def audit_location(self, device, hash_path):
+        """
+        Validate if a hash is in the correct partition. Three outcomes:
+        - Hash is in a PPI-ancestor partition of expected partition: Hash
+          directory is quarantined.
+        - Hash is misplaced but NOT a PPI-ancestor: outside of AUDIT's scope.
+          Left as is.
+        - Hash is in the expected partition: No action needed.
+        """
+        expected_hash_path = replace_partition_in_path(
+            self.conf['devices'], hash_path, self.part_power)
+        if expected_hash_path == hash_path:
+            return
+
+        expected_part = get_partition_from_path(self.conf['devices'],
+                                                expected_hash_path)
+        found_part = get_partition_from_path(self.conf['devices'], hash_path)
+        if not _is_ppi_ancestor(found_part,
+                                expected_part,
+                                self.conf[
+                                    'max_audit_history_quarantine_threshold']):
+            self.logger.warning(
+                f"hash_path={hash_path}: found_part={found_part} " +
+                f"not an ancestor of expected_part={expected_part}: " +
+                "Skipping quarantine")
+            self.stats['warnings'] += 1
+            return
+
+        try:
+            dev_path = os.path.join(self.diskfile_mgr.devices, device)
+            to_dir = diskfile.quarantine_dir_renamer(dev_path, hash_path)
+            self.logger.info(f"found_part={found_part} " +
+                             f"expected_part={expected_part}: " +
+                             f"{hash_path} moved to {to_dir}")
+            self.stats['quarantined'] += 1
+        except (Exception, LockTimeout) as exc:
+            self.logger.error(
+                f"Could not quarantine hash_path={hash_path}: {exc}")
+            self.stats['errors'] += 1
+
     def process_location(self, device, hash_path, new_hash_path):
         """
         Handle relink of all files in a hash_dir path.
@@ -510,8 +603,6 @@ class Relinker(object):
         :param hash_path: old hash directory path
         :param new_hash_path: new hash directory path
         """
-        self.stats['hash_dirs'] += 1
-
         # Get on disk data for new and old locations, cleaning up any
         # reclaimable or obsolete files in each. The new location is
         # cleaned up *before* the old location to prevent false negatives
@@ -583,7 +674,7 @@ class Relinker(object):
                     'Error invalidating suffix for %s: %r',
                     new_hash_path, exc)
 
-        if self.do_cleanup and not missing_links:
+        if (self.step == Step.CLEANUP) and not missing_links:
             # use the sorted list to help unit testing
             unwanted_files = old_df_data['files']
 
@@ -654,13 +745,16 @@ class Relinker(object):
         if self.conf['files_per_second'] > 0:
             locations = RateLimitedIterator(
                 locations, self.conf['files_per_second'])
-        for hash_path, device, _part_num in locations:
-            # note, in cleanup step next_part_power == part_power
-            new_hash_path = replace_partition_in_path(
-                self.conf['devices'], hash_path, self.next_part_power)
-            if new_hash_path == hash_path:
-                continue
-            self.process_location(device, hash_path, new_hash_path)
+        for hash_path, device, _ in locations:
+            self.stats['hash_dirs'] += 1
+            if self.step == Step.AUDIT:
+                self.audit_location(device, hash_path)
+            else:
+                new_hash_path = replace_partition_in_path(
+                    self.conf['devices'], hash_path, self.next_part_power)
+                if new_hash_path == hash_path:
+                    continue
+                self.process_location(device, hash_path, new_hash_path)
 
         # any unmounted devices don't trigger the pre_device trigger.
         # so we'll deal with them here.
@@ -704,11 +798,22 @@ class Relinker(object):
             policy.object_ring = None  # Ensure it will be reloaded
             policy.load_ring(self.conf['swift_dir'])
             ring = policy.object_ring
-            if not ring.next_part_power:
-                continue
-            part_power_increased = ring.next_part_power == ring.part_power
-            if self.do_cleanup != part_power_increased:
-                continue
+
+            if self.step == Step.AUDIT:
+                if ring.next_part_power is not None:
+                    self.logger.info('Skipping policy %d (%s) while PPI is in '
+                                     'progress: part_power=%d '
+                                     'next_part_power=%d', policy.idx,
+                                     policy.name, ring.part_power,
+                                     ring.next_part_power)
+                    continue
+            else:
+                if not ring.next_part_power:
+                    continue
+                part_power_increased = ring.next_part_power == ring.part_power
+                do_cleanup = self.step == Step.CLEANUP
+                if do_cleanup != part_power_increased:
+                    continue
 
             num_policies += 1
             self.process_policy(policy)
@@ -737,7 +842,11 @@ class Relinker(object):
         files = stats.pop('files')
         linked = stats.pop('linked')
         removed = stats.pop('removed')
+        quarantined = stats.pop('quarantined')
         action_errors = stats.pop('errors')
+        warnings = stats.pop('warnings')
+        if warnings:
+            self.logger.warning("There were %d warnings", warnings)
         unmounted = stats.pop('unmounted', 0)
         if unmounted:
             self.logger.warning('%d disks were unmounted', unmounted)
@@ -751,10 +860,17 @@ class Relinker(object):
                 'There were unexpected errors while enumerating disk '
                 'files: %r', stats)
 
-        log_method(
-            '%d hash dirs processed (%d files, %d linked, '
-            '%d removed, %d errors)', hash_dirs, files,
-            linked, removed, action_errors + listdir_errors)
+        if self.step == Step.AUDIT:
+            log_method(
+                '%d hash dirs processed (%d files, %d linked, '
+                '%d removed, %d quarantined, %d warnings, %d errors)',
+                hash_dirs, files, linked, removed, quarantined, warnings,
+                action_errors + listdir_errors)
+        else:
+            log_method(
+                '%d hash dirs processed (%d files, %d linked, '
+                '%d removed, %d errors)', hash_dirs, files,
+                linked, removed, action_errors + listdir_errors)
 
         return status
 
@@ -764,17 +880,19 @@ def _reset_recon(recon_cache, logger):
     dump_recon_cache(device_progress_recon, recon_cache, logger)
 
 
-def parallel_process(step, conf, logger, device_list=None):
+def parallel_process(step_name, conf, logger, device_list=None):
     """
     Fork Relinker workers based on config and wait for them to finish.
 
-    :param do_cleanup: boolean, if workers should perform cleanup step
+    :param step_name: str, the step to perform
     :param conf: dict, config options
     :param logger: SwiftLogAdapter instance
     :kwarg device_list: list of strings, optionally limit to specific devices
 
     :returns: int, exit code; zero on success
     """
+    # raise value error if cli adds new choice for step
+    step = Step(step_name)
 
     # initialise recon dump for collection
     # Lets start by always deleting last run's stats
@@ -789,14 +907,14 @@ def parallel_process(step, conf, logger, device_list=None):
         workers = min(workers, len(device_list))
 
     start = time.time()
-    prefixed_logger = get_prefixed_swift_logger(logger, f"[step={step}] ")
+    prefixed_logger = get_prefixed_swift_logger(logger,
+                                                f"[step={step.value}] ")
     prefixed_logger.info('Starting relinker using %d workers: %s' %
                          (workers,
                           time.strftime('%X %x %Z', time.gmtime(start))))
-    do_cleanup = (step == STEP_CLEANUP)
     if workers == 0 or len(device_list) in (0, 1):
         ret = Relinker(
-            conf, prefixed_logger, device_list, do_cleanup=do_cleanup).run()
+            conf, prefixed_logger, device_list, step=step).run()
         prefixed_logger.info('Finished relinker: %s (%s elapsed)' %
                              (time.strftime('%X %x %Z', time.gmtime()),
                               datetime.timedelta(seconds=time.time() - start)))
@@ -809,9 +927,9 @@ def parallel_process(step, conf, logger, device_list=None):
             pid_prefixed_logger = get_prefixed_swift_logger(
                 logger,
                 '[step=%s, pid=%s, devs=%s] '
-                % (step, os.getpid(), ','.join(worker_devs)))
+                % (step.value, os.getpid(), ','.join(worker_devs)))
             os._exit(Relinker(conf, pid_prefixed_logger, worker_devs,
-                              do_cleanup=do_cleanup).run())
+                              step=step).run())
         else:
             children[pid] = worker_devs
 
@@ -861,10 +979,20 @@ def auto_or_int(value):
     return config_auto_int_value(value, default='auto')
 
 
+def part_power_increment_validator(value):
+    int_value = int(value)
+    if not 0 < int_value <= MAX_PART_POWER:
+        raise ValueError(
+            'part power increment must be between 1 and %d '
+            '(was %s)' % (MAX_PART_POWER, value))
+    return int_value
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(
-        description='Relink and cleanup objects to increase partition power')
-    parser.add_argument('action', choices=[STEP_RELINK, STEP_CLEANUP])
+        description='Relink, cleanup, and audit objects for partition power '
+                    'increases')
+    parser.add_argument('action', choices=[step.value for step in Step])
     parser.add_argument('conf_file', nargs='?', help=(
         'Path to config file with [object-relinker] section'))
     parser.add_argument('--swift-dir', default=None,
@@ -872,7 +1000,9 @@ def main(args=None):
     parser.add_argument(
         '--policy', default=[], dest='policies',
         action='append', type=policy,
-        help='Policy to relink; may specify multiple (default: all)')
+        help='Policy to relink; may specify multiple (default: all '
+             'for relink and cleanup modes. For audit mode, this flag is '
+             'required')
     parser.add_argument('--devices', default=None,
                         dest='devices', help='Path to swift device directory')
     parser.add_argument('--user', default=None, dest='user',
@@ -894,6 +1024,17 @@ def main(args=None):
                         type=non_negative_float, dest='stats_interval',
                         help='Emit stats to recon roughly every N seconds. '
                              '(default: %d).' % DEFAULT_STATS_INTERVAL)
+    parser.add_argument('--max-audit-history-quarantine-threshold',
+                        default=None,
+                        type=part_power_increment_validator,
+                        dest='max_audit_history_quarantine_threshold',
+                        help='Audit may quarantine a hash dir only if found '
+                             'in a partition that is an ancestor of its '
+                             'expected partition after this many '
+                             'partition power increases. Must be between '
+                             '1 and %d inclusive (default: % d).' %
+                             (MAX_PART_POWER,
+                              DEFAULT_MAX_AUDIT_HISTORY_QUARANTINE_THRESHOLD))
     parser.add_argument(
         '--workers', default=None, type=auto_or_int, help=(
             'Process devices across N workers '
@@ -933,6 +1074,10 @@ def main(args=None):
             level=getattr(logging, level),
             filename=args.logfile)
         logger = SwiftLogAdapter(logging.getLogger(), server='relinker')
+
+    if args.action == Step.AUDIT.value and not args.policies:
+        parser.error("--policy is required when running in audit mode")
+
     conf.update({
         'swift_dir': args.swift_dir or conf.get('swift_dir', '/etc/swift'),
         'devices': args.devices or conf.get('devices', '/srv/node'),
@@ -951,6 +1096,11 @@ def main(args=None):
         'stats_interval': non_negative_float(
             args.stats_interval or conf.get('stats_interval',
                                             DEFAULT_STATS_INTERVAL)),
+        'max_audit_history_quarantine_threshold':
+        part_power_increment_validator(
+            args.max_audit_history_quarantine_threshold or
+            conf.get('max_audit_history_quarantine_threshold',
+                     DEFAULT_MAX_AUDIT_HISTORY_QUARANTINE_THRESHOLD)),
         'clobber_hardlink_collisions': (
             args.clobber_hardlink_collisions or
             config_true_value(conf.get('clobber_hardlink_collisions',
