@@ -29,7 +29,7 @@ from test.unit import temptree, with_tempdir, DebugMemcacheRing, \
 import contextlib
 import errno
 from swift.common.concurrency import eventlet, sleep, SwiftPool, SwiftPile, \
-    USE_EVENTLET, Event
+    USE_EVENTLET, Event, ThreadingEvent
 import grp
 import logging
 import os
@@ -4983,6 +4983,78 @@ class TestGreenAsyncPile(unittest.TestCase):
             self.assertRaises(StopIteration, next, pile)
             # pending remains 0
             self.assertEqual(0, pile._pending)
+
+    def test_result_put_and_taken_before_inflight_drops(self):
+        # The consumer takes the last item while _inflight still shows
+        # the job. It must stop on its own count and not wait for an
+        # item that never comes.
+        pile = utils.GreenAsyncPile(1)
+        release_worker = ThreadingEvent()
+
+        def run_func(func, args, kwargs):
+            pile._responses.put(func(*args, **kwargs))
+            release_worker.wait()
+            with pile._inflight_lock:
+                pile._inflight -= 1
+
+        pile._run_func = run_func
+        pile.spawn(lambda: 'result')
+        self.assertEqual('result', next(pile))
+        # the worker holds the decrement back
+        self.assertEqual(1, pile.inflight)
+        with self.assertRaises(StopIteration):
+            pile._next(timeout=1)
+        self.assertEqual(0, pile._pending)
+        release_worker.set()
+        for _ in range(1000):
+            if pile.inflight == 0:
+                break
+            sleep(0.001)
+        self.assertEqual(0, pile.inflight)
+
+    def test_result_put_after_inflight_drops(self):
+        # The consumer asks for the next item while the queue is still
+        # empty and _inflight already shows no job. It must wait for the
+        # result, not stop.
+        pile = utils.GreenAsyncPile(1)
+        consumer_waits = ThreadingEvent()
+
+        def run_func(func, args, kwargs):
+            consumer_waits.wait()
+            with pile._inflight_lock:
+                pile._inflight -= 1
+            pile._responses.put(func(*args, **kwargs))
+
+        real_get = pile._responses.get
+
+        def get(timeout=None):
+            consumer_waits.set()
+            return real_get(timeout=timeout)
+
+        pile._responses.get = get
+        pile._run_func = run_func
+        pile.spawn(lambda: 'result')
+        self.assertEqual(['result'], list(pile))
+        self.assertEqual(0, pile._pending)
+        self.assertEqual(0, pile.inflight)
+
+    def test_base_exception_in_worker_ends_iteration(self):
+        class Boom(BaseException):
+            pass
+
+        def job():
+            raise Boom()
+
+        pile = utils.GreenAsyncPile(1)
+        with mock.patch('sys.stderr', StringIO()):
+            pile.spawn(job)
+            self.assertEqual([], list(pile))
+        self.assertEqual(0, pile._pending)
+        for _ in range(1000):
+            if pile.inflight == 0:
+                break
+            sleep(0.001)
+        self.assertEqual(0, pile.inflight)
 
     def _exploder(self, arg):
         if isinstance(arg, Exception):

@@ -2164,16 +2164,22 @@ class GreenAsyncPile(object):
         self._inflight_lock = CooperativeLock()
 
     def _run_func(self, func, args, kwargs):
+        rv = DEAD
         try:
-            self._responses.put(func(*args, **kwargs))
+            rv = func(*args, **kwargs)
         except Exception:
             # Don't swallow the exception: eventlet's hub prints it (on by
-            # default); without a hub, print the traceback here.
+            # default); without a hub, print the traceback here. Any other
+            # BaseException (a Timeout, GreenletExit) ends the worker itself.
             report_worker_exception()
-            self._responses.put(DEAD)
         finally:
+            # Always put one item per job: _next() waits for exactly as many
+            # items as spawn() started. Decrement _inflight before the put,
+            # so that once the consumer has taken the last item no job is
+            # in flight any more.
             with self._inflight_lock:
                 self._inflight -= 1
+            self._responses.put(rv)
 
     @property
     def inflight(self):
@@ -2235,12 +2241,14 @@ class GreenAsyncPile(object):
 
     def _next(self, timeout=None):
         while True:
-            try:
-                rv = self._responses.get_nowait()
-            except Empty:
-                if self._inflight == 0:
-                    raise StopIteration()
-                rv = self._responses.get(timeout=timeout)
+            if self._pending == 0:
+                # _pending counts the items not yet taken from the queue.
+                # Only the consumer changes it, so it is never stale. Do
+                # not read _inflight here: a worker changes it, so the
+                # consumer can see an old value and block in get() with
+                # nothing left to come, or stop with an item still queued.
+                raise StopIteration()
+            rv = self._responses.get(timeout=timeout)
             self._pending -= 1
             if rv is DEAD:
                 continue
