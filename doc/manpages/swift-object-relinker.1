@@ -17,7 +17,7 @@
 .TH SWIFT-OBJECT-RELINKER "1" "December 2017" "OpenStack Swift"
 
 .SH NAME
-\fBswift\-object\-relinker\fR \- relink and cleanup objects to increase partition power
+\fBswift\-object\-relinker\fR \- relink, cleanup, and audit objects for partition power increases
 .SH SYNOPSIS
 .B swift\-object\-relinker
 [\fIoptions\fR] <\fIcommand\fR>
@@ -26,7 +26,10 @@
 .PP
 The relinker prepares an object server's filesystem for a partition power
 change by crawling the filesystem and linking existing objects to future
-partition directories.
+partition directories. If requirements outside the operator's control forced
+a partition power increase to be marked finished before cleanup completed, it
+can also audit old partition directories and quarantine stale hashes that
+would otherwise result in consistency-engine warnings or dark data.
 
 More information can be found at
 .BI https://docs.openstack.org/swift/latest/ring_partpower.html
@@ -39,6 +42,21 @@ Relink files for partition power increase.
 .TP
 \fBcleanup\fR
 Remove hard links in the old locations.
+
+.TP
+\fBaudit\fR
+Recover from a prematurely finished partition power increase by immediately
+quarantining stale hash directories left in old locations. Audit is not a
+normal post-cleanup step and is not intended for use immediately after
+cleanup. The finished ring does not identify the affected policy, so the
+\fB\-\-policy\fR option is required. When auditing a replicated policy, stop
+\fBobject\-replicator\fR before starting audit, keep it stopped until audit
+completes, and then restart it. Otherwise, primary peers may restore a stale
+hash directory after audit quarantines it, preventing audit from making
+lasting progress. With an erasure-coded policy, lone stale fragments instead
+produce reconstructor errors when peers cannot provide enough fragments to
+rebuild them. Those failures prevent the stale fragments from becoming fully
+rebuilt, durable dark data.
 
 .SH OPTIONS
 .TP
@@ -54,8 +72,20 @@ Path to swift directory
 Path to swift device directory
 
 .TP
+\fB\-\-policy\fR \fIPOLICY\fR
+Policy name or index to process; may be specified multiple times. This option
+is required for \fBaudit\fR. By default, \fBrelink\fR and \fBcleanup\fR process
+all policies.
+
+.TP
 \fB\-\-skip\-mount\-check\fR
 Don't test if disk is mounted
+
+.TP
+\fB\-\-max\-audit\-history\-quarantine\-threshold\fR \fIN\fR
+Allow \fBaudit\fR to quarantine a hash directory only when its current
+location is an ancestor within the most recent \fIN\fR partition power
+increases. The value must be between 1 and 32 inclusive; the default is 2.
 
 .TP
 \fB\-\-logfile\fR \fILOGFILE\fR

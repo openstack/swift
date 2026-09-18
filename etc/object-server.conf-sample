@@ -798,6 +798,10 @@ use = egg:swift#xprofile
 # stats_interval = 300.0
 # recon_cache_path = /var/cache/swift
 #
+# Audit may quarantine a hash dir only if found in a partition that is an
+# ancestor of its expected partition after this many partition power increases.
+# max_audit_history_quarantine_threshold = 2
+#
 # Highly concurrent PUTs can result in timestamp collisions; see
 # https://bugs.launchpad.net/swift/+bug/1971686 and
 # https://bugs.launchpad.net/swift/+bug/2127779 for more information.
