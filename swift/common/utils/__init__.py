@@ -2189,8 +2189,8 @@ class GreenAsyncPile(object):
         """
         Spawn a job on the pile.
         """
-        self._pending += 1
         with self._inflight_lock:
+            self._pending += 1
             self._inflight += 1
         self._pool.spawn(self._run_func, func, args, kwargs)
 
@@ -2243,13 +2243,15 @@ class GreenAsyncPile(object):
         while True:
             if self._pending == 0:
                 # _pending counts the items not yet taken from the queue.
-                # Only the consumer changes it, so it is never stale. Do
-                # not read _inflight here: a worker changes it, so the
-                # consumer can see an old value and block in get() with
-                # nothing left to come, or stop with an item still queued.
+                # spawn() and _next() change it under the lock, so it is
+                # exact. Do not read _inflight here: a worker changes it,
+                # so the consumer can see an old value and block in get()
+                # with nothing left to come, or stop with an item still
+                # queued.
                 raise StopIteration()
             rv = self._responses.get(timeout=timeout)
-            self._pending -= 1
+            with self._inflight_lock:
+                self._pending -= 1
             if rv is DEAD:
                 continue
             return rv
