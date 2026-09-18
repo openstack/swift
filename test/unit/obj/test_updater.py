@@ -19,6 +19,8 @@ import pickle
 from queue import PriorityQueue
 from unittest import mock
 import os
+import sys
+import threading
 import unittest
 import random
 import itertools
@@ -3092,6 +3094,23 @@ class TestOldestAsyncPendingTracker(unittest.TestCase):
         memory_usage_after_reset = self.manager.get_memory_usage()
         self.assertLess(memory_usage_after_reset, memory_usage_before_reset)
 
+    def test_memory_usage_excludes_lock(self):
+        # The lock is not tracker data. Do not count it in the recon number.
+        visited = []
+        real_getsizeof = sys.getsizeof
+
+        def record(obj):
+            visited.append(obj)
+            return real_getsizeof(obj)
+
+        with mock.patch.object(sys, 'getsizeof', side_effect=record):
+            usage = self.manager.get_memory_usage()
+        self.assertGreater(usage, 0)
+        self.assertNotIn(id(self.manager.lock), [id(o) for o in visited])
+        self.assertNotIn('lock', [o for o in visited if isinstance(o, str)])
+        self.assertIn(self.manager.sorted_entries,
+                      [o for o in visited if isinstance(o, list)])
+
     def test_no_eviction_when_below_max_entries(self):
         self.manager.add_update('a1', 'c1', Timestamp(1000.0).internal)
         self.manager.add_update('a2', 'c2', Timestamp(2000.0).internal)
@@ -3115,6 +3134,43 @@ class TestOldestAsyncPendingTracker(unittest.TestCase):
             ],
         }
         self.assertEqual(oldest_pairs, expected_output)
+
+    def test_add_update_from_many_threads(self):
+        # Pool workers call add_update at the same time in thread mode.
+        tracker = object_updater.OldestAsyncPendingTracker(50)
+        errors = []
+
+        def worker(seed):
+            rnd = random.Random(seed)
+            for _ in range(5000):
+                container = 'c%d' % rnd.randrange(100)
+                ts = '%.5f' % (1e9 + rnd.randrange(1000))
+                try:
+                    tracker.add_update('a', container, ts)
+                except Exception as err:
+                    errors.append(err)
+
+        old_interval = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        try:
+            threads = [threading.Thread(target=worker, args=(i,))
+                       for i in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        finally:
+            sys.setswitchinterval(old_interval)
+
+        self.assertEqual([], errors)
+        self.assertEqual(len(tracker.sorted_entries),
+                         len(tracker.ac_to_timestamp))
+        self.assertLessEqual(len(tracker.ac_to_timestamp), 50)
+        self.assertEqual(tracker.sorted_entries,
+                         sorted(tracker.sorted_entries))
+        self.assertEqual(
+            dict((ac, ts) for ts, ac in tracker.sorted_entries),
+            tracker.ac_to_timestamp)
 
 
 class TestSweepStats(unittest.TestCase):

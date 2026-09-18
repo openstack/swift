@@ -18,6 +18,7 @@ import errno
 import os
 import signal
 import sys
+import threading
 import time
 import uuid
 from random import random, shuffle
@@ -227,6 +228,8 @@ class OldestAsyncPendingTracker:
         self.max_entries = max_entries
         self.sorted_entries = []
         self.ac_to_timestamp = {}
+        # Pool workers call add_update from many threads at the same time.
+        self.lock = threading.Lock()
 
     def add_update(self, account, container, timestamp):
         """
@@ -241,30 +244,32 @@ class OldestAsyncPendingTracker:
 
         ac = (account, container)
 
-        if ac in self.ac_to_timestamp:
-            old_timestamp = self.ac_to_timestamp[ac]
-            # Only replace the existing timestamp if the new one is older
-            if timestamp < old_timestamp:
-                # Remove the old (timestamp, ac) from the
-                # sorted list
-                self.sorted_entries.remove((old_timestamp, ac))
+        with self.lock:
+            if ac in self.ac_to_timestamp:
+                old_timestamp = self.ac_to_timestamp[ac]
+                # Only replace the existing timestamp if the new one is older
+                if timestamp < old_timestamp:
+                    # Remove the old (timestamp, ac) from the
+                    # sorted list
+                    self.sorted_entries.remove((old_timestamp, ac))
+                    # Insert the new (timestamp, ac) in the sorted order
+                    insort(self.sorted_entries, (timestamp, ac))
+                    # Update the ac_to_timestamp dictionary
+                    self.ac_to_timestamp[ac] = timestamp
+            else:
                 # Insert the new (timestamp, ac) in the sorted order
                 insort(self.sorted_entries, (timestamp, ac))
-                # Update the ac_to_timestamp dictionary
                 self.ac_to_timestamp[ac] = timestamp
-        else:
-            # Insert the new (timestamp, ac) in the sorted order
-            insort(self.sorted_entries, (timestamp, ac))
-            self.ac_to_timestamp[ac] = timestamp
 
-        # Check size and evict the newest ac(s) if necessary
-        if (len(self.ac_to_timestamp) > self.max_entries):
-            # Pop the newest entry (largest timestamp)
-            _, newest_ac = (self.sorted_entries.pop())
-            del self.ac_to_timestamp[newest_ac]
+            # Check size and evict the newest ac(s) if necessary
+            if (len(self.ac_to_timestamp) > self.max_entries):
+                # Pop the newest entry (largest timestamp)
+                _, newest_ac = (self.sorted_entries.pop())
+                del self.ac_to_timestamp[newest_ac]
 
     def get_n_oldest_timestamp_acs(self, n):
-        oldest_entries = self.sorted_entries[:n]
+        with self.lock:
+            oldest_entries = self.sorted_entries[:n]
         return {
             'oldest_count': len(oldest_entries),
             'oldest_entries': [
@@ -278,8 +283,9 @@ class OldestAsyncPendingTracker:
         }
 
     def get_oldest_timestamp(self):
-        if self.sorted_entries:
-            return self.sorted_entries[0][0]
+        with self.lock:
+            if self.sorted_entries:
+                return self.sorted_entries[0][0]
         return None
 
     def get_oldest_timestamp_age(self):
@@ -290,11 +296,13 @@ class OldestAsyncPendingTracker:
         return None
 
     def reset(self):
-        self.sorted_entries = []
-        self.ac_to_timestamp = {}
+        with self.lock:
+            self.sorted_entries = []
+            self.ac_to_timestamp = {}
 
     def get_memory_usage(self):
-        return self._get_size(self)
+        with self.lock:
+            return self._get_size(self)
 
     def _get_size(self, obj, seen=None):
         if seen is None:
@@ -308,9 +316,10 @@ class OldestAsyncPendingTracker:
         size = sys.getsizeof(obj)
 
         if isinstance(obj, dict):
+            # Skip the lock so the number matches a tracker without one.
             size += sum(
                 self._get_size(k, seen) + self._get_size(v, seen)
-                for k, v in obj.items()
+                for k, v in obj.items() if v is not self.lock
             )
         elif hasattr(obj, '__dict__'):
             size += self._get_size(obj.__dict__, seen)
