@@ -22,7 +22,7 @@ from swift.common import swob
 from swift.common import utils
 from swift.common import request_helpers
 from swift.common.utils import Timestamp, shutdown_safe
-from swift.common.concurrency import ChunkReadError
+from swift.common.concurrency import ChunkReadError, USE_EVENTLET
 
 
 class SsyncClientDisconnected(Exception):
@@ -341,14 +341,12 @@ class Receiver(object):
         except Exception:
             self.req_logger.safe_exception('EXCEPTION')
         if self.disconnect:
-            # This makes the socket close early so the remote side doesn't have
-            # to send its whole request while the lower Eventlet-level just
-            # reads it and throws it away. Instead, the connection is dropped
-            # and the remote side will get a broken-pipe exception.
+            # Cut the sender off before it sends the rest of its request.
             try:
                 socket = self.request.environ['wsgi.input'].get_socket()
                 shutdown_safe(socket)
-                socket.close()
+                if USE_EVENTLET:
+                    socket.close()  # in thread mode gunicorn closes it
             except Exception:
                 pass  # We're okay with the above failing.
 

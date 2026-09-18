@@ -311,6 +311,14 @@ class TestReceiver(unittest.TestCase):
                 lines.append(line)
         return lines
 
+    def assert_socket_shut_down(self, mock_shutdown_safe, sock):
+        # Only eventlet mode closes the socket. gunicorn owns it otherwise.
+        mock_shutdown_safe.assert_called_once_with(sock)
+        if USE_EVENTLET:
+            sock.close.assert_called_once_with()
+        else:
+            self.assertFalse(sock.close.called)
+
     def test_SSYNC_semaphore_locked(self):
         with mock.patch.object(
                 self.controller, 'replication_semaphore') as \
@@ -735,9 +743,8 @@ class TestReceiver(unittest.TestCase):
                 [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
                  b":ERROR: 0 'Got no headers for Bad content is here'"])
             self.assertEqual(resp.status_int, 200)
-            mock_shutdown_safe.assert_called_once_with(
-                mock_wsgi_input.mock_socket)
-            mock_wsgi_input.mock_socket.close.assert_called_once_with()
+            self.assert_socket_shut_down(
+                mock_shutdown_safe, mock_wsgi_input.mock_socket)
             self.controller.logger.exception.assert_called_once_with(
                 'ssync receiver (remote_addr: 1.2.3.4, '
                 'path: device/partition) EXCEPTION')
@@ -773,9 +780,8 @@ class TestReceiver(unittest.TestCase):
                 self.body_lines(resp.body),
                 [b':MISSING_CHECK: START', b':MISSING_CHECK: END'])
             self.assertEqual(resp.status_int, 200)
-            mock_shutdown_safe.assert_called_once_with(
-                mock_wsgi_input.mock_socket)
-            mock_wsgi_input.mock_socket.close.assert_called_once_with()
+            self.assert_socket_shut_down(
+                mock_shutdown_safe, mock_wsgi_input.mock_socket)
             self.controller.logger.exception.assert_called_once_with(
                 'EXCEPTION')
 
@@ -1549,9 +1555,8 @@ class TestReceiver(unittest.TestCase):
                 [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
                  b":ERROR: 408 '0.01 seconds: updates line'"])
             self.assertEqual(resp.status_int, 200)
-            mock_shutdown_safe.assert_called_once_with(
-                mock_wsgi_input.mock_socket)
-            mock_wsgi_input.mock_socket.close.assert_called_once_with()
+            self.assert_socket_shut_down(
+                mock_shutdown_safe, mock_wsgi_input.mock_socket)
             self.controller.logger.error.assert_called_once_with(
                 'ssync receiver (remote_addr: 2.3.4.5, '
                 'path: device/partition) TIMEOUT: 0.01 seconds: updates line')
@@ -1618,9 +1623,8 @@ class TestReceiver(unittest.TestCase):
             b'chunk_one\r\ne\r\nbody_chunk_two\r\n'
             b'f\r\n:UPDATES: END\r\n\r\n'
             b'0\r\n\r\n', slow_io.read())
-        mock_shutdown_safe.assert_called_once_with(
-            wsgi_input.get_socket())
-        self.assertTrue(wsgi_input.get_socket().closed)
+        self.assert_socket_shut_down(
+            mock_shutdown_safe, wsgi_input.get_socket())
         log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
             ['ERROR __call__ error with PUT /device/partition/a/c/o : '
@@ -1674,9 +1678,8 @@ class TestReceiver(unittest.TestCase):
             b':MISSING_CHECK: START',
             b':MISSING_CHECK: END',
             b":ERROR: 408 '0.01 seconds: PUT /a/c/o'"], resp_body_lines)
-        mock_shutdown_safe.assert_called_once_with(
-            wsgi_input.get_socket())
-        self.assertTrue(wsgi_input.get_socket().closed)
+        self.assert_socket_shut_down(
+            mock_shutdown_safe, wsgi_input.get_socket())
         log_lines = self.logger.get_lines_for_level('error')
         self.assertEqual(
             ['ERROR __call__ error with PUT /device/partition/a/c/o : '
@@ -1725,9 +1728,8 @@ class TestReceiver(unittest.TestCase):
                 [b':MISSING_CHECK: START', b':MISSING_CHECK: END',
                  b":ERROR: 0 'test exception'"])
             self.assertEqual(resp.status_int, 200)
-            mock_shutdown_safe.assert_called_once_with(
-                mock_wsgi_input.mock_socket)
-            mock_wsgi_input.mock_socket.close.assert_called_once_with()
+            self.assert_socket_shut_down(
+                mock_shutdown_safe, mock_wsgi_input.mock_socket)
             self.controller.logger.exception.assert_called_once_with(
                 'ssync receiver (remote_addr: 3.4.5.6, '
                 'path: device/partition) EXCEPTION')
