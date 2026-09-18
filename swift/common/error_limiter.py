@@ -60,7 +60,7 @@ class ErrorLimiter(object):
 
         if 'last_error' in error_stats and error_stats['last_error'] < \
                 now - self.suppression_interval:
-            self.stats.pop(node_key)
+            self.stats.pop(node_key, None)
             return False
         return error_stats['errors'] > self.suppression_limit
 

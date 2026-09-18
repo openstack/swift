@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import collections
 import unittest
 from unittest import mock
 from time import time
@@ -91,6 +92,26 @@ class TestErrorLimiter(unittest.TestCase):
                         return_value=now):
             self.assertFalse(limiter.is_limited(node))
             self.assertFalse(limiter.stats.get(node_key))
+
+    def test_is_limited_entry_removed_by_other_thread(self):
+        # The other thread pops the expired entry between get() and pop().
+        node = self.ring.devs[-1]
+        limiter = ErrorLimiter(suppression_interval=60, suppression_limit=10)
+        now = time()
+        with mock.patch('swift.common.error_limiter.time', return_value=now):
+            limiter.limit(node)
+
+        class RacingStats(collections.defaultdict):
+            def get(self, key, default=None):
+                value = super().get(key, default)
+                super().pop(key, None)
+                return value
+
+        limiter.stats = RacingStats(dict, limiter.stats)
+        later = now + limiter.suppression_interval + 1
+        with mock.patch('swift.common.error_limiter.time',
+                        return_value=later):
+            self.assertFalse(limiter.is_limited(node))
 
     def test_node_key(self):
         limiter = ErrorLimiter(suppression_interval=60, suppression_limit=10)
