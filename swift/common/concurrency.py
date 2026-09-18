@@ -885,15 +885,22 @@ else:
     def trampoline(fd, read=None, write=None, timeout=None, **kwargs):
         """Wait for ``fd``, replacing eventlet.hubs.trampoline.
 
-        eventlet suspends the calling greenthread; here the calling thread
-        blocks in select(), which is all the callers need.
+        eventlet suspends the calling greenthread. Here the calling thread
+        blocks in poll(), which accepts any fd number.
         """
         if not read and not write:
-            # eventlet asserts on this; a select() on neither list never wakes
+            # eventlet asserts on this too
             raise ValueError('trampoline() requires read=True or write=True')
-        rlist = [fd] if read else []
-        wlist = [fd] if write else []
-        select.select(rlist, wlist, [fd], timeout)
+        # select() rejects fd >= FD_SETSIZE (1024), poll() takes any fd.
+        events = select.POLLERR | select.POLLHUP
+        if read:
+            events |= select.POLLIN
+        if write:
+            events |= select.POLLOUT
+        poller = select.poll()
+        poller.register(fd, events)
+        # poll() takes milliseconds, and None blocks
+        poller.poll(None if timeout is None else timeout * 1000)
 
 
 def real_socket(sock):

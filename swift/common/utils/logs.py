@@ -134,7 +134,7 @@ class PipeMutex(object):
 
                 # Wait for self.rfd to become readable, which happens when
                 # someone else writes to self.wfd. eventlet suspends the
-                # greenthread; without it the thread blocks in select().
+                # greenthread; without it the thread blocks in poll().
                 trampoline(self.rfd, read=True)
 
     def release(self):

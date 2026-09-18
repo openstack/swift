@@ -15,6 +15,9 @@
 
 import builtins
 import itertools
+import fcntl
+import os
+import resource
 import signal
 import socket
 import sys
@@ -742,6 +745,36 @@ class TestTrampoline(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             trampoline(rd.fileno(), timeout=5)
         self.assertIn('read=True or write=True', str(ctx.exception))
+
+    def test_fd_above_select_limit(self):
+        # select() rejects fd >= FD_SETSIZE (1024); poll() does not.
+        target = 1100
+        highest = target + 1
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        if soft <= highest:
+            if hard != resource.RLIM_INFINITY and hard <= highest:
+                self.skipTest('RLIMIT_NOFILE hard limit %d is too low to '
+                              'open fd %d' % (hard, highest))
+            resource.setrlimit(resource.RLIMIT_NOFILE, (highest + 1, hard))
+            self.addCleanup(resource.setrlimit, resource.RLIMIT_NOFILE,
+                            (soft, hard))
+        for fd in (target, highest):
+            try:
+                fcntl.fcntl(fd, fcntl.F_GETFD)
+            except OSError:
+                pass  # free, as expected
+            else:
+                self.skipTest('fd %d is in use in this process' % fd)
+        rd, wr = self._socketpair()
+        os.dup2(wr.fileno(), target)
+        self.addCleanup(os.close, target)
+        # without the fix select() raises ValueError here
+        trampoline(target, write=True, timeout=5)
+        wr.sendall(b'x')
+        os.dup2(rd.fileno(), highest)
+        self.addCleanup(os.close, highest)
+        trampoline(highest, read=True, timeout=5)
+        self.assertEqual(rd.recv(1), b'x')
 
 
 @unittest.skipIf(USE_EVENTLET, "threading socket_timeout helpers only")
