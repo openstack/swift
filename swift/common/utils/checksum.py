@@ -28,9 +28,11 @@ import zlib
 
 # See if anycrc is available...
 if anycrc:
+    crc32_anycrc = anycrc.Model('CRC32').calc
     crc32c_anycrc = anycrc.Model('CRC32C').calc
     crc64nvme_anycrc = anycrc.Model('CRC64-NVME').calc
 else:
+    crc32_anycrc = None
     crc32c_anycrc = None
     crc64nvme_anycrc = None
 
@@ -65,6 +67,20 @@ def find_isal():
 
 
 isal = find_isal()
+
+if hasattr(isal, 'crc32_gzip_refl'):  # isa-l >= 2.19
+    isal.crc32_gzip_refl.argtypes = [
+        ctypes.c_uint32, ctypes.c_char_p, ctypes.c_uint64]
+    isal.crc32_gzip_refl.restype = ctypes.c_uint32
+
+    def crc32_isal(data, value=0):
+        return isal.crc32_gzip_refl(
+            value,
+            data,
+            len(data),
+        )
+else:
+    crc32_isal = None
 
 if hasattr(isal, 'crc32_iscsi'):  # isa-l >= 2.16
     isal.crc32_iscsi.argtypes = [ctypes.c_char_p, ctypes.c_int, ctypes.c_uint]
@@ -127,6 +143,10 @@ else:
                 sock.close()
         finally:
             crc32c_sock.close()
+
+
+def _select_crc32_impl():
+    return crc32_isal or crc32_anycrc or zlib.crc32
 
 
 def _select_crc32c_impl():
@@ -227,7 +247,7 @@ class CRCHasher(object):
 
 def crc32(data=None, initial_value=0):
     return CRCHasher('crc32',
-                     zlib.crc32,
+                     _select_crc32_impl(),
                      data=data,
                      initial_value=initial_value)
 
@@ -248,6 +268,10 @@ def crc64nvme(data=None, initial_value=0):
 
 
 def log_selected_implementation(logger):
+    impl = _select_crc32_impl()
+    impl_name = 'zlib.crc32' if impl is zlib.crc32 else impl.__name__
+    logger.info('Using %s implementation for CRC32.' % impl_name)
+
     try:
         impl = _select_crc32c_impl()
     except NotImplementedError:

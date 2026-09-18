@@ -19,7 +19,7 @@ from swift.common.swob import Response, Request
 from swift.common.utils import HeaderKeyDict
 from swift.common.middleware.catch_errors import CatchErrorMiddleware
 from swift.common.middleware.s3api.s3response import S3Response, ErrorResponse
-from swift.common.middleware.s3api.utils import sysmeta_prefix
+from swift.common.middleware.s3api.utils import s3api_sysmeta_prefix
 
 
 class TestResponse(unittest.TestCase):
@@ -59,22 +59,22 @@ class TestResponse(unittest.TestCase):
     def test_response_s3api_sysmeta_headers(self):
         for _server_type in ('object', 'container'):
             swift_headers = HeaderKeyDict(
-                {sysmeta_prefix(_server_type) + 'test': 'ok'})
+                {s3api_sysmeta_prefix(_server_type) + 'test': 'ok'})
             resp = Response(headers=swift_headers)
             s3resp = S3Response.from_swift_resp(resp)
-            self.assertEqual(swift_headers, s3resp.sysmeta_headers)
+            self.assertEqual(swift_headers, s3resp.s3api_sysmeta_headers)
 
     def test_response_s3api_sysmeta_headers_ignore_other_sysmeta(self):
         for _server_type in ('object', 'container'):
             swift_headers = HeaderKeyDict(
                 # sysmeta not leading sysmeta_prefix even including s3api word
                 {'x-%s-sysmeta-test-s3api' % _server_type: 'ok',
-                 sysmeta_prefix(_server_type) + 'test': 'ok'})
+                 s3api_sysmeta_prefix(_server_type) + 'test': 'ok'})
             resp = Response(headers=swift_headers)
             s3resp = S3Response.from_swift_resp(resp)
             expected_headers = HeaderKeyDict(
-                {sysmeta_prefix(_server_type) + 'test': 'ok'})
-            self.assertEqual(expected_headers, s3resp.sysmeta_headers)
+                {s3api_sysmeta_prefix(_server_type) + 'test': 'ok'})
+            self.assertEqual(expected_headers, s3resp.s3api_sysmeta_headers)
             self.assertIn('x-%s-sysmeta-test-s3api' % _server_type,
                           s3resp.sw_headers)
 
@@ -86,22 +86,22 @@ class TestResponse(unittest.TestCase):
             resp = Response(headers=swift_headers)
             s3resp = S3Response.from_swift_resp(resp)
             expected_headers = HeaderKeyDict(
-                {sysmeta_prefix(_server_type) + 'test': 'ok'})
+                {s3api_sysmeta_prefix(_server_type) + 'test': 'ok'})
             # but Response class should translates as s3api sysmeta
-            self.assertEqual(expected_headers, s3resp.sysmeta_headers)
+            self.assertEqual(expected_headers, s3resp.s3api_sysmeta_headers)
 
     def test_response_swift3_sysmeta_does_not_overwrite_s3api_sysmeta(self):
         for _server_type in ('object', 'container'):
             # same key name except sysmeta prefix
             swift_headers = HeaderKeyDict(
                 {('x-%s-sysmeta-swift3-' % _server_type) + 'test': 'ng',
-                 sysmeta_prefix(_server_type) + 'test': 'ok'})
+                 s3api_sysmeta_prefix(_server_type) + 'test': 'ok'})
             resp = Response(headers=swift_headers)
             s3resp = S3Response.from_swift_resp(resp)
             expected_headers = HeaderKeyDict(
-                {sysmeta_prefix(_server_type) + 'test': 'ok'})
+                {s3api_sysmeta_prefix(_server_type) + 'test': 'ok'})
             # but only s3api sysmeta remains in the response sysmeta_headers
-            self.assertEqual(expected_headers, s3resp.sysmeta_headers)
+            self.assertEqual(expected_headers, s3resp.s3api_sysmeta_headers)
 
     def test_response_x_delete_at_to_x_amz_expiration(self):
         # Test basic X-Delete-At to x-amz-expiration translation

@@ -33,7 +33,7 @@ from swift.common.middleware.s3api.subresource import ACL, User, Owner, \
 from swift.common.middleware.s3api.s3request import S3Request, \
     S3AclRequest, SigV4Request, SIGV4_X_AMZ_DATE_FORMAT, HashingInput, \
     ChunkReader, StreamingInput, S3InputSHA256Mismatch, \
-    S3InputChunkSignatureMismatch, _get_checksum_hasher
+    S3InputChunkSignatureMismatch
 from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, ServiceUnavailable, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, \
@@ -77,13 +77,13 @@ def _gen_test_acl_header(owner, permission=None, grantee=None,
 
 class FakeResponse(object):
     def __init__(self, s3_acl):
-        self.sysmeta_headers = {}
+        self.s3api_sysmeta_headers = {}
         if s3_acl:
             owner = Owner(id='test:tester', name='test:tester')
-            self.sysmeta_headers.update(
+            self.s3api_sysmeta_headers.update(
                 _gen_test_acl_header(owner, 'FULL_CONTROL',
                                      resource='container'))
-            self.sysmeta_headers.update(
+            self.s3api_sysmeta_headers.update(
                 _gen_test_acl_header(owner, 'FULL_CONTROL',
                                      resource='object'))
 
@@ -2252,7 +2252,7 @@ class TestRequest(S3ApiTestCase):
             body=body,
             extra_headers={'x-amz-checksum-crc32c': crc}
         )
-        with patch('swift.common.middleware.s3api.s3request.checksum.'
+        with patch('swift.common.middleware.s3api.s3checksum.checksum.'
                    '_select_crc32c_impl', side_effect=NotImplementedError):
             with self.assertRaises(S3NotImplemented):
                 SigV4Request(req.environ)
@@ -2404,6 +2404,66 @@ class TestRequest(S3ApiTestCase):
         # the crc is not verified for a multi-upload complete POST
         resp_body = sigv4_req.environ['wsgi.input'].read()
         self.assertEqual(body, resp_body)
+
+    def test_checksum_value_validated_on_put(self):
+        req = Request.blank(
+            '/bucket/object', method='PUT', body=b'body',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-crc32': 'absolute garbage'})
+
+        with self.assertRaises(InvalidRequest) as result:
+            S3Request(req.environ)
+
+        self.assertIn(
+            b'<Message>Value for x-amz-checksum-crc32 header is invalid.'
+            b'</Message>',
+            result.exception.body)
+
+    def test_checksum_value_validated_on_delete_post(self):
+        req = Request.blank(
+            '/bucket?delete', method='POST', body=b'<Delete/>',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-crc32': 'absolute garbage'})
+
+        with self.assertRaises(InvalidRequest) as result:
+            S3Request(req.environ)
+
+        self.assertIn(
+            b'<Message>Value for x-amz-checksum-crc32 header is invalid.'
+            b'</Message>',
+            result.exception.body)
+
+    def test_checksum_value_not_validated_on_post(self):
+        req = Request.blank(
+            '/bucket/object?uploadId=X', method='POST', body=b'<Complete/>',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-crc32': 'absolute garbage'})
+
+        try:
+            s3req = S3Request(req.environ)
+        except ErrorResponse as err:
+            self.fail('Unexpected exception raised: %s' % err)
+
+        self.assertEqual(
+            'absolute garbage', s3req.headers['x-amz-checksum-crc32'])
+
+    def test_checksum_algorithm_still_validated_on_post(self):
+        req = Request.blank(
+            '/bucket/object?uploadId=X', method='POST', body=b'<Complete/>',
+            headers={'Authorization': 'AWS test:tester:hmac',
+                     'Date': self.get_date_header(),
+                     'x-amz-checksum-garbage': 'absolute garbage'})
+
+        with self.assertRaises(InvalidRequest) as result:
+            S3Request(req.environ)
+
+        self.assertIn(
+            b'<Message>The algorithm type you specified in '
+            b'x-amz-checksum- header is invalid.</Message>',
+            result.exception.body)
 
 
 class TestSigV4Request(S3ApiTestCase):
@@ -3169,45 +3229,6 @@ class TestStreamingInput(S3ApiTestCase):
         # note: underscore not hyphen...
         do_test('chunk_signature=ok', s3request.S3InputChunkSignatureMismatch)
         do_test('skunk-cignature=ok', s3request.S3InputChunkSignatureMismatch)
-
-
-class TestModuleFunctions(unittest.TestCase):
-    def test_get_checksum_hasher(self):
-        def do_test(crc):
-            hasher = _get_checksum_hasher('x-amz-checksum-%s' % crc)
-            self.assertEqual(crc, hasher.name)
-
-        do_test('crc32')
-        do_test('sha1')
-        do_test('sha256')
-
-        try:
-            checksum._select_crc32c_impl()
-        except NotImplementedError:
-            # This *should* always have a kernel implementation available as
-            # a fallback, but debian packaging (at least) has bumped into
-            # issues with even *that* not being available before
-            pass
-        else:
-            do_test('crc32c')
-
-        try:
-            checksum._select_crc64nvme_impl()
-        except NotImplementedError:
-            pass
-        else:
-            do_test('crc64nvme')
-
-    def test_get_checksum_hasher_invalid(self):
-        def do_test(crc):
-            with self.assertRaises(s3response.S3NotImplemented):
-                _get_checksum_hasher('x-amz-checksum-%s' % crc)
-
-        with mock.patch.object(checksum, '_select_crc64nvme_impl',
-                               side_effect=NotImplementedError):
-            do_test('crc64nvme')
-        do_test('nonsense')
-        do_test('')
 
 
 if __name__ == '__main__':

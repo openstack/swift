@@ -191,7 +191,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
                              self.build_container_name('c'))))
         self.assertIn(SYSMETA_VERSIONS_ENABLED, headers)
         self.assertEqual(headers[SYSMETA_VERSIONS_ENABLED], 'True')
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
     @patch_policies([StoragePolicy(0, 'zero', True),
@@ -212,7 +212,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         # check for sysmeta header
         calls = self.app.calls_with_headers
         self.assertEqual(4, len(calls))
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
         # request to create versions container
@@ -276,6 +276,60 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertEqual(len(self.authorized), 1)
         self.assertRequestEqual(req, self.authorized[0])
 
+    def test_enable_versioning_unauthed_does_not_create_versions_container(
+            self):
+        self.app.register('GET', '/v1/a', swob.HTTPOk, {}, '')
+        self.app.register('GET', '/v1/a/c', swob.HTTPNotFound, {}, '')
+        self.app.register('PUT', self.build_versions_path(),
+                          swob.HTTPOk, {}, '')
+        self.app.register('DELETE', self.build_versions_path(),
+                          swob.HTTPNoContent, {}, '')
+        self.app.register('PUT', '/v1/a/c', swob.HTTPUnauthorized, {}, '')
+
+        def fake_authorize(req):
+            self.authorized.append(req)
+            return swob.HTTPUnauthorized()
+
+        req = Request.blank('/v1/a/c',
+                            headers={'X-Versions-Enabled': 'true'},
+                            environ={'REQUEST_METHOD': 'PUT',
+                                     'swift.authorize': fake_authorize})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '401 Unauthorized')
+
+        self.assertNotIn(('PUT', self.build_versions_path()), self.app.calls)
+        self.assertNotIn(
+            ('DELETE', self.build_versions_path()), self.app.calls)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
+    def test_enable_versioning_unauthed_does_not_delete_versions_container(
+            self):
+        self.app.register('GET', '/v1/a', swob.HTTPOk, {}, '')
+        self.app.register('GET', '/v1/a/c', swob.HTTPOk, {}, '')
+        self.app.register('PUT', self.build_versions_path(),
+                          swob.HTTPAccepted, {}, '')
+        self.app.register('DELETE', self.build_versions_path(),
+                          swob.HTTPNoContent, {}, '')
+        self.app.register('POST', '/v1/a/c', swob.HTTPForbidden, {}, '')
+
+        def fake_authorize(req):
+            self.authorized.append(req)
+            return swob.HTTPForbidden()
+
+        req = Request.blank('/v1/a/c',
+                            headers={'X-Versions-Enabled': 'true'},
+                            environ={'REQUEST_METHOD': 'POST',
+                                     'swift.authorize': fake_authorize})
+        status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '403 Forbidden')
+
+        self.assertNotIn(('PUT', self.build_versions_path()), self.app.calls)
+        self.assertNotIn(
+            ('DELETE', self.build_versions_path()), self.app.calls)
+        self.assertEqual(len(self.authorized), 1)
+        self.assertRequestEqual(req, self.authorized[0])
+
     def test_same_policy_as_primary_container(self):
         self.app.register('GET', '/v1/a', swob.HTTPOk, {}, '')
         self.app.register('GET', '/v1/a/c', swob.HTTPNotFound, {}, '')
@@ -292,7 +346,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         # check for sysmeta header
         calls = self.app.calls_with_headers
         self.assertEqual(4, len(calls))
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
         # request to create versions container
@@ -368,7 +422,7 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         self.assertIn(SYSMETA_VERSIONS_ENABLED, req_headers)
         self.assertEqual(req_headers[SYSMETA_VERSIONS_ENABLED],
                          'True')
-        self.assertEqual(len(self.authorized), 1)
+        self.assertEqual(len(self.authorized), 2)
         self.assertRequestEqual(req, self.authorized[0])
 
     def test_put_container_with_legacy_versioning(self):
@@ -649,6 +703,135 @@ class ObjectVersioningTestCase(ObjectVersioningBaseTestCase):
         symlink_put_headers = self.app.call_list[-1].headers
         for k, v in symlink_expected_headers.items():
             self.assertEqual(symlink_put_headers[k], v)
+
+    def test_PUT_callback_footers_persisted_on_version_object(self):
+        ts_now = self.ts()
+        self.app.register('GET', '/v1/a/c/o', swob.HTTPNotFound, {}, None)
+        self.app.register(
+            'PUT',
+            self.build_versions_path(obj='o', version=(~ts_now).internal),
+            swob.HTTPCreated, {}, '')
+        self.app.register(
+            'PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+        put_body = 'stuff' * 100
+
+        def update_footers(footers):
+            footers['X-Object-Sysmeta-Test-Footer'] = 'from-callback'
+
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id',
+                     'swift.callback.update_footers': update_footers})
+        with mock_timestamp_now(ts_now):
+            status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        version_path = self.build_versions_path(
+            obj='o', version=(~ts_now).internal)
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT', version_path),
+            ('PUT', '/v1/a/c/o'),
+        ])
+
+        version_put_call = self.app.call_list[1]
+        self.assertEqual(
+            'from-callback',
+            version_put_call.footers['X-Object-Sysmeta-Test-Footer'])
+        version_metadata, _version_body = self.app.uploaded[version_path]
+        self.assertEqual(
+            'from-callback',
+            version_metadata['X-Object-Sysmeta-Test-Footer'])
+
+        symlink_put_call = self.app.call_list[2]
+        self.assertNotIn('swift.callback.update_footers',
+                         symlink_put_call.req.environ)
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer',
+                         symlink_put_call.footers)
+        # the original PUT no longer has the callback
+        self.assertNotIn('swift.callback.update_footers', req.environ)
+
+    def test_PUT_overwrite_unversioned_object_callback_footers(self):
+        # The footer callback must be applied only to the PUT that reads the
+        # client body; neither the PUT that copies the pre-existing version
+        # into the versions container nor the symlink PUT should see it.
+        ts_old, ts_new = self.ts(), self.ts()
+        exp_old_version = (~ts_old).internal
+        exp_new_version = (~ts_new).internal
+        old_version_path = self.build_versions_path(
+            obj='o', version=exp_old_version)
+        new_version_path = self.build_versions_path(
+            obj='o', version=exp_new_version)
+        self.app.register(
+            'GET', '/v1/a/c/o', swob.HTTPOk,
+            {'x-timestamp': ts_old.normal,
+             'x-backend-timestamp': ts_old.internal,
+             'last-modified': date_header_format(ts_old)},
+            'passed')
+        self.app.register('PUT', old_version_path, swob.HTTPCreated, {}, '')
+        self.app.register('PUT', new_version_path, swob.HTTPCreated, {}, '')
+        self.app.register('PUT', '/v1/a/c/o', swob.HTTPCreated, {}, 'passed')
+
+        callback_calls = []
+
+        def update_footers(footers):
+            callback_calls.append(footers)
+            footers['X-Object-Sysmeta-Test-Footer'] = 'from-callback'
+
+        put_body = 'stuff' * 100
+        req = Request.blank(
+            '/v1/a/c/o', method='PUT', body=put_body,
+            headers={'Content-Type': 'text/plain',
+                     'ETag': md5(
+                         put_body.encode('utf8'),
+                         usedforsecurity=False).hexdigest(),
+                     'Content-Length': len(put_body)},
+            environ={'swift.cache': self.cache_version_on,
+                     'swift.trans_id': 'fake_trans_id',
+                     'swift.callback.update_footers': update_footers})
+        with mock_timestamp_now(ts_new):
+            status, headers, body = self.call_ov(req)
+        self.assertEqual(status, '201 Created')
+        self.assertEqual(self.app.calls, [
+            ('GET', '/v1/a/c/o?symlink=get'),
+            ('PUT', old_version_path),
+            ('PUT', new_version_path),
+            ('PUT', '/v1/a/c/o'),
+        ])
+        # the callback fired exactly once, for the PUT of the client body
+        self.assertEqual(1, len(callback_calls))
+
+        # the copy of the pre-existing version has no footers
+        copy_current_put_call = self.app.call_list[1]
+        self.assertNotIn('swift.callback.update_footers',
+                         copy_current_put_call.req.environ)
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer',
+                         copy_current_put_call.footers)
+        old_metadata, _old_body = self.app.uploaded[old_version_path]
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer', old_metadata)
+
+        # the new version, written from the client body, has the footers
+        new_version_put = self.app.call_list[2]
+        self.assertEqual(
+            'from-callback',
+            new_version_put.footers['X-Object-Sysmeta-Test-Footer'])
+        new_metadata, _new_body = self.app.uploaded[new_version_path]
+        self.assertEqual('from-callback',
+                         new_metadata['X-Object-Sysmeta-Test-Footer'])
+
+        # the symlink does not
+        symlink_put_call = self.app.call_list[3]
+        self.assertNotIn('swift.callback.update_footers',
+                         symlink_put_call.req.environ)
+        self.assertNotIn('X-Object-Sysmeta-Test-Footer',
+                         symlink_put_call.footers)
+        # the original PUT no longer has the callback
+        self.assertNotIn('swift.callback.update_footers', req.environ)
 
     def test_PUT_timestamp_set_by_object_versioning(self):
         # verify timestamps set by versioning

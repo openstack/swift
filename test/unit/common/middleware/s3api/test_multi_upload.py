@@ -33,7 +33,8 @@ from test.unit.common.middleware.s3api.helpers import UnreadableInput
 from swift.common.middleware.s3api.etree import fromstring, tostring
 from swift.common.middleware.s3api.subresource import Owner, Grant, User, \
     ACL, encode_acl, decode_acl, ACLPublicRead
-from swift.common.middleware.s3api.utils import sysmeta_header, S3Timestamp
+from swift.common.middleware.s3api.utils import s3api_sysmeta_header, \
+    S3Timestamp
 from swift.common.middleware.s3api.s3request import MAX_32BIT_INT
 from swift.common.storage_policy import StoragePolicy, POLICIES
 from swift.proxy.controllers.base import get_cache_key
@@ -906,7 +907,7 @@ class BaseS3ApiMultiUpload(object):
             'X-Object-Sysmeta-Container-Update-Override-Etag',
             'X-Object-Sysmeta-Swift3-Etag',
         ):
-            self.assertEqual(headers[header], '')
+            self.assertNotIn(header, headers)
 
     def test_upload_part_copy_source_headers(self):
         # verify that only recognised copy-source headers are propagated from
@@ -1279,6 +1280,19 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
         self._test_object_multipart_upload_initiate(
             {'X-Amz-Checksum-Algorithm': 'CRC32',
              'X-Amz-Checksum-Type': 'COMPOSITE'}, fake_memcache)
+        self.assertEqual([
+            (('swift_s3_checksum_algo_request',), {
+                'labels': {
+                    'account': 'AUTH_test',
+                    'container': 'bucket+segments',
+                    'method': 'POST',
+                    'type': 'object',
+                    'status': 200,
+                    'header_x_amz_checksum_algorithm': 'CRC32',
+                    'header_x_amz_checksum_type': 'COMPOSITE',
+                },
+            }),
+        ], self.statsd.calls['increment'])
 
     def test_object_mpu_initiate_with_segment_bucket_mixed_policy(self):
         fake_memcache = FakeMemcache()
@@ -1440,12 +1454,13 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
             'X-Object-Sysmeta-S3api-Has-Content-Type'), 'yes')
         self.assertEqual(req_headers.get(
             'X-Object-Sysmeta-S3api-Content-Type'), 'cat/picture')
-        tmpacl_header = req_headers.get(sysmeta_header('object', 'tmpacl'))
+        tmpacl_header = req_headers.get(
+            s3api_sysmeta_header('object', 'tmpacl'))
         self.assertTrue(tmpacl_header)
         acl_header = encode_acl('object',
                                 ACLPublicRead(Owner('test:tester',
                                                     'test:tester')))
-        self.assertEqual(acl_header.get(sysmeta_header('object', 'acl')),
+        self.assertEqual(acl_header.get(s3api_sysmeta_header('object', 'acl')),
                          tmpacl_header)
 
     def test_object_mpu_initiate_s3acl_with_segment_bucket(self):
@@ -1591,6 +1606,23 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
     def test_object_multipart_upload_complete(self):
         self._do_test_object_multipart_upload_complete()
+
+    def test_object_multipart_upload_complete_with_checksum_type(self):
+        self._do_test_object_multipart_upload_complete(
+            extra_headers={'X-Amz-Checksum-Type': 'COMPOSITE'})
+        self.assertEqual([
+            (('swift_s3_checksum_algo_request',), {
+                'labels': {
+                    'account': 'AUTH_test',
+                    'container': 'bucket+segments',
+                    'method': 'POST',
+                    'type': 'object',
+                    'status': 200,
+                    'header_content_md5': 'b64_24',
+                    'header_x_amz_checksum_type': 'COMPOSITE',
+                },
+            }),
+        ], self.statsd.calls['increment'])
 
     def test_object_multipart_upload_complete_with_if_none_match_star(self):
         self._do_test_object_multipart_upload_complete(
@@ -2819,6 +2851,37 @@ class TestS3ApiMultiUpload(BaseS3ApiMultiUpload, S3ApiTestCase):
 
         self.assertEqual(status.split()[0], '400', body)
 
+    def test_upload_part_copy_with_plain_range_is_rejected(self):
+        account = 'test:tester'
+        test_headers = (
+            {'Range': 'bytes=0-9'},
+            {
+                'Range': 'bytes=10-19',
+                'X-Amz-Copy-Source-Range': 'bytes=0-9',
+            },
+        )
+
+        for headers in test_headers:
+            self.swift.clear_calls()
+            with self.subTest(headers=headers):
+                status, _headers, body = self._test_copy_for_s3acl(
+                    account, src_headers={'Content-Length': '20'},
+                    put_header=headers)
+
+                self.assertEqual(status.split()[0], '400', body)
+                self.assertEqual(
+                    'InvalidRequest', self._get_error_code(body))
+                self.assertEqual(
+                    'Cannot specify both Range header and partNumber '
+                    'query parameter',
+                    self._get_error_message(body))
+                self.assertNotIn(
+                    ('HEAD', '/v1/AUTH_test/src_bucket/src_obj'),
+                    self.swift.calls)
+                self.assertNotIn(
+                    ('PUT', '/v1/AUTH_test/bucket+segments/object/X/1'),
+                    self.swift.calls)
+
     def test_upload_part_copy_range(self):
         account = 'test:tester'
 
@@ -2873,20 +2936,21 @@ class TestS3ApiMultiUploadAcl(BaseS3ApiMultiUpload, S3ApiTestCaseAcl):
         self.assertEqual(req_headers.get('X-Object-Meta-Foo'), 'bar')
         self.assertEqual(req_headers.get(
             'X-Object-Sysmeta-S3api-Has-Content-Type'), 'no')
-        tmpacl_header = req_headers.get(sysmeta_header('object', 'tmpacl'))
+        tmpacl_header = req_headers.get(
+            s3api_sysmeta_header('object', 'tmpacl'))
         self.assertTrue(tmpacl_header)
         acl_header = encode_acl('object',
                                 ACLPublicRead(Owner('test:tester',
                                                     'test:tester')))
-        self.assertEqual(acl_header.get(sysmeta_header('object', 'acl')),
+        self.assertEqual(acl_header.get(s3api_sysmeta_header('object', 'acl')),
                          tmpacl_header)
 
     def test_object_multipart_upload_complete_s3acl(self):
         acl_headers = encode_acl('object', ACLPublicRead(Owner('test:tester',
                                                                'test:tester')))
         headers = {}
-        headers[sysmeta_header('object', 'tmpacl')] = \
-            acl_headers.get(sysmeta_header('object', 'acl'))
+        headers[s3api_sysmeta_header('object', 'tmpacl')] = \
+            acl_headers.get(s3api_sysmeta_header('object', 'acl'))
         headers['X-Object-Meta-Foo'] = 'bar'
         headers['Content-Type'] = 'baz/quux'
         self.swift.register('HEAD', '/v1/AUTH_test/bucket+segments/object/X',

@@ -68,7 +68,7 @@ import time
 from swift.common import constraints
 from swift.common.swob import Range, bytes_to_wsgi, normalize_etag, \
     wsgi_quote, wsgi_to_str, parse_date_header
-from swift.common.utils import json, public, reiterate, md5
+from swift.common.utils import json, public, reiterate, md5, serialize_header
 from swift.common.utils.timestamp import Timestamp, NormalTimestamp
 from swift.common.request_helpers import get_container_update_override_key, \
     get_param
@@ -86,7 +86,7 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     BucketAlreadyOwnedByYou, ServiceUnavailable, PreconditionFailed, \
     S3NotImplemented
 from swift.common.middleware.s3api.utils import unique_id, \
-    MULTIUPLOAD_SUFFIX, S3Timestamp, sysmeta_header
+    MULTIUPLOAD_SUFFIX, S3Timestamp, s3api_sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
 from swift.common.storage_policy import POLICIES
@@ -127,8 +127,8 @@ def _get_upload_info(req, app, upload_id):
         policy_index = req.policy_index
         try:
             resp = req.get_response(app, 'HEAD')
-            if resp.sysmeta_headers.get(sysmeta_header(
-                    'object', 'upload-id')) == upload_id:
+            if resp.s3api_sysmeta_headers.get(
+                    s3api_sysmeta_header('object', 'upload-id')) == upload_id:
                 return resp, False
         except NoSuchKey:
             pass
@@ -236,15 +236,7 @@ class PartController(Controller):
 
             req.headers['Range'] = rng
             del req.headers['X-Amz-Copy-Source-Range']
-        if 'X-Amz-Copy-Source' in req.headers:
-            # Clear some problematic headers that might be on the source
-            req.headers.update({
-                sysmeta_header('object', 'etag'): '',
-                'X-Object-Sysmeta-Swift3-Etag': '',  # for legacy data
-                'X-Object-Sysmeta-Slo-Etag': '',
-                'X-Object-Sysmeta-Slo-Size': '',
-                get_container_update_override_key('etag'): '',
-            })
+
         resp = req.get_response(self.app)
 
         if 'X-Amz-Copy-Source' in req.headers:
@@ -452,11 +444,13 @@ class UploadsController(Controller):
         seg_container = req.container_name + MULTIUPLOAD_SUFFIX
         content_type = req.headers.get('Content-Type')
         if content_type:
-            req.headers[sysmeta_header('object', 'has-content-type')] = 'yes'
             req.headers[
-                sysmeta_header('object', 'content-type')] = content_type
+                s3api_sysmeta_header('object', 'has-content-type')] = 'yes'
+            req.headers[
+                s3api_sysmeta_header('object', 'content-type')] = content_type
         else:
-            req.headers[sysmeta_header('object', 'has-content-type')] = 'no'
+            req.headers[
+                s3api_sysmeta_header('object', 'has-content-type')] = 'no'
         req.headers['Content-Type'] = 'application/directory'
 
         try:
@@ -690,7 +684,7 @@ class UploadController(Controller):
             raise ServiceUnavailable(reason='mpu_clock_skew')
 
         headers = {'Accept': 'application/json',
-                   sysmeta_header('object', 'upload-id'): upload_id}
+                   s3api_sysmeta_header('object', 'upload-id'): upload_id}
         for key, val in resp.headers.items():
             _key = key.lower()
             if _key.startswith('x-amz-meta-'):
@@ -699,11 +693,11 @@ class UploadController(Controller):
                           'content-disposition', 'expires', 'cache-control'):
                 headers[key] = val
 
-        hct_header = sysmeta_header('object', 'has-content-type')
-        if resp.sysmeta_headers.get(hct_header) == 'yes':
-            content_type = resp.sysmeta_headers.get(
-                sysmeta_header('object', 'content-type'))
-        elif hct_header in resp.sysmeta_headers:
+        hct_header = s3api_sysmeta_header('object', 'has-content-type')
+        if resp.s3api_sysmeta_headers.get(hct_header) == 'yes':
+            content_type = resp.s3api_sysmeta_headers.get(
+                s3api_sysmeta_header('object', 'content-type'))
+        elif hct_header in resp.s3api_sysmeta_headers:
             # has-content-type is present but false, so no content type was
             # set on initial upload. In that case, we won't set one on our
             # PUT request. Swift will end up guessing one based on the
@@ -765,10 +759,11 @@ class UploadController(Controller):
             raise
 
         s3_etag = '%s-%d' % (s3_etag_hasher.hexdigest(), len(manifest))
-        s3_etag_header = sysmeta_header('object', 'etag')
+        s3_etag_header = s3api_sysmeta_header('object', 'etag')
         # This header should only already be present if the upload marker
         # has been cleaned up and the current target uses the same upload-id
-        already_uploaded_s3_etag = resp.sysmeta_headers.get(s3_etag_header)
+        already_uploaded_s3_etag = resp.s3api_sysmeta_headers.get(
+            s3_etag_header)
         if already_uploaded_s3_etag == s3_etag:
             # If the segments to use haven't changed, the work is already done
             return HTTPOk(body=_make_complete_body(req, s3_etag, False),
@@ -779,8 +774,8 @@ class UploadController(Controller):
             raise NoSuchUpload(upload_id=upload_id)
         headers[s3_etag_header] = s3_etag
         # Leave base header value blank; SLO will populate
-        c_etag = '; s3_etag=%s' % s3_etag
-        headers[get_container_update_override_key('etag')] = c_etag
+        headers[get_container_update_override_key('etag')] = \
+            serialize_header('', {'s3_etag': s3_etag})
 
         too_small_message = ('s3api requires that each segment be at least '
                              '%d bytes' % self.conf.min_segment_size)

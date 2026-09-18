@@ -161,11 +161,9 @@ class MemcacheConnPool(Pool):
                 # An error happened previously, so we need a new connection
                 fp, sock = self.create()
             return fp, sock
-        except Timeout:
-            # create() timed out with a pool item already taken, and this is
-            # the only place that knows it was taken. Catching
-            # MemcachePoolTimeout alone never fired: pool_get_with_timeout
-            # raises it before this try block.
+        except (Exception, Timeout):
+            # This is the only place that knows an item was successfully taken
+            # from the pool, so it has to be responsible for repopulating it.
             self.put((None, None))
             raise
 
@@ -358,11 +356,12 @@ class MemcacheRing(object):
                                          action='getting a connection',
                                          got_connection=False)
             except (Exception, Timeout) as e:
-                # Typically a Timeout exception caught here is the one raised
-                # by the create() method of this server's MemcacheConnPool
-                # object.
+                # create() failed inside get(). If get() took a placeholder
+                # from the pool, it has put it back. got_connection=False
+                # stops _exception_occurred() from putting another one back.
                 self._exception_occurred(server, e, cmd, pool_start_time,
-                                         action='connecting', sock=sock)
+                                         action='connecting', sock=sock,
+                                         got_connection=False)
         if not any_yielded:
             self._log_error('ALL', cmd, 'connecting',
                             'No more memcached servers to try')

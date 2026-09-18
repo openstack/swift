@@ -400,6 +400,14 @@ class ObjectContext(ObjectVersioningContext):
             put_req.content_length = req.content_length
         byte_counter = ByteCountingReader(req.environ['wsgi.input'])
         put_req.environ['wsgi.input'] = byte_counter
+
+        if 'swift.callback.update_footers' in req.environ:
+            # Move the footer callback to the internal PUT that reads the
+            # client body. The original request is later reused to write the
+            # symlink to the actual object with versioning, and the
+            # body-derived footers should not be applied to that symlink PUT.
+            put_req.environ['swift.callback.update_footers'] = \
+                req.environ.pop('swift.callback.update_footers')
         req.body = b''
         # move metadata over, including sysmeta
 
@@ -1152,17 +1160,21 @@ class ContainerContext(ObjectVersioningContext):
         if config_true_value(is_enabled):
             (version, account, container, _) = req.split_path(3, 4, True)
 
+            # Authorize before any pre-authed create/delete of the hidden
+            # versions container. Otherwise a rejected client request still
+            # causes those backend mutations (and a cleanup DELETE).
+            if 'swift.authorize' in req.environ:
+                if is_success(container_info['status']):
+                    req.acl = container_info.get('write_acl')
+                aresp = req.environ['swift.authorize'](req)
+                if aresp:
+                    raise aresp
+
             # Attempt to use same policy as primary container, otherwise
             # use default policy
             if is_success(container_info['status']):
                 primary_policy_idx = container_info['storage_policy']
                 if POLICIES[primary_policy_idx].is_deprecated:
-                    # Do an auth check now, so we don't leak information
-                    # about the container
-                    aresp = req.environ['swift.authorize'](req)
-                    if aresp:
-                        raise aresp
-
                     # Proxy controller would catch the deprecated policy, too,
                     # but waiting until then would mean the error message
                     # would be a generic "Error enabling object versioning".

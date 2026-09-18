@@ -167,6 +167,9 @@ class ProxyOverrideOptions(object):
             'concurrency_timeout', app.conn_timeout))
         self.concurrent_ec_extra_requests = int(get(
             'concurrent_ec_extra_requests', 0))
+        self.ec_head_node_count = get('ec_head_node_count', '1 * replicas')
+        self.ec_head_node_count_fn = config_request_node_count_value(
+            self.ec_head_node_count, 'ec_head_node_count')
 
     def __repr__(self):
         return '%s({}, {%s}, app)' % (
@@ -181,6 +184,7 @@ class ProxyOverrideOptions(object):
                     'concurrent_gets',
                     'concurrency_timeout',
                     'concurrent_ec_extra_requests',
+                    'ec_head_node_count',
                 )))
 
     def __eq__(self, other):
@@ -196,6 +200,7 @@ class ProxyOverrideOptions(object):
             'concurrent_gets',
             'concurrency_timeout',
             'concurrent_ec_extra_requests',
+            'ec_head_node_count',
         ))
 
 

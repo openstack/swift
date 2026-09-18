@@ -154,6 +154,8 @@ from swift.common.wsgi import PipelineWrapper, loadcontext, WSGIContext
 from swift.common.statsd_client import get_labeled_statsd_client
 
 from swift.common.middleware import app_property
+from swift.common.middleware.s3api.s3checksum import CHECKSUMS_BY_HEADER, \
+    normalize_checksum_algorithm
 from swift.common.middleware.s3api.exception import NotS3Request, \
     InvalidSubresource
 from swift.common.middleware.s3api import s3request
@@ -161,9 +163,9 @@ from swift.common.middleware.s3api.s3response import ErrorResponse, \
     InternalError, MethodNotAllowed, S3ResponseBase
 from swift.common.utils import get_logger, config_true_value, \
     config_positive_int_value, split_path, closing_if_possible, \
-    list_from_csv, parse_header, checksum
+    list_from_csv, parse_header, checksum, serialize_header
 from swift.common.middleware.s3api.utils import Config, \
-    classify_checksum_header_value, make_header_label
+    classify_checksum_header_value, make_header_label, install_copy_hook
 from swift.common.registry import register_swift_info, \
     register_sensitive_header, register_sensitive_param
 
@@ -180,7 +182,6 @@ WELL_KNOWN_SPECIFIC_SHA256_VALUES = (
 # https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity.html
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html#AmazonS3-Type-Object-ChecksumAlgorithm
 # https://docs.aws.amazon.com/AmazonS3/latest/API/API_PutObject.html
-# docs are unclear whether the header value is the (un-)hyphenated form
 
 # algorithms for x-amz-checksum-algorithm/ x-amz-sdk-checksum-algorithm
 WELL_KNOWN_CHECKSUM_ALGORITHMS = (
@@ -196,6 +197,11 @@ WELL_KNOWN_CHECKSUM_HEADERS = (
     'x-amz-checksum-sha1',
     'x-amz-checksum-sha256',
     'x-amz-checksum-crc64nvme'
+)
+# types for x-amz-checksum-type
+WELL_KNOWN_CHECKSUM_TYPES = (
+    'COMPOSITE',
+    'FULL_OBJECT'
 )
 
 
@@ -265,8 +271,7 @@ class ListingEtagMiddleware(object):
                 value, params = parse_header(item['hash'])
                 if 's3_etag' in params:
                     item['s3_etag'] = '"%s"' % params.pop('s3_etag')
-                    item['hash'] = value + ''.join(
-                        '; %s=%s' % kv for kv in params.items())
+                    item['hash'] = serialize_header(value, params)
         except (TypeError, KeyError, ValueError):
             # If anything goes wrong above, drop back to original response
             start_response(ctx._response_status, ctx._response_headers,
@@ -373,17 +378,26 @@ class S3ApiMiddleware(object):
                     label_val = classify_checksum_header_value(hdr_val)
             elif hdr_key == 'content-md5':
                 label_val = classify_checksum_header_value(hdr_val)
-            elif hdr_key in s3request.CHECKSUMS_BY_HEADER.keys():
+            elif hdr_key in CHECKSUMS_BY_HEADER.keys():
                 label_val = classify_checksum_header_value(hdr_val)
             elif hdr_key == 'x-amz-trailer':
-                if hdr_val.lower() in s3request.CHECKSUMS_BY_HEADER.keys():
+                if hdr_val.lower() in CHECKSUMS_BY_HEADER.keys():
                     label_val = hdr_val.lower()
                 else:
                     label_val = 'unknown'
             elif hdr_key in ('x-amz-checksum-algorithm',
                              'x-amz-sdk-checksum-algorithm'):
-                hdr_val_normalised = hdr_val.upper().replace('-', '')
+                # docs are unclear whether the header value is the
+                # (un-)hyphenated form
+                hdr_val_normalised = normalize_checksum_algorithm(
+                    hdr_val).replace('-', '')
                 if hdr_val_normalised in WELL_KNOWN_CHECKSUM_ALGORITHMS:
+                    label_val = hdr_val_normalised
+                else:
+                    label_val = 'unknown'
+            elif hdr_key == 'x-amz-checksum-type':
+                hdr_val_normalised = hdr_val.upper()
+                if hdr_val_normalised in WELL_KNOWN_CHECKSUM_TYPES:
                     label_val = hdr_val_normalised
                 else:
                     label_val = 'unknown'
@@ -451,6 +465,8 @@ class S3ApiMiddleware(object):
             start_response('200 OK', headers)
             return [b'']
 
+        # prevent s3api specific sysmeta being copied via s3api or swift api
+        install_copy_hook(env)
         try:
             req_class = s3request.get_request_class(env, self.conf.s3_acl)
             req = req_class(env, self.app, self.conf)

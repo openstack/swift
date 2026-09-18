@@ -28,7 +28,7 @@ import string
 
 from swift.common.utils import split_path, json, md5, streq_const_time, \
     close_if_possible, InputProxy, get_policy_index, list_from_csv, \
-    strict_b64decode, base64_str, checksum
+    base64_str
 from swift.common.registry import get_swift_info
 from swift.common import swob
 from swift.common.http import HTTP_OK, HTTP_CREATED, HTTP_ACCEPTED, \
@@ -44,6 +44,8 @@ from swift.proxy.controllers.base import get_container_info
 from swift.common.request_helpers import check_path_header, \
     update_etag_is_at_value
 
+from swift.common.middleware.s3api.s3checksum import CHECKSUMS_BY_HEADER, \
+    ChecksummingInput, get_checksum_hasher, validate_checksum_value
 from swift.common.middleware.s3api.controllers import ServiceController, \
     ObjectController, AclController, MultiObjectDeleteController, \
     LocationController, LoggingStatusController, PartController, \
@@ -70,7 +72,7 @@ from swift.common.middleware.s3api.exception import NotS3Request, \
 from swift.common.middleware.s3api.utils import utf8encode, \
     S3Timestamp, mktime, MULTIUPLOAD_SUFFIX, swift3_object_sysmeta_header
 from swift.common.middleware.s3api.subresource import decode_acl, encode_acl
-from swift.common.middleware.s3api.utils import sysmeta_header, \
+from swift.common.middleware.s3api.utils import s3api_sysmeta_header, \
     parse_host, parse_path, Config
 from swift.common.middleware.s3api.exception import \
     InvalidBucketNameParseError, InvalidURIParseError
@@ -125,27 +127,13 @@ ALLOWED_COPY_SOURCE_HEADERS = frozenset((
 ))
 
 
-CHECKSUMS_BY_HEADER = {
-    'x-amz-checksum-crc32': checksum.crc32,
-    'x-amz-checksum-crc32c': checksum.crc32c,
-    'x-amz-checksum-crc64nvme': checksum.crc64nvme,
-    'x-amz-checksum-sha1': sha1,
-    'x-amz-checksum-sha256': sha256,
-}
-
-
 def _get_checksum_hasher(header):
+    """Return an S3 checksum hasher or raise an S3 response error."""
+    # This is to avoid cyclical imports between checksum and s3response.
     try:
-        return CHECKSUMS_BY_HEADER[header]()
-    except (KeyError, NotImplementedError):
-        raise S3NotImplemented('The %s algorithm is not supported.' % header)
-
-
-def _validate_checksum_value(checksum_hasher, b64digest):
-    return strict_b64decode(
-        b64digest,
-        exact_size=checksum_hasher.digest_size,
-    )
+        return get_checksum_hasher(header)
+    except NotImplementedError as err:
+        raise S3NotImplemented(str(err))
 
 
 def _validate_checksum_header_cardinality(num_checksum_headers,
@@ -196,7 +184,7 @@ def _header_acl_property(resource):
         setattr(self, '_%s' % resource, value)
 
     def deleter(self):
-        self.headers[sysmeta_header(resource, 'acl')] = ''
+        self.headers[s3api_sysmeta_header(resource, 'acl')] = ''
 
     return property(getter, setter, deleter,
                     doc='Get and set the %s acl property' % resource)
@@ -248,64 +236,6 @@ class HashingInput(InputProxy):
                 self._expected_hash,
                 self._hasher.hexdigest())
 
-        return chunk
-
-
-class ChecksummingInput(InputProxy):
-    """
-    wsgi.input wrapper to calculate the X-Amz-Checksum-* of the input as it's
-    read. The calculated value is checked against an expected value that is
-    sent in either the request headers or trailers. To allow for the latter,
-    the expected value is lazy fetched once the input has been read.
-
-    :param wsgi_input: file-like object to be wrapped.
-    :param content_length: the expected number of bytes to be read.
-    :param checksum_hasher: a hasher to calculate the checksum of read bytes.
-    :param checksum_key: the name of the header or trailer that will have
-        the expected checksum value to be checked.
-    :param checksum_source: a dict that will have the ``checksum_key``.
-    """
-
-    def __init__(self, wsgi_input, content_length, checksum_hasher,
-                 checksum_key, checksum_source):
-        super().__init__(wsgi_input)
-        self._expected_length = content_length
-        self._checksum_hasher = checksum_hasher
-        self._checksum_key = checksum_key
-        self._checksum_source = checksum_source
-
-    def chunk_update(self, chunk, eof, *args, **kwargs):
-        # Note that "chunk" is just whatever was read from the input; this
-        # says nothing about whether the underlying stream uses aws-chunked
-        self._checksum_hasher.update(chunk)
-        if self.bytes_received < self._expected_length:
-            # wrapped input is likely to have timed out before this clause is
-            # reached with eof==True, but just in case...
-            error = eof
-        elif self.bytes_received == self._expected_length:
-            # Lazy fetch checksum value because it may have come in trailers
-            b64digest = self._checksum_source.get(self._checksum_key)
-            try:
-                expected_raw_checksum = _validate_checksum_value(
-                    self._checksum_hasher, b64digest)
-            except ValueError:
-                # If the checksum value came in a header then it would have
-                # been validated before the body was read, so if the validation
-                # fails here then we can infer that the checksum value came in
-                # a trailer. The S3InputChecksumTrailerInvalid raised here will
-                # propagate all the way back up the middleware stack to s3api
-                # where it is caught and translated to an InvalidRequest.
-                raise S3InputChecksumTrailerInvalid(self._checksum_key)
-            error = self._checksum_hasher.digest() != expected_raw_checksum
-        else:
-            # the underlying wsgi.Input stops reading at content-length so we
-            # don't expect to reach this clause, but just in case...
-            error = True
-
-        if error:
-            self.close()
-            # Since we don't return the last chunk, the PUT never completes
-            raise S3InputChecksumMismatch(self._checksum_hasher.name.upper())
         return chunk
 
 
@@ -1129,8 +1059,18 @@ class S3Request(swob.Request):
             self.sig_checker = SigCheckerV2(self)
         aws_sha256 = self.headers.get('x-amz-content-sha256')
         if self.method in ('PUT', 'POST'):
+            if self.method == 'PUT':
+                verify_checksum = True
+            elif 'delete' in self.params:
+                verify_checksum = True
+            else:
+                # For some POST requests the checksum header does not refer to
+                # the request body, and may not be base64 (e.g. MPU complete),
+                # so don't try to validate it.
+                verify_checksum = False
+
             checksum_hasher, checksum_header, checksum_trailer = \
-                self._validate_checksum_headers()
+                self._validate_checksum_headers(verify_checksum)
             if _is_streaming(aws_sha256):
                 if checksum_trailer:
                     streaming_input = self._install_streaming_input_wrapper(
@@ -1147,18 +1087,6 @@ class S3Request(swob.Request):
                 self._install_non_streaming_input_wrapper(aws_sha256)
                 checksum_key = checksum_header
                 checksum_source = self.headers
-
-            if self.method == 'PUT':
-                verify_checksum = True
-            elif self.method == 'POST':
-                if 'delete' in self.params:
-                    verify_checksum = True
-                else:
-                    # S3 doesn't check the checksum for some POSTs (e.g. MPU
-                    # complete)
-                    verify_checksum = False
-            else:
-                verify_checksum = False
 
             if checksum_key and verify_checksum:
                 self._install_checksumming_input_wrapper(
@@ -1558,7 +1486,7 @@ class S3Request(swob.Request):
         _validate_checksum_header_cardinality(len(checksum_headers))
         return checksum_headers
 
-    def _validate_checksum_headers(self):
+    def _validate_checksum_headers(self, validate_value):
         """
         A checksum for the request is specified by a checksum header of the
         form:
@@ -1575,11 +1503,14 @@ class S3Request(swob.Request):
         header or trailer and a hasher for the checksum algorithm that it
         declares.
 
+        :param validate_value: When True, require the checksum header value to
+            be raw base64 for its algorithm. Set to False when an operation
+            will independently validate the value.
         :raises InvalidRequest: if any of the following conditions occur: more
             than one checksum header is declared; the checksum header specifies
             an invalid algorithm; the algorithm does not match the value of any
             ``x-amz-sdk-checksum-algorithm`` header that is also present; the
-            checksum value is invalid.
+            checksum value is invalid when validate_value is True.
         :raises S3NotImplemented: if the declared algorithm is valid but not
             supported.
         :return: a tuple of
@@ -1598,12 +1529,13 @@ class S3Request(swob.Request):
             checksum_trailer = None
             checksum_header, b64digest = list(checksum_headers.items())[0]
             checksum_hasher = _get_checksum_hasher(checksum_header)
-            try:
-                # early check on the value...
-                _validate_checksum_value(checksum_hasher, b64digest)
-            except ValueError:
-                raise InvalidRequest(
-                    'Value for %s header is invalid.' % checksum_header)
+            if validate_value:
+                try:
+                    # early check on the value...
+                    validate_checksum_value(checksum_hasher, b64digest)
+                except ValueError:
+                    raise InvalidRequest(
+                        'Value for %s header is invalid.' % checksum_header)
         elif checksum_trailer_headers:
             checksum_header = None
             checksum_trailer = checksum_trailer_headers[0]
@@ -1778,15 +1710,22 @@ class S3Request(swob.Request):
 
     def check_copy_source(self, app):
         """
-        check_copy_source checks the copy source existence and if copying an
-        object to itself, for illegal request parameters
+        If the request is a copy, checks for invalid request headers and
+        parameters, and checks the copy source existence.
 
+        :param app: a wsgi application to which a source HEAD request is made
         :returns: the source HEAD response
         """
         try:
             src_path = self.headers['X-Amz-Copy-Source']
         except KeyError:
             return None
+
+        if 'Range' in self.headers:
+            # note: UploadPartCopy may already have caught this in
+            # validate_part_number
+            raise InvalidArgument('Range', self.headers['Range'],
+                                  'RANGE is not supported in Copy!')
 
         src_path, qs = src_path.partition('?')[::2]
         parsed = parse_qsl(qs, True)
@@ -1808,7 +1747,8 @@ class S3Request(swob.Request):
         for header in ALLOWED_COPY_SOURCE_HEADERS:
             headers[header.replace('x-amz-copy-source-', '')] = \
                 self.headers.get(header)
-        update_etag_is_at_value(headers, sysmeta_header('object', 'etag'))
+        update_etag_is_at_value(
+            headers, s3api_sysmeta_header('object', 'etag'))
         # objects uploaded by the legacy swift3 middleware stored the S3-style
         # etag under a different sysmeta name
         update_etag_is_at_value(headers, swift3_object_sysmeta_header('etag'))
@@ -2413,7 +2353,8 @@ class S3Request(swob.Request):
         resp = self.get_response(app, 'HEAD', obj=obj, query=query)
         if not resp.is_slo:
             return {}
-        elif resp.sysmeta_headers.get(sysmeta_header('object', 'etag')):
+        elif resp.s3api_sysmeta_headers.get(
+                s3api_sysmeta_header('object', 'etag')):
             # Even if allow_async_delete is turned off, SLO will just handle
             # the delete synchronously, so we don't need to check before
             # setting async=on
@@ -2498,9 +2439,9 @@ class S3AclRequest(S3Request):
         resp = self._get_response(
             app, method, container, obj, headers, body, query)
         resp.bucket_acl = decode_acl(
-            'container', resp.sysmeta_headers, self.conf.allow_no_owner)
+            'container', resp.s3api_sysmeta_headers, self.conf.allow_no_owner)
         resp.object_acl = decode_acl(
-            'object', resp.sysmeta_headers, self.conf.allow_no_owner)
+            'object', resp.s3api_sysmeta_headers, self.conf.allow_no_owner)
 
         return resp
 

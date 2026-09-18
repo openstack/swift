@@ -273,7 +273,8 @@ class _StaticWebContext(WSGIContext):
                 body += '<h1>Index File Not Found</h1>' \
                     ' <p>The owner of this web site has set ' \
                     ' <b>X-Container-Meta-Web-Index: %s</b>. ' \
-                    ' However, this file is not found.</p>' % self._index
+                    ' However, this file is not found.</p>' % (
+                        html.escape(self._index))
             body += ' </body>\n</html>\n'
             resp = HTTPNotFound(body=body)(env, self._start_response)
             return self._error_response(resp, env, start_response)

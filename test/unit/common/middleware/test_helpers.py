@@ -21,7 +21,7 @@ from swift.common.storage_policy import POLICIES
 from swift.common.swob import Request, HTTPOk, HTTPNotFound, \
     HTTPCreated, HeaderKeyDict
 from swift.common import request_helpers as rh
-from swift.common.middleware.s3api.utils import sysmeta_header
+from swift.common.middleware.s3api.utils import s3api_sysmeta_header
 from test.unit.common.middleware.helpers import FakeSwift, FakeSwiftCall
 
 
@@ -938,7 +938,7 @@ class TestFakeSwiftStickyHeaders(unittest.TestCase):
 
     def test_sticky_headers(self):
         sticky_headers = HeaderKeyDict({
-            sysmeta_header('container', 'acl'): 'test',
+            s3api_sysmeta_header('container', 'acl'): 'test',
             'x-container-meta-foo': 'bar',
         })
         self.swift.update_sticky_response_headers(self.path, sticky_headers)
@@ -958,7 +958,7 @@ class TestFakeSwiftStickyHeaders(unittest.TestCase):
     def test_sticky_headers_match_path(self):
         other_path = self.path + '-other'
         sticky_headers = HeaderKeyDict({
-            sysmeta_header('container', 'acl'): 'test',
+            s3api_sysmeta_header('container', 'acl'): 'test',
             'x-container-meta-foo': 'bar',
         })
         sticky_headers_other = HeaderKeyDict({
@@ -974,7 +974,7 @@ class TestFakeSwiftStickyHeaders(unittest.TestCase):
 
     def test_sticky_headers_update(self):
         sticky_headers = HeaderKeyDict({
-            sysmeta_header('container', 'acl'): 'test',
+            s3api_sysmeta_header('container', 'acl'): 'test',
             'x-container-meta-foo': 'bar'
         })
         exp_headers = sticky_headers.copy()
@@ -988,7 +988,7 @@ class TestFakeSwiftStickyHeaders(unittest.TestCase):
 
         # check existing are updated not replaced
         sticky_headers = HeaderKeyDict({
-            sysmeta_header('container', 'acl'): 'test-modified',
+            s3api_sysmeta_header('container', 'acl'): 'test-modified',
             'x-container-meta-bar': 'foo'
         })
         exp_headers.update(sticky_headers)
