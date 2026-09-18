@@ -752,6 +752,12 @@ class TopologyChanged(Exception):
     """
 
 
+class ReloadRefused(Exception):
+    """SwiftGunicornApp.reload() did not accept the new config file. It
+    logged the error and told swift-reload before it raised this.
+    """
+
+
 class _SwiftArbiter(gunicorn.arbiter.Arbiter):
     def stop(self, graceful=True):
         # Arbiter.stop() waits cfg.graceful_timeout and then sends SIGKILL.
@@ -774,14 +780,15 @@ class _SwiftArbiter(gunicorn.arbiter.Arbiter):
 
     def reload(self):
         # Arbiter.reload() asks the app for its new config before it touches
-        # anything else, so refusing there and catching it here leaves the
-        # running server alone. Returning from SwiftGunicornApp.reload()
-        # would not: the arbiter would carry on and replace every worker.
+        # anything else. A refusal must raise out of SwiftGunicornApp.reload()
+        # and stop here, or the arbiter replaces the workers anyway.
         try:
             super().reload()
         except TopologyChanged as err:
             self.log.error('Ignoring reload: %s', err)
             self.app.report_failure(err)
+        except ReloadRefused:
+            pass                # the app logged it and told swift-reload
 
 
 class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
@@ -812,7 +819,8 @@ class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
             self.swift_logger.exception(
                 'Ignoring invalid configuration during Gunicorn reload')
             self.report_failure(err)
-            return
+            # A return is not enough. Arbiter.reload() would continue.
+            raise ReloadRefused(err) from err
         self.cfg = cfg
         if self.cfg.spew:
             debug.spew()

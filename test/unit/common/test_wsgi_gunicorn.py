@@ -945,7 +945,8 @@ class TestSwiftGunicornApp(unittest.TestCase):
         app = wsgi_gunicorn.SwiftGunicornApp(
             MagicMock(), build_cfg, logger)
 
-        app.reload()
+        with self.assertRaises(wsgi_gunicorn.ReloadRefused):
+            app.reload()
 
         self.assertIs(app.cfg, good_cfg)
         self.assertEqual(2, build_cfg.call_count)
@@ -1800,7 +1801,7 @@ class TestTopologyIsFixedAtStartup(_BuildCfgHarness):
     listener, so it is rejected instead.
     """
 
-    def test_a_topology_change_is_the_one_reload_error_not_swallowed(self):
+    def test_every_refused_reload_raises_to_the_arbiter(self):
         app = wsgi_gunicorn.SwiftGunicornApp.__new__(
             wsgi_gunicorn.SwiftGunicornApp)
         app.swift_logger = mock.MagicMock()
@@ -1809,14 +1810,17 @@ class TestTopologyIsFixedAtStartup(_BuildCfgHarness):
 
         app.build_cfg = mock.Mock(side_effect=TopologyChanged('nope'))
         with self.assertRaises(TopologyChanged):
-            app.reload()          # the arbiter has to see this one
+            app.reload()          # the arbiter reports this one itself
         self.assertEqual('the running config', app.cfg)
+        self.assertEqual(0, app.report_failure.call_count)
 
         app.build_cfg = mock.Mock(side_effect=ValueError('bad bind'))
-        app.reload()              # any other bad edit keeps the old config
+        with self.assertRaises(wsgi_gunicorn.ReloadRefused) as caught:
+            app.reload()          # any other bad edit keeps the old config
         self.assertEqual('the running config', app.cfg)
+        self.assertIsInstance(caught.exception.__cause__, ValueError)
         self.assertTrue(app.swift_logger.exception.called)
-        # but swift-reload still has to hear that it did not happen
+        # and swift-reload hears once that it did not happen
         self.assertEqual(1, app.report_failure.call_count)
 
 
@@ -1923,6 +1927,34 @@ class TestReloadValidatesBeforeApplying(_BuildCfgHarness):
         # and swift-reload is told, rather than waiting for a readiness
         # that this reload is never going to send
         self.assertEqual(1, arbiter.app.report_failure.call_count)
+
+    def test_a_bad_value_stops_the_arbiter_reload_too(self):
+        # a topology change is not the only refusal: any config that does
+        # not build must stop Arbiter.reload() before it replaces the workers
+        app = wsgi_gunicorn.SwiftGunicornApp.__new__(
+            wsgi_gunicorn.SwiftGunicornApp)
+        app.swift_logger = mock.MagicMock()
+        app.report_failure = mock.MagicMock()
+        app.cfg = 'the running config'
+        app.build_cfg = mock.Mock(side_effect=ValueError('bad threads'))
+        arbiter = wsgi_gunicorn._SwiftArbiter.__new__(
+            wsgi_gunicorn._SwiftArbiter)
+        arbiter._stats = {'reloads': 0}
+        arbiter.log = mock.MagicMock()
+        arbiter.cfg = mock.MagicMock(env={}, address=[])
+        arbiter.app = app
+        touched = []
+        arbiter.setup = lambda app: touched.append('setup')
+        arbiter.spawn_worker = lambda: touched.append('spawn_worker')
+        arbiter.manage_workers = lambda: touched.append('manage_workers')
+
+        arbiter.reload()
+
+        self.assertEqual([], touched)
+        self.assertEqual('the running config', app.cfg)
+        self.assertEqual(1, app.report_failure.call_count)
+        app.swift_logger.exception.assert_called_once_with(
+            'Ignoring invalid configuration during Gunicorn reload')
 
     def test_only_a_config_that_built_is_a_new_generation(self):
         holder = [{'servers_per_port': '0'}]
