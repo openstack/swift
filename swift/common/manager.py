@@ -806,6 +806,10 @@ class Server(object):
         # other mode doesn't misfire -- e.g. SIGHUP reloads a gunicorn server
         # but shuts an eventlet one down.
         mode = self._target_uses_eventlet(**kwargs)
+        if mode is False and action == 'default' and not child \
+                and self.server in GRACEFUL_SHUTDOWN_SERVERS:
+            # SIGTERM drains a gunicorn server. Stop it now, as eventlet does
+            return signal.SIGINT
         if mode is not None:
             return signal_for(action, child=child, uses_eventlet=mode)
         # Unknown mode: choose the signal that cannot make things worse, and

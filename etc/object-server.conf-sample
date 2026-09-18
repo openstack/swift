@@ -119,6 +119,14 @@ bind_port = 6200
 # the GIL so extra threads parallelize reads, but too many make small-object
 # serving GIL-bound. Pair with client_timeout so slow clients can't exhaust it.
 # threads = 16
+#
+# Seconds a stopped worker drains its open requests before it exits. The
+# limit applies to swift-init shutdown (not stop or restart) and to a
+# worker that a reload replaced. The arbiter exits at once, and the
+# workers finish in the background. The option applies only under
+# gunicorn (eventlet disabled). Empty means no limit, the same as the
+# eventlet drain. 0 means the worker exits without a drain.
+# graceful_shutdown_timeout =
 
 [pipeline:main]
 pipeline = healthcheck recon backend_ratelimit object-server

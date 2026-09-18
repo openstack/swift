@@ -603,6 +603,21 @@ lifetime of its connection, so ensure ``client_timeout`` (and
 ``keepalive_timeout`` on the proxy) are set such that slow clients cannot
 exhaust the thread pool. The default for ``threads`` is 16.
 
+Under gunicorn a graceful stop (``swift-init shutdown`` or ``SIGTERM``)
+follows the eventlet model. The arbiter closes its listeners, sends
+``SIGTERM`` to the workers and exits at once. The close also ends the listen
+on the copies the workers hold, so a restart can bind the port at once.
+``swift-init`` returns as soon as the arbiter exits. Each worker closes its
+listener, finishes its open requests in the background and exits. Set
+``graceful_shutdown_timeout`` in ``[DEFAULT]`` to bound the drain in seconds.
+The limit applies to every worker that stops, on a graceful stop and on a
+reload that replaced it. After that time the worker exits and cuts the
+remaining requests. ``swift-init stop`` and ``restart`` send ``SIGINT``
+instead. The arbiter then stops its workers within five seconds, and the
+option does not apply.
+``0`` means the worker exits without a drain. The option is unset by default,
+which means no limit.
+
 The ``nice_priority`` parameter can be used to set program scheduling priority.
 The ``ionice_class`` and ``ionice_priority`` parameters can be used to set I/O scheduling
 class and priority on the systems that use an I/O scheduler that supports

@@ -14,15 +14,22 @@
 # limitations under the License.
 
 import errno
+import functools
+import logging
 import os
+import selectors
 import unittest
 from unittest import mock
 from unittest.mock import MagicMock
 
 import signal
 import socket
+import threading
+import time
+import weakref
 
 from swift.common.concurrency import USE_EVENTLET
+from swift.common.manager import KILL_WAIT
 
 from test import import_gunicorn_or_skip
 
@@ -452,9 +459,9 @@ class TestPatchGunicornCapabilityCheck(unittest.TestCase):
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestUnboundedDrain(unittest.TestCase):
-    """A worker replaced by a reload drains until its last request
-    completes, as under eventlet. graceful_timeout only bounds the
-    arbiter's stop() path.
+    """A stopped worker drains until its last request completes, as under
+    eventlet, or until [DEFAULT] graceful_shutdown_timeout. The arbiter's
+    short graceful_timeout does not bound the worker.
     """
 
     def setUp(self):
@@ -462,6 +469,7 @@ class TestUnboundedDrain(unittest.TestCase):
         from gunicorn.workers.gthread import ThreadWorker
         self.cls = ThreadWorker
         self.worker = ThreadWorker.__new__(ThreadWorker)
+        self.worker.ppid = os.getppid()
         self.worker.cfg = MagicMock()
         self.worker.cfg.graceful_timeout = 5
         self.worker.cfg.timeout = 3600
@@ -476,6 +484,7 @@ class TestUnboundedDrain(unittest.TestCase):
         self.worker.method_queue = MagicMock()
         self.worker.tpool = MagicMock()
         self.worker.tmp = MagicMock()
+        self.worker.log = MagicMock()
 
     def test_zero_graceful_timeout_is_left_alone(self):
         # the unittest server sets 0 to exit with no drain at all
@@ -483,10 +492,115 @@ class TestUnboundedDrain(unittest.TestCase):
         self.cls.run(self.worker)
         self.assertFalse(self.worker.cfg.set.called)
 
-    def test_drain_continues_past_the_stock_deadline(self):
+    def test_the_unittest_server_never_forces_the_exit(self):
+        # zero from the start is the in-process test worker: a hard exit
+        # there would end the test run
+        self.worker.cfg.graceful_timeout = 0
+        self.worker.nr_conns = 1
+        with mock.patch.object(wsgi_gunicorn.os, '_exit') as _exit:
+            self.cls.run(self.worker)
+        self.assertFalse(_exit.called)
+
+    def _track_cfg_set(self):
         # the config object must really update for the drain loop to see it
         self.worker.cfg.set.side_effect = \
             lambda name, value: setattr(self.worker.cfg, name, value)
+
+    def test_the_option_bounds_the_drain(self):
+        # build_cfg stores [DEFAULT] graceful_shutdown_timeout in the module
+        # (the fork copies it); the worker applies it to its own config
+        self._track_cfg_set()
+        with mock.patch.object(wsgi_gunicorn, '_GRACEFUL_SHUTDOWN_TIMEOUT',
+                               30):
+            self.cls.run(self.worker)
+        self.assertEqual(30, self.worker.cfg.graceful_timeout)
+
+    def test_a_zero_option_means_no_drain(self):
+        self._track_cfg_set()
+        self.worker.nr_conns = 1
+        waits = []
+        self.worker.wait_for_and_dispatch_events = waits.append
+        with mock.patch.object(wsgi_gunicorn, '_GRACEFUL_SHUTDOWN_TIMEOUT',
+                               0), \
+                mock.patch.object(wsgi_gunicorn.os, '_exit') as _exit, \
+                mock.patch.object(wsgi_gunicorn.logging, 'shutdown'):
+            self.cls.run(self.worker)
+        self.assertEqual(0, self.worker.cfg.graceful_timeout)
+        self.assertEqual([], waits)
+        # the open request would keep the process alive past sys.exit()
+        _exit.assert_called_once_with(0)
+
+    def _run_to_the_deadline(self):
+        # nr_conns stays 1: 20 fake seconds per turn pass the 30s option
+        self._track_cfg_set()
+        self.worker.murder_keepalived = lambda: None
+        self.worker.murder_pending = lambda: None
+        fake_now = [0.0]
+
+        def fake_monotonic():
+            fake_now[0] += 20.0
+            return fake_now[0]
+
+        with mock.patch.object(wsgi_gunicorn, '_GRACEFUL_SHUTDOWN_TIMEOUT',
+                               30), \
+                mock.patch('gunicorn.workers.gthread.time.monotonic',
+                           side_effect=fake_monotonic), \
+                mock.patch.object(wsgi_gunicorn.os, '_exit') as _exit, \
+                mock.patch.object(wsgi_gunicorn.logging,
+                                  'shutdown') as flush:
+            self.cls.run(self.worker)
+        return _exit, flush
+
+    def test_open_requests_at_the_deadline_force_the_exit(self):
+        # run() returns at the deadline and gunicorn calls sys.exit(0), but
+        # the interpreter joins the pool threads at exit: the worker would
+        # live until the last request ends, and the option would not hold
+        self.worker.nr_conns = 1
+        _exit, flush = self._run_to_the_deadline()
+        self.assertTrue(flush.called)
+        _exit.assert_called_once_with(0)
+        self.assertTrue(self.worker.log.info.called)
+
+    def test_a_completed_drain_returns(self):
+        self.worker.nr_conns = 0
+        _exit, flush = self._run_to_the_deadline()
+        self.assertFalse(_exit.called)
+        self.assertFalse(flush.called)
+
+    def test_a_blocked_log_handler_does_not_delay_the_exit(self):
+        # a pool thread blocked in SysLogHandler.emit holds the handler lock,
+        # and logging.shutdown() waits for it
+        self._track_cfg_set()
+        self.worker.nr_conns = 1
+        self.worker.murder_keepalived = lambda: None
+        self.worker.murder_pending = lambda: None
+        handler = logging.Handler()
+        handler.acquire()  # held until the test ends
+        shutdown = functools.partial(
+            logging.shutdown, handlerList=[weakref.ref(handler)])
+        _exit = MagicMock()
+        patches = [
+            mock.patch.object(wsgi_gunicorn, '_GRACEFUL_SHUTDOWN_TIMEOUT', 0),
+            mock.patch.object(wsgi_gunicorn.os, '_exit', _exit),
+            mock.patch.object(wsgi_gunicorn.logging, 'shutdown', shutdown),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        runner = threading.Thread(target=self.cls.run, args=(self.worker,),
+                                  daemon=True)
+        # the blocked shutdown must end before the patches stop
+        self.addCleanup(runner.join, 5)
+        self.addCleanup(handler.release)
+        start = time.monotonic()
+        runner.start()
+        runner.join(5)
+        self.assertFalse(runner.is_alive())
+        self.assertLess(time.monotonic() - start, 3)
+        _exit.assert_called_once_with(0)
+
+    def test_drain_continues_past_the_stock_deadline(self):
+        self._track_cfg_set()
         self.worker.nr_conns = 1
         waits = []
 
@@ -525,6 +639,216 @@ class TestUnboundedDrain(unittest.TestCase):
         self.cls.wait_for_and_dispatch_events(self.worker, 2.0)
         self.worker.poller.select.assert_called_once_with(2.0)
         self.assertFalse(self.worker.tmp.notify.called)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestDrainClosesTheListener(unittest.TestCase):
+    """A draining worker closes its listener immediately. A new arbiter can
+    then bind the port while the orphaned workers finish their requests.
+    """
+
+    def setUp(self):
+        wsgi_gunicorn.patch_gunicorn()
+        from gunicorn.workers.gthread import ThreadWorker
+        self.listener = self._listener()
+        self.port = self.listener.getsockname()[1]
+        self.worker = ThreadWorker.__new__(ThreadWorker)
+        self.worker.alive = True
+        self.worker.ppid = os.getppid()
+        self.worker.sockets = [self.listener]
+        self.worker._accepting = False
+        self.worker.poller = selectors.DefaultSelector()
+        self.addCleanup(self.worker.poller.close)
+
+    def _listener(self):
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('127.0.0.1', 0))
+        sock.listen(5)
+        self.addCleanup(sock.close)
+        return sock
+
+    def _bind_again(self):
+        # what _check_can_bind and gunicorn's create_sockets do on a start
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(('127.0.0.1', self.port))
+        finally:
+            sock.close()
+
+    def _assert_port_busy(self):
+        with self.assertRaises(OSError) as cm:
+            self._bind_again()
+        self.assertEqual(errno.EADDRINUSE, cm.exception.errno)
+
+    def test_the_drain_closes_the_listener(self):
+        self.worker.set_accept_enabled(True)
+        self._assert_port_busy()
+        # a saturated worker stops accepting but keeps its listener
+        self.worker.set_accept_enabled(False)
+        self._assert_port_busy()
+        self.worker.set_accept_enabled(True)
+        # an open request outlives the listener, as under eventlet
+        client = socket.create_connection(('127.0.0.1', self.port))
+        self.addCleanup(client.close)
+        self.listener.settimeout(5)  # set_accept_enabled made it non-blocking
+        served, _addr = self.listener.accept()
+        self.addCleanup(served.close)
+        # the drain starts: run() clears alive and stops accepting
+        self.worker.alive = False
+        self.worker.set_accept_enabled(False)
+        self.assertEqual(-1, self.listener.fileno())
+        # the listener left the poller before it closed
+        self.assertEqual(0, len(self.worker.poller.get_map()))
+        self.assertEqual([], self.worker.poller.select(0))
+        self._bind_again()
+        # run() closes the sockets once more at its end
+        self.listener.close()
+
+    def test_a_worker_without_its_parent_closes_the_listener(self):
+        # the arbiter died without a SIGTERM: run() leaves its loop on the
+        # parent check with alive still set
+        self.worker.ppid = 1 if os.getppid() != 1 else 2
+        self.worker.set_accept_enabled(True)
+        self._assert_port_busy()
+        self.worker.set_accept_enabled(False)
+        self.assertEqual(-1, self.listener.fileno())
+        self._bind_again()
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestAcceptOnAShutDownListener(unittest.TestCase):
+    """_SwiftArbiter.stop() shuts the shared listener down before its
+    SIGTERM reaches the worker. The poller reports the listener readable
+    and accept() raises EINVAL. The worker drops the listener and goes on,
+    instead of raising out of run().
+    """
+
+    def setUp(self):
+        wsgi_gunicorn.patch_gunicorn()
+        from gunicorn.workers.gthread import ThreadWorker
+        self.worker = ThreadWorker.__new__(ThreadWorker)
+        self.worker.alive = True
+        self.worker.ppid = os.getppid()
+        self.worker.nr_conns = 0
+        self.worker._accepting = False
+        self.worker.poller = selectors.DefaultSelector()
+        self.addCleanup(self.worker.poller.close)
+
+    def test_einval_drops_the_listener(self):
+        listener = socket.socket()
+        self.addCleanup(listener.close)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(5)
+        self.worker.sockets = [listener]
+        self.worker.set_accept_enabled(True)
+        # what the arbiter does to its copy of the shared socket
+        arbiter_copy = socket.socket(fileno=os.dup(listener.fileno()))
+        arbiter_copy.shutdown(socket.SHUT_RDWR)
+        arbiter_copy.close()
+        self.assertEqual(1, len(self.worker.poller.select(0)))
+        self.worker.accept(listener)
+        self.assertEqual(-1, listener.fileno())
+        self.assertEqual(0, len(self.worker.poller.get_map()))
+        self.assertEqual([], self.worker.sockets)
+        # the SIGTERM arrives later: the drain start must not trip over
+        # the dropped listener
+        self.worker.alive = False
+        self.worker.set_accept_enabled(False)
+
+    def test_other_errors_keep_gunicorn_behavior(self):
+        listener = mock.MagicMock()
+        self.worker.sockets = [listener]
+        listener.accept.side_effect = OSError(errno.EMFILE, 'too many')
+        with self.assertRaises(OSError) as cm:
+            self.worker.accept(listener)
+        self.assertEqual(errno.EMFILE, cm.exception.errno)
+        # a spurious wake-up stays silent
+        listener.accept.side_effect = OSError(errno.EAGAIN, 'again')
+        self.worker.accept(listener)
+        self.assertFalse(listener.close.called)
+        self.assertEqual([listener], self.worker.sockets)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestArbiterGracefulStop(unittest.TestCase):
+    """SIGTERM makes the arbiter close its listeners, signal the workers
+    and exit at once. It does not wait for the drain and does not SIGKILL,
+    so swift-init returns before manager.KILL_WAIT.
+    """
+
+    def _arbiter(self):
+        arbiter = wsgi_gunicorn._SwiftArbiter.__new__(
+            wsgi_gunicorn._SwiftArbiter)
+        arbiter.log = mock.MagicMock()
+        arbiter.cfg = mock.MagicMock(graceful_timeout=5, reuse_port=False)
+        arbiter.LISTENERS = [mock.MagicMock(), mock.MagicMock()]
+        arbiter.WORKERS = {101: mock.MagicMock(), 102: mock.MagicMock()}
+        arbiter.dirty_arbiter_pid = 0
+        arbiter.reexec_pid = arbiter.master_pid = 0
+        arbiter.systemd = False
+        arbiter._stats = {'workers_killed': 0}
+        return arbiter
+
+    def test_a_graceful_stop_signals_the_workers_and_returns(self):
+        arbiter = self._arbiter()
+        listeners = list(arbiter.LISTENERS)
+        with mock.patch('gunicorn.arbiter.os.kill') as kill, \
+                mock.patch('gunicorn.arbiter.time.sleep') as sleep, \
+                mock.patch('gunicorn.arbiter.time.time') as clock:
+            arbiter.stop()
+        for listener in listeners:
+            # the workers' copies keep the port bound until shutdown()
+            self.assertEqual([mock.call.shutdown(socket.SHUT_RDWR),
+                              mock.call.close()], listener.mock_calls)
+        self.assertEqual([], arbiter.LISTENERS)
+        self.assertEqual({(101, signal.SIGTERM), (102, signal.SIGTERM)},
+                         {c.args for c in kill.call_args_list})
+        # no wait and no deadline: the workers own the drain
+        self.assertFalse(sleep.called)
+        self.assertFalse(clock.called)
+        self.assertEqual({101, 102}, set(arbiter.WORKERS))
+
+    def test_a_failed_shutdown_still_closes_and_signals(self):
+        arbiter = self._arbiter()
+        listeners = list(arbiter.LISTENERS)
+        listeners[0].shutdown.side_effect = OSError(errno.ENOTCONN, 'gone')
+        with mock.patch('gunicorn.arbiter.os.kill') as kill:
+            arbiter.stop()
+        for listener in listeners:
+            listener.close.assert_called_once_with()
+        self.assertEqual(2, kill.call_count)
+
+    def test_the_port_is_free_while_a_worker_holds_the_listener(self):
+        # the arbiter and a forked worker share one socket; a closed arbiter
+        # copy alone leaves bind() with EADDRINUSE until the worker closes
+        listener = socket.socket()
+        self.addCleanup(listener.close)
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(5)
+        port = listener.getsockname()[1]
+        worker_copy = socket.socket(fileno=os.dup(listener.fileno()))
+        self.addCleanup(worker_copy.close)
+        arbiter = self._arbiter()
+        arbiter.LISTENERS = [listener]
+        with mock.patch('gunicorn.arbiter.os.kill'):
+            arbiter.stop()
+        self.assertEqual(-1, listener.fileno())
+        self.assertNotEqual(-1, worker_copy.fileno())
+        # what _check_can_bind and gunicorn's create_sockets do on a start
+        sock = socket.socket()
+        self.addCleanup(sock.close)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('127.0.0.1', port))
+
+    def test_a_quick_stop_keeps_gunicorn_behavior(self):
+        arbiter = self._arbiter()
+        with mock.patch.object(wsgi_gunicorn.gunicorn.arbiter.Arbiter,
+                               'stop') as stock_stop:
+            arbiter.stop(graceful=False)
+        stock_stop.assert_called_once_with(False)
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
@@ -1455,6 +1779,10 @@ class _BuildCfgHarness(unittest.TestCase):
             mock.patch.object(wsgi_gunicorn, '_check_can_bind'),
             mock.patch.object(wsgi_gunicorn, 'capture_stdio'),
             mock.patch.object(wsgi_gunicorn, 'systemd_notify'),
+            # build_cfg stores the option in the module; restore it after
+            mock.patch.object(wsgi_gunicorn, '_GRACEFUL_SHUTDOWN_TIMEOUT',
+                              wsgi_gunicorn._DRAIN_UNBOUNDED),
+            mock.patch.object(wsgi_gunicorn, '_CLIENT_TIMEOUT', None),
         ]
         for p in patches:
             p.start()
@@ -1490,6 +1818,52 @@ class TestTopologyIsFixedAtStartup(_BuildCfgHarness):
         self.assertTrue(app.swift_logger.exception.called)
         # but swift-reload still has to hear that it did not happen
         self.assertEqual(1, app.report_failure.call_count)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestGracefulShutdownTimeout(_BuildCfgHarness):
+    """[DEFAULT] graceful_shutdown_timeout bounds the drain of a stopped
+    worker (swift_run reads it from the module). Unset means no limit,
+    like eventlet. The arbiter's own graceful_timeout stays short.
+    """
+
+    def test_unset_or_empty_drains_without_a_limit(self):
+        holder = [{'graceful_shutdown_timeout': '30'}]
+        build_cfg = self._capture_build_cfg(holder)
+        for conf in ({}, {'graceful_shutdown_timeout': ''}):
+            holder[0] = conf
+            build_cfg()
+            self.assertEqual(wsgi_gunicorn._DRAIN_UNBOUNDED,
+                             wsgi_gunicorn._GRACEFUL_SHUTDOWN_TIMEOUT)
+            holder[0] = {'graceful_shutdown_timeout': '30'}
+            build_cfg()
+
+    def test_a_value_bounds_the_drain(self):
+        self._capture_build_cfg([{'graceful_shutdown_timeout': '30'}])()
+        self.assertEqual(30, wsgi_gunicorn._GRACEFUL_SHUTDOWN_TIMEOUT)
+
+    def test_zero_means_no_drain(self):
+        self._capture_build_cfg([{'graceful_shutdown_timeout': '0'}])()
+        self.assertEqual(0, wsgi_gunicorn._GRACEFUL_SHUTDOWN_TIMEOUT)
+
+    def test_the_arbiter_keeps_a_short_graceful_timeout(self):
+        # the arbiter waits this long in reload() and on a quick stop;
+        # swift-init gives up on a stop after manager.KILL_WAIT
+        cfg = self._capture_build_cfg(
+            [{'graceful_shutdown_timeout': '30'}])()
+        self.assertEqual(5, cfg.graceful_timeout)
+        self.assertLess(cfg.graceful_timeout, KILL_WAIT)
+
+    def test_a_bad_value_is_rejected(self):
+        # run_wsgi validates the config before it hands out build_cfg, so
+        # start valid and hand the bad value to the next (reload) call
+        holder = [{}]
+        build_cfg = self._capture_build_cfg(holder)
+        for value in ('-1', 'abc'):
+            holder[0] = {'graceful_shutdown_timeout': value}
+            with self.assertRaises(ValueError) as cm:
+                build_cfg()
+            self.assertIn('graceful_shutdown_timeout', str(cm.exception))
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')

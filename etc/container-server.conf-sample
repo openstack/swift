@@ -89,6 +89,14 @@ bind_port = 6201
 # Real OS threads, so workers * threads bounds the concurrent requests served.
 # A slow client holds a thread for its lifetime, so keep client_timeout set.
 # threads = 16
+#
+# Seconds a stopped worker drains its open requests before it exits. The
+# limit applies to swift-init shutdown (not stop or restart) and to a
+# worker that a reload replaced. The arbiter exits at once, and the
+# workers finish in the background. The option applies only under
+# gunicorn (eventlet disabled). Empty means no limit, the same as the
+# eventlet drain. 0 means the worker exits without a drain.
+# graceful_shutdown_timeout =
 
 [pipeline:main]
 pipeline = healthcheck recon backend_ratelimit container-server

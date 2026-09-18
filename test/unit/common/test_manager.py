@@ -2524,6 +2524,26 @@ class TestUnknownModeSignals(unittest.TestCase):
         self.assertEqual(sig, signal.SIGTERM)
         self.assertEqual(err, '')
 
+    def _known_signal(self, server_name, action, mode, child=False):
+        server = manager.Server(server_name)
+        with mock.patch.object(manager.Server, '_target_uses_eventlet',
+                               return_value=mode):
+            return server._action_signal(action, child=child)
+
+    def test_stop_is_a_quick_stop_for_a_gunicorn_server(self):
+        # SIGTERM would drain without a limit, eventlet stops at once
+        self.assertEqual(signal.SIGINT,
+                         self._known_signal('object-server', 'default', False))
+        self.assertEqual(signal.SIGTERM, self._known_signal(
+            'object-server', 'graceful', False))
+        self.assertEqual(signal.SIGTERM,
+                         self._known_signal('object-server', 'default', True))
+        # daemons and child pids keep their signals
+        self.assertEqual(signal.SIGTERM, self._known_signal(
+            'object-replicator', 'default', False))
+        self.assertEqual(signal.SIGINT, self._known_signal(
+            'object-server', 'default', False, child=True))
+
     def _consensus(self, modes):
         server = manager.Server('proxy-server')
         pids = [('/run/%d.pid' % i, i) for i in range(1, len(modes) + 1)]

@@ -42,6 +42,7 @@
 
 import errno
 import functools
+import logging
 import os
 import signal
 import re
@@ -49,6 +50,7 @@ import select
 import socket
 import string
 import sys
+import threading
 import time
 from io import BytesIO
 from urllib.parse import unquote
@@ -67,7 +69,7 @@ from swift.common.storage_policy import BindPortsCache, \
 from swift.common.wsgi import _initrp, loadapp, appconfig, ConfigFileError
 from swift.common.utils import capture_stdio, config_fallocate_value, \
     clean_up_daemon_hygiene, systemd_notify, config_auto_int_value, \
-    config_true_value
+    config_true_value, non_negative_int
 
 import gunicorn.util
 import gunicorn.sock
@@ -120,6 +122,14 @@ _GUNICORN_PATCHED = False
 # reload refreshes it) and read by the patched TConn.init below. None disables.
 _CLIENT_TIMEOUT = None
 
+# A graceful_timeout that means no limit. A worker then drains until its
+# last request completes, as under eventlet.
+_DRAIN_UNBOUNDED = 10 ** 9  # seconds
+
+# [DEFAULT] graceful_shutdown_timeout, set by build_cfg and applied by
+# swift_run to the worker's copy of graceful_timeout.
+_GRACEFUL_SHUTDOWN_TIMEOUT = _DRAIN_UNBOUNDED
+
 
 def _request_body_undrained(req, inp):
     # True if the app responded without reading the whole request body: fewer
@@ -156,6 +166,8 @@ def patch_gunicorn():
         (ThreadWorker, 'murder_keepalived'),
         (ThreadWorker, 'enqueue_req'),
         (ThreadWorker, 'finish_request'),
+        (ThreadWorker, 'set_accept_enabled'),
+        (ThreadWorker, 'accept'),
         (TConn, 'init'),
     ]
     _missing = ['%s.%s' % (cls.__name__, attr)
@@ -430,22 +442,66 @@ def patch_gunicorn():
 
     ThreadWorker.murder_keepalived = swift_murder_keepalived
 
-    # eventlet drained a replaced worker until its last request completed;
-    # gthread's run() stops the drain at cfg.graceful_timeout. Raise the
-    # deadline in the worker's post-fork copy of the config only: the
-    # arbiter's copy keeps graceful_timeout, so a stop still ends in
-    # SIGKILL after it. Zero (the unittest server) keeps its no-drain
-    # meaning.
-    _DRAIN_UNBOUNDED = 10 ** 9  # seconds
-
+    # gthread's run() drains until cfg.graceful_timeout. The worker copy
+    # gets [DEFAULT] graceful_shutdown_timeout, so the short arbiter value
+    # does not apply to it. Zero (the unittest server) stays zero, and that
+    # in-process worker returns as before.
+    #
+    # At the deadline run() returns with requests still open, and gunicorn
+    # calls sys.exit(0). The interpreter then joins every pool thread, so
+    # the worker would live until its last request ends. gunicorn relied on
+    # the SIGKILL of the arbiter here, and _SwiftArbiter.stop() does not
+    # send it. Call os._exit() instead, so the limit holds.
     orig_run = ThreadWorker.run
 
     def swift_run(self):
-        if self.cfg.graceful_timeout > 0:
-            self.cfg.set('graceful_timeout', _DRAIN_UNBOUNDED)
-        return orig_run(self)
+        forked = self.cfg.graceful_timeout > 0
+        if forked:
+            self.cfg.set('graceful_timeout', _GRACEFUL_SHUTDOWN_TIMEOUT)
+        orig_run(self)
+        if forked and self.nr_conns > 0:
+            self.log.info('Drain deadline reached with %d open connections, '
+                          'exiting', self.nr_conns)
+            # A pool thread blocked in a log handler holds the handler lock.
+            # Limit the flush to one second.
+            flush = threading.Thread(target=logging.shutdown, daemon=True)
+            flush.start()
+            flush.join(1.0)
+            os._exit(0)
 
     ThreadWorker.run = swift_run
+
+    # An open listener blocks bind() on its port. Close the listeners when
+    # the drain starts, so a new arbiter can bind while the orphaned workers
+    # finish. A saturated live worker also disables accept, and keeps them.
+    orig_set_accept_enabled = ThreadWorker.set_accept_enabled
+
+    def swift_set_accept_enabled(self, enabled):
+        orig_set_accept_enabled(self, enabled)
+        if not enabled and (not self.alive or self.ppid != os.getppid()):
+            for listener in self.sockets:
+                listener.close()  # idempotent, run() closes them again
+
+    ThreadWorker.set_accept_enabled = swift_set_accept_enabled
+
+    # _SwiftArbiter.stop() shuts the shared listener down, so the port is
+    # free before the workers close their copies. A worker that has not
+    # handled its SIGTERM yet sees the listener readable, and accept()
+    # raises EINVAL, which gunicorn re-raises out of run(). Treat EINVAL as
+    # that stop. Drop the listener and wait for SIGTERM.
+    orig_accept = ThreadWorker.accept
+
+    def swift_accept(self, listener):
+        try:
+            return orig_accept(self, listener)
+        except OSError as err:
+            if err.errno != errno.EINVAL:
+                raise
+        self.poller.unregister(listener)
+        self.sockets.remove(listener)  # set_accept_enabled() must skip it
+        listener.close()
+
+    ThreadWorker.accept = swift_accept
 
     # Every request ends by deferring finish_request() to the main thread:
     # the worker thread writes a byte to the wake-up pipe, the poller wakes,
@@ -697,6 +753,25 @@ class TopologyChanged(Exception):
 
 
 class _SwiftArbiter(gunicorn.arbiter.Arbiter):
+    def stop(self, graceful=True):
+        # Arbiter.stop() waits cfg.graceful_timeout and then sends SIGKILL.
+        # Follow the eventlet manager instead. Close the listeners, tell the
+        # workers to drain, and exit. swift-init returns when this process
+        # exits. SIGINT and SIGQUIT keep gunicorn's quick stop.
+        if not graceful:
+            return super().stop(graceful)
+        for listener in self.LISTENERS:
+            # The workers hold copies of this socket, and bind() fails while
+            # any copy is open. shutdown() ends the listen on every copy, so
+            # a restart binds the port as soon as this process exits.
+            try:
+                listener.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            listener.close()
+        self.LISTENERS = []
+        self.kill_workers(signal.SIGTERM)
+
     def reload(self):
         # Arbiter.reload() asks the app for its new config before it touches
         # anything else, so refusing there and catching it here leaves the
@@ -951,6 +1026,21 @@ def check_config_gunicorn(conf_path, app_section, *args, **kwargs):
     return conf, logger, global_conf
 
 
+def _graceful_shutdown_timeout(conf):
+    """Seconds a stopped worker drains its requests before it exits, from
+    [DEFAULT] graceful_shutdown_timeout. Empty or unset means no limit.
+
+    :raises ValueError: if the value is negative or not a whole number
+    """
+    raw = conf.get('graceful_shutdown_timeout')
+    if raw is None or not str(raw).strip():
+        return _DRAIN_UNBOUNDED
+    try:
+        return non_negative_int(raw)
+    except ValueError as err:
+        raise ValueError('graceful_shutdown_timeout: %s' % err)
+
+
 def common_config():
     """Common config used both by production server and unittest server """
     patch_gunicorn()
@@ -960,9 +1050,9 @@ def common_config():
     # Allow headers with underscores through
     cfg.set('header_map', 'dangerous')
 
-    # Bounds the arbiter's stop() path: SIGTERM, this window, SIGKILL. Keep
-    # it below common.manager.KILL_WAIT. A worker replaced by a reload is
-    # not bound by it (see swift_run in patch_gunicorn).
+    # Bounds only the arbiter's own waits: Arbiter.reload() and a quick stop
+    # (SIGINT, SIGQUIT). Keep it below common.manager.KILL_WAIT. The workers
+    # replace it with [DEFAULT] graceful_shutdown_timeout (see swift_run).
     cfg.set('graceful_timeout', 5)
 
     _set_request_limits(cfg)
@@ -1531,11 +1621,12 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     generation = [0]
 
     def build_cfg(port=None, ready_fd=None):
-        global _CLIENT_TIMEOUT
+        global _CLIENT_TIMEOUT, _GRACEFUL_SHUTDOWN_TIMEOUT
         rconf = appconfig(conf_path, name=app_section)
         # Bound the gthread request-read phase by client_timeout (read by the
         # patched TConn.init); gunicorn has no equivalent socket-read timeout.
         client_timeout = float(rconf.get('client_timeout', 60))
+        graceful_shutdown_timeout = _graceful_shutdown_timeout(rconf)
         if port is None:
             if _servers_per_port_enabled(rconf, app_section) != started_spp:
                 # a single arbiter would bind every ring port and hand them
@@ -1636,6 +1727,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         reload_storage_policies()
         _set_request_limits(cfg)
         _CLIENT_TIMEOUT = client_timeout
+        _GRACEFUL_SHUTDOWN_TIMEOUT = graceful_shutdown_timeout
         # A config that raised is not a new generation: gunicorn respawns
         # the workers from the one it kept, and they must not look like the
         # reload being waited for.

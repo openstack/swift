@@ -99,7 +99,13 @@ is as follows:
    disagree) do the CLIs fall back defensively, with a warning: seamless
    reloads still use eventlet's ``USR1`` (harmless on gunicorn), while
    graceful stops use ``SIGTERM``, which stops either mode but skips
-   eventlet's graceful drain.
+   eventlet's graceful drain. Under gunicorn a graceful stop follows the
+   eventlet model. The arbiter closes its listeners, sends ``SIGTERM`` to
+   the workers and exits at once. The orphaned workers close their
+   listeners, finish their open requests and exit. ``swift-orphans`` finds
+   them. ``graceful_shutdown_timeout`` in ``[DEFAULT]`` bounds that drain.
+   It is unbounded by default. ``swift-init stop`` and ``restart`` send
+   ``SIGINT`` instead, and the arbiter stops its workers within five seconds.
 
 ``swift-reload``
 ----------------
