@@ -8240,6 +8240,26 @@ class TestECFragGetter(BaseObjectControllerMixin, unittest.TestCase):
         it = self.getter._iter_bytes_from_response_part(part, nbytes=None)
         self.assertEqual([c.encode() for c in 'something'], [ch for ch in it])
 
+    def test_iter_bytes_from_response_part_client_socket_deadline(self):
+        # The yield must not start a deadline on the client socket.
+        self.getter.req.environ['gunicorn.socket'] = FakeSocket()
+        seen = []
+
+        class RecordingTimeout(utils.WatchdogTimeout):
+            def __init__(self, watchdog, timeout, exc, **kwargs):
+                seen.append((exc, kwargs.get('socket')))
+                super(RecordingTimeout, self).__init__(
+                    watchdog, timeout, exc, **kwargs)
+
+        part = FileLikeIter([b'some', b'thing'])
+        it = self.getter._iter_bytes_from_response_part(part, nbytes=None)
+        with mock.patch('swift.proxy.controllers.obj.WatchdogTimeout',
+                        RecordingTimeout):
+            self.assertEqual(b'something', b''.join(it))
+        write_socks = [s for exc, s in seen if exc is ChunkWriteTimeout]
+        self.assertTrue(write_socks, 'no client write timeout armed')
+        self.assertEqual([None] * len(write_socks), write_socks)
+
     def test_fragment_size(self):
         source = FakeSource((
             b'abcd', b'1234', b'abc', b'd1', b'234abcd1234abcd1', b'2'))

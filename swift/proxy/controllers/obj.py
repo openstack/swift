@@ -2642,12 +2642,11 @@ class ECFragGetter(GetterBase):
     def _iter_bytes_from_response_part(self, part_file, nbytes):
         buf = b''
         part_file = ByteCountEnforcer(part_file, nbytes)
-        sock = self.req.environ.get('gunicorn.socket')
         while True:
             try:
                 # Timeout the *backend* source socket (node_timeout), not the
-                # client socket `sock` used for the write below: without
-                # eventlet WatchdogTimeout acts on the socket it is given.
+                # client socket used for the write below: without eventlet
+                # WatchdogTimeout acts on the socket it is given.
                 with WatchdogTimeout(self.app.watchdog,
                                      self.node_timeout,
                                      ChunkReadTimeout,
@@ -2694,10 +2693,13 @@ class ECFragGetter(GetterBase):
                 while buf and (len(buf) >= self.fragment_size or not chunk):
                     client_chunk = buf[:self.fragment_size]
                     buf = buf[self.fragment_size:]
+                    # No client socket: in thread mode this yield waits while
+                    # other getters stall. gunicorn's socket timeout bounds
+                    # the client write. Under eventlet the socket is unused.
                     with WatchdogTimeout(self.app.watchdog,
                                          self.app.client_timeout,
                                          ChunkWriteTimeout,
-                                         socket=sock):
+                                         socket=None):
                         self.bytes_used_from_backend += len(client_chunk)
                         yield client_chunk
 

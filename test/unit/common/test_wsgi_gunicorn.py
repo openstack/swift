@@ -32,6 +32,7 @@ from swift.common.concurrency import USE_EVENTLET
 from swift.common.manager import KILL_WAIT
 
 from test import import_gunicorn_or_skip
+from test.debug_logger import debug_logger
 
 if not USE_EVENTLET:
     import_gunicorn_or_skip()
@@ -918,6 +919,81 @@ class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
         # the callback never throws inside the thread pool
         fut = self._run(exc=ValueError('boom'))
         fut.result.assert_not_called()
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestHandleRequestClientTimeout(unittest.TestCase):
+    """A client that does not read the response is a slow client."""
+
+    def setUp(self):
+        wsgi_gunicorn.patch_gunicorn()
+        from gunicorn.workers.gthread import ThreadWorker
+        self.cls = ThreadWorker
+        self.worker = ThreadWorker.__new__(ThreadWorker)
+        self.worker.alive = True
+        self.worker.nr = 0
+        self.worker.max_requests = 1000
+        self.worker.max_keepalived = 10
+        self.worker.keepalived_conns = []
+        self.worker.cfg = MagicMock()
+        self.worker.cfg.keepalive = 5
+        self.worker.log = MagicMock()
+        self.worker.swift_logger = debug_logger()
+        self.worker.wsgi = lambda environ, start_response: iter([b'body'])
+        self.conn = MagicMock()
+        self.conn.initialized = True
+        self.conn.is_http2 = False
+        self.conn.client = ('1.2.3.4', 5678)
+
+    def _handle(self, parser, resp):
+        self.conn.parser = parser
+        environ = {'wsgi.file_wrapper': type('FileWrapper', (), {})}
+        with mock.patch('gunicorn.workers.gthread.wsgi.create',
+                        return_value=(resp, environ)), \
+                mock.patch.object(wsgi_gunicorn, '_CLIENT_TIMEOUT', 60):
+            return self.cls.handle(self.worker, self.conn)
+
+    def test_response_write_timeout_logs_a_slow_client(self):
+        resp = MagicMock()
+        resp.write.side_effect = socket.timeout('timed out')
+        result = self._handle(iter([MagicMock()]), resp)
+        # handle() closes the connection, as it did for the OSError branch
+        self.assertIs(False, result)
+        self.worker.log.exception.assert_not_called()
+        self.assertEqual(
+            ['Client did not read the response within 60s: '
+             "('1.2.3.4', 5678)"],
+            self.worker.swift_logger.get_lines_for_level('warning'))
+        self.assertEqual([], self.worker.swift_logger.get_lines_for_level(
+            'error'))
+        # the access log line is still written
+        self.worker.log.access.assert_called_once()
+
+    def test_response_write_etimedout_is_not_a_slow_client(self):
+        resp = MagicMock()
+        resp.write.side_effect = socket.timeout(errno.ETIMEDOUT, 'timed out')
+        result = self._handle(iter([MagicMock()]), resp)
+        self.assertIs(False, result)
+        self.worker.log.exception.assert_called_once_with(
+            'Socket error processing request.')
+        self.assertEqual(
+            [], self.worker.swift_logger.get_lines_for_level('warning'))
+
+    def test_request_read_timeout_is_unchanged(self):
+        # handle() reads the request line and headers before handle_request,
+        # so a stalled request read keeps gthread's own handling
+        def parser():
+            raise socket.timeout('timed out')
+            yield  # pragma: no cover
+
+        resp = MagicMock()
+        result = self._handle(parser(), resp)
+        self.assertIs(False, result)
+        resp.write.assert_not_called()
+        self.worker.log.exception.assert_called_once_with(
+            'Socket error processing request.')
+        self.assertEqual(
+            [], self.worker.swift_logger.get_lines_for_level('warning'))
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')

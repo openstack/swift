@@ -705,6 +705,27 @@ def patch_gunicorn():
 
     ThreadWorker.handle_error = swift_handle_error
 
+    # swift_tconn_init sets client_timeout on the client socket, so a client
+    # that does not read the response makes sendall raise socket.timeout.
+    # gthread's handle() logs that OSError (errno None) at ERROR with a
+    # traceback as "Socket error processing request." Log the slow client
+    # once at WARNING instead, as the proxy did for ChunkWriteTimeout, and
+    # return False so handle() closes the connection as before.
+    orig_handle_request = ThreadWorker.handle_request
+
+    def swift_handle_request(self, req, conn):
+        try:
+            return orig_handle_request(self, req, conn)
+        except socket.timeout as exc:
+            if exc.errno is not None:
+                raise  # ETIMEDOUT from the kernel, not the socket timeout
+            logger = getattr(self, 'swift_logger', None) or self.log
+            logger.warning('Client did not read the response within %ss: %s',
+                           _CLIENT_TIMEOUT, conn.client)
+            return False
+
+    ThreadWorker.handle_request = swift_handle_request
+
     # gunicorn's proxy_protocol="auto" (what True maps to) only *detects* a
     # PROXY preamble; a connection without one is served as ordinary HTTP.
     # eventlet's SwiftHttpProxiedProtocol instead *requires* it, making
