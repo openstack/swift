@@ -65,6 +65,39 @@ class TestChunkedInput(unittest.TestCase):
         ci.send_hundred_continue_response()
         self.assertIsNot(ci.body, body)
 
+    def test_phase_two_keeps_over_read_bytes(self):
+        # Phase 1 and phase 2 arrive in one recv(). The phase-1 parser reads
+        # past its terminator and pushes the rest back into req.unreader.
+        # Phase 2 must read from that same unreader, or the bytes are lost.
+        wsgi_gunicorn.patch_gunicorn()
+        from gunicorn.http.body import Body, ChunkedReader
+        from gunicorn.http.unreader import SocketUnreader
+
+        class Req:
+            headers = []
+            trailers = None
+
+            def parse_headers(self, data, from_trailer=False):
+                return []
+
+        server, client = socket.socketpair()
+        self.addCleanup(server.close)
+        self.addCleanup(client.close)
+        server.settimeout(0.5)
+        client.sendall(b'5\r\nhello\r\n0\r\n\r\n'
+                       b'17\r\nput_commit_confirmation\r\n0\r\n\r\n')
+
+        req = Req()
+        req.unreader = SocketUnreader(server)
+        ci = ChunkedInput(Body(ChunkedReader(req, req.unreader)), server, req)
+        self.assertEqual(ci.read(), b'hello')
+        self.assertTrue(ci.saw_eof)
+
+        ci.send_hundred_continue_response()
+        self.assertFalse(ci.saw_eof)
+        self.assertEqual(ci.read(), b'put_commit_confirmation')
+        self.assertTrue(ci.saw_eof)
+
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestDefaultEnvironExpect(unittest.TestCase):

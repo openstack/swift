@@ -857,10 +857,8 @@ class ChunkedInput(_CountingInput):
 
         self.headers = []
         if self.continue_sent:
-            # new body for the next phase: reset accounting so an undrained
-            # later phase isn't treated as complete
-            unreader = SocketUnreader(self.sock)
-            self.body = Body(ChunkedReader(self.req, unreader))
+            # req.unreader holds the bytes read past the phase-1 terminator
+            self.body = Body(ChunkedReader(self.req, self.req.unreader))
             self._init_accounting()
         self.continue_sent = True
 
