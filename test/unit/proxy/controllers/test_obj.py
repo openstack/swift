@@ -24,6 +24,7 @@ import argparse
 from collections import defaultdict
 from contextlib import contextmanager
 import json
+import re
 
 from unittest import mock
 from swift.common.concurrency import Timeout, sleep, Empty, SwiftPool, \
@@ -6322,8 +6323,10 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
         self.assertIn('Error decoding fragments', msg)
         self.assertIn('/a/c/o', msg)
         self.assertIn('Segments decoded: %d' % (num_segments - 1), msg)
-        self.assertIn(
-            "[%s]" % ", ".join([str(length) for length in mixed_lengths]), msg)
+        # threads collect the fragments in any order
+        logged_lengths = json.loads(
+            re.search(r'Lengths: (\[[^\]]*\])', msg).group(1))
+        self.assertEqual(sorted(mixed_lengths), sorted(logged_lengths))
         self.assertIn("Invalid fragment payload in ECPyECLibDriver.decode",
                       msg)
 
