@@ -3482,9 +3482,32 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         num_processes = 100
         exceptions = []
 
+        # A token holder deletes the token after its backend fetch. Under
+        # eventlet all workers increment the token before that. Threads start
+        # at different times, so a late worker would open a second token
+        # session. Hold the backend fetch until every worker has incremented.
+        all_incremented = ThreadingEvent()
+        incr_counter = itertools.count(1)
+        orig_incr = self.memcache.incr
+
+        def counting_incr(*args, **kwargs):
+            try:
+                return orig_incr(*args, **kwargs)
+            finally:
+                # next() on a C iterator is atomic, so no lock is needed
+                if next(incr_counter) == num_processes:
+                    all_incremented.set()
+
+        self.memcache.incr = counting_incr
+
+        class GatedCachePopulator(self.DelayedCachePopulator):
+            def do_fetch_backend(self):
+                all_incremented.wait()
+                return super().do_fetch_backend()
+
         def worker_process():
             # Initialize new populator instance in each process.
-            populator = self.DelayedCachePopulator(
+            populator = GatedCachePopulator(
                 MockApp(self.logger, self.statsd),
                 {}, self.memcache,
                 self.cache_key, self.cache_ttl,
