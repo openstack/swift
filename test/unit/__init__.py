@@ -20,6 +20,7 @@ import copy
 import logging
 import logging.handlers
 import sys
+import threading
 from contextlib import contextmanager
 from collections import defaultdict
 from collections.abc import Iterable
@@ -1084,6 +1085,9 @@ def fake_http_connect(*code_iter, **kwargs):
     if body_iter:
         body_iter = iter(body_iter)
     unexpected_requests = []
+    # Threads connect concurrently. Take the status, headers and body of one
+    # response together, or two connections get mixed responses.
+    iter_lock = threading.Lock()
 
     def connect(*args, **ckwargs):
         if kwargs.get('slow_connect', False):
@@ -1096,14 +1100,26 @@ def fake_http_connect(*code_iter, **kwargs):
                 kwargs['give_content_type'](args[6]['Content-Type'])
             else:
                 kwargs['give_content_type']('')
-        try:
-            i, status = next(conn_id_and_code_iter)
-        except StopIteration:
-            # the code under test may swallow the StopIteration, so by logging
-            # unexpected requests here we allow the test framework to check for
-            # them after the connect function has been used.
-            unexpected_requests.append((args, ckwargs))
-            raise
+        with iter_lock:
+            try:
+                i, status = next(conn_id_and_code_iter)
+            except StopIteration:
+                # the code under test may swallow the StopIteration, so by
+                # logging unexpected requests here we allow the test framework
+                # to check for them after the connect function has been used.
+                unexpected_requests.append((args, ckwargs))
+                raise
+            etag = next(etag_iter)
+            headers = next(headers_iter)
+            expect_headers = next(expect_headers_iter)
+            timestamp = next(timestamps_iter)
+            failed_connect = isinstance(status, int) and status <= 0
+            if body_iter is None:
+                body = static_body or b''
+            elif failed_connect:
+                body = None  # a failed connect never consumed a body
+            else:
+                body = next(body_iter)
 
         if 'give_connect' in kwargs:
             give_conn_fn = kwargs['give_connect']
@@ -1112,17 +1128,9 @@ def fake_http_connect(*code_iter, **kwargs):
             if argspec.varkw or 'connection_id' in argspec.args:
                 ckwargs['connection_id'] = i
             give_conn_fn(*args, **ckwargs)
-        etag = next(etag_iter)
-        headers = next(headers_iter)
-        expect_headers = next(expect_headers_iter)
-        timestamp = next(timestamps_iter)
 
-        if isinstance(status, int) and status <= 0:
+        if failed_connect:
             raise HTTPException()
-        if body_iter is None:
-            body = static_body or b''
-        else:
-            body = next(body_iter)
         conn = FakeConn(status, etag, body=body, timestamp=timestamp,
                         headers=headers, expect_headers=expect_headers,
                         connection_id=i, give_send=kwargs.get('give_send'),
@@ -1405,6 +1413,9 @@ def fake_ec_node_response(node_frags, policy):
     node_map = {}  # maps node ip and port to node index
     all_nodes = []
     call_count = {}  # maps node index to get_response call count for node
+    # Threads call get_response concurrently. Build the node map once, and
+    # count the calls for a node without a lost update.
+    state_lock = threading.Lock()
 
     def _build_node_map(req, policy):
         part = utils.split_path(req['path'], 5, 5, True)[1]
@@ -1426,28 +1437,29 @@ def fake_ec_node_response(node_frags, policy):
         if int(policy) != requested_policy:
             AssertionError(
                 "Requested polciy doesn't fit the fake response policy")
-        if not node_map:
-            _build_node_map(req, policy)
+        with state_lock:
+            if not node_map:
+                _build_node_map(req, policy)
 
-        try:
-            node_index = node_map[(req['ip'], req['port'])]
-        except KeyError:
-            raise Exception("Couldn't find node %s:%s in %r" % (
-                req['ip'], req['port'], all_nodes))
-        try:
-            frags = node_frags[node_index]
-        except IndexError:
-            raise Exception('Found node %r:%r at index %s - '
-                            'but only got %s stub response nodes' % (
-                                req['ip'], req['port'], node_index,
-                                len(node_frags)))
+            try:
+                node_index = node_map[(req['ip'], req['port'])]
+            except KeyError:
+                raise Exception("Couldn't find node %s:%s in %r" % (
+                    req['ip'], req['port'], all_nodes))
+            try:
+                frags = node_frags[node_index]
+            except IndexError:
+                raise Exception('Found node %r:%r at index %s - '
+                                'but only got %s stub response nodes' % (
+                                    req['ip'], req['port'], node_index,
+                                    len(node_frags)))
 
-        if not frags:
-            return StubResponse(404)
+            if not frags:
+                return StubResponse(404)
 
-        # determine response fragment (if any) for this call
-        resp_frag = frags[call_count[node_index]]
-        call_count[node_index] += 1
+            # determine response fragment (if any) for this call
+            resp_frag = frags[call_count[node_index]]
+            call_count[node_index] += 1
         frag_prefs = req['headers'].get('X-Backend-Fragment-Preferences')
         if not (frag_prefs or resp_frag.get('durable', True)):
             return StubResponse(404)
