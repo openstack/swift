@@ -196,7 +196,7 @@ class TestAccountBroker(test_db.TestDbBase):
         broker.initialize(Timestamp('1').internal)
         for i, container_spec in enumerate(container_specs):
             # with container12 before container2 and shuffled ts.internal we
-            # shouldn't be able to accidently rely on any implicit ordering
+            # shouldn't be able to accidentally rely on any implicit ordering
             name = 'container%s' % i
             pidx = random.choice(policy_indexes)
             ts, is_deleted = container_spec
@@ -1105,7 +1105,7 @@ class TestAccountBroker(test_db.TestDbBase):
         broker.newid('someid')
         self.assertNotEqual(id, broker.get_info()['id'])
         # ends in the device name (from the path) unless it's an old
-        # container with just a uuid4 (tested in legecy broker
+        # container with just a uuid4 (tested in legacy broker
         # tests e.g *BeforeMetaData)
         if len(id) > 36:
             self.assertTrue(id.endswith('d1234'))
@@ -1114,7 +1114,7 @@ class TestAccountBroker(test_db.TestDbBase):
 
         # if we move the broker (happens after an rsync)
         new_db_path = os.path.join(
-            tempdir, "d5678", 'contianers', 'part', 'suffix', 'hsh')
+            tempdir, "d5678", 'containers', 'part', 'suffix', 'hsh')
         os.makedirs(new_db_path)
         shutil.copy(os.path.join(db_path, 'my.db'),
                     os.path.join(new_db_path, 'my.db'))
@@ -1194,7 +1194,7 @@ class TestAccountBroker(test_db.TestDbBase):
 
 def prespi_AccountBroker_initialize(self, conn, put_timestamp, **kwargs):
     """
-    The AccountBroker initialze() function before we added the
+    The AccountBroker initialize() function before we added the
     policy stat table.  Used by test_policy_table_creation() to
     make sure that the AccountBroker will correctly add the table
     for cases where the DB existed before the policy support was added.

@@ -44,7 +44,7 @@ Some keywords, signaled by the (timestamp) flag, can be converted to standard
 dates formats using the matching transformers: 'datetime', 'asctime' or
 'iso8601'. Other transformers for timestamps are 's', 'ms', 'us' and 'ns' for
 seconds, milliseconds, microseconds and nanoseconds. Python's strftime
-directives can also be used as tranformers (a, A, b, B, c, d, H, I, j, m, M, p,
+directives can also be used as transformers (a, A, b, B, c, d, H, I, j, m, M, p,
 S, U, w, W, x, X, y, Y, Z).
 
 Example::

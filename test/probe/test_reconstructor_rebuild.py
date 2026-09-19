@@ -13,6 +13,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import itertools
 import unittest
 import uuid
@@ -904,7 +905,7 @@ class TestReconstructorRebuildReconcilerOffset(ECProbeTest):
         rebuilt_hdrs, rebuilt_frag_etag = self.direct_get(
             fail_node, self.ec_part)
 
-        # With the prevous bug (Timestamp.normal in frag_prefs), the timestamp
+        # With the previous bug (Timestamp.normal in frag_prefs), the timestamp
         # "1234567890.12345" won't match the actual offset timestamp
         # "1234567890.12345_0000000000000003" on peer nodes.
         self.assertEqual(orig_frag_etag, rebuilt_frag_etag,

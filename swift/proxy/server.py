@@ -351,7 +351,7 @@ class Application(object):
         # those between the proxy servers and the other internal servers.
         #
         # ** Because it affects the client as well, currently, we use the
-        # client chunk size as the govenor and not the object chunk size.
+        # client chunk size as the governor and not the object chunk size.
         if sys.version_info < (3,):
             socket._fileobject.default_bufsize = self.client_chunk_size
         # TODO: find a way to enable similar functionality in py3

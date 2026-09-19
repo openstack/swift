@@ -456,7 +456,7 @@ class TestRequestHelpers(unittest.TestCase):
                 failures.append('get given %r expected %r != %r' % (
                     parts, expected, name))
         if failures:
-            self.fail('Unexpected reults:\n' + '\n'.join(failures))
+            self.fail('Unexpected results:\n' + '\n'.join(failures))
 
     def test_invalid_get_reserved_name(self):
         self.assertRaises(ValueError)
@@ -480,7 +480,7 @@ class TestRequestHelpers(unittest.TestCase):
                 failures.append('split given %r expected %r != %r' % (
                     name, expected, parts))
         if failures:
-            self.fail('Unexpected reults:\n' + '\n'.join(failures))
+            self.fail('Unexpected results:\n' + '\n'.join(failures))
 
     def test_invalid_split_reserved_name(self):
         self.assertRaises(ValueError)

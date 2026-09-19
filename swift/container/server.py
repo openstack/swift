@@ -447,9 +447,9 @@ class ContainerController(BaseStorageServer):
             # assume they know the behavior they want
             return config_true_value(auto_create_header)
         if account.startswith(self.shards_account_prefix):
-            # we have to specical case this subset of the
+            # we have to special case this subset of the
             # auto_create_account_prefix because we don't want the updater
-            # accidently auto-creating shards; only the sharder creates
+            # accidentally auto-creating shards; only the sharder creates
             # shards and it will explicitly tell the server to do so
             return False
         return account.startswith(self.auto_create_account_prefix)

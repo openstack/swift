@@ -87,7 +87,7 @@ class TestContainer(unittest.TestCase):
                 for obj in objs:
                     resp = retry(delete, container, obj)
                     resp.read()
-                    # Under load, container listing may not upate immediately,
+                    # Under load, container listing may not update immediately,
                     # so we may attempt to delete the same object multiple
                     # times. Tolerate the object having already been deleted.
                     self.assertIn(resp.status, (204, 404))

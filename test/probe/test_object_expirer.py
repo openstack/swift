@@ -147,7 +147,7 @@ class TestObjectExpirer(ReplProbeTest):
         # object, the object servers will create async_pending records to
         # clean the expirer queue. Since the expirer cleans its own queue,
         # this is unnecessary. The expirer can make requests in such a way
-        # tha the object server does not write out any async pendings; this
+        # that the object server does not write out any async pendings; this
         # test asserts that this is the case.
 
         # Make an expiring object in each policy
@@ -184,15 +184,15 @@ class TestObjectExpirer(ReplProbeTest):
 
         # Current object-expirer checks the correctness via x-if-delete-at
         # header that it can be deleted by expirer. If there are objects
-        # either which doesn't have x-delete-at header as metadata or which
-        # has different x-delete-at value from x-if-delete-at value,
-        # object-expirer's delete will fail as 412 PreconditionFailed.
+        # either which don't have x-delete-at header as metadata or which
+        # have different x-delete-at value from x-if-delete-at value,
+        # object-expirer's delete will fail with 412 Precondition Failed.
         # However, if some of the objects are in handoff nodes, the expirer
-        # can put the tombstone with the timestamp as same as x-delete-at and
+        # can put the tombstone with the timestamp the same as x-delete-at and
         # the object consistency will be resolved as the newer timestamp will
-        # be winner (in particular, overwritten case w/o x-delete-at). This
-        # test asserts such a situation that, at least, the overwriten object
-        # which have larger timestamp than the original expirered date should
+        # win (in particular, the overwritten case w/o x-delete-at). This
+        # test asserts such a situation that, at least, the overwritten object
+        # which has larger timestamp than the original expiration date should
         # be safe.
 
         def put_object(headers):

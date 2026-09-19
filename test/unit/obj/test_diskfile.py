@@ -7467,7 +7467,7 @@ class TestECDiskFile(DiskFileMixin, BaseUnitTestCase):
     def test_reader_frag_check_does_not_quarantine_if_its_not_binary(self):
         # This may look weird but for super-safety, check the
         # ECDiskFileReader._frag_check doesn't quarantine when non-binary
-        # type chunk incomming (that would occurre only from coding bug)
+        # type chunk incoming (that would occur only from coding bug)
         policy = POLICIES.default
 
         df, df_data = self._create_test_file(b'x' * policy.ec_segment_size,
@@ -9923,11 +9923,11 @@ class TestSuffixHashes(BaseUnitTestCase):
                 {'000': 'fake', '001': 'fake'},  # modification
                 {'000': 'fake', '001': 'fake', '002': 'fake'},  # read
                 {'000': 'fake', '001': 'fake', '002': 'fake',
-                 '003': 'fake'},  # modifed
+                 '003': 'fake'},  # modified
                 {'000': 'fake', '001': 'fake', '002': 'fake',
                  '003': 'fake', '004': 'fake'},  # read
                 {'000': 'fake', '001': 'fake', '002': 'fake',
-                 '003': 'fake', '004': 'fake'},  # not modifed
+                 '003': 'fake', '004': 'fake'},  # not modified
             ])
 
 

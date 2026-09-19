@@ -2802,7 +2802,7 @@ class ObjectVersioningTestVersionAPI(ObjectVersioningBaseTestCase):
 
 class ObjectVersioningVersionAPIWhileDisabled(ObjectVersioningBaseTestCase):
 
-    def test_PUT_version_versioning_disbaled(self):
+    def test_PUT_version_versioning_disabled(self):
         timestamp = self.ts()
         client_version = timestamp.internal
         internal_version = (~timestamp).internal

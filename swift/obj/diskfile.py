@@ -23,7 +23,7 @@ an alternative backend for the object server must implement the three
 classes. An example alternative implementation can be found in the
 `mem_server.py` and `mem_diskfile.py` modules along size this one.
 
-The `DiskFileManager` is a reference implemenation specific class and is not
+The `DiskFileManager` is a reference implementation specific class and is not
 part of the backend API.
 
 The remaining methods in this module are considered implementation specific and
@@ -2614,7 +2614,7 @@ class BaseDiskFile(object):
             exceptions, but is only required to raise `DiskFileNotExist` when
             the object representation does not exist.
 
-        :raises DiskFileCollision: on name mis-match with metadata
+        :raises DiskFileCollision: on name mismatch with metadata
         :raises DiskFileNotExist: if the object does not exist
         :raises DiskFileDeleted: if the object was previously deleted
         :raises DiskFileQuarantined: if while reading metadata of the file

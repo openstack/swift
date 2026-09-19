@@ -2008,7 +2008,7 @@ class TestContainerOperations(TestObjectVersioningBase):
         for f in files:
             file_item = cont.file(f)
             self.assertTrue(file_item.write_random())
-            # immediately ovewrite
+            # immediately overwrite
             self.assertTrue(file_item.write_random())
             time.sleep(.01)  # guarantee that the timestamp changes
 

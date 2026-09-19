@@ -112,7 +112,7 @@ Ring v2
 The way that v1 rings dealt with fractional replicas made it impossible
 to reliably serialize additional large data structures after the
 replica-to-part-to-device table. The v2 format has been designed to be
-extensable.
+extensible.
 
 The new format starts with magic similar to v1::
 

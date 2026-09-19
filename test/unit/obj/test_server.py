@@ -1,4 +1,3 @@
-# coding: utf-8
 # Copyright (c) 2010-2012 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -1982,14 +1981,14 @@ class TestObjectController(BaseUnitTestCase):
         return headers
 
     def test_PUT_if_none_match_but_expired(self):
-        inital_put = self.ts()
+        initial_put = self.ts()
         put_before_expire = self.ts()
         delete_at_timestamp = int(self.ts())
         put_after_expire = self.ts()
         req = Request.blank(
             '/sda1/p/a/c/o', environ={'REQUEST_METHOD': 'PUT'},
             headers=self._update_delete_at_headers({
-                'X-Timestamp': inital_put.normal,
+                'X-Timestamp': initial_put.normal,
                 'X-Delete-At': str(delete_at_timestamp),
                 'Content-Length': '4',
                 'Content-Type': 'application/octet-stream'}))
@@ -2161,7 +2160,7 @@ class TestObjectController(BaseUnitTestCase):
             old_timestamp.internal + '.data')
         self.assertFalse(os.path.exists(datafile))
 
-        # ts file sitll exists
+        # ts file still exists
         tsfile = os.path.join(
             self.testdir, 'sda1',
             storage_directory(diskfile.get_data_dir(POLICIES[0]), 'p',
@@ -3404,7 +3403,7 @@ class TestObjectController(BaseUnitTestCase):
                 # something else did, from the object server perspective ...
 
                 # ... the ssync-frag-index is canonical on the
-                # read/pre-existance check
+                # read/pre-existence check
                 put_with_index(409, 7, 2)
                 # ... but the ec-frag-index is canonical when it comes to on
                 # disk file

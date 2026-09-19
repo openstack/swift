@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import base64
 import io
 import warnings
@@ -1080,7 +1081,7 @@ class TestRequest(S3ApiTestCase):
         })
         sigv2_req = S3Request(req.environ, Config({
             'storage_domains': ['s3.amazonaws.com']}))
-        # This is a failure case with utf-8 non-ascii multi-bytes charactor
+        # This is a failure case with utf-8 non-ascii multi-bytes character
         # but we expect to return just False instead of exceptions
         self.assertFalse(sigv2_req.sig_checker.check_signature(
             u'\u30c9\u30e9\u30b4\u30f3'))
@@ -2496,7 +2497,7 @@ class TestSigV4Request(S3ApiTestCase):
         # location lowercase matches
         sigv4_req = do_check_ok(Config({'location': 'us-east-1'}), auth)
         self.assertEqual('us-east-1', sigv4_req.location)
-        # location case mis-matches
+        # location case mismatches
         sigv4_req = do_check_ok(Config({'location': 'US-East-1'}), auth)
         self.assertEqual('us-east-1', sigv4_req.location)
         # location uppercase matches
@@ -2590,7 +2591,7 @@ class TestSigV4Request(S3ApiTestCase):
         # location lowercase matches
         sigv4_req = do_check_ok(Config({'location': 'us-east-1'}), ok_params)
         self.assertEqual('us-east-1', sigv4_req.location)
-        # location case mis-matches
+        # location case mismatches
         sigv4_req = do_check_ok(Config({'location': 'US-East-1'}), ok_params)
         self.assertEqual('us-east-1', sigv4_req.location)
         # location uppercase matches

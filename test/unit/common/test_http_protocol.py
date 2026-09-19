@@ -491,7 +491,7 @@ class TestProxyProtocol(ProtocolTest):
         # For "UNKNOWN", the rest of the line before the CRLF may be omitted by
         # the sender, and the receiver must ignore anything presented before
         # the CRLF is found.
-        for unknown_line in [b'PROXY UNKNOWN',  # mimimal valid unknown
+        for unknown_line in [b'PROXY UNKNOWN',  # minimal valid unknown
                              b'PROXY UNKNOWNblahblah',  # also valid
                              b'PROXY UNKNOWN a b c d']:
             bytes_out = self._run_bytes_through_protocol(

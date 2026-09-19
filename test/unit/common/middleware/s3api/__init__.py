@@ -332,7 +332,7 @@ class S3ApiTestCaseAcl(S3ApiTestCase):
             status, headers, body = self.call_app(req)
             if is_success(int(status.split()[0])):
                 self.assertIn(acl, headers,
-                              'In tearDown it seems the test (accidently?) '
+                              'In tearDown it seems the test (accidentally?) '
                               'removed the ACL on %s' % swift_path)
                 check_paths.append(check)
             else:
@@ -348,6 +348,7 @@ class S3ApiTestCaseAcl(S3ApiTestCase):
                     'Date': self.get_date_header()})
                 status, headers, body = self.call_s3api(req)
                 self.assertEqual(int(status.split()[0]), expected,
-                                 'In tearDown it seems the test (accidently?) '
-                                 'broke ACL access for %s to %s' % (
+                                 'In tearDown it seems the test '
+                                 '(accidentally?) broke ACL access '
+                                 'for %s to %s' % (
                                      account, path))

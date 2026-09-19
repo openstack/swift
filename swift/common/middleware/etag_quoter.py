@@ -18,7 +18,7 @@ This middleware fix the Etag header of responses so that it is RFC compliant.
 `RFC 7232 <https://tools.ietf.org/html/rfc7232#section-2.3>`__ specifies that
 the value of the Etag header must be double quoted.
 
-It must be placed at the beggining of the pipeline, right after cache::
+It must be placed at the beginning of the pipeline, right after cache::
 
    [pipeline:main]
    pipeline = ...  cache etag-quoter ...

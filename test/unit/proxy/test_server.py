@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2010-2016 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -4712,7 +4711,7 @@ class TestReplicatedObjectController(
                                   headers=resp_headers) as fake_conn:
                 resp = req.get_response(self.app)
 
-            # verify request hitted infocache.
+            # verify request hit infocache.
             self.assertEqual(resp.status_int, 202)
 
             stats = self.app.logger.statsd_client.get_stats_counts()
@@ -8897,7 +8896,7 @@ class TestECMismatchedFA(unittest.TestCase):
 
         @public
         def bad_disk(req):
-            return Response(status=507, body="borken")
+            return Response(status=507, body="broken")
 
         ensure_container = Request.blank(
             "/v1/a/ec-crazytown",
@@ -8979,7 +8978,7 @@ class TestECMismatchedFA(unittest.TestCase):
 
         @public
         def bad_disk(req):
-            return Response(status=507, body="borken")
+            return Response(status=507, body="broken")
 
         ensure_container = Request.blank(
             "/v1/a/ec-dup-crazytown",
@@ -10614,21 +10613,21 @@ class TestContainerController(BaseTestCase):
                 self.assertEqual(resp.status_int, 200)
 
                 set_http_connect(404, 404, 404, 200, 200, 200)
-                # Make sure it is a blank request wthout env caching
+                # Make sure it is a blank request without env caching
                 req = Request.blank('/v1/a/c',
                                     environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
                 self.assertEqual(resp.status_int, 404)
 
                 set_http_connect(503, 404, 404)
-                # Make sure it is a blank request wthout env caching
+                # Make sure it is a blank request without env caching
                 req = Request.blank('/v1/a/c',
                                     environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
                 self.assertEqual(resp.status_int, 404)
 
                 set_http_connect(503, 404, raise_exc=True)
-                # Make sure it is a blank request wthout env caching
+                # Make sure it is a blank request without env caching
                 req = Request.blank('/v1/a/c',
                                     environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
@@ -10640,7 +10639,7 @@ class TestContainerController(BaseTestCase):
                         self.app.error_limiter.suppression_limit + 1,
                         time.time())
                 set_http_connect(200, 200, 200, 200, 200, 200)
-                # Make sure it is a blank request wthout env caching
+                # Make sure it is a blank request without env caching
                 req = Request.blank('/v1/a/c',
                                     environ={'REQUEST_METHOD': meth})
                 resp = getattr(controller, meth)(req)
