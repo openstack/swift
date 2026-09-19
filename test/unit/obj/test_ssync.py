@@ -101,7 +101,7 @@ class TestBaseSsync(BaseTest):
             if entry is None:
                 return
             worker = entry[0]
-            deadline = time.time() + 1
+            deadline = time.time() + 5
             while time.time() < deadline:
                 if getattr(worker, 'nr_conns', 0) == 0:
                     return

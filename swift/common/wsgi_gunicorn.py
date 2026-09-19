@@ -1811,7 +1811,10 @@ def server(sock, site, log=None, **kwargs):
     try:
         worker.init_process()
     finally:
-        _test_workers.pop(sock_fd, None)
+        # The next test may reuse the fd before this thread gets here. Do
+        # not remove the entry of that test's worker.
+        if _test_workers.get(sock_fd, (None,))[0] is worker:
+            _test_workers.pop(sock_fd, None)
 
 
 def _stop_worker(worker, sock):
