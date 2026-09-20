@@ -198,7 +198,9 @@ WELL_KNOWN_CHECKSUM_HEADERS = (
     'x-amz-checksum-sha256',
     'x-amz-checksum-crc64nvme'
 )
-# types for x-amz-checksum-type
+
+# https://docs.aws.amazon.com/AmazonS3/latest/API/API_Checksum.html
+# FULL_OBJECT and COMPOSITE are the only known checksum types
 WELL_KNOWN_CHECKSUM_TYPES = (
     'COMPOSITE',
     'FULL_OBJECT'
