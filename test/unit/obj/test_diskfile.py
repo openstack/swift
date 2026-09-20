@@ -5123,6 +5123,42 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             self.assertFalse(os.path.exists(hashdir))
             self.assertTrue(os.path.exists(os.path.dirname(hashdir)))
 
+    def test_quarantine_hashdir_not_listable_fallback_to_suffix(self):
+        for eno in (errno.ENODATA, EUCLEAN):
+            df, df_data = self._create_test_file(b'1234567890', account='abc',
+                                                 container='123',
+                                                 obj='xyz-%s' % eno)
+            hashdir = df._datadir
+            suffixdir = os.path.dirname(hashdir)
+            orig_listdir = os.listdir
+            orig_quarantine_dir_renamer = diskfile.quarantine_dir_renamer
+
+            def mock_listdir(path):
+                if path == hashdir:
+                    raise OSError(eno, 'nope')
+                return orig_listdir(path)
+
+            def mock_quarantine_dir_renamer(device_path, from_dir):
+                if from_dir == hashdir:
+                    raise OSError()
+                return orig_quarantine_dir_renamer(device_path, from_dir)
+
+            df = self.df_mgr.get_diskfile(
+                self.existing_device, '0', 'abc', '123', 'xyz-%s' % eno,
+                policy=POLICIES.legacy)
+            with mock.patch('os.listdir', side_effect=mock_listdir), \
+                    mock.patch('swift.obj.diskfile.BaseDiskFileManager.'
+                               'quarantine_dir_renamer',
+                               side_effect=mock_quarantine_dir_renamer):
+                self.assertRaises(DiskFileQuarantined, df.open)
+
+            self.assertFalse(os.path.exists(suffixdir))
+            quarantine_path = os.path.join(
+                df._device_path, 'quarantined', 'objects',
+                os.path.basename(suffixdir))
+            self.assertEqual(quarantine_path, df._quarantined_dir)
+            self.assertTrue(os.path.exists(quarantine_path))
+
     def test_create_prealloc(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
                                       'xyz', policy=POLICIES.legacy)
