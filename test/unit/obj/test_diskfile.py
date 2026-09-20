@@ -5097,7 +5097,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             pass
 
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz', policy=POLICIES.legacy)
+                                      'xyz', policy=POLICIES.default)
         self.assertRaises(DiskFileQuarantined, df.open)
         self.assertTrue(os.path.exists(df._quarantined_dir))
 
@@ -5113,7 +5113,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             hashdir = df._datadir
             df = self.df_mgr.get_diskfile(
                 self.existing_device, '0', 'abc', '123', 'xyz',
-                policy=POLICIES.legacy)
+                policy=POLICIES.default)
             with mock.patch('os.listdir',
                             side_effect=OSError(eno, 'nope')):
                 self.assertRaises(DiskFileQuarantined, df.open)
@@ -5145,7 +5145,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
 
             df = self.df_mgr.get_diskfile(
                 self.existing_device, '0', 'abc', '123', 'xyz-%s' % eno,
-                policy=POLICIES.legacy)
+                policy=POLICIES.default)
             with mock.patch('os.listdir', side_effect=mock_listdir), \
                     mock.patch('swift.obj.diskfile.BaseDiskFileManager.'
                                'quarantine_dir_renamer',
