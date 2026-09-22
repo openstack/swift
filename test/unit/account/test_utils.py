@@ -77,7 +77,8 @@ class TestAccountUtils(TestDbBase):
         self.assertEqual(resp_headers, expected)
 
     def test_get_response_headers_empty_memory_broker(self):
-        broker = backend.AccountBroker(self.db_path, account='a')
+        broker = backend.AccountBroker(self.db_path, account='a',
+                                       quarantine_ok=True)
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(Timestamp(now).internal)
@@ -93,7 +94,8 @@ class TestAccountUtils(TestDbBase):
 
     @patch_policies
     def test_get_response_headers_with_data(self):
-        broker = backend.AccountBroker(self.db_path, account='a')
+        broker = backend.AccountBroker(self.db_path, account='a',
+                                       quarantine_ok=True)
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(Timestamp(now).internal)
@@ -140,7 +142,8 @@ class TestAccountUtils(TestDbBase):
 
     @patch_policies
     def test_get_response_headers_with_legacy_data(self):
-        broker = backend.AccountBroker(self.db_path, account='a')
+        broker = backend.AccountBroker(self.db_path, account='a',
+                                       quarantine_ok=True)
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
             broker.initialize(Timestamp(now).internal)
@@ -213,7 +216,8 @@ class TestAccountUtils(TestDbBase):
     @patch_policies([StoragePolicy(0, 'zero', is_default=True),
                      StoragePolicy(1, 'one', is_default=False)])
     def test_account_listing_with_containers(self):
-        broker = backend.AccountBroker(self.db_path, account='a')
+        broker = backend.AccountBroker(self.db_path, account='a',
+                                       quarantine_ok=True)
         put_timestamp = self.ts()
         now = time.time()
         with mock.patch('time.time', new=lambda: now):
@@ -286,7 +290,8 @@ class TestAccountUtils(TestDbBase):
     @patch_policies([StoragePolicy(0, 'zero', is_default=True),
                      StoragePolicy(1, 'one', is_default=False)])
     def test_account_listing_reserved_names(self):
-        broker = backend.AccountBroker(self.db_path, account='a')
+        broker = backend.AccountBroker(self.db_path, account='a',
+                                       quarantine_ok=True)
         put_timestamp = self.ts()
         now = time.time()
         with mock.patch('time.time', new=lambda: now):

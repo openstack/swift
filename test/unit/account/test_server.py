@@ -638,7 +638,7 @@ class TestAccountController(BaseUnitTestCase):
                 for dir_name, _, files in os.walk(self.testdir)
                 for file_name in files if file_name.endswith('.db')
             ))
-            broker = AccountBroker(db_path)
+            broker = AccountBroker(db_path, quarantine_ok=True)
             # Why not use broker.metadata, you ask? Because we want to get
             # as close to the on-disk format as is reasonable.
             result = json.loads(broker.get_raw_metadata())

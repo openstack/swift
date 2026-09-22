@@ -162,7 +162,8 @@ class TestContainerUpdater(BaseUnitTestCase):
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         db_file = os.path.join(subdir, 'hash.db')
-        cb = ContainerBroker(db_file, account='a', container='c')
+        cb = ContainerBroker(db_file, account='a', container='c',
+                             quarantine_ok=True)
         cb.initialize(self.ts().internal, 0)
 
         timeout = exceptions.LockTimeout(10, db_file)
@@ -184,7 +185,8 @@ class TestContainerUpdater(BaseUnitTestCase):
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
-                             container='c', pending_timeout=1)
+                             container='c', pending_timeout=1,
+                             quarantine_ok=True)
         cb.initialize(self.ts().internal, 0)
 
         cu.run_once()
@@ -208,7 +210,7 @@ class TestContainerUpdater(BaseUnitTestCase):
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
-                             container='c')
+                             container='c', quarantine_ok=True)
         cb.initialize(self.ts().internal, 0)
         self.assertTrue(cb.is_root_container())
         cu.run_once()
@@ -304,7 +306,7 @@ class TestContainerUpdater(BaseUnitTestCase):
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account='a',
-                             container='\xce\xa9')
+                             container='\xce\xa9', quarantine_ok=True)
         cb.initialize(self.ts().internal, 0)
         obj_name = u'\N{GREEK CAPITAL LETTER OMEGA}'
         cb.put_object(obj_name, self.ts().internal, 3, 'text/plain',
@@ -360,7 +362,8 @@ class TestContainerUpdater(BaseUnitTestCase):
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'),
-                             account='.shards_a', container='c')
+                             account='.shards_a', container='c',
+                             quarantine_ok=True)
         put_ts = self.ts()
         cb.initialize(put_ts.internal, 0)
         cb.set_sharding_sysmeta('Root', 'a/c')
@@ -451,7 +454,8 @@ class TestContainerUpdater(BaseUnitTestCase):
         subdir = os.path.join(containers_dir, 'subdir')
         os.mkdir(subdir)
         cb = ContainerBroker(os.path.join(subdir, 'hash.db'),
-                             account='.shards_a', container='c')
+                             account='.shards_a', container='c',
+                             quarantine_ok=True)
         put_ts = self.ts()
         cb.initialize(put_ts.internal, 0)
         cb.set_sharding_sysmeta('Quoted-Root', 'a/c')

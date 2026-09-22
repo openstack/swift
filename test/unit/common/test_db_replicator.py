@@ -2438,7 +2438,8 @@ class TestReplicatorSync(BaseUnitTestCase):
         db_path = os.path.join(self.root, drive,
                                storage_directory(self.datadir, part, hash_),
                                hash_ + '.db')
-        return self.backend(db_path, account=account, container=container)
+        return self.backend(db_path, account=account, container=container,
+                            quarantine_ok=True)
 
     def _get_broker_part_node(self, broker):
         part, nodes = self._ring.get_nodes(broker.account, broker.container)
@@ -2543,7 +2544,7 @@ class TestReplicatorSync(BaseUnitTestCase):
         obj_hash = hash_path('a', 'c')
         rsynced_db_broker = self.backend(
             os.path.join(self.root, node['device'], 'tmp', obj_hash + '.db'),
-            account='a', container='b')
+            account='a', container='b', quarantine_ok=True)
         rsynced_db_broker.initialize(put_timestamp)
 
         # do rysnc_then_merge

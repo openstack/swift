@@ -50,7 +50,7 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_creation(self):
         # Test AccountBroker.__init__
         db_file = self.get_db_path()
-        broker = AccountBroker(db_file, account='a')
+        broker = AccountBroker(db_file, account='a', quarantine_ok=True)
         self.assertEqual(broker.db_file, db_file)
         try:
             with broker.get() as conn:
@@ -71,7 +71,7 @@ class TestAccountBroker(test_db.TestDbBase):
             self.assertEqual(curs.fetchall()[0][0], 1)
 
     def test_initialize_fail(self):
-        broker = AccountBroker(self.get_db_path())
+        broker = AccountBroker(self.get_db_path(), quarantine_ok=True)
         with self.assertRaises(ValueError) as cm:
             broker.initialize(Timestamp('1').internal)
         self.assertEqual(str(cm.exception), 'Attempting to create a new'
@@ -80,7 +80,8 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_exception(self):
         # Test AccountBroker throwing a conn away after exception
         first_conn = None
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         with broker.get() as conn:
             first_conn = conn
@@ -94,7 +95,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_empty(self):
         # Test AccountBroker.empty
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         self.assertTrue(broker.empty())
         broker.put_container('o', Timestamp.now().internal, 0, 0, 0,
@@ -107,12 +109,14 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_is_status_deleted(self):
         # Test AccountBroker.is_status_deleted
-        broker1 = AccountBroker(self.get_db_path(), account='a')
+        broker1 = AccountBroker(self.get_db_path(), account='a',
+                                quarantine_ok=True)
         broker1.initialize(Timestamp.now().internal)
         self.assertFalse(broker1.is_status_deleted())
         broker1.delete_db(Timestamp.now().internal)
         self.assertTrue(broker1.is_status_deleted())
-        broker2 = AccountBroker(self.get_db_path(), account='a')
+        broker2 = AccountBroker(self.get_db_path(), account='a',
+                                quarantine_ok=True)
         broker2.initialize(Timestamp.now().internal)
         # Set delete_timestamp greater than put_timestamp
         broker2.merge_timestamps(
@@ -121,7 +125,8 @@ class TestAccountBroker(test_db.TestDbBase):
         self.assertTrue(broker2.is_status_deleted())
 
     def test_reclaim(self):
-        broker = AccountBroker(self.get_db_path(), account='test_account')
+        broker = AccountBroker(self.get_db_path(), account='test_account',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         broker.put_container('c', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
@@ -192,7 +197,8 @@ class TestAccountBroker(test_db.TestDbBase):
         random.seed(now)
         random.shuffle(container_specs)
         policy_indexes = list(p.idx for p in POLICIES)
-        broker = AccountBroker(self.get_db_path(), account='test_account')
+        broker = AccountBroker(self.get_db_path(), account='test_account',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         for i, container_spec in enumerate(container_specs):
             # with container12 before container2 and shuffled ts.internal we
@@ -253,7 +259,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_delete_db_status(self):
         start = self.normal_ts()
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         with mock_normal_timestamp_now(self.normal_ts()) as exp_created_at:
             broker.initialize(start.internal)
         info = broker.get_info()
@@ -277,7 +284,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_delete_container(self):
         # Test AccountBroker.delete_container
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         broker.put_container('o', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
@@ -304,7 +312,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_put_container(self):
         # Test AccountBroker.put_container
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
 
         # Create initial container
@@ -420,7 +429,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_get_info(self):
         # Test AccountBroker.get_info
-        broker = AccountBroker(self.get_db_path(), account='test1')
+        broker = AccountBroker(self.get_db_path(), account='test1',
+                               quarantine_ok=True)
         put_ts = self.ts()
         broker.initialize(put_ts.internal)
 
@@ -468,7 +478,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_list_containers_iter(self):
         # Test AccountBroker.list_containers_iter
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         for cont1 in range(4):
             for cont2 in range(125):
@@ -598,7 +609,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_list_objects_iter_order_and_reverse(self):
         # Test ContainerBroker.list_objects_iter
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         put_ts = self.ts()
         broker.initialize(put_ts.internal, 0)
 
@@ -634,7 +646,8 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_list_container_iter_with_reserved_name(self):
         # Test ContainerBroker.list_objects_iter
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         broker.put_container(
@@ -771,7 +784,8 @@ class TestAccountBroker(test_db.TestDbBase):
         }
         failures = []
         for expected in expectations:
-            broker = AccountBroker(self.get_db_path(), account='a')
+            broker = AccountBroker(self.get_db_path(), account='a',
+                                   quarantine_ok=True)
             broker.initialize(self.ts().internal, 0)
             for name in expected['containers']:
                 broker.put_container(name, self.ts().internal, 0, 0, 0,
@@ -792,7 +806,8 @@ class TestAccountBroker(test_db.TestDbBase):
     def test_double_check_trailing_delimiter(self):
         # Test AccountBroker.list_containers_iter for an
         # account that has an odd container with a trailing delimiter
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         broker.put_container('a', Timestamp.now().internal, 0, 0, 0,
                              POLICIES.default.idx)
@@ -833,7 +848,8 @@ class TestAccountBroker(test_db.TestDbBase):
         self.assertEqual([row[0] for row in listing], ['b-a', 'b-b'])
 
     def test_chexor(self):
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         put_ts = self.ts()
         delete_ts = Timestamp(0)
         timestamps = [self.ts() for _ in range(3)]
@@ -864,9 +880,11 @@ class TestAccountBroker(test_db.TestDbBase):
         self.assertEqual(broker.get_info()['hash'], hashc)
 
     def test_merge_items(self):
-        broker1 = AccountBroker(self.get_db_path(), account='a')
+        broker1 = AccountBroker(self.get_db_path(), account='a',
+                                quarantine_ok=True)
         broker1.initialize(Timestamp('1').internal)
-        broker2 = AccountBroker(self.get_db_path(), account='a')
+        broker2 = AccountBroker(self.get_db_path(), account='a',
+                                quarantine_ok=True)
         broker2.initialize(Timestamp('1').internal)
         broker1.put_container('a', Timestamp(1).internal, 0, 0, 0,
                               POLICIES.default.idx)
@@ -889,10 +907,12 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_merge_items_overwrite_unicode(self):
         snowman = u'\N{SNOWMAN}'
-        broker1 = AccountBroker(self.get_db_path(), account='a')
+        broker1 = AccountBroker(self.get_db_path(), account='a',
+                                quarantine_ok=True)
         broker1.initialize(Timestamp('1').internal, 0)
         id1 = broker1.get_info()['id']
-        broker2 = AccountBroker(self.get_db_path(), account='a')
+        broker2 = AccountBroker(self.get_db_path(), account='a',
+                                quarantine_ok=True)
         broker2.initialize(Timestamp('1').internal, 0)
         broker1.put_container(snowman, Timestamp(2).internal, 0, 1, 100,
                               POLICIES.default.idx)
@@ -920,7 +940,7 @@ class TestAccountBroker(test_db.TestDbBase):
         # pending puts from pre-storage-policy account brokers won't contain
         # the storage policy index
         broker_path = os.path.join(tempdir, 'test-load-old.db')
-        broker = AccountBroker(broker_path, account='real')
+        broker = AccountBroker(broker_path, account='real', quarantine_ok=True)
         broker.initialize(Timestamp(1).internal)
         with open(broker.pending_file, 'a+b') as pending:
             pending.write(b':')
@@ -949,7 +969,7 @@ class TestAccountBroker(test_db.TestDbBase):
             raise sqlite3.OperationalError('unable to open database file')
 
         broker = AccountBroker(broker_path, account='real',
-                               stale_reads_ok=True)
+                               stale_reads_ok=True, quarantine_ok=True)
         broker.initialize(Timestamp(1).internal)
         with open(broker.pending_file, 'a+b') as pending:
             pending.write(b':')
@@ -971,7 +991,7 @@ class TestAccountBroker(test_db.TestDbBase):
             raise sqlite3.OperationalError('unable to open database file')
 
         broker = AccountBroker(broker_path, account='real',
-                               stale_reads_ok=False)
+                               stale_reads_ok=False, quarantine_ok=True)
         broker.initialize(Timestamp(1).internal)
         with open(broker.pending_file, 'a+b') as pending:
             pending.write(b':')
@@ -994,7 +1014,8 @@ class TestAccountBroker(test_db.TestDbBase):
                      StoragePolicy(2, 'two', False),
                      StoragePolicy(3, 'three', False)])
     def test_get_policy_stats(self):
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(self.ts().internal)
         # check empty policy_stats
         self.assertTrue(broker.empty())
@@ -1061,7 +1082,8 @@ class TestAccountBroker(test_db.TestDbBase):
     @patch_policies([StoragePolicy(0, 'zero', False),
                      StoragePolicy(1, 'one', True)])
     def test_policy_stats_tracking(self):
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(self.ts().internal)
 
         # policy 0
@@ -1099,7 +1121,7 @@ class TestAccountBroker(test_db.TestDbBase):
             tempdir, "d1234", 'accounts', 'part', 'suffix', 'hsh')
         os.makedirs(db_path)
         broker = AccountBroker(os.path.join(db_path, 'my.db'),
-                               account='a')
+                               account='a', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         id = broker.get_info()['id']
         broker.newid('someid')
@@ -1120,7 +1142,7 @@ class TestAccountBroker(test_db.TestDbBase):
                     os.path.join(new_db_path, 'my.db'))
 
         new_broker = AccountBroker(os.path.join(new_db_path, 'my.db'),
-                                   account='a')
+                                   account='a', quarantine_ok=True)
         new_broker.newid(id)
         # ends in the device name (from the path)
         self.assertFalse(new_broker.get_info()['id'].endswith('d1234'))
@@ -1128,13 +1150,13 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def _create_db(self, account='a'):
         db_file = self.get_db_path()
-        b = AccountBroker(db_file, account=account)
+        b = AccountBroker(db_file, account=account, quarantine_ok=True)
         b.initialize(Timestamp('1').internal)
         return db_file
 
     def test_path_caches_account(self):
         db_file = self._create_db()
-        b = AccountBroker(db_file)
+        b = AccountBroker(db_file, quarantine_ok=True)
         self.assertIsNone(b.account)
         called = {'n': 0}
 
@@ -1160,7 +1182,7 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_path_uses_account_kwag(self):
         db_file = self._create_db()
-        b = AccountBroker(db_file, account='a')
+        b = AccountBroker(db_file, account='a', quarantine_ok=True)
         called = {'n': 0}
 
         orig_get_info = AccountBroker.get_info
@@ -1177,7 +1199,7 @@ class TestAccountBroker(test_db.TestDbBase):
 
     def test_path_on_uninitialized_broker(self):
         db_file = self.get_db_path()
-        b = AccountBroker(db_file)
+        b = AccountBroker(db_file, quarantine_ok=True)
         self.assertEqual(b.db_file, db_file)
         with self.assertRaises(DatabaseConnectionError) as ctx:
             getattr(b, 'path')
@@ -1277,7 +1299,8 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
             AccountBroker.create_account_stat_table
         AccountBroker.create_account_stat_table = \
             premetadata_create_account_stat_table
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         exc = None
         with broker.get() as conn:
@@ -1290,7 +1313,8 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
     def tearDown(self):
         AccountBroker.create_account_stat_table = \
             self._imported_create_account_stat_table
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         with broker.get() as conn:
             conn.execute('SELECT metadata FROM account_stat')
@@ -1366,7 +1390,8 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
             prespi_create_container_table
         self._imported_initialize = AccountBroker._initialize
         AccountBroker._initialize = prespi_AccountBroker_initialize
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         exc = None
         with broker.get() as conn:
@@ -1387,7 +1412,8 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         AccountBroker.create_container_table = \
             self._imported_create_container_table
         AccountBroker._initialize = self._imported_initialize
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         with broker.get() as conn:
             conn.execute('SELECT storage_policy_index FROM container')
@@ -1398,7 +1424,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         db_path = os.path.join(tempdir, 'account.db')
 
         # first init an acct DB without the policy_stat table present
-        broker = AccountBroker(db_path, account='a')
+        broker = AccountBroker(db_path, account='a', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
 
         def confirm_no_table():
@@ -1439,7 +1465,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         db_path = os.path.join(tempdir, 'account.db')
 
         # first init an acct DB without the policy_stat table present
-        broker = AccountBroker(db_path, account='a')
+        broker = AccountBroker(db_path, account='a', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
 
         # And manually add some container records for the default policy
@@ -1488,7 +1514,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         db_path = os.path.join(tempdir, 'account.db')
 
         # first init an acct DB without the policy_stat table present
-        broker = AccountBroker(db_path, account='a')
+        broker = AccountBroker(db_path, account='a', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         with broker.get() as conn:
             try:
@@ -1574,7 +1600,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
     def test_half_upgraded_database(self, tempdir):
         db_path = os.path.join(tempdir, 'account.db')
 
-        broker = AccountBroker(db_path, account='a')
+        broker = AccountBroker(db_path, account='a', quarantine_ok=True)
         broker.initialize(self.ts().internal)
 
         self.assertTrue(broker.empty())
@@ -1625,7 +1651,7 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
         self.assertIn('CREATE TABLE policy_stat', called[0])
 
         # nothing was committed
-        broker = AccountBroker(db_path, account='a')
+        broker = AccountBroker(db_path, account='a', quarantine_ok=True)
         with broker.get() as conn:
             try:
                 conn.execute('SELECT * FROM policy_stat')
@@ -1649,10 +1675,10 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
     def test_pre_storage_policy_replication(self, tempdir):
         # make and two account database "replicas"
         old_broker = AccountBroker(os.path.join(tempdir, 'old_account.db'),
-                                   account='a')
+                                   account='a', quarantine_ok=True)
         old_broker.initialize(self.ts().internal)
         new_broker = AccountBroker(os.path.join(tempdir, 'new_account.db'),
-                                   account='a')
+                                   account='a', quarantine_ok=True)
         new_broker.initialize(self.ts().internal)
         timestamp = self.ts().internal
 
@@ -1812,13 +1838,15 @@ class AccountBrokerPreTrackContainerCountSetup(test_db.TestDbBase):
         AccountBroker.create_container_table = \
             pre_track_containers_create_container_table
 
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         self.assertUnmigrated(broker)
 
         self.db_path = os.path.join(self.testdir, 'sda', 'accounts',
                                     '0', '0', '0', 'test.db')
-        self.broker = AccountBroker(self.get_db_path(), account='a')
+        self.broker = AccountBroker(self.get_db_path(), account='a',
+                                    quarantine_ok=True)
         self.broker.initialize(self.ts().internal)
 
         # Common sanity-check that our starting, pre-migration state correctly
@@ -1828,7 +1856,8 @@ class AccountBrokerPreTrackContainerCountSetup(test_db.TestDbBase):
     def tearDown(self):
         self.restore_account_broker()
 
-        broker = AccountBroker(self.get_db_path(), account='a')
+        broker = AccountBroker(self.get_db_path(), account='a',
+                               quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         with broker.get() as conn:
             conn.execute('SELECT container_count FROM policy_stat')
@@ -2028,7 +2057,7 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
             self.assertEqual(policy_stat['container_count'], 1)
 
     def test_migrate_add_storage_policy_index_fail(self):
-        broker = AccountBroker(self.db_path, account='a')
+        broker = AccountBroker(self.db_path, account='a', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal)
         with mock.patch.object(
                 broker, 'create_policy_stat_table',

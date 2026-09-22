@@ -101,7 +101,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_creation(self):
         # Test ContainerBroker.__init__
         db_file = self.get_db_path()
-        broker = ContainerBroker(db_file, account='a', container='c')
+        broker = ContainerBroker(db_file, account='a', container='c',
+                                 quarantine_ok=True)
         self.assertEqual(broker._db_file, db_file)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
@@ -132,7 +133,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_storage_policy_property(self):
         for policy in POLICIES:
             broker = ContainerBroker(self.get_db_path(), account='a',
-                                     container='policy_%s' % policy.name)
+                                     container='policy_%s' % policy.name,
+                                     quarantine_ok=True)
             broker.initialize(self.ts().internal, policy.idx)
             with broker.get() as conn:
                 try:
@@ -189,7 +191,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # unhandled exception
         first_conn = None
         broker = ContainerBroker(self.get_db_path(),
-                                 account='a', container='c')
+                                 account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             first_conn = conn
@@ -206,7 +209,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_is_old_enough_to_reclaim(self, tempdir, mocked_get):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         def do_test(now, reclaim_age, put_ts, delete_ts, expected):
@@ -243,7 +247,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_is_reclaimable(self, tempdir):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         self.assertFalse(broker.is_reclaimable(float(self.ts()), 0))
@@ -275,7 +280,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_sharding_state_is_not_reclaimable(self, tempdir):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.enable_sharding(self.normal_ts())
         broker.set_sharding_state()
@@ -293,7 +299,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.is_deleted() and get_info_is_deleted()
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         self.assertFalse(broker.is_deleted())
@@ -400,7 +407,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.empty
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         self.assertTrue(broker.is_root_container())
 
@@ -506,7 +514,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # usage should not be considered
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='.shards_a', container='cc')
+        broker = ContainerBroker(db_path, account='.shards_a', container='cc',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.set_sharding_sysmeta('Root', 'a/c')
         self.assertFalse(broker.is_root_container())
@@ -587,7 +596,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # usage should not be considered
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='.shards_a', container='cc')
+        broker = ContainerBroker(db_path, account='.shards_a', container='cc',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
         self.assertFalse(broker.is_root_container())
@@ -675,7 +685,8 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual('a/c', broker.root_path)
 
         # Get a fresh broker, with instance cache unset
-        broker = ContainerBroker(db_path, account='.shards_a', container='cc')
+        broker = ContainerBroker(db_path, account='.shards_a', container='cc',
+                                 quarantine_ok=True)
         self.assertTrue(broker.empty())
         self.assertTrue(broker.is_deleted())
         self.assertFalse(broker.is_root_container())
@@ -687,14 +698,16 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertFalse(broker.is_root_container())
         self.assertEqual('a/c', broker.root_path)
         # however, they have bogus root path once instance cache is cleared...
-        broker = ContainerBroker(db_path, account='.shards_a', container='cc')
+        broker = ContainerBroker(db_path, account='.shards_a', container='cc',
+                                 quarantine_ok=True)
         self.assertFalse(broker.is_root_container())
         self.assertEqual('.shards_a/cc', broker.root_path)
 
     def test_reclaim(self):
         broker = ContainerBroker(self.get_db_path(),
                                  account='test_account',
-                                 container='test_container')
+                                 container='test_container',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
@@ -770,7 +783,8 @@ class TestContainerBroker(test_db.TestDbBase):
         policy_indexes = list(p.idx for p in POLICIES)
         broker = ContainerBroker(self.get_db_path(),
                                  account='test_account',
-                                 container='test_container')
+                                 container='test_container',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         for i, obj_spec in enumerate(obj_specs):
             # with object12 before object2 and shuffled ts.internal we
@@ -833,7 +847,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_reclaim_with_duplicate_names(self):
         broker = ContainerBroker(self.get_db_path(),
                                  account='test_account',
-                                 container='test_container')
+                                 container='test_container',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         now = time()
         ages_ago = Timestamp(now - (3 * 7 * 24 * 60 * 60))
@@ -860,7 +875,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_reclaim_deadlock(self, tempdir):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', '%s.db' % uuid4())
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp(100).internal, 0)
         # there's some magic count here that causes the failure, something
         # about the size of object records and sqlite page size maybe?
@@ -875,7 +891,7 @@ class TestContainerBroker(test_db.TestDbBase):
                 "SELECT count(*) FROM object").fetchone()[0], count)
         # make a broker whose container attribute is not yet set so that
         # reclaim will need to query info to set it
-        broker = ContainerBroker(db_path, timeout=1)
+        broker = ContainerBroker(db_path, timeout=1, quarantine_ok=True)
         # verify that reclaim doesn't get deadlocked and timeout
         broker.reclaim(300, 300)
         # check all objects were reclaimed
@@ -888,7 +904,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_reclaim_shard_ranges(self, tempdir):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', '%s.db' % uuid4())
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         older = self.normal_ts()
         same = self.normal_ts()
@@ -930,7 +947,8 @@ class TestContainerBroker(test_db.TestDbBase):
         start = self.ts()
         broker = ContainerBroker(self.get_db_path(),
                                  account='test_account',
-                                 container='test_container')
+                                 container='test_container',
+                                 quarantine_ok=True)
         # create it
         with mock_normal_timestamp_now(self.normal_ts()) as created_at:
             broker.initialize(start.internal, POLICIES.default.idx)
@@ -980,7 +998,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_delete_object(self):
         # Test ContainerBroker.delete_object
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('o', Timestamp.now().internal, 0, 'text/plain',
                           'd41d8cd98f00b204e9800998ecf8427e')
@@ -1007,7 +1025,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_put_object(self):
         # Test ContainerBroker.put_object
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
 
         # Create initial object
@@ -1216,7 +1234,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_merge_shard_range_single_record(self):
         # Test ContainerBroker.merge_shard_range
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
 
         # Stash these for later
@@ -1522,7 +1540,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_merge_shard_ranges_deleted(self):
         # Test ContainerBroker.merge_shard_ranges sets deleted attribute
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         # put shard range
         broker.merge_shard_ranges(ShardRange('a/o', self.normal_ts().internal))
@@ -1556,7 +1574,7 @@ class TestContainerBroker(test_db.TestDbBase):
                   'ctype_timestamp': None,
                   'meta_timestamp': None}
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
 
         expect = ('obj', '1234567890.12345', 42, 'text/plain', 'hash_test',
                   '1', '2', None, None)
@@ -1579,7 +1597,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_load_old_record_from_pending_file(self, tempdir):
         # Test reading old update record from pending file
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(time(), 0)
 
         record = {'name': 'obj',
@@ -1624,7 +1643,8 @@ class TestContainerBroker(test_db.TestDbBase):
     @with_tempdir
     def test_save_and_load_record_from_pending_file(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(time(), 0)
 
         record = {'name': 'obj',
@@ -1730,7 +1750,7 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.put_object with differing data, content-type
         # and metadata timestamps
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         self._test_put_object_multiple_encoded_timestamps(broker)
 
     @with_tempdir
@@ -1743,7 +1763,8 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(tempdir, db_file)
         ts = Timestamp.now()
         broker = ContainerBroker(db_path, account=acct,
-                                 container=cont, force_db_file=True)
+                                 container=cont, force_db_file=True,
+                                 quarantine_ok=True)
         # Create the test container database and all the tables.
         broker.initialize(ts.internal, 0)
 
@@ -1803,7 +1824,8 @@ class TestContainerBroker(test_db.TestDbBase):
         ts = Timestamp.now()
 
         # First test NOTFOUND state
-        broker = ContainerBroker(db_path, account=acct, container=cont)
+        broker = ContainerBroker(db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         self.assertEqual(broker.get_db_state(), 'not_found')
 
         # Test UNSHARDED state, that is when db_file exists and fresh_db_file
@@ -1814,7 +1836,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test the SHARDING state, this is the period when both the db_file and
         # the fresh_db_file exist
         fresh_broker = ContainerBroker(fresh_db_path, account=acct,
-                                       container=cont, force_db_file=True)
+                                       container=cont, force_db_file=True,
+                                       quarantine_ok=True)
         fresh_broker.initialize(ts.internal, 0)
         own_shard_range = fresh_broker.get_own_shard_range()
         own_shard_range.update_state(ShardRange.SHARDING)
@@ -1855,7 +1878,8 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(tempdir, db_file)
         put_ts = self.ts()
 
-        broker = ContainerBroker(db_path, account=acct, container=cont)
+        broker = ContainerBroker(db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         broker.initialize(put_ts.internal, 0)
 
         # add some metadata but include both types of root path
@@ -1891,7 +1915,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
         check_metadata(broker)
         # fresh broker in case values were cached in previous instance
-        broker = ContainerBroker(db_path)
+        broker = ContainerBroker(db_path, quarantine_ok=True)
         check_metadata(broker)
 
     @with_tempdir
@@ -1915,9 +1939,11 @@ class TestContainerBroker(test_db.TestDbBase):
             self.assertFalse(os.path.exists(fresh_db_path))
             self.assertEqual([], broker.db_files)
 
-        broker = ContainerBroker(db_path, account=acct, container=cont)
+        broker = ContainerBroker(db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         check_unfound_db_files(broker, db_path)
-        broker = ContainerBroker(fresh_db_path, account=acct, container=cont)
+        broker = ContainerBroker(fresh_db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         check_unfound_db_files(broker, fresh_db_path)
 
         # Test UNSHARDED state, that is when db_file exists and fresh_db_file
@@ -1929,10 +1955,12 @@ class TestContainerBroker(test_db.TestDbBase):
             self.assertFalse(os.path.exists(fresh_db_path))
             self.assertEqual([db_path], broker.db_files)
 
-        broker = ContainerBroker(db_path, account=acct, container=cont)
+        broker = ContainerBroker(db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         broker.initialize(ts.internal, 0)
         check_unsharded_db_files(broker)
-        broker = ContainerBroker(fresh_db_path, account=acct, container=cont)
+        broker = ContainerBroker(fresh_db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         check_unsharded_db_files(broker)
         # while UNSHARDED db_path is still used despite giving fresh_db_path
         # to init, so we cannot initialize this broker
@@ -1951,18 +1979,22 @@ class TestContainerBroker(test_db.TestDbBase):
 
         # Use force_db_file to have db_shard_path created when initializing
         broker = ContainerBroker(fresh_db_path, account=acct,
-                                 container=cont, force_db_file=True)
+                                 container=cont, force_db_file=True,
+                                 quarantine_ok=True)
         self.assertEqual([db_path], broker.db_files)
         broker.initialize(ts.internal, 0)
         check_sharding_db_files(broker)
-        broker = ContainerBroker(db_path, account=acct, container=cont)
+        broker = ContainerBroker(db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         check_sharding_db_files(broker)
-        broker = ContainerBroker(fresh_db_path, account=acct, container=cont)
+        broker = ContainerBroker(fresh_db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         check_sharding_db_files(broker)
 
         # force_db_file can be used to open db_path specifically
         forced_broker = ContainerBroker(db_path, account=acct,
-                                        container=cont, force_db_file=True)
+                                        container=cont, force_db_file=True,
+                                        quarantine_ok=True)
         self.assertEqual(forced_broker.db_file, db_path)
         self.assertEqual(forced_broker._db_file, db_path)
 
@@ -1978,14 +2010,16 @@ class TestContainerBroker(test_db.TestDbBase):
         os.unlink(db_path)
         broker.reload_db_files()
         check_sharded_db_files(broker)
-        broker = ContainerBroker(db_path, account=acct, container=cont)
+        broker = ContainerBroker(db_path, account=acct, container=cont,
+                                 quarantine_ok=True)
         check_sharded_db_files(broker)
 
     @with_tempdir
     def test_sharding_initiated_and_required(self, tempdir):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', '%s.db' % uuid4())
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp.now().internal, 0)
         # no shard ranges
         self.assertIs(False, broker.sharding_initiated())
@@ -2033,7 +2067,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # and metadata timestamps, using file db to ensure that the code paths
         # to write/read pending file are exercised.
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         self._test_put_object_multiple_encoded_timestamps(broker)
 
     def _test_put_object_multiple_explicit_timestamps(self, broker):
@@ -2126,7 +2161,7 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.put_object with differing data, content-type
         # and metadata timestamps passed as explicit args
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         self._test_put_object_multiple_explicit_timestamps(broker)
 
     @with_tempdir
@@ -2135,14 +2170,15 @@ class TestContainerBroker(test_db.TestDbBase):
         # and metadata timestamps passed as explicit args, using file db to
         # ensure that the code paths to write/read pending file are exercised.
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         self._test_put_object_multiple_explicit_timestamps(broker)
 
     def test_last_modified_time(self):
         # Test container listing reports the most recent of data or metadata
         # timestamp as last-modified time
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         # simple 'single' timestamp case
@@ -2195,7 +2231,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_put_misplaced_object_does_not_effect_container_stats(self):
         policy = random.choice(list(POLICIES))
         broker = ContainerBroker(self.get_db_path(),
-                                 account='a', container='c')
+                                 account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, policy.idx)
         # migration tests may not honor policy on initialize
         if isinstance(self, ContainerBrokerMigrationMixin):
@@ -2221,7 +2258,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_has_multiple_policies(self):
         policy = random.choice(list(POLICIES))
         broker = ContainerBroker(self.get_db_path(),
-                                 account='a', container='c')
+                                 account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, policy.idx)
         # migration tests may not honor policy on initialize
         if isinstance(self, ContainerBrokerMigrationMixin):
@@ -2246,7 +2284,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_get_policy_info(self):
         policy = random.choice(list(POLICIES))
         broker = ContainerBroker(self.get_db_path(),
-                                 account='a', container='c')
+                                 account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, policy.idx)
         # migration tests may not honor policy on initialize
         if isinstance(self, ContainerBrokerMigrationMixin):
@@ -2285,7 +2324,8 @@ class TestContainerBroker(test_db.TestDbBase):
     @patch_policies
     def test_policy_stat_tracking(self):
         broker = ContainerBroker(self.get_db_path(),
-                                 account='a', container='c')
+                                 account='a', container='c',
+                                 quarantine_ok=True)
         # Note: in subclasses of this TestCase that inherit the
         # ContainerBrokerMigrationMixin, passing POLICIES.default.idx here has
         # no effect and broker.get_policy_stats() returns a dict with a single
@@ -2331,7 +2371,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def test_initialize_container_broker_in_default(self):
         broker = ContainerBroker(self.get_db_path(), account='test1',
-                                 container='test2')
+                                 container='test2', quarantine_ok=True)
 
         # initialize with no storage_policy_index argument
         ts_put = Timestamp.now()
@@ -2371,7 +2411,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_get_info(self):
         # Test ContainerBroker.get_info
         broker = ContainerBroker(self.get_db_path(), account='test1',
-                                 container='test2')
+                                 container='test2', quarantine_ok=True)
         ts_put = Timestamp.now()
         broker.initialize(ts_put.internal, 0)
 
@@ -2437,7 +2477,8 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'hash.db')
         broker = ContainerBroker(
-            db_path, account='myaccount', container='mycontainer')
+            db_path, account='myaccount', container='mycontainer',
+            quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.put_object('o1', self.ts().internal, 123, 'text/plain',
                           'fake etag')
@@ -2512,7 +2553,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def test_set_x_syncs(self):
         broker = ContainerBroker(self.get_db_path(), account='test1',
-                                 container='test2')
+                                 container='test2', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
 
         info = broker.get_info()
@@ -2526,7 +2567,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def test_get_report_info(self):
         broker = ContainerBroker(self.get_db_path(), account='test1',
-                                 container='test2')
+                                 container='test2', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
 
         info = broker.get_info()
@@ -2596,7 +2637,8 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'hash.db')
         broker = ContainerBroker(
-            db_path, account='myaccount', container='mycontainer')
+            db_path, account='myaccount', container='mycontainer',
+            quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         metadata = {'blah': ['val', self.ts().internal]}
         broker.update_metadata(metadata)
@@ -2645,7 +2687,8 @@ class TestContainerBroker(test_db.TestDbBase):
             db_path = os.path.join(
                 tempdir, 'containers', 'part', 'suffix',
                 'hash', '%s.db' % uuid4())
-            broker = ContainerBroker(db_path, account='a', container='c')
+            broker = ContainerBroker(db_path, account='a', container='c',
+                                     quarantine_ok=True)
             broker.initialize(Timestamp.now().internal, 0)
             for obj in objects:
                 # ensure row order matches put order
@@ -2698,7 +2741,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def test_get_objects(self):
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         objects_0 = [{'name': 'obj_0_%d' % i,
                       'created_at': self.ts().internal,
@@ -2747,7 +2790,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def test_get_objects_since_row(self):
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         obj_names = ['obj%03d' % i for i in range(20)]
         timestamps = [self.ts() for o in obj_names]
@@ -2798,7 +2841,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_list_objects_iter(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         for obj1 in range(4):
             for obj2 in range(125):
@@ -2949,7 +2992,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def test_list_objects_iter_with_reserved_name(self):
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         broker.put_object(
@@ -3108,7 +3151,8 @@ class TestContainerBroker(test_db.TestDbBase):
         failures = []
         for expected in expectations:
             broker = ContainerBroker(self.get_db_path(),
-                                     account='a', container='c')
+                                     account='a', container='c',
+                                     quarantine_ok=True)
             broker.initialize(self.ts().internal, 0)
             for name in expected['objects']:
                 broker.put_object(
@@ -3130,7 +3174,7 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.list_objects_iter using a
         # delimiter that is not a slash
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         for obj1 in range(4):
             for obj2 in range(125):
@@ -3248,7 +3292,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_list_objects_iter_prefix_delim(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
 
         broker.put_object(
@@ -3288,7 +3332,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_list_objects_iter_order_and_reverse(self):
         # Test ContainerBroker.list_objects_iter
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
 
         broker.put_object(
@@ -3331,7 +3375,7 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3412,7 +3456,7 @@ class TestContainerBroker(test_db.TestDbBase):
         # Test ContainerBroker.list_objects_iter for a
         # container that has an odd file with a trailing delimiter
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp.now().internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3496,7 +3540,7 @@ class TestContainerBroker(test_db.TestDbBase):
             return md5(s, usedforsecurity=False).hexdigest()
 
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         timestamps = [self.ts() for _ in range(3)]
         broker.put_object('a', timestamps[0].internal, 0,
@@ -3520,7 +3564,8 @@ class TestContainerBroker(test_db.TestDbBase):
             tempdir, "d1234", 'contianers', 'part', 'suffix', 'hsh')
         os.makedirs(db_path)
         broker = ContainerBroker(os.path.join(db_path, 'my.db'),
-                                 account='a', container='c')
+                                 account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         id = broker.get_info()['id']
         broker.newid('someid')
@@ -3541,7 +3586,8 @@ class TestContainerBroker(test_db.TestDbBase):
                     os.path.join(new_db_path, 'my.db'))
 
         new_broker = ContainerBroker(os.path.join(new_db_path, 'my.db'),
-                                     account='a', container='c')
+                                     account='a', container='c',
+                                     quarantine_ok=True)
         new_broker.newid(id)
         # ends in the device name (from the path)
         self.assertFalse(new_broker.get_info()['id'].endswith('d1234'))
@@ -3550,7 +3596,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_get_items_since(self):
         # test DatabaseBroker.get_items_since
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         broker.put_object('a', Timestamp(1).internal, 0,
                           'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3564,10 +3610,11 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_sync_merging(self):
         # exercise the DatabaseBroker sync functions a bit
         broker1 = ContainerBroker(self.get_db_path(), account='a',
-                                  container='c')
+                                  container='c', quarantine_ok=True)
         broker1.initialize(Timestamp('1').internal, 0)
         broker2 = ContainerBroker(self.get_db_path(),
-                                  account='a', container='c')
+                                  account='a', container='c',
+                                  quarantine_ok=True)
         broker2.initialize(Timestamp('1').internal, 0)
         self.assertEqual(broker2.get_sync('12345'), -1)
         broker1.merge_syncs([{'sync_point': 3, 'remote_id': '12345'}])
@@ -3576,10 +3623,11 @@ class TestContainerBroker(test_db.TestDbBase):
 
     def test_merge_items(self):
         broker1 = ContainerBroker(self.get_db_path(), account='a',
-                                  container='c')
+                                  container='c', quarantine_ok=True)
         broker1.initialize(Timestamp('1').internal, 0)
         broker2 = ContainerBroker(self.get_db_path(),
-                                  account='a', container='c')
+                                  account='a', container='c',
+                                  quarantine_ok=True)
         broker2.initialize(Timestamp('1').internal, 0)
         broker1.put_object('a', Timestamp(1).internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3607,7 +3655,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_merge_items_is_green(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
 
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
 
         broker.put_object('b', self.ts().internal, 0, 'text/plain',
@@ -3621,12 +3670,13 @@ class TestContainerBroker(test_db.TestDbBase):
         # test DatabaseBroker.merge_items
         snowman = u'\N{SNOWMAN}'
         broker1 = ContainerBroker(self.get_db_path(), account='a',
-                                  container='c')
+                                  container='c', quarantine_ok=True)
         timestamps = [self.ts() for _ in range(4)]
         broker1.initialize(timestamps[0].internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(self.get_db_path(),
-                                  account='a', container='c')
+                                  account='a', container='c',
+                                  quarantine_ok=True)
         broker2.initialize(timestamps[0].internal, 0)
         broker1.put_object(snowman, timestamps[1].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3653,12 +3703,13 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_merge_items_overwrite(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(self.get_db_path(), account='a',
-                                  container='c')
+                                  container='c', quarantine_ok=True)
         timestamps = [self.ts() for _ in range(5)]
         broker1.initialize(timestamps[0].internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(self.get_db_path(),
-                                  account='a', container='c')
+                                  account='a', container='c',
+                                  quarantine_ok=True)
         broker2.initialize(timestamps[1].internal, 0)
         broker1.put_object('a', timestamps[2].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3684,12 +3735,13 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_merge_items_post_overwrite_out_of_order(self):
         # test DatabaseBroker.merge_items
         broker1 = ContainerBroker(self.get_db_path(), account='a',
-                                  container='c')
+                                  container='c', quarantine_ok=True)
         timestamps = [self.ts() for _ in range(6)]
         broker1.initialize(timestamps[1].internal, 0)
         id = broker1.get_info()['id']
         broker2 = ContainerBroker(self.get_db_path(),
-                                  account='a', container='c')
+                                  account='a', container='c',
+                                  quarantine_ok=True)
         broker2.initialize(timestamps[1].internal, 0)
         broker1.put_object('a', timestamps[2].internal, 0,
                            'text/plain', 'd41d8cd98f00b204e9800998ecf8427e')
@@ -3736,7 +3788,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_set_storage_policy_index(self):
         broker = ContainerBroker(self.get_db_path(),
                                  account='test_account',
-                                 container='test_container')
+                                 container='test_container',
+                                 quarantine_ok=True)
         timestamp = self.ts()
         broker.initialize(timestamp.internal, 0)
 
@@ -3805,7 +3858,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # never-had-an-object container to make sure we handle it
         broker = ContainerBroker(self.get_db_path(),
                                  account='test_account',
-                                 container='test_container')
+                                 container='test_container',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         info = broker.get_info()
         self.assertEqual(0, info['storage_policy_index'])
@@ -3817,7 +3871,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_reconciler_sync(self):
         broker = ContainerBroker(self.get_db_path(),
                                  account='test_account',
-                                 container='test_container')
+                                 container='test_container',
+                                 quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         self.assertEqual(-1, broker.get_reconciler_sync())
         broker.update_reconciler_sync(10)
@@ -3828,7 +3883,8 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(tempdir, 'container.db')
 
         # first init an acct DB without the policy_stat table present
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
 
         # manually make some pending entries lacking storage_policy_index
@@ -3874,7 +3930,7 @@ class TestContainerBroker(test_db.TestDbBase):
             raise sqlite3.OperationalError('unable to open database file')
 
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 stale_reads_ok=False)
+                                 stale_reads_ok=False, quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
 
         # manually make some pending entries
@@ -3902,7 +3958,7 @@ class TestContainerBroker(test_db.TestDbBase):
             raise sqlite3.OperationalError('unable to open database file')
 
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 stale_reads_ok=True)
+                                 stale_reads_ok=True, quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
 
         # manually make some pending entries
@@ -3963,7 +4019,8 @@ class TestContainerBroker(test_db.TestDbBase):
         fresh_db_path = os.path.join(tempdir, 'container_epoch.db')
 
         def do_test(given_db_file, expected_db_file):
-            broker = ContainerBroker(given_db_file, account='a', container='c')
+            broker = ContainerBroker(given_db_file, account='a', container='c',
+                                     quarantine_ok=True)
             self.assertEqual(expected_pending_path, broker.pending_file)
             self.assertEqual(expected_db_file, broker.db_file)
 
@@ -3992,7 +4049,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_sharding_sysmeta(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='myaccount', container='mycontainer')
+            db_path, account='myaccount', container='mycontainer',
+            quarantine_ok=True)
         broker.initialize(Timestamp.now().internal)
 
         expected = 'aaa/ccc'
@@ -4015,7 +4073,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_path(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='myaccount', container='mycontainer')
+            db_path, account='myaccount', container='mycontainer',
+            quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
         # make sure we can cope with unitialized account and container
         broker.account = broker.container = None
@@ -4025,7 +4084,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_old_style_root_account_container_path(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='root_a', container='root_c')
+            db_path, account='root_a', container='root_c', quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
         # make sure we can cope with unitialized account and container
         broker.account = broker.container = None
@@ -4043,7 +4102,7 @@ class TestContainerBroker(test_db.TestDbBase):
             'X-Container-Sysmeta-Shard-Root':
                 ('root_a/root_c', self.ts().internal)}
         broker = ContainerBroker(
-            db_path, account='root_a', container='root_c')
+            db_path, account='root_a', container='root_c', quarantine_ok=True)
         broker.update_metadata(metadata)
         broker.account = broker.container = None
         self.assertEqual('root_a', broker.root_account)
@@ -4058,7 +4117,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual('root_a/root_c', broker.root_path)
         self.assertTrue(broker.is_root_container())
         # check the values are not just being cached
-        broker = ContainerBroker(db_path)
+        broker = ContainerBroker(db_path, quarantine_ok=True)
         self.assertEqual('root_a', broker.root_account)
         self.assertEqual('root_c', broker.root_container)
         self.assertEqual('root_a/root_c', broker.root_path)
@@ -4067,7 +4126,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # check a shard container
         db_path = os.path.join(tempdir, 'shard_container.db')
         broker = ContainerBroker(
-            db_path, account='.shards_root_a', container='c_shard')
+            db_path, account='.shards_root_a', container='c_shard',
+            quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
         # now the metadata is significant...
         metadata = {
@@ -4107,7 +4167,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_root_account_container_path(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='root_a', container='root_c')
+            db_path, account='root_a', container='root_c', quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
         # make sure we can cope with unitialized account and container
         broker.account = broker.container = None
@@ -4125,7 +4185,7 @@ class TestContainerBroker(test_db.TestDbBase):
             'X-Container-Sysmeta-Shard-Quoted-Root':
                 ('root_a/root_c', self.ts().internal)}
         broker = ContainerBroker(
-            db_path, account='root_a', container='root_c')
+            db_path, account='root_a', container='root_c', quarantine_ok=True)
         broker.update_metadata(metadata)
         broker.account = broker.container = None
         self.assertEqual('root_a', broker.root_account)
@@ -4140,7 +4200,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual('root_a/root_c', broker.root_path)
         self.assertTrue(broker.is_root_container())
         # check the values are not just being cached
-        broker = ContainerBroker(db_path)
+        broker = ContainerBroker(db_path, quarantine_ok=True)
         self.assertEqual('root_a', broker.root_account)
         self.assertEqual('root_c', broker.root_container)
         self.assertEqual('root_a/root_c', broker.root_path)
@@ -4149,7 +4209,8 @@ class TestContainerBroker(test_db.TestDbBase):
         # check a shard container
         db_path = os.path.join(tempdir, 'shard_container.db')
         broker = ContainerBroker(
-            db_path, account='.shards_root_a', container='c_shard')
+            db_path, account='.shards_root_a', container='c_shard',
+            quarantine_ok=True)
         broker.initialize(self.ts().internal, 1)
         # now the metadata is significant...
         metadata = {
@@ -4273,7 +4334,8 @@ class TestContainerBroker(test_db.TestDbBase):
     @with_tempdir
     def test_get_shard_ranges(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         # no rows
@@ -4465,7 +4527,8 @@ class TestContainerBroker(test_db.TestDbBase):
         end = ShardRange('a/z-', ts, 'z', '')
         ranges = [start, atof, ftol, ltor, rtoz, end]
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.merge_shard_ranges(ranges)
 
@@ -4499,7 +4562,8 @@ class TestContainerBroker(test_db.TestDbBase):
     @with_tempdir
     def test_overlap_shard_range_order(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         epoch0 = self.normal_ts()
@@ -4522,7 +4586,8 @@ class TestContainerBroker(test_db.TestDbBase):
     @with_tempdir
     def test_get_shard_ranges_with_sharding_overlaps(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         shard_ranges = [
             ShardRange('.shards_a/c0', self.normal_ts(), 'a', 'd',
@@ -4570,7 +4635,8 @@ class TestContainerBroker(test_db.TestDbBase):
     @with_tempdir
     def test_get_shard_ranges_with_shrinking_overlaps(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         shard_ranges = [
             ShardRange('.shards_a/c0', self.normal_ts(), 'a', 'k',
@@ -4592,7 +4658,8 @@ class TestContainerBroker(test_db.TestDbBase):
     @with_tempdir
     def test_get_shard_range_rows_with_limit(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         shard_ranges = [
             ShardRange('a/c', self.normal_ts(), 'a', 'c'),
@@ -4644,7 +4711,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def _setup_broker_with_shard_ranges(self, tempdir,
                                         own_shard_range, shard_ranges):
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         # no rows
@@ -4810,7 +4878,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_get_own_shard_range(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='.shards_a', container='shard_c')
+            db_path, account='.shards_a', container='shard_c',
+            quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         # no row for own shard range - expect a default own shard range
@@ -4891,7 +4960,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_enable_sharding(self, tempdir):
         db_path = os.path.join(tempdir, 'container.db')
         broker = ContainerBroker(
-            db_path, account='.shards_a', container='shard_c')
+            db_path, account='.shards_a', container='shard_c',
+            quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         epoch = self.normal_ts()
         broker.enable_sharding(epoch)
@@ -4911,7 +4981,8 @@ class TestContainerBroker(test_db.TestDbBase):
 
         def make_broker(a, c):
             db_path = os.path.join(tempdir, '%s.db' % uuid4())
-            broker = ContainerBroker(db_path, account=a, container=c)
+            broker = ContainerBroker(db_path, account=a, container=c,
+                                     quarantine_ok=True)
             broker.initialize(self.ts().internal, 0)
             broker.set_sharding_sysmeta('Root', 'a/c')
             broker.merge_shard_ranges(list(shard_range_by_state.values()))
@@ -4955,7 +5026,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
         db_path = os.path.join(tempdir, 'test_container.db')
         broker = ContainerBroker(
-            db_path, account='a', container=container_name)
+            db_path, account='a', container=container_name, quarantine_ok=True)
         # shard size > object count, no objects
         broker.initialize(self.ts().internal, 0)
 
@@ -5074,7 +5145,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
         db_path = os.path.join(tempdir, 'test_container.db')
         broker = ContainerBroker(
-            db_path, account='a', container=container_name)
+            db_path, account='a', container=container_name, quarantine_ok=True)
         # shard size > object count, no objects
         broker.initialize(self.ts().internal, 0)
 
@@ -5108,7 +5179,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_find_shard_ranges_errors(self, tempdir):
         db_path = os.path.join(tempdir, 'test_container.db')
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         for i in range(2):
             broker.put_object(
@@ -5138,7 +5209,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_set_db_states(self, tempdir):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         # load up the broker with some objects
@@ -5248,7 +5320,7 @@ class TestContainerBroker(test_db.TestDbBase):
         check_sharding_state(broker)
 
         # to confirm we're definitely looking at the shard db
-        broker2 = ContainerBroker(new_db_path)
+        broker2 = ContainerBroker(new_db_path, quarantine_ok=True)
         check_broker_properties(broker2)
         check_broker_info(broker2.get_info())
         self.assertEqual([], broker2.get_objects())
@@ -5337,7 +5409,7 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.merge_items([{'name': 'obj_%d' % i,
                              'created_at': self.ts().internal,
@@ -5361,7 +5433,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
         self.assertTrue(broker.set_sharding_state())
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         self.assertEqual(SHARDING, broker.get_db_state())
         fresh_info = broker.get_info()
         for key in ('reported_put_timestamp', 'reported_delete_timestamp'):
@@ -5393,7 +5465,7 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.set_x_container_sync_points(1, 2)
         broker.update_reconciler_sync(3)
@@ -5411,7 +5483,7 @@ class TestContainerBroker(test_db.TestDbBase):
 
         self.assertTrue(broker.set_sharding_state())
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         self.assertEqual(SHARDING, broker.get_db_state())
         fresh_info = broker.get_info()
         for key in ('reported_put_timestamp', 'reported_delete_timestamp'):
@@ -5442,7 +5514,7 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.enable_sharding(self.normal_ts())
 
@@ -5479,7 +5551,7 @@ class TestContainerBroker(test_db.TestDbBase):
         retiring_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(retiring_db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         pre_epoch = self.normal_ts()
         broker.enable_sharding(self.normal_ts())
@@ -5523,7 +5595,7 @@ class TestContainerBroker(test_db.TestDbBase):
         retiring_db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(retiring_db_path, account='a', container='c',
-                                 logger=debug_logger())
+                                 logger=debug_logger(), quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         brokers = broker.get_brokers()
         self.assertEqual(retiring_db_path, brokers[0].db_file)
@@ -5623,7 +5695,7 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(
-            db_path, account='a', container='c')
+            db_path, account='a', container='c', quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         # sanity check
@@ -5742,7 +5814,8 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_merge_shard_ranges_state(self, tempdir):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         expected_shard_ranges = []
 
@@ -5789,7 +5862,7 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(
-            db_path, account=a, container=c)
+            db_path, account=a, container=c, quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.set_sharding_sysmeta('Root', '%s/%s' % (root_a, root_c))
         broker.merge_items([{'name': 'obj', 'size': 14, 'etag': 'blah',
@@ -5836,7 +5909,7 @@ class TestContainerBroker(test_db.TestDbBase):
         db_path = os.path.join(
             tempdir, 'containers', 'part', 'suffix', 'hash', 'container.db')
         broker = ContainerBroker(
-            db_path, account=a, container=c)
+            db_path, account=a, container=c, quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         broker.set_sharding_sysmeta('Quoted-Root', '%s/%s' % (root_a, root_c))
         broker.merge_items([{'name': 'obj', 'size': 14, 'etag': 'blah',
@@ -6010,7 +6083,7 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
     def setUp(self):
         super(TestContainerBrokerBeforeMetadata, self).setUp()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         exc = None
         with broker.get() as conn:
@@ -6023,7 +6096,7 @@ class TestContainerBrokerBeforeMetadata(ContainerBrokerMigrationMixin,
     def tearDown(self):
         super(TestContainerBrokerBeforeMetadata, self).tearDown()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT metadata FROM container_stat')
@@ -6089,7 +6162,7 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
         ContainerBroker.create_container_info_table = \
             prexsync_create_container_info_table
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         exc = None
         with broker.get() as conn:
@@ -6103,7 +6176,7 @@ class TestContainerBrokerBeforeXSync(ContainerBrokerMigrationMixin,
     def tearDown(self):
         super(TestContainerBrokerBeforeXSync, self).tearDown()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT x_container_sync_point1 FROM container_stat')
@@ -6209,7 +6282,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
             prespi_create_container_info_table
 
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -6221,7 +6294,7 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
     def tearDown(self):
         super(TestContainerBrokerBeforeSPI, self).tearDown()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('SELECT storage_policy_index FROM container_stat')
@@ -6233,7 +6306,8 @@ class TestContainerBrokerBeforeSPI(ContainerBrokerMigrationMixin,
         db_path = os.path.join(tempdir, 'container.db')
 
         # initialize an un-migrated database
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         put_timestamp = Timestamp(int(time())).internal
         broker.initialize(put_timestamp, None)
         with broker.get() as conn:
@@ -6420,7 +6494,7 @@ class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
     def setUp(self):
         super(TestContainerBrokerBeforeShardRanges, self).setUp()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -6431,7 +6505,7 @@ class TestContainerBrokerBeforeShardRanges(ContainerBrokerMigrationMixin,
     def tearDown(self):
         super(TestContainerBrokerBeforeShardRanges, self).tearDown()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT *
@@ -6491,7 +6565,7 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
             pre_reported_create_shard_range_table
 
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -6503,7 +6577,7 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
         super(TestContainerBrokerBeforeShardRangeReportedColumn,
               self).tearDown()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT reported
@@ -6514,7 +6588,8 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
     def test_get_shard_ranges_attempts(self, tempdir):
         # verify that old broker handles new sql query for shard range rows
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
 
         @contextmanager
@@ -6592,7 +6667,8 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
     def test_merge_shard_ranges_migrates_table(self, tempdir):
         # verify that old broker migrates shard range table
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         shard_ranges = [
             ShardRange('.shards_a/c_0', self.normal_ts(), 'a', 'b'),
@@ -6630,7 +6706,8 @@ class TestContainerBrokerBeforeShardRangeReportedColumn(
         # verify that old broker will raise exception if it unexpectedly fails
         # to migrate shard range table
         db_path = os.path.join(tempdir, 'container.db')
-        broker = ContainerBroker(db_path, account='a', container='c')
+        broker = ContainerBroker(db_path, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize(self.ts().internal, 0)
         shard_ranges = [
             ShardRange('.shards_a/c_0', self.normal_ts(), 'a', 'b'),
@@ -6724,7 +6801,7 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
             pre_tombstones_create_shard_range_table
 
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
                 broker.get() as conn:
@@ -6736,7 +6813,7 @@ class TestContainerBrokerBeforeShardRangeTombstonesColumn(
         super(TestContainerBrokerBeforeShardRangeTombstonesColumn,
               self).tearDown()
         broker = ContainerBroker(self.get_db_path(), account='a',
-                                 container='c')
+                                 container='c', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         with broker.get() as conn:
             conn.execute('''SELECT tombstones
@@ -7328,7 +7405,7 @@ class TestExpirerBytesCtypeTimestamp(test_db.TestDbBase):
     def _get_broker(self):
         broker = ContainerBroker(self.db_path,
                                  account='.expiring_objects',
-                                 container='1234')
+                                 container='1234', quarantine_ok=True)
         broker.initialize(self.ts().internal, self.policy.idx)
         return broker
 

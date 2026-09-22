@@ -2297,7 +2297,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # retired db is not sync'd at all
         old_broker = self.backend(
             local_broker._db_file, account=local_broker.account,
-            container=local_broker.container, force_db_file=True)
+            container=local_broker.container, force_db_file=True,
+            quarantine_ok=True)
         old_id = old_broker.get_info()['id']
         bad_calls = []
         for call in repl_calls:
@@ -2527,7 +2528,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # remote *old db* is unchanged
         remote_old_broker = self.backend(
             remote_broker._db_file, account=remote_broker.account,
-            container=remote_broker.container, force_db_file=True)
+            container=remote_broker.container, force_db_file=True,
+            quarantine_ok=True)
         self.assertEqual(remote_context['objects'][12:13],
                          remote_old_broker.get_objects())
         self.assertFalse(remote_old_broker.get_shard_ranges())
@@ -2704,7 +2706,8 @@ class TestReplicatorSync(test_db_replicator.TestReplicatorSync):
         # remote old hash.db objects are unchanged
         remote_old_broker = self.backend(
             remote_broker._db_file, account=remote_broker.account,
-            container=remote_broker.container, force_db_file=True)
+            container=remote_broker.container, force_db_file=True,
+            quarantine_ok=True)
         self.assertEqual(
             remote_context['objects'][6:7],
             remote_old_broker.get_objects())

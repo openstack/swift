@@ -96,7 +96,7 @@ class TestOrphanContainer(ReplProbeTest):
         # Collect the observable state from containers
         outstanding_files = []
         for cfile in cont_db_files:
-            broker = ContainerBroker(cfile)
+            broker = ContainerBroker(cfile, quarantine_ok=True)
             try:
                 info = broker.get_info()
             except LockTimeout:
@@ -131,7 +131,7 @@ class TestOrphanContainer(ReplProbeTest):
             if not os.path.exists(cfile):
                 continue
 
-            broker = ContainerBroker(cfile)
+            broker = ContainerBroker(cfile, quarantine_ok=True)
             try:
                 info = broker.get_info()
             except LockTimeout:

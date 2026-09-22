@@ -32,7 +32,8 @@ class TestAuditorMigrations(BaseUnitTestCase):
                                'test.db')
         with test_backend.TestContainerBrokerBeforeSPI.old_broker() as \
                 old_ContainerBroker:
-            broker = old_ContainerBroker(db_path, account='a', container='c')
+            broker = old_ContainerBroker(db_path, account='a', container='c',
+                                         quarantine_ok=True)
             broker.initialize(self.ts().internal, -1)
 
         with broker.get() as conn:
@@ -50,7 +51,8 @@ class TestAuditorMigrations(BaseUnitTestCase):
         test_auditor = auditor.ContainerAuditor(conf, logger=debug_logger())
         test_auditor.run_once()
 
-        broker = auditor.ContainerBroker(db_path, account='a', container='c')
+        broker = auditor.ContainerBroker(db_path, account='a', container='c',
+                                         quarantine_ok=True)
         info = broker.get_info()
         expected = {
             'account': 'a',

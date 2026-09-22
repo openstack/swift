@@ -250,7 +250,8 @@ class BaseTestContainerSharding(ReplProbeTest):
 
     def get_broker(self, part, node, account=None, container=None):
         return ContainerBroker(
-            self.get_db_file(part, node, account, container))
+            self.get_db_file(part, node, account, container),
+            quarantine_ok=True)
 
     def get_shard_broker(self, shard_range, node_index=0):
         shard_part, shard_nodes = self.brain.ring.get_nodes(
@@ -1020,7 +1021,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found['normal_dbs'], 3)
         self.assertLengthEqual(found['shard_dbs'], 0)
         for db_file in found['normal_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('unsharded', broker.get_db_state())
             self.assertLengthEqual(broker.get_shard_ranges(), 0)
@@ -1065,7 +1066,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
 
         self.assertLengthEqual(found['normal_dbs'], 2)
         for db_file in found['normal_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('unsharded', broker.get_db_state())
             shard_ranges = [dict(sr) for sr in broker.get_shard_ranges()]
@@ -1097,7 +1098,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found['normal_dbs'], 0)
         # Shards stayed the same
         for db_file in found['shard_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('sharded', broker.get_db_state())
             # Well, except for meta_timestamps, since the shards each reported
@@ -1182,7 +1183,8 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
         self.assertEqual(
             [ShardRange.SHARDING, ShardRange.SHARDING, ShardRange.ACTIVE],
-            [ContainerBroker(db_file).get_own_shard_range().state
+            [ContainerBroker(db_file,
+                             quarantine_ok=True).get_own_shard_range().state
              for db_file in found_for_shard['normal_dbs']])
 
         # ...then run first cycle of first shard sharders in order, leader
@@ -1198,7 +1200,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
             shard_1.account, shard_1.container)
         self.assertLengthEqual(found_for_shard['shard_dbs'], 2)
         for db_file in found_for_shard['shard_dbs'][:2]:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('sharding', broker.get_db_state())
@@ -1226,7 +1228,8 @@ class TestContainerSharding(BaseAutoContainerSharding):
 
         # but third replica still has no idea it should be sharding
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
-        broker = ContainerBroker(found_for_shard['normal_dbs'][2])
+        broker = ContainerBroker(found_for_shard['normal_dbs'][2],
+                                 quarantine_ok=True)
         self.assertEqual(ShardRange.ACTIVE, broker.get_own_shard_range().state)
 
         # ...but once sharder runs on third replica it will learn its state and
@@ -1244,7 +1247,8 @@ class TestContainerSharding(BaseAutoContainerSharding):
             shard_1.account, shard_1.container)
         self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
-        sharding_broker = ContainerBroker(found_for_shard['normal_dbs'][2])
+        sharding_broker = ContainerBroker(found_for_shard['normal_dbs'][2],
+                                          quarantine_ok=True)
         self.assertEqual('sharding', sharding_broker.get_db_state())
         self.assertEqual(
             ShardRange.SHARDING, sharding_broker.get_own_shard_range().state)
@@ -1269,7 +1273,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
         self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
         for db_file in found_for_shard['shard_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('sharding', broker.get_db_state())
@@ -1292,7 +1296,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertFalse(found_for_sub_shard['shard_dbs'])
         self.assertLengthEqual(found_for_sub_shard['normal_dbs'], 3)
         for db_file in found_for_sub_shard['normal_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('unsharded', broker.get_db_state())
@@ -1341,7 +1345,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
 
         # check original first shard range shards
         for db_file in found_for_shard['shard_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             with self.subTest(db_file=db_file):
                 self.assertIs(False, broker.is_root_container())
                 self.assertEqual('sharded', broker.get_db_state())
@@ -1375,7 +1379,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found['normal_dbs'], 0)
         new_shard_ranges = None
         for db_file in found['shard_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual('sharded', broker.get_db_state())
             if new_shard_ranges is None:
@@ -1584,7 +1588,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found['shard_dbs'], 0)
         self.assertLengthEqual(found['normal_dbs'], 3)
         for db_file in found['normal_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertIs(True, broker.is_root_container())
             self.assertEqual(len(obj_names) * 3 // 5,
                              broker.get_info()['object_count'])
@@ -1606,7 +1610,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         found = self.categorize_container_dir_content()
         self.assertLengthEqual(found['shard_dbs'], 1)
         node_index_zero_db = found['shard_dbs'][0]
-        broker = ContainerBroker(node_index_zero_db)
+        broker = ContainerBroker(node_index_zero_db, quarantine_ok=True)
         self.assertIs(True, broker.is_root_container())
         self.assertEqual(SHARDING, broker.get_db_state())
         expected_shard_ranges = broker.get_shard_ranges()
@@ -1620,7 +1624,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found['normal_dbs'], 3)
         db_states = []
         for db_file in found['normal_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertIs(True, broker.is_root_container())
             db_states.append(broker.get_db_state())
             # the sharded db had shard range meta_timestamps updated during
@@ -1641,7 +1645,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
         self.assertLengthEqual(found['shard_dbs'], 3)
         self.assertLengthEqual(found['normal_dbs'], 3)
         for db_file in found['normal_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertEqual(SHARDING, broker.get_db_state())
             # no new rows
             self.assertEqual(len(obj_names) * 3 // 5,
@@ -1655,7 +1659,7 @@ class TestContainerSharding(BaseAutoContainerSharding):
 
         # Our "big" dbs didn't take updates
         for db_file in found['normal_dbs']:
-            broker = ContainerBroker(db_file)
+            broker = ContainerBroker(db_file, quarantine_ok=True)
             self.assertEqual(len(obj_names) * 3 // 5,
                              broker.get_info()['object_count'])
 
@@ -3524,7 +3528,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertLengthEqual(found_for_shard['shard_dbs'], 3)
                 actual = []
                 for shard_db in found_for_shard['shard_dbs']:
-                    broker = ContainerBroker(shard_db)
+                    broker = ContainerBroker(shard_db, quarantine_ok=True)
                     own_sr = broker.get_own_shard_range()
                     actual.append(
                         (broker.get_db_state(), own_sr.state, own_sr.deleted))
@@ -3614,7 +3618,7 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
                 self.assertLengthEqual(found_for_shard['normal_dbs'], 3)
                 actual = []
                 for shard_db in found_for_shard['normal_dbs']:
-                    broker = ContainerBroker(shard_db)
+                    broker = ContainerBroker(shard_db, quarantine_ok=True)
                     own_sr = broker.get_own_shard_range()
                     actual.append(
                         (broker.get_db_state(), own_sr.state, own_sr.deleted))
@@ -4261,7 +4265,8 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
             additional_args='--partitions=%s' % self.brain.part)
 
         # let's now check the handoff broker it should have all the shards
-        handoff_broker = ContainerBroker(dir_content['normal_dbs'][0])
+        handoff_broker = ContainerBroker(dir_content['normal_dbs'][0],
+                                         quarantine_ok=True)
         self.assertEqual(len(handoff_broker.get_shard_ranges()), 2)
         handoff_osr = handoff_broker.get_own_shard_range(no_default=True)
         self.assertIsNotNone(handoff_osr.epoch)
@@ -4339,9 +4344,11 @@ class TestManagedContainerSharding(BaseTestContainerSharding):
         self.replicators.once()
         # Pull an old primary own_shard_range
         dir_content = self.categorize_container_dir_content()
-        old_broker = ContainerBroker(dir_content['shard_dbs'][0])
+        old_broker = ContainerBroker(dir_content['shard_dbs'][0],
+                                     quarantine_ok=True)
         old_osr = old_broker.get_own_shard_range()
-        new_primary_broker = ContainerBroker(dir_content['normal_dbs'][0])
+        new_primary_broker = ContainerBroker(dir_content['normal_dbs'][0],
+                                             quarantine_ok=True)
         new_osr = new_primary_broker.get_own_shard_range()
 
         # This version stops replicating a remote non-epoch osr over a local
