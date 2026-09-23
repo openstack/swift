@@ -575,6 +575,15 @@ class Ring(object):
         if time() > self._rtime:
             self._reload()
         primary_nodes = self._get_part_nodes(part)
+        # Keep this ring version across yields. Another request may reload
+        # the ring while this iterator waits for a backend response.
+        devs = self._devs
+        replica2part2dev_id = self._replica2part2dev_id
+        part_shift = self._part_shift
+        num_regions = self._num_regions
+        num_zones = self._num_zones
+        num_ips = self._num_ips
+        num_assigned_devs = self._num_assigned_devs
         used = set(d['id'] for d in primary_nodes)
         index = count()
         same_regions = set(d['region'] for d in primary_nodes)
@@ -582,14 +591,14 @@ class Ring(object):
         same_ips = set(
             (d['region'], d['zone'], d['ip']) for d in primary_nodes)
 
-        parts = len(self._replica2part2dev_id[0])
+        parts = len(replica2part2dev_id[0])
         part_hash = md5(str(part).encode('ascii'),
                         usedforsecurity=False).digest()
-        start = struct.unpack_from('>I', part_hash)[0] >> self._part_shift
+        start = struct.unpack_from('>I', part_hash)[0] >> part_shift
         inc = int(parts / 65536) or 1
         # Multiple loops for execution speed; the checks and bookkeeping get
         # simpler as you go along
-        hit_all_regions = len(same_regions) == self._num_regions
+        hit_all_regions = len(same_regions) == num_regions
         for handoff_part in chain(range(start, parts, inc),
                                   range(inc - ((parts - start) % inc),
                                         start, inc)):
@@ -597,10 +606,10 @@ class Ring(object):
                 # At this point, there are no regions left untouched, so we
                 # can stop looking.
                 break
-            for part2dev_id in self._replica2part2dev_id:
+            for part2dev_id in replica2part2dev_id:
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
-                    dev = self._devs[dev_id]
+                    dev = devs[dev_id]
                     region = dev['region']
                     if dev_id not in used and region not in same_regions:
                         yield dict(dev, handoff_index=next(index))
@@ -610,11 +619,11 @@ class Ring(object):
                         ip = (region, zone, dev['ip'])
                         same_zones.add((region, zone))
                         same_ips.add(ip)
-                        if len(same_regions) == self._num_regions:
+                        if len(same_regions) == num_regions:
                             hit_all_regions = True
                             break
 
-        hit_all_zones = len(same_zones) == self._num_zones
+        hit_all_zones = len(same_zones) == num_zones
         for handoff_part in chain(range(start, parts, inc),
                                   range(inc - ((parts - start) % inc),
                                         start, inc)):
@@ -622,10 +631,10 @@ class Ring(object):
                 # Much like we stopped looking for fresh regions before, we
                 # can now stop looking for fresh zones; there are no more.
                 break
-            for part2dev_id in self._replica2part2dev_id:
+            for part2dev_id in replica2part2dev_id:
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
-                    dev = self._devs[dev_id]
+                    dev = devs[dev_id]
                     zone = (dev['region'], dev['zone'])
                     if dev_id not in used and zone not in same_zones:
                         yield dict(dev, handoff_index=next(index))
@@ -633,11 +642,11 @@ class Ring(object):
                         same_zones.add(zone)
                         ip = zone + (dev['ip'],)
                         same_ips.add(ip)
-                        if len(same_zones) == self._num_zones:
+                        if len(same_zones) == num_zones:
                             hit_all_zones = True
                             break
 
-        hit_all_ips = len(same_ips) == self._num_ips
+        hit_all_ips = len(same_ips) == num_ips
         for handoff_part in chain(range(start, parts, inc),
                                   range(inc - ((parts - start) % inc),
                                         start, inc)):
@@ -645,20 +654,20 @@ class Ring(object):
                 # We've exhausted the pool of unused backends, so stop
                 # looking.
                 break
-            for part2dev_id in self._replica2part2dev_id:
+            for part2dev_id in replica2part2dev_id:
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
-                    dev = self._devs[dev_id]
+                    dev = devs[dev_id]
                     ip = (dev['region'], dev['zone'], dev['ip'])
                     if dev_id not in used and ip not in same_ips:
                         yield dict(dev, handoff_index=next(index))
                         used.add(dev_id)
                         same_ips.add(ip)
-                        if len(same_ips) == self._num_ips:
+                        if len(same_ips) == num_ips:
                             hit_all_ips = True
                             break
 
-        hit_all_devs = len(used) == self._num_assigned_devs
+        hit_all_devs = len(used) == num_assigned_devs
         for handoff_part in chain(range(start, parts, inc),
                                   range(inc - ((parts - start) % inc),
                                         start, inc)):
@@ -666,13 +675,13 @@ class Ring(object):
                 # We've used every device we have, so let's stop looking for
                 # unused devices now.
                 break
-            for part2dev_id in self._replica2part2dev_id:
+            for part2dev_id in replica2part2dev_id:
                 if handoff_part < len(part2dev_id):
                     dev_id = part2dev_id[handoff_part]
                     if dev_id not in used:
-                        dev = self._devs[dev_id]
+                        dev = devs[dev_id]
                         yield dict(dev, handoff_index=next(index))
                         used.add(dev_id)
-                        if len(used) == self._num_assigned_devs:
+                        if len(used) == num_assigned_devs:
                             hit_all_devs = True
                             break
