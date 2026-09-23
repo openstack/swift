@@ -38,14 +38,21 @@ class TestAuditorRealBrokerMigration(
         policies = itertools.cycle(POLICIES)
         num_containers = len(POLICIES) * 3
         per_policy_container_counts = defaultdict(int)
-        for i in range(num_containers):
-            name = 'test-container-%02d' % i
-            policy = next(policies)
-            self.broker.put_container(name, self.ts().internal,
-                                      0, 0, 0, int(policy))
-            per_policy_container_counts[int(policy)] += 1
+        # insert directly, because put_container would migrate the db before
+        # the auditor gets a chance to
+        with self.broker.get() as conn:
+            for i in range(num_containers):
+                name = 'test-container-%02d' % i
+                policy = next(policies)
+                conn.execute('''
+                    INSERT INTO container (name, put_timestamp,
+                        delete_timestamp, object_count, bytes_used, deleted,
+                        storage_policy_index)
+                    VALUES (?, ?, 0, 0, 0, 0, ?)
+                ''', (name, self.ts().internal, int(policy)))
+                per_policy_container_counts[int(policy)] += 1
+            conn.commit()
 
-        self.broker._commit_puts()
         self.assertEqual(num_containers,
                          self.broker.get_info()['container_count'])
 

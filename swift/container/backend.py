@@ -3063,6 +3063,7 @@ class ContainerBroker(DatabaseBroker):
 
     def _execute_with_action_table_migrations(
             self, conn, func, *args, **kwargs):
+        # map potential SELECT errors to migrations
         migrations = {
             'no such table: %s' % ACTION_TABLE:
                 self.create_action_table,

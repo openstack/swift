@@ -7604,26 +7604,25 @@ class TestContainerBrokerBeforeManifestSize(TestContainerBroker):
 
     def assert_pre_migration(self, broker):
         self.assert_column_not_in_table(broker, 'manifest_size', 'object')
-        self.assert_column_not_in_table(broker, 'bytes_in_parts',
-                                        'policy_stat')
-        self.assert_column_not_in_table(broker, 'bytes_in_manifests',
-                                        'policy_stat')
-        self.assert_column_not_in_table(broker, 'bytes_in_parts',
-                                        'container_stat')
-        self.assert_column_not_in_table(broker, 'bytes_in_manifests',
-                                        'container_stat')
+        for column in ('bytes_in_parts', 'bytes_in_manifests'):
+            self.assert_column_not_in_table(broker, column, 'policy_stat')
+            self.assert_column_not_in_table(broker, column, 'container_stat')
+        for column in ('reported_bytes_in_parts',
+                       'reported_bytes_in_manifests'):
+            self.assert_column_not_in_table(broker, column, 'container_info')
+            self.assert_column_not_in_table(broker, column, 'container_stat')
 
     def assert_migrated(self, broker):
         self.assert_column_in_table(broker, 'manifest_size', 'object')
-        self.assert_column_in_table(broker, 'bytes_in_parts', 'policy_stat')
-        self.assert_column_in_table(broker, 'bytes_in_manifests',
-                                    'policy_stat')
-        # the view must expose the new columns too, otherwise get_info falls
-        # back to reporting zeros
-        self.assert_column_in_table(broker, 'bytes_in_parts',
-                                    'container_stat')
-        self.assert_column_in_table(broker, 'bytes_in_manifests',
-                                    'container_stat')
+        for column in ('bytes_in_parts', 'bytes_in_manifests'):
+            self.assert_column_in_table(broker, column, 'policy_stat')
+            # the view must expose the new columns too, otherwise get_info
+            # falls back to reporting zeros
+            self.assert_column_in_table(broker, column, 'container_stat')
+        for column in ('reported_bytes_in_parts',
+                       'reported_bytes_in_manifests'):
+            self.assert_column_in_table(broker, column, 'container_info')
+            self.assert_column_in_table(broker, column, 'container_stat')
 
     def _insert_object_row(self, broker, name, ts_put, size=123):
         # manually insert a row, without manifest_size, to avoid automatic
@@ -7862,6 +7861,7 @@ class TestContainerBrokerBeforeManifestSize(TestContainerBroker):
     def test_migration_with_up_to_date_container_info(self):
         # container_info already has the reported columns, but the view does
         # not expose them and policy_stat has not been migrated
+        self.assert_pre_migration(self.broker)
         with self.broker.get() as conn:
             conn.executescript('''
                 ALTER TABLE container_info
@@ -7869,7 +7869,6 @@ class TestContainerBrokerBeforeManifestSize(TestContainerBroker):
                 ALTER TABLE container_info
                 ADD COLUMN reported_bytes_in_manifests INTEGER DEFAULT 0;
             ''')
-        self.assert_pre_migration(self.broker)
         self.assert_column_not_in_table(
             self.broker, 'reported_bytes_in_parts', 'container_stat')
         with self.broker.get() as conn:

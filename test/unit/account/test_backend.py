@@ -22,6 +22,8 @@ from time import sleep, time
 from uuid import uuid4
 import sqlite3
 import itertools
+import operator
+from functools import reduce
 from contextlib import contextmanager
 import random
 from unittest import mock
@@ -38,6 +40,17 @@ from swift.common.storage_policy import StoragePolicy, POLICIES
 from swift.common.utils import md5
 
 from test.unit.common import test_db
+
+
+def chexor_hash(*rows):
+    """
+    Compute the account db hash for rows, each of which is a (name, value)
+    tuple, independently of the db triggers.
+    """
+    digests = [md5(('%s-%s' % row).encode('ascii'),
+                   usedforsecurity=False).digest() for row in rows]
+    return ''.join('%02x' % b for b in
+                   (reduce(operator.xor, vals) for vals in zip(*digests)))
 
 
 @patch_policies
@@ -861,6 +874,94 @@ class TestAccountBroker(test_db.TestDbBase):
                          for a, b in zip(hasha, hashb)))
         self.assertEqual(broker.get_info()['hash'], hashc)
 
+    def test_chexor_includes_mpu_bytes_when_non_zero(self):
+        broker = AccountBroker(self.get_db_path(), account='a')
+        broker.initialize(self.ts().internal)
+        ts = self.ts().internal
+        broker.put_container('a', ts, '0', 3, 30, POLICIES.default.idx)
+        broker.put_container('b', ts, '0', 3, 30, POLICIES.default.idx,
+                             bytes_in_parts=20, bytes_in_manifests=5)
+        # only the row with mpu bytes has them in its hash value; a row
+        # without them hashes as it did before the columns existed
+        self.assertEqual(
+            chexor_hash(('a', '%s-0-3-30' % ts),
+                        ('b', '%s-0-3-30-20-5' % ts)),
+            broker.get_info()['hash'])
+
+    def test_chexor_mpu_bytes_individually_non_zero(self):
+        broker = AccountBroker(self.get_db_path(), account='a')
+        broker.initialize(self.ts().internal)
+        ts = self.ts().internal
+        broker.put_container('a', ts, '0', 3, 30, POLICIES.default.idx,
+                             bytes_in_parts=20)
+        broker.put_container('b', ts, '0', 3, 30, POLICIES.default.idx,
+                             bytes_in_manifests=5)
+        self.assertEqual(
+            chexor_hash(('a', '%s-0-3-30-20-0' % ts),
+                        ('b', '%s-0-3-30-0-5' % ts)),
+            broker.get_info()['hash'])
+
+    def test_chexor_replacing_mpu_row_cancels_previous_value(self):
+        broker = AccountBroker(self.get_db_path(), account='a')
+        broker.initialize(self.ts().internal)
+        ts1, ts2, ts3 = (self.ts().internal for _ in range(3))
+        broker.put_container('a', ts1, '0', 3, 30, POLICIES.default.idx,
+                             bytes_in_parts=20, bytes_in_manifests=5)
+        # replace with different mpu bytes, then with none
+        broker.put_container('a', ts2, '0', 3, 30, POLICIES.default.idx,
+                             bytes_in_parts=21, bytes_in_manifests=6)
+        self.assertEqual(chexor_hash(('a', '%s-0-3-30-21-6' % ts2)),
+                         broker.get_info()['hash'])
+        broker.put_container('a', ts3, '0', 3, 30, POLICIES.default.idx)
+        self.assertEqual(chexor_hash(('a', '%s-0-3-30' % ts3)),
+                         broker.get_info()['hash'])
+
+    def test_chexor_tombstone_with_mpu_bytes_cancels(self):
+        # mpu byte counts are accumulated for a tombstoned container row just
+        # like bytes_used, so they must also be part of its hash value
+        broker = AccountBroker(self.get_db_path(), account='a')
+        broker.initialize(self.ts().internal)
+        ts_put, ts_delete, ts_new = (self.ts().internal for _ in range(3))
+        broker.put_container('a', ts_put, ts_delete, 0, 0,
+                             POLICIES.default.idx,
+                             bytes_in_parts=20, bytes_in_manifests=5)
+        broker._commit_puts()
+        with broker.get() as conn:
+            self.assertEqual(1, conn.execute(
+                'SELECT deleted FROM container WHERE name = "a"'
+            ).fetchone()[0])
+        self.assertEqual(chexor_hash(('a', '%s-%s-0-0-20-5'
+                                      % (ts_put, ts_delete))),
+                         broker.get_info()['hash'])
+        # replacing the tombstone cancels its contribution exactly
+        broker.put_container('a', ts_new, '0', 3, 30, POLICIES.default.idx)
+        self.assertEqual(
+            chexor_hash(('a', '%s-%s-3-30' % (ts_new, ts_delete))),
+            broker.get_info()['hash'])
+
+    def test_chexor_merge_items_legacy_item_replaces_mpu_row(self):
+        # an item from a legacy peer has no mpu bytes, so replacing an mpu row
+        # with it returns the row to the legacy hash value
+        broker = AccountBroker(self.get_db_path(), account='a')
+        broker.initialize(self.ts().internal)
+        ts1, ts2 = self.ts().internal, self.ts().internal
+        broker.put_container('c', ts1, '0', 3, 30, POLICIES.default.idx,
+                             bytes_in_parts=20, bytes_in_manifests=5)
+        broker._commit_puts()
+        self.assertEqual(chexor_hash(('c', '%s-0-3-30-20-5' % ts1)),
+                         broker.get_info()['hash'])
+        broker.merge_items([{'name': 'c',
+                             'put_timestamp': ts2,
+                             'delete_timestamp': '0',
+                             'object_count': 4,
+                             'bytes_used': 40,
+                             'deleted': 0,
+                             'storage_policy_index': POLICIES.default.idx}])
+        info = broker.get_info()
+        self.assertEqual(0, info['bytes_in_parts'])
+        self.assertEqual(0, info['bytes_in_manifests'])
+        self.assertEqual(chexor_hash(('c', '%s-0-4-40' % ts2)), info['hash'])
+
     def test_merge_items(self):
         broker1 = AccountBroker(self.get_db_path(), account='a')
         broker1.initialize(Timestamp('1').internal)
@@ -1275,6 +1376,12 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
             AccountBroker.create_account_stat_table
         AccountBroker.create_account_stat_table = \
             premetadata_create_account_stat_table
+        # the policy_stat table is seeded from account_stat, so it must be
+        # created with a schema of the same vintage
+        self._imported_create_policy_stat_table = \
+            AccountBroker.create_policy_stat_table
+        AccountBroker.create_policy_stat_table = \
+            pre_mpu_stats_create_policy_stat_table
         broker = AccountBroker(self.get_db_path(), account='a')
         broker.initialize(Timestamp('1').internal)
         exc = None
@@ -1288,6 +1395,8 @@ class TestAccountBrokerBeforeMetadata(TestAccountBroker):
     def tearDown(self):
         AccountBroker.create_account_stat_table = \
             self._imported_create_account_stat_table
+        AccountBroker.create_policy_stat_table = \
+            self._imported_create_policy_stat_table
         broker = AccountBroker(self.get_db_path(), account='a')
         broker.initialize(Timestamp('1').internal)
         with broker.get() as conn:
@@ -1603,10 +1712,13 @@ class TestAccountBrokerBeforeSPI(TestAccountBroker):
                     def execute(self):
                         return self.real_conn.execute
 
+                    @property
+                    def rollback(self):
+                        return self.real_conn.rollback
+
                     def executescript(self, script):
-                        if called:
-                            raise ExpectedError('kaboom!')
                         called.append(script)
+                        raise ExpectedError('kaboom!')
 
                 yield MockConn(conn)
 
@@ -1867,18 +1979,20 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         total_container_count = self.broker.get_info()['container_count']
         self.assertEqual(total_container_count, num_containers)
 
-        # still un-migrated
-        self.assertUnmigrated(self.broker)
+        # put_container migrated the db: the stat columns are migrated
+        # together, so container_count arrives along with the mpu columns
+        with self.broker.get() as conn:
+            conn.execute('SELECT container_count FROM policy_stat')
 
         policy_stats = self.broker.get_policy_stats()
         self.assertEqual(len(policy_stats), len(per_policy_container_counts))
-        for stats in policy_stats.values():
+        for policy_index, stats in policy_stats.items():
             self.assertEqual(stats['object_count'], 0)
             self.assertEqual(stats['bytes_used'], 0)
-            # un-migrated dbs should not return container_count
-            self.assertNotIn('container_count', stats)
+            self.assertEqual(stats['container_count'],
+                             per_policy_container_counts[policy_index])
 
-        # now force the migration
+        # asking for the migration again changes nothing
         policy_stats = self.broker.get_policy_stats(do_migrations=True)
         self.assertEqual(len(policy_stats), len(per_policy_container_counts))
         for policy_index, stats in policy_stats.items():
@@ -1941,6 +2055,63 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         for policy in POLICIES:
             self.assertEqual(stats[policy.idx]['container_count'],
                              policy.idx + 1)
+
+    def test_per_policy_cont_count_backfill_preserves_mpu_bytes(self):
+        # a db partially migrated by an older implementation has the mpu
+        # columns, holding non-zero values, but no container_count. The
+        # backfill rewrites whole policy_stat rows so must not reset them.
+        with self.broker.get() as conn:
+            # insert the row first: the old trigger would replace the whole
+            # policy_stat row, resetting the mpu columns
+            conn.execute('''
+                INSERT INTO container (name, put_timestamp, delete_timestamp,
+                    object_count, bytes_used, deleted, storage_policy_index)
+                VALUES ('c', ?, '0', 1, 10, 0, 0)
+            ''', (self.ts().internal,))
+            conn.executescript('''
+                ALTER TABLE policy_stat
+                ADD COLUMN bytes_in_parts INTEGER DEFAULT 0;
+                ALTER TABLE policy_stat
+                ADD COLUMN bytes_in_manifests INTEGER DEFAULT 0;
+                UPDATE policy_stat SET bytes_in_parts = 40,
+                                       bytes_in_manifests = 5;
+            ''')
+            self.broker._migrate_container_table(conn)
+        with self.broker.get() as conn:
+            row = conn.execute('''
+                SELECT container_count, bytes_in_parts, bytes_in_manifests
+                FROM policy_stat WHERE storage_policy_index = 0
+            ''').fetchone()
+        self.assertEqual((1, 40, 5), tuple(row))
+
+    def test_per_policy_cont_count_backfilled_from_existing_rows(self):
+        # rows that pre-date the container_count column are counted when the
+        # column is added; insert them directly so that the migration is not
+        # triggered until every row is in place
+        per_policy_container_counts = defaultdict(int)
+        policies = itertools.cycle(POLICIES)
+        with self.broker.get() as conn:
+            for i in range(8):
+                policy = next(policies)
+                deleted = i % 4 == 0
+                conn.execute('''
+                    INSERT INTO container (name, put_timestamp,
+                        delete_timestamp, object_count, bytes_used, deleted,
+                        storage_policy_index)
+                    VALUES (?, ?, ?, 0, 0, ?, ?)
+                ''', ('test-container-%02d' % i, self.ts().internal, '0',
+                      int(deleted), int(policy)))
+                if not deleted:
+                    per_policy_container_counts[int(policy)] += 1
+            conn.commit()
+        self.assertUnmigrated(self.broker)
+
+        policy_stats = self.broker.get_policy_stats(do_migrations=True)
+        self.assertEqual(
+            per_policy_container_counts,
+            {policy_index: stats['container_count']
+             for policy_index, stats in policy_stats.items()
+             if stats['container_count']})
 
     def test_per_policy_cont_count_migration_with_deleted(self):
         num_containers = 15
@@ -2025,14 +2196,556 @@ class TestAccountBrokerBeforePerPolicyContainerTrack(
         for policy_stat in policy_info.values():
             self.assertEqual(policy_stat['container_count'], 1)
 
-    def test_migrate_add_storage_policy_index_fail(self):
-        broker = AccountBroker(self.db_path, account='a')
-        broker.initialize(Timestamp('1').internal)
+
+class TestAccountBrokerMigration(test_db.TestDbBase):
+    """
+    Tests for the single pass that migrates an older db to the current schema.
+    """
+    server_type = 'account'
+
+    def _make_prespi_broker(self):
+        # a db from before the storage_policy_index column was added: no
+        # policy_stat table, and no mpu byte counts in any table
+        replacements = {
+            'create_container_table': prespi_create_container_table,
+            'create_account_stat_table': premetadata_create_account_stat_table,
+            '_initialize': prespi_AccountBroker_initialize,
+        }
+        originals = {name: getattr(AccountBroker, name)
+                     for name in replacements}
+        for name, replacement in replacements.items():
+            setattr(AccountBroker, name, replacement)
+        try:
+            broker = AccountBroker(self.db_path, account='a')
+            broker.initialize(Timestamp('1').internal)
+        finally:
+            for name, original in originals.items():
+                setattr(AccountBroker, name, original)
+        return AccountBroker(self.db_path, account='a')
+
+    def _get_columns(self, broker, table):
+        with broker.get() as conn:
+            return {row[1] for row in
+                    conn.execute('PRAGMA table_info(%s)' % table)}
+
+    def test_prespi_db_is_migrated_in_one_pass(self):
+        broker = self._make_prespi_broker()
+        # a container row that pre-dates every migration
+        with broker.get() as conn:
+            conn.execute('''
+                INSERT INTO container (name, put_timestamp, delete_timestamp,
+                    object_count, bytes_used, deleted)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', ('c1', Timestamp(1).internal, '0', 2, 30, 0))
+            conn.commit()
+
+        # any write path that needs a column it hasn't got migrates the lot
+        broker.merge_items([{'name': 'c2',
+                             'put_timestamp': Timestamp(2).internal,
+                             'delete_timestamp': '0',
+                             'object_count': 1,
+                             'bytes_used': 10,
+                             'deleted': 0,
+                             'storage_policy_index': 0,
+                             'bytes_in_parts': 6,
+                             'bytes_in_manifests': 4}])
+
+        for table in ('container', 'account_stat', 'policy_stat'):
+            self.assertLessEqual({'bytes_in_parts', 'bytes_in_manifests'},
+                                 self._get_columns(broker, table),
+                                 table)
+        self.assertIn('storage_policy_index',
+                      self._get_columns(broker, 'container'))
+
+        # policy_stat was seeded from the migrated account_stat, so it counts
+        # the container row that pre-dated it as well as the merged one
+        self.assertEqual({0: {'container_count': 2,
+                              'object_count': 3,
+                              'bytes_used': 40,
+                              'bytes_in_parts': 6,
+                              'bytes_in_manifests': 4}},
+                         broker.get_policy_stats())
+        info = broker.get_info()
+        self.assertEqual(2, info['container_count'])
+        self.assertEqual(6, info['bytes_in_parts'])
+        self.assertEqual(4, info['bytes_in_manifests'])
+
+        # the reinstalled triggers maintain the new columns
+        broker.put_container('c3', Timestamp(3).internal, '0', 1, 10, 0,
+                             bytes_in_parts=5, bytes_in_manifests=2)
+        broker._commit_puts()
+        self.assertEqual(11, broker.get_info()['bytes_in_parts'])
+        self.assertEqual(
+            11, broker.get_policy_stats()[0]['bytes_in_parts'])
+
+    def test_migrate_create_policy_stat_table_fail(self):
+        broker = self._make_prespi_broker()
         with mock.patch.object(
                 broker, 'create_policy_stat_table',
                 side_effect=sqlite3.OperationalError('foobar')):
             with broker.get() as conn:
                 self.assertRaisesRegex(
                     sqlite3.OperationalError, '.*foobar.*',
-                    broker._migrate_add_storage_policy_index,
+                    broker._migrate_container_table,
                     conn=conn)
+
+    def test_migrate_tolerates_racing_create_policy_stat_table(self):
+        # another process may create the table between us finding it missing
+        # and us creating it
+        broker = self._make_prespi_broker()
+        real_create = broker.create_policy_stat_table
+
+        def racing_create(conn):
+            real_create(conn)
+            raise sqlite3.OperationalError(
+                'table policy_stat already exists')
+
+        with mock.patch.object(broker, 'create_policy_stat_table',
+                               side_effect=racing_create):
+            with broker.get() as conn:
+                broker._migrate_container_table(conn)
+        self.assertLessEqual({'container_count', 'bytes_in_parts',
+                              'bytes_in_manifests'},
+                             self._get_columns(broker, 'policy_stat'))
+
+    def _get_triggers(self, broker):
+        with broker.get() as conn:
+            return {row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'trigger'")}
+
+    def test_migrate_is_atomic_when_trigger_swap_fails(self):
+        broker = self._make_prespi_broker()
+        orig_container_columns = self._get_columns(broker, 'container')
+        orig_triggers = self._get_triggers(broker)
+        self.assertTrue(orig_triggers)
+
+        # inject a failure after the container ALTERs and trigger drops have
+        # been executed within the script
+        with mock.patch('swift.account.backend.POLICY_STAT_TRIGGER_SCRIPT',
+                        'CREATE TRIGGER;'):
+            with broker.get() as conn:
+                with self.assertRaises(sqlite3.OperationalError):
+                    broker._migrate_container_table(conn)
+                self.assertFalse(conn.in_transaction)
+
+        # the container columns were rolled back with the triggers, so the
+        # db is still detectably un-migrated, and still has its old triggers
+        self.assertEqual(orig_container_columns,
+                         self._get_columns(broker, 'container'))
+        self.assertEqual(orig_triggers, self._get_triggers(broker))
+
+        # a later attempt completes the migration
+        broker.merge_items([{'name': 'c1',
+                             'put_timestamp': Timestamp(1).internal,
+                             'delete_timestamp': '0',
+                             'object_count': 1,
+                             'bytes_used': 10,
+                             'deleted': 0,
+                             'storage_policy_index': 0,
+                             'bytes_in_parts': 6,
+                             'bytes_in_manifests': 4}])
+        self.assertLessEqual({'storage_policy_index', 'bytes_in_parts',
+                              'bytes_in_manifests'},
+                             self._get_columns(broker, 'container'))
+        self.assertEqual(6, broker.get_info()['bytes_in_parts'])
+        self.assertEqual(
+            4, broker.get_policy_stats()[0]['bytes_in_manifests'])
+
+    def test_migrate_tolerates_racing_container_column_add(self):
+        # another process may add the container columns between us finding
+        # them missing and us beginning the transaction
+        broker = self._make_prespi_broker()
+        other_broker = AccountBroker(self.db_path, account='a')
+        real_get_columns = broker._get_table_columns
+        raced = []
+
+        def racing_get_columns(conn, table):
+            columns = real_get_columns(conn, table)
+            if table == 'container' and not raced:
+                raced.append(True)
+                with other_broker.get() as other_conn:
+                    other_broker._migrate_container_table(other_conn)
+            return columns
+
+        with mock.patch.object(broker, '_get_table_columns',
+                               side_effect=racing_get_columns):
+            with broker.get() as conn:
+                broker._migrate_container_table(conn)
+        self.assertLessEqual({'storage_policy_index', 'bytes_in_parts',
+                              'bytes_in_manifests'},
+                             self._get_columns(broker, 'container'))
+        self.assertIn('container_insert', self._get_triggers(broker))
+
+
+def pre_mpu_stats_create_container_table(self, conn):
+    """
+    Copied from AccountBroker before the bytes_in_parts and
+    bytes_in_manifests columns were added (using the old trigger scripts).
+    """
+    OLD_POLICY_STAT_TRIGGER_SCRIPT = """
+        CREATE TRIGGER container_insert_ps AFTER INSERT ON container
+        BEGIN
+            INSERT OR IGNORE INTO policy_stat
+                (storage_policy_index, container_count, object_count,
+                 bytes_used)
+                VALUES (new.storage_policy_index, 0, 0, 0);
+            UPDATE policy_stat
+            SET container_count = container_count + (1 - new.deleted),
+                object_count = object_count + new.object_count,
+                bytes_used = bytes_used + new.bytes_used
+            WHERE storage_policy_index = new.storage_policy_index;
+        END;
+        CREATE TRIGGER container_delete_ps AFTER DELETE ON container
+        BEGIN
+            UPDATE policy_stat
+            SET container_count = container_count - (1 - old.deleted),
+                object_count = object_count - old.object_count,
+                bytes_used = bytes_used - old.bytes_used
+            WHERE storage_policy_index = old.storage_policy_index;
+        END;
+
+    """
+    conn.executescript("""
+        CREATE TABLE container (
+            ROWID INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT,
+            put_timestamp TEXT,
+            delete_timestamp TEXT,
+            object_count INTEGER,
+            bytes_used INTEGER,
+            deleted INTEGER DEFAULT 0,
+            storage_policy_index INTEGER DEFAULT 0
+        );
+
+        CREATE INDEX ix_container_deleted_name ON
+            container (deleted, name);
+
+        CREATE TRIGGER container_insert AFTER INSERT ON container
+        BEGIN
+            UPDATE account_stat
+            SET container_count = container_count + (1 - new.deleted),
+                object_count = object_count + new.object_count,
+                bytes_used = bytes_used + new.bytes_used,
+                hash = chexor(hash, new.name,
+                              new.put_timestamp || '-' ||
+                                new.delete_timestamp || '-' ||
+                                new.object_count || '-' || new.bytes_used);
+        END;
+
+        CREATE TRIGGER container_update BEFORE UPDATE ON container
+        BEGIN
+            SELECT RAISE(FAIL, 'UPDATE not allowed; DELETE and INSERT');
+        END;
+
+        CREATE TRIGGER container_delete AFTER DELETE ON container
+        BEGIN
+            UPDATE account_stat
+            SET container_count = container_count - (1 - old.deleted),
+                object_count = object_count - old.object_count,
+                bytes_used = bytes_used - old.bytes_used,
+                hash = chexor(hash, old.name,
+                              old.put_timestamp || '-' ||
+                                old.delete_timestamp || '-' ||
+                                old.object_count || '-' || old.bytes_used);
+        END;
+    """ + OLD_POLICY_STAT_TRIGGER_SCRIPT)
+
+
+def pre_mpu_stats_create_account_stat_table(self, conn, put_timestamp):
+    """
+    Copied from AccountBroker before the bytes_in_parts and
+    bytes_in_manifests columns were added to the account_stat table.
+    """
+    conn.executescript("""
+        CREATE TABLE account_stat (
+            account TEXT,
+            created_at TEXT,
+            put_timestamp TEXT DEFAULT '0',
+            delete_timestamp TEXT DEFAULT '0',
+            container_count INTEGER,
+            object_count INTEGER DEFAULT 0,
+            bytes_used INTEGER DEFAULT 0,
+            hash TEXT default '00000000000000000000000000000000',
+            id TEXT,
+            status TEXT DEFAULT '',
+            status_changed_at TEXT DEFAULT '0',
+            metadata TEXT DEFAULT ''
+        );
+
+        INSERT INTO account_stat (container_count) VALUES (0);
+    """)
+    conn.execute('''
+        UPDATE account_stat SET account = ?, created_at = ?, id = ?,
+               put_timestamp = ?, status_changed_at = ?
+        ''', (self.account, LegacyTimestamp.now().internal,
+              str(uuid4()), put_timestamp, put_timestamp))
+
+
+def pre_mpu_stats_create_policy_stat_table(self, conn):
+    """
+    Copied from AccountBroker before the bytes_in_parts and
+    bytes_in_manifests columns were added to the policy_stat table.
+    """
+    conn.executescript("""
+        CREATE TABLE policy_stat (
+            storage_policy_index INTEGER PRIMARY KEY,
+            container_count INTEGER DEFAULT 0,
+            object_count INTEGER DEFAULT 0,
+            bytes_used INTEGER DEFAULT 0
+        );
+        INSERT OR IGNORE INTO policy_stat (
+            storage_policy_index, container_count, object_count, bytes_used
+        )
+        SELECT 0, container_count, object_count, bytes_used
+        FROM account_stat
+        WHERE container_count > 0;
+    """)
+
+
+class AccountBrokerPreMpuStatsSetup(test_db.TestDbBase):
+    """
+    Sets up an account db created before the bytes_in_parts and
+    bytes_in_manifests columns were added.
+    """
+    def setUp(self):
+        super(AccountBrokerPreMpuStatsSetup, self).setUp()
+        self._originals = {}
+        for name, replacement in (
+                ('create_container_table',
+                 pre_mpu_stats_create_container_table),
+                ('create_account_stat_table',
+                 pre_mpu_stats_create_account_stat_table),
+                ('create_policy_stat_table',
+                 pre_mpu_stats_create_policy_stat_table)):
+            self._originals[name] = getattr(AccountBroker, name)
+            setattr(AccountBroker, name, replacement)
+        self.broker = AccountBroker(self.get_db_path(), account='a')
+        self.broker.initialize(self.ts().internal)
+        self.assertUnmigrated(self.broker)
+
+    def tearDown(self):
+        self.restore_account_broker()
+        # sanity check: a fresh broker has the columns
+        broker = AccountBroker(self.get_db_path(), account='a')
+        broker.initialize(self.ts().internal)
+        self.assertMigrated(broker)
+        super(AccountBrokerPreMpuStatsSetup, self).tearDown()
+
+    def restore_account_broker(self):
+        for name, original in self._originals.items():
+            setattr(AccountBroker, name, original)
+
+    def _assert_columns(self, broker, tables, present):
+        with broker.get() as conn:
+            for table in tables:
+                columns = {row[1] for row in
+                           conn.execute('PRAGMA table_info(%s)' % table)}
+                for column in ('bytes_in_parts', 'bytes_in_manifests'):
+                    if present:
+                        self.assertIn(column, columns,
+                                      '%s.%s' % (table, column))
+                    else:
+                        self.assertNotIn(column, columns,
+                                         '%s.%s' % (table, column))
+
+    def assertUnmigrated(self, broker):
+        self._assert_columns(
+            broker, ('container', 'account_stat', 'policy_stat'), False)
+
+    def assertMigrated(self, broker):
+        self._assert_columns(
+            broker, ('container', 'account_stat', 'policy_stat'), True)
+
+
+@patch_policies([StoragePolicy(0, 'zero', True),
+                 StoragePolicy(1, 'one', False)])
+class TestAccountBrokerBeforeMpuStats(AccountBrokerPreMpuStatsSetup,
+                                      TestAccountBroker):
+    """
+    Tests for AccountBroker against databases created before the
+    bytes_in_parts and bytes_in_manifests columns were added.
+    """
+    def _insert_container_row(self, name, object_count=10, bytes_used=100,
+                              storage_policy_index=0):
+        # insert directly, bypassing put_container, so that merge_items does
+        # not migrate the db
+        with self.broker.get() as conn:
+            conn.execute('''
+                INSERT INTO container (name, put_timestamp, delete_timestamp,
+                    object_count, bytes_used, deleted, storage_policy_index)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (name, self.ts().internal, '0', object_count, bytes_used, 0,
+                  storage_policy_index))
+            conn.commit()
+
+    def test_hash_of_pre_existing_rows_survives_migration(self):
+        # a row hashed in by an unmigrated db's triggers must be cancelled
+        # out by the migrated triggers when the row is replaced
+        self._insert_container_row('c')
+        self._insert_container_row('d')
+        self.assertUnmigrated(self.broker)
+        before = self.broker.get_info()['hash']
+        ts = self.ts().internal
+        # put_container triggers the migration and then replaces 'c'
+        self.broker.put_container('c', ts, '0', 7, 70, 0)
+        self.broker._commit_puts()
+        self.assertMigrated(self.broker)
+        with self.broker.get() as conn:
+            rows = {r['name']: r for r in conn.execute(
+                'SELECT * FROM container')}
+        self.assertNotEqual(before, self.broker.get_info()['hash'])
+        self.assertEqual(
+            chexor_hash(('c', '%s-0-7-70' % ts),
+                        ('d', '%s-0-10-100' % rows['d']['put_timestamp'])),
+            self.broker.get_info()['hash'])
+
+    def test_hash_matches_unmigrated_peer_for_rows_without_mpu_bytes(self):
+        # an unmigrated and a migrated replica that hold the same rows,
+        # none of which has mpu bytes, have equal hashes
+        ts = self.ts().internal
+        peer = AccountBroker(self.get_db_path() + '.peer', account='a')
+        peer.initialize(self.ts().internal)
+        self.assertUnmigrated(peer)
+        with peer.get() as conn:
+            conn.execute('''
+                INSERT INTO container (name, put_timestamp, delete_timestamp,
+                    object_count, bytes_used, deleted, storage_policy_index)
+                VALUES ('c', ?, '0', 3, 30, 0, 0)
+            ''', (ts,))
+            conn.commit()
+        self.broker.put_container('c', ts, '0', 3, 30, 0)
+        self.broker._commit_puts()
+        self.assertMigrated(self.broker)
+        self.assertUnmigrated(peer)
+        self.assertEqual(peer.get_info()['hash'],
+                         self.broker.get_info()['hash'])
+
+    def test_get_info_unmigrated(self):
+        # reading stats must not migrate the db
+        self._insert_container_row('c')
+        info = self.broker.get_info()
+        self.assertUnmigrated(self.broker)
+        self.assertEqual(10, info['object_count'])
+        self.assertEqual(100, info['bytes_used'])
+        self.assertEqual(0, info['bytes_in_parts'])
+        self.assertEqual(0, info['bytes_in_manifests'])
+
+    def test_get_policy_stats_unmigrated(self):
+        self._insert_container_row('c')
+        stats = self.broker.get_policy_stats()
+        self.assertUnmigrated(self.broker)
+        self.assertEqual({0: {'container_count': 1,
+                              'object_count': 10,
+                              'bytes_used': 100}}, stats)
+
+    def test_get_policy_stats_do_migrations(self):
+        self._insert_container_row('c')
+        stats = self.broker.get_policy_stats(do_migrations=True)
+        self.assertEqual({0: {'container_count': 1,
+                              'object_count': 10,
+                              'bytes_used': 100,
+                              'bytes_in_parts': 0,
+                              'bytes_in_manifests': 0}}, stats)
+        self.assertMigrated(self.broker)
+
+        # ... and the reinstalled triggers work against the migrated schema
+        self.broker.put_container('c2', self.ts().internal, 0, 1, 50, 0,
+                                  bytes_in_parts=40, bytes_in_manifests=2)
+        info = self.broker.get_info()
+        self.assertEqual(40, info['bytes_in_parts'])
+        self.assertEqual(2, info['bytes_in_manifests'])
+
+    def test_put_container_migrates(self):
+        self.broker.put_container('c', self.ts().internal, 0, 10, 100, 0,
+                                  bytes_in_parts=60, bytes_in_manifests=3)
+        # merge_items triggers the migration
+        info = self.broker.get_info()
+        self.assertMigrated(self.broker)
+        self.assertEqual(10, info['object_count'])
+        self.assertEqual(100, info['bytes_used'])
+        self.assertEqual(60, info['bytes_in_parts'])
+        self.assertEqual(3, info['bytes_in_manifests'])
+        self.assertEqual({0: {'container_count': 1,
+                              'object_count': 10,
+                              'bytes_used': 100,
+                              'bytes_in_parts': 60,
+                              'bytes_in_manifests': 3}},
+                         self.broker.get_policy_stats())
+
+    def test_merge_items_from_legacy_peer(self):
+        # verify that if an item dict from an legacy peer has no mpu byte
+        # counts then these default to zero so that they are consistent with
+        # bytes_used from the peer that IS merged
+        self.broker.put_container('c', self.ts().internal, 0, 10, 100, 0,
+                                  bytes_in_parts=60, bytes_in_manifests=3)
+        self.broker._commit_puts()
+        self.assertMigrated(self.broker)
+
+        self.broker.merge_items([{'name': 'c',
+                                  'put_timestamp': self.ts().internal,
+                                  'delete_timestamp': '0',
+                                  'object_count': 12,
+                                  'bytes_used': 22,
+                                  'deleted': 0,
+                                  'storage_policy_index': 0}])
+        info = self.broker.get_info()
+        self.assertEqual(22, info['bytes_used'])
+        # the locally known values are set to zero due to being absent in the
+        # remote's update
+        self.assertEqual(0, info['bytes_in_parts'])
+        self.assertEqual(0, info['bytes_in_manifests'])
+
+    def test_merge_items_with_none_does_not_poison_stats(self):
+        # a None must never reach the db: n + NULL is NULL in sqlite, and the
+        # account_stat accumulator would never recover
+        self.broker.merge_items([{'name': 'c',
+                                  'put_timestamp': self.ts().internal,
+                                  'delete_timestamp': '0',
+                                  'object_count': 10,
+                                  'bytes_used': 100,
+                                  'deleted': 0,
+                                  'storage_policy_index': 0,
+                                  'bytes_in_parts': None,
+                                  'bytes_in_manifests': None}])
+        info = self.broker.get_info()
+        self.assertEqual(0, info['bytes_in_parts'])
+        self.assertEqual(0, info['bytes_in_manifests'])
+        # the stored row must be zero rather than NULL: this row is what gets
+        # replicated on, and an older peer's triggers do not coalesce
+        with self.broker.get() as conn:
+            row = conn.execute('SELECT bytes_in_parts, bytes_in_manifests '
+                               'FROM container WHERE name = "c"').fetchone()
+        self.assertEqual((0, 0), tuple(row))
+
+        # a subsequent real value still accumulates correctly
+        self.broker.merge_items([{'name': 'c2',
+                                  'put_timestamp': self.ts().internal,
+                                  'delete_timestamp': '0',
+                                  'object_count': 1,
+                                  'bytes_used': 50,
+                                  'deleted': 0,
+                                  'storage_policy_index': 0,
+                                  'bytes_in_parts': 50,
+                                  'bytes_in_manifests': 5}])
+        info = self.broker.get_info()
+        self.assertEqual(50, info['bytes_in_parts'])
+        self.assertEqual(5, info['bytes_in_manifests'])
+
+    def test_commit_puts_load_legacy_pending_entries(self):
+        # entries written by older versions have 6 or 7 elements
+        item_list = []
+        self.broker._commit_puts_load(
+            item_list, ('c6', '1', '0', 10, 100, 0))
+        self.broker._commit_puts_load(
+            item_list, ('c7', '1', '0', 10, 100, 0, 1))
+        self.broker._commit_puts_load(
+            item_list, ('c9', '1', '0', 10, 100, 0, 1, 60, 3))
+        self.assertEqual(['c6', 'c7', 'c9'],
+                         [item['name'] for item in item_list])
+        self.assertEqual([0, 1, 1],
+                         [item['storage_policy_index'] for item in item_list])
+        # legacy entries leave the counts unknown rather than claiming zero
+        self.assertNotIn('bytes_in_parts', item_list[0])
+        self.assertNotIn('bytes_in_parts', item_list[1])
+        self.assertEqual(60, item_list[2]['bytes_in_parts'])
+        self.assertEqual(3, item_list[2]['bytes_in_manifests'])

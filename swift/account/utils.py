@@ -33,7 +33,9 @@ class FakeAccountBroker(object):
                 'object_count': 0,
                 'bytes_used': 0,
                 'created_at': now,
-                'put_timestamp': now}
+                'put_timestamp': now,
+                'bytes_in_parts': 0,
+                'bytes_in_manifests': 0}
 
     def list_containers_iter(self, *_, **__):
         return []
@@ -52,17 +54,31 @@ def get_response_headers(broker):
         'X-Account-Container-Count': info['container_count'],
         'X-Account-Object-Count': info['object_count'],
         'X-Account-Bytes-Used': info['bytes_used'],
+        'X-Backend-Account-Bytes-In-Parts': info['bytes_in_parts'],
+        'X-Backend-Account-Bytes-In-Manifests': info['bytes_in_manifests'],
         'X-Timestamp': Timestamp(info['created_at']).normal,
         'X-PUT-Timestamp': Timestamp(info['put_timestamp']).normal}
     policy_stats = broker.get_policy_stats()
+    key_to_header = {
+        'container_count':
+            'X-Account-Storage-Policy-%s-Container-Count',
+        'bytes_used':
+            'X-Account-Storage-Policy-%s-Bytes-Used',
+        'object_count':
+            'X-Account-Storage-Policy-%s-Object-Count',
+        'bytes_in_parts':
+            'X-Backend-Account-Storage-Policy-%s-Bytes-In-Parts',
+        'bytes_in_manifests':
+            'X-Backend-Account-Storage-Policy-%s-Bytes-In-Manifests',
+    }
     for policy_idx, stats in policy_stats.items():
         policy = POLICIES.get_by_index(policy_idx)
         if not policy:
             continue
-        header_prefix = 'X-Account-Storage-Policy-%s-%%s' % policy.name
         for key, value in stats.items():
-            header_name = header_prefix % key.replace('_', '-')
-            resp_headers[header_name] = value
+            if key not in key_to_header:
+                continue
+            resp_headers[key_to_header[key] % policy.name] = value
     resp_headers.update((str_to_wsgi(key), str_to_wsgi(value))
                         for key, (value, _timestamp) in
                         broker.metadata.items() if value != '')

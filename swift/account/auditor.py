@@ -30,10 +30,14 @@ class AccountAuditor(DatabaseAuditor):
     def _audit(self, info, broker):
         # Validate per policy counts
         policy_stats = broker.get_policy_stats(do_migrations=True)
+        # get_policy_stats(do_migrations=True) guarantees every key is
+        # present, so a legacy db cannot make this raise
         policy_totals = {
             'container_count': 0,
             'object_count': 0,
             'bytes_used': 0,
+            'bytes_in_parts': 0,
+            'bytes_in_manifests': 0,
         }
         for policy_stat in policy_stats.values():
             for key in policy_totals:

@@ -38,6 +38,8 @@ class TestFakeAccountBroker(BaseUnitTestCase):
             'container_count': 0,
             'object_count': 0,
             'bytes_used': 0,
+            'bytes_in_parts': 0,
+            'bytes_in_manifests': 0,
             'created_at': timestamp.internal,
             'put_timestamp': timestamp.internal,
         }
@@ -69,6 +71,8 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Container-Count': 0,
             'X-Account-Object-Count': 0,
             'X-Account-Bytes-Used': 0,
+            'X-Backend-Account-Bytes-In-Parts': 0,
+            'X-Backend-Account-Bytes-In-Manifests': 0,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': Timestamp(now).normal,
         }
@@ -85,6 +89,8 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Container-Count': 0,
             'X-Account-Object-Count': 0,
             'X-Account-Bytes-Used': 0,
+            'X-Backend-Account-Bytes-In-Parts': 0,
+            'X-Backend-Account-Bytes-In-Manifests': 0,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': Timestamp(now).normal,
         }
@@ -102,29 +108,42 @@ class TestAccountUtils(TestDbBase):
         total_containers = 0
         total_objects = 0
         total_bytes = 0
+        total_parts = 0
+        total_manifests = 0
         for policy in POLICIES:
             delete_timestamp = next(ts)
             put_timestamp = next(ts)
             object_count = int(policy)
             bytes_used = int(policy) * 10
+            bytes_in_parts = int(policy) * 6
+            bytes_in_manifests = int(policy) * 3
             broker.put_container('c-%s' % policy.name, put_timestamp,
                                  delete_timestamp, object_count, bytes_used,
-                                 int(policy))
+                                 int(policy), bytes_in_parts,
+                                 bytes_in_manifests)
             total_containers += 1
             total_objects += object_count
             total_bytes += bytes_used
+            total_parts += bytes_in_parts
+            total_manifests += bytes_in_manifests
         expected = HeaderKeyDict({
             'X-Account-Container-Count': total_containers,
             'X-Account-Object-Count': total_objects,
             'X-Account-Bytes-Used': total_bytes,
+            'X-Backend-Account-Bytes-In-Parts': total_parts,
+            'X-Backend-Account-Bytes-In-Manifests': total_manifests,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': Timestamp(now).normal,
         })
         for policy in POLICIES:
-            prefix = 'X-Account-Storage-Policy-%s-' % policy.name
-            expected[prefix + 'Container-Count'] = 1
-            expected[prefix + 'Object-Count'] = int(policy)
-            expected[prefix + 'Bytes-Used'] = int(policy) * 10
+            prefix = 'Account-Storage-Policy-%s-' % policy.name
+            expected['X-' + prefix + 'Container-Count'] = 1
+            expected['X-' + prefix + 'Object-Count'] = int(policy)
+            expected['X-' + prefix + 'Bytes-Used'] = int(policy) * 10
+            expected['X-Backend-' + prefix + 'Bytes-In-Parts'] = \
+                int(policy) * 6
+            expected['X-Backend-' + prefix + 'Bytes-In-Manifests'] = \
+                int(policy) * 3
         resp_headers = utils.get_response_headers(broker)
         per_policy_container_headers = [
             h for h in resp_headers if
@@ -164,6 +183,9 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Container-Count': total_containers,
             'X-Account-Object-Count': total_objects,
             'X-Account-Bytes-Used': total_bytes,
+            # these come from account_stat, which this broker does have
+            'X-Backend-Account-Bytes-In-Parts': 0,
+            'X-Backend-Account-Bytes-In-Manifests': 0,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': Timestamp(now).normal,
         })
@@ -176,8 +198,11 @@ class TestAccountUtils(TestDbBase):
         def stub_policy_stats(*args, **kwargs):
             policy_stats = orig_policy_stats(*args, **kwargs)
             for stats in policy_stats.values():
-                # legacy db's won't return container_count
+                # legacy db's won't return container_count, nor the mpu byte
+                # counts
                 del stats['container_count']
+                del stats['bytes_in_parts']
+                del stats['bytes_in_manifests']
             return policy_stats
         broker.get_policy_stats = stub_policy_stats
         resp_headers = utils.get_response_headers(broker)
@@ -204,6 +229,8 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Container-Count': 0,
             'X-Account-Object-Count': 0,
             'X-Account-Bytes-Used': 0,
+            'X-Backend-Account-Bytes-In-Parts': 0,
+            'X-Backend-Account-Bytes-In-Manifests': 0,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': Timestamp(now).normal,
         })
@@ -237,14 +264,20 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Container-Count': 3,
             'X-Account-Object-Count': 30,
             'X-Account-Bytes-Used': 300,
+            'X-Backend-Account-Bytes-In-Parts': 0,
+            'X-Backend-Account-Bytes-In-Manifests': 0,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': put_timestamp.normal,
             'X-Account-Storage-Policy-Zero-Container-Count': 1,
             'X-Account-Storage-Policy-Zero-Object-Count': 10,
             'X-Account-Storage-Policy-Zero-Bytes-Used': 100,
+            'X-Backend-Account-Storage-Policy-Zero-Bytes-In-Parts': 0,
+            'X-Backend-Account-Storage-Policy-Zero-Bytes-In-Manifests': 0,
             'X-Account-Storage-Policy-One-Container-Count': 1,
             'X-Account-Storage-Policy-One-Object-Count': 10,
             'X-Account-Storage-Policy-One-Bytes-Used': 100,
+            'X-Backend-Account-Storage-Policy-One-Bytes-In-Parts': 0,
+            'X-Backend-Account-Storage-Policy-One-Bytes-In-Manifests': 0,
             # No POLICIES[2], so only account totals can include baz
         })
         self.assertEqual(expected, resp.headers)
@@ -307,14 +340,20 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Container-Count': 2,
             'X-Account-Object-Count': 20,
             'X-Account-Bytes-Used': 200,
+            'X-Backend-Account-Bytes-In-Parts': 0,
+            'X-Backend-Account-Bytes-In-Manifests': 0,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': put_timestamp.normal,
             'X-Account-Storage-Policy-Zero-Container-Count': 1,
             'X-Account-Storage-Policy-Zero-Object-Count': 10,
             'X-Account-Storage-Policy-Zero-Bytes-Used': 100,
+            'X-Backend-Account-Storage-Policy-Zero-Bytes-In-Parts': 0,
+            'X-Backend-Account-Storage-Policy-Zero-Bytes-In-Manifests': 0,
             'X-Account-Storage-Policy-One-Container-Count': 1,
             'X-Account-Storage-Policy-One-Object-Count': 10,
             'X-Account-Storage-Policy-One-Bytes-Used': 100,
+            'X-Backend-Account-Storage-Policy-One-Bytes-In-Parts': 0,
+            'X-Backend-Account-Storage-Policy-One-Bytes-In-Manifests': 0,
         })
         self.assertEqual(expected, resp.headers)
         self.assertEqual(b'[]', resp.body)
@@ -330,14 +369,20 @@ class TestAccountUtils(TestDbBase):
             'X-Account-Container-Count': 2,
             'X-Account-Object-Count': 20,
             'X-Account-Bytes-Used': 200,
+            'X-Backend-Account-Bytes-In-Parts': 0,
+            'X-Backend-Account-Bytes-In-Manifests': 0,
             'X-Timestamp': Timestamp(now).normal,
             'X-PUT-Timestamp': put_timestamp.normal,
             'X-Account-Storage-Policy-Zero-Container-Count': 1,
             'X-Account-Storage-Policy-Zero-Object-Count': 10,
             'X-Account-Storage-Policy-Zero-Bytes-Used': 100,
+            'X-Backend-Account-Storage-Policy-Zero-Bytes-In-Parts': 0,
+            'X-Backend-Account-Storage-Policy-Zero-Bytes-In-Manifests': 0,
             'X-Account-Storage-Policy-One-Container-Count': 1,
             'X-Account-Storage-Policy-One-Object-Count': 10,
             'X-Account-Storage-Policy-One-Bytes-Used': 100,
+            'X-Backend-Account-Storage-Policy-One-Bytes-In-Parts': 0,
+            'X-Backend-Account-Storage-Policy-One-Bytes-In-Manifests': 0,
         })
         self.assertEqual(expected, resp.headers)
         expected = [{

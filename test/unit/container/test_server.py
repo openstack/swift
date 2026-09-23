@@ -6239,6 +6239,8 @@ class TestContainerController(BaseUnitTestCase):
              'ssl': False,
              'headers': HeaderKeyDict({
                  'x-bytes-used': 0,
+                 'x-bytes-in-parts': 0,
+                 'x-bytes-in-manifests': 0,
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': ts_put.internal,
@@ -6257,6 +6259,8 @@ class TestContainerController(BaseUnitTestCase):
              'ssl': False,
              'headers': HeaderKeyDict({
                  'x-bytes-used': 0,
+                 'x-bytes-in-parts': 0,
+                 'x-bytes-in-manifests': 0,
                  'x-delete-timestamp': '0',
                  'x-object-count': 0,
                  'x-put-timestamp': ts_put.internal,

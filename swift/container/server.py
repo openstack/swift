@@ -258,6 +258,8 @@ class ContainerController(BaseStorageServer):
                 'x-delete-timestamp': info['delete_timestamp'],
                 'x-object-count': info['object_count'],
                 'x-bytes-used': info['bytes_used'],
+                'x-bytes-in-parts': info['bytes_in_parts'],
+                'x-bytes-in-manifests': info['bytes_in_manifests'],
                 'x-trans-id': req.headers.get('x-trans-id', '-'),
                 'X-Backend-Storage-Policy-Index': info['storage_policy_index'],
                 'user-agent': 'container-server %s' % os.getpid(),
