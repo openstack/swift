@@ -41,14 +41,6 @@ class TestObjectVersioning(BaseS3TestCase):
 
     maxDiff = None
 
-    def _sanitize_obj_listing(self, obj):
-        # there's some object listing parameters that are not deterministic
-        obj.pop('LastModified')
-        obj.pop('Owner', None)
-        # there's some object listing parameters that Swift doesn't return,
-        obj.pop('ChecksumAlgorithm', None)
-        obj.pop('ChecksumType', None)
-
     def setUp(self):
         self.client = self.get_s3_client(1)
         self.bucket_name = self.create_name('versioning')
