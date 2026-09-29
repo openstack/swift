@@ -1975,9 +1975,6 @@ class BaseDiskFileWriter(object):
         if self._tmppath:
             # It was a named temp file created by mkstemp()
             renamer(self._tmppath, target_path)
-            # If rename is successful, clear self._tmppath. This is done to
-            # avoid unnecessary os.unlink() of tempfile later. As renamer() has
-            # succeeded, tempfile would no longer exist at its original path.
             self._tmppath = None
         else:
             # It was an unnamed temp file created by open() with O_TMPFILE
