@@ -1945,7 +1945,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self._check_quarantine_suffix(errno.ENODATA)
 
     def test_get_diskfile_from_hash_fs_corrupt_nested_euclean(self):
-        self._check_quarantine_suffix(errno.EUCLEAN)
+        self._check_quarantine_suffix(utils.EUCLEAN)
 
     def test_get_diskfile_from_hash_no_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
