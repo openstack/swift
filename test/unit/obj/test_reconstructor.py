@@ -44,6 +44,7 @@ from swift.obj.reconstructor import SYNC, REVERT
 
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, mocked_http_conn, FabricatedRing,
+                       fake_http_connect,
                        make_timestamp_iter, DEFAULT_TEST_EC_TYPE,
                        encode_frag_archive_bodies, quiet_eventlet_exceptions,
                        skip_if_no_xattrs, BaseUnitTestCase, FakeSocket)
@@ -6071,10 +6072,13 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                     object_reconstructor.ObjectReconstructor(
                         {'request_node_count': bad})
 
-    def _do_test_reconstruct_insufficient_frags(
+    def _setup_reconstruct_insufficient_frags(
             self, extra_conf, num_frags, other_responses,
             local_frag_index=2, frag_index_to_rebuild=1,
             resp_timestamps=None, resp_etags=None):
+        # Configure the reconstructor and build the mocked responses.
+        # Returns the job, the node to rebuild to, the status codes and the
+        # kwargs for fake_http_connect.
         # num_frags is number of ok responses, other_responses is bad responses
         # By default frag_index_to_rebuild is less than local_frag_index and
         # all frag responses have indexes >= local_frag_index
@@ -6115,9 +6119,20 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
         resp_timestamps = (resp_timestamps if resp_timestamps
                            else [self.obj_timestamp] * len(codes))
         resp_timestamps = [ts.internal for ts in resp_timestamps]
-        with mocked_http_conn(*codes, body_iter=body_iter,
-                              headers=headers,
-                              timestamps=resp_timestamps):
+        conn_kwargs = dict(body_iter=body_iter, headers=headers,
+                           timestamps=resp_timestamps)
+        return job, node, codes, conn_kwargs
+
+    def _do_test_reconstruct_insufficient_frags(
+            self, extra_conf, num_frags, other_responses,
+            local_frag_index=2, frag_index_to_rebuild=1,
+            resp_timestamps=None, resp_etags=None):
+        job, node, codes, conn_kwargs = \
+            self._setup_reconstruct_insufficient_frags(
+                extra_conf, num_frags, other_responses,
+                local_frag_index, frag_index_to_rebuild,
+                resp_timestamps, resp_etags)
+        with mocked_http_conn(*codes, **conn_kwargs):
             with self.assertRaises(DiskFileError) as cm:
                 self.reconstructor.reconstruct_fa(
                     job, node, self._create_fragment(2))
@@ -6328,40 +6343,68 @@ class TestReconstructFragmentArchive(BaseTestObjectReconstructor):
                               warning_lines[0])
 
             # a non-404 in handoff responses will prevent quarantine; non-404
-            # is part way through all handoffs so not all handoffs are used
-            # regardless of how big request_node_count is
+            # is part way through the handoff batch, so the reconstructor
+            # stops adding handoff requests once it handles the non-404
             non_404_handoff = 3
             for request_node_count in (2, 3, 13):
-                # replicas - 1 - num_frags other_responses from primaries,
-                # plus a batch of replicas - 1 during which non-404 shows up,
-                # plus some that trickle out before the non-404 shows up, but
-                # limited to (request_node_count * replicas - num_frags - 1)
-                # e.g. for 10+4 policy with request_node_count > 2
+                # e.g. for 10+4 policy:
                 #   - batch of 13 requests go to primaries,
                 #   - 12 other_responses are consumed,
                 #   - then a batch of 13 handoff requests is sent,
-                #   - the non-404 is the 4th response in that batch,
-                #   - so 3 more requests will have been trickled out
+                #   - the non-404 is the 4th status handed out in that batch.
+                # Each 404 handled before the non-404 adds one more handoff
+                # request, up to request_node_count * replicas nodes. The pile
+                # yields responses in completion order, so under threads the
+                # number of 404s handled first varies. Give a 404 to every
+                # handoff the reconstructor may request, record the order in
+                # which it handles the responses, and check the exact count.
                 batch_size = ring.replicas - 1
-                num_other_resps = min(
-                    2 * batch_size - num_frags + non_404_handoff,
-                    request_node_count * ring.replicas - 1 - num_frags)
-                other_responses = [(404, None, None)] * (num_other_resps - 1)
+                max_requests = request_node_count * ring.replicas - 1
+                other_responses = [(404, None, None)] * (
+                    max_requests - num_frags - 1)
                 other_responses.insert(
                     batch_size - num_frags + non_404_handoff,
                     (bad_status, None, None))
-                exc = self._do_test_reconstruct_insufficient_frags(
-                    {'quarantine_threshold': 1, 'reclaim_age': 0,
-                     'request_node_count': '%s * replicas'
-                                           % request_node_count},
-                    num_frags, other_responses)
-                self.assertIsInstance(exc, DiskFileError)
-                self._assert_diskfile_not_quarantined()
-                self._verify_error_lines(num_frags, other_responses, num_frags)
-                warning_lines = self.logger.get_lines_for_level('warning')
-                self.assertEqual(1, len(warning_lines), warning_lines)
-                self.assertIn('Invalid response %s' % bad_status,
-                              warning_lines[0])
+                with self.subTest(request_node_count=request_node_count):
+                    job, node, codes, conn_kwargs = \
+                        self._setup_reconstruct_insufficient_frags(
+                            {'quarantine_threshold': 1, 'reclaim_age': 0,
+                             'request_node_count': '%s * replicas'
+                                                   % request_node_count},
+                            num_frags, other_responses)
+                    fake_conn = fake_http_connect(*codes, **conn_kwargs)
+                    handle = self.reconstructor._handle_fragment_response
+                    with mock.patch(
+                            'swift.common.bufferedhttp.http_connect_raw',
+                            fake_conn), \
+                            mock.patch.object(
+                                self.reconstructor,
+                                '_handle_fragment_response',
+                                wraps=handle) as mock_handle:
+                        with self.assertRaises(DiskFileError) as cm:
+                            self.reconstructor.reconstruct_fa(
+                                job, node, self._create_fragment(2))
+                    self.assertEqual([], fake_conn.unexpected_requests)
+                    handled = [c[0][-1].status
+                               for c in mock_handle.call_args_list]
+                    # 404s handled in the handoff phase before the non-404
+                    num_404_first = handled[batch_size:].index(bad_status)
+                    num_requests = len(codes) - len(list(fake_conn.code_iter))
+                    self.assertEqual(
+                        min(2 * batch_size + num_404_first, max_requests),
+                        num_requests)
+                    self.assertIsInstance(cm.exception, DiskFileError)
+                    self._assert_diskfile_not_quarantined()
+                    # the reconstructor got the non-404 and every 404 that
+                    # was handed out before it stopped
+                    used_responses = other_responses[:num_requests - num_frags]
+                    self.assertIn((bad_status, None, None), used_responses)
+                    self._verify_error_lines(
+                        num_frags, used_responses, num_frags)
+                    warning_lines = self.logger.get_lines_for_level('warning')
+                    self.assertEqual(1, len(warning_lines), warning_lines)
+                    self.assertIn('Invalid response %s' % bad_status,
+                                  warning_lines[0])
 
     def test_reconstruct_fa_no_quarantine_frag_not_old_enough(self):
         # verify that solitary fragment is not quarantined if it has not
