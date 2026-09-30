@@ -17,6 +17,7 @@ import queue
 import errno
 import os
 import signal
+import socket
 import sys
 import threading
 import time
@@ -962,10 +963,18 @@ class ObjectUpdater(Daemon):
         # Assume an error until we hear otherwise
         status = 500
         try:
-            conn = http_connect(
-                node['replication_ip'], node['replication_port'],
-                node['device'], part, op, path, headers_out,
-                timeout=self.conn_timeout)
+            try:
+                conn = http_connect(
+                    node['replication_ip'], node['replication_port'],
+                    node['device'], part, op, path, headers_out,
+                    timeout=self.conn_timeout)
+            except socket.timeout:
+                # A connect stall raises socket.timeout, not Timeout.
+                self.logger.info(
+                    'Timeout connecting to remote server %s: %s seconds',
+                    node_to_string(node, replication=True),
+                    self.conn_timeout)
+                return HTTP_INTERNAL_SERVER_ERROR, node['id'], redirect
             with Timeout(self.node_timeout, socket=conn.sock):
                 resp = conn.getresponse()
                 resp.read()
@@ -991,9 +1000,7 @@ class ObjectUpdater(Daemon):
             self.logger.exception('ERROR with remote server %s',
                                   node_to_string(node, replication=True))
         except Timeout as exc:
-            # Connect timeouts are bounded by http_connect(timeout=...) and
-            # surface via ``except Exception`` above; only the response-wait
-            # Timeout(node_timeout, socket=...) reaches here.
+            # Only the response wait raises Timeout. The request was sent.
             status = 499
             self.logger.info(
                 'Timeout waiting on remote server %s: %s',

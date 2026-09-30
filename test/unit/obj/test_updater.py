@@ -19,6 +19,7 @@ import pickle
 from queue import PriorityQueue
 from unittest import mock
 import os
+import socket
 import sys
 import threading
 import unittest
@@ -870,6 +871,26 @@ class TestObjectUpdater(BaseUnitTestCase):
             sorted(ou.logger.statsd_client.calls['timing']),
             sorted([
                 (('updater.timing.status.499', mock.ANY), {})]))
+
+        # final update has a connect timeout: INFO, not ERROR, status 500
+        ou.logger.clear()
+        with mock.patch('swift.obj.updater.http_connect',
+                        side_effect=socket.timeout('timed out')):
+            ou._process_device_in_child(self.sda1, 'sda1')
+        self.assertTrue(os.path.exists(op_path))
+        self.assertEqual(ou.logger.statsd_client.get_stats_counts(),
+                         {'failures': 1})
+        self.assertEqual(
+            2, len(unpickle(open(op_path, 'rb')).get('successes')))
+        self.assertEqual([], ou.logger.get_lines_for_level('error'))
+        self.assertIn(
+            'Timeout connecting to remote server 127.0.0.1:%d/sda1: '
+            '0.5 seconds' % bindsock.getsockname()[1],
+            ou.logger.get_lines_for_level('info'))
+        self.assertEqual(
+            sorted(ou.logger.statsd_client.calls['timing']),
+            sorted([
+                (('updater.timing.status.500', mock.ANY), {})]))
 
         # final update succeeds
         event = spawn(accept, [201])
