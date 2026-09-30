@@ -2270,7 +2270,9 @@ class TestReplToNode(BaseUnitTestCase):
         self.fake_statsd_client = self.logger.logger.statsd_client
         self.replicator = ConcreteReplicator({'per_diff': 10},
                                              logger=self.logger)
-        self.fake_node = {'ip': '127.0.0.1', 'device': 'sda1', 'port': 1000}
+        self.fake_node = {'ip': '127.0.0.1', 'device': 'sda1', 'port': 1000,
+                          'replication_ip': '127.0.0.1',
+                          'replication_port': 1000}
         self.fake_info = {'id': 'a', 'point': -1, 'max_row': 20, 'hash': 'b',
                           'created_at': 100, 'put_timestamp': 0,
                           'delete_timestamp': 0, 'count': 0,
@@ -2280,6 +2282,54 @@ class TestReplToNode(BaseUnitTestCase):
         self.replicator._usync_db = mock.Mock(return_value=True)
         self.http = ReplHttp('{"id": 3, "point": -1}')
         self.replicator._http_connect = lambda *args: self.http
+
+    def _check_replication_logging(self, method, remote_max_row, operation):
+        node = dict(self.fake_node, replication_ip='127.0.0.2',
+                    replication_port=2000)
+        rinfo = {'id': 3, 'point': -1, 'max_row': remote_max_row, 'hash': 'c'}
+        suffix = (f'path: {quote(self.broker.path)}, '
+                  f'db: {self.broker.db_file}')
+
+        for result, error, outcome in (
+                (True, None, 'success'),
+                (False, None, 'incomplete'),
+                (None, RuntimeError('boom'), 'error'),
+                (None, db_replicator.Timeout(), 'error')):
+            with self.subTest(outcome=outcome, error=type(error)):
+                self.logger.clear()
+                operation.reset_mock()
+                operation.return_value = result
+                operation.side_effect = error
+                with patch.object(db_replicator.time, 'monotonic',
+                                  side_effect=[100, 102.5]):
+                    args = (node, rinfo, self.fake_info,
+                            self.broker.get_sync(), self.broker, self.http,
+                            True)
+                    if error is None:
+                        actual = self.replicator._choose_replication_mode(
+                            *args)
+                        self.assertIs(result, actual)
+                    else:
+                        with self.assertRaises(type(error)) as caught:
+                            self.replicator._choose_replication_mode(*args)
+                        self.assertIs(error, caught.exception)
+                operation.assert_called_once()
+                self.assertEqual([
+                    f'Starting replication to 127.0.0.2:2000/sda1, '
+                    f'method: {method}, local max row: 20, '
+                    f'remote max row: {remote_max_row}, '
+                    f'remote sync point: -1, local sync point: 5, {suffix}',
+                    f'Finished replication to 127.0.0.2:2000/sda1, '
+                    f'method: {method}, outcome: {outcome}, '
+                    f'elapsed: 2.500s, {suffix}',
+                ], self.logger.get_lines_for_level('info'))
+
+    def test_usync_logs_outcomes(self):
+        self._check_replication_logging('usync', 10, self.replicator._usync_db)
+
+    def test_rsync_then_merge_logs_outcomes(self):
+        self._check_replication_logging(
+            'rsync_then_merge', 9, self.replicator._rsync_db)
 
     def test_repl_to_node_usync_success(self):
         rinfo = {"id": 3, "point": -1, "max_row": 10, "hash": "c"}
@@ -2319,6 +2369,7 @@ class TestReplToNode(BaseUnitTestCase):
             self.fake_node, self.broker, '0', self.fake_info), True)
         self.assertEqual(self.replicator._rsync_db.call_count, 0)
         self.assertEqual(self.replicator._usync_db.call_count, 0)
+        self.assertEqual([], self.logger.get_lines_for_level('info'))
         lines = self.replicator.logger.get_lines_for_level('debug')
         self.assertIn('in sync with 127.0.0.1:1000/sda1, nothing to do,'
                       ' path: %s, db: %s'
