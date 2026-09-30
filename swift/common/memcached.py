@@ -53,7 +53,7 @@ import time as tm
 from bisect import bisect
 
 from swift.common.concurrency import socket, ssl, Pool, Timeout, \
-    pool_get_with_timeout
+    pool_get_with_timeout, USE_EVENTLET
 from configparser import ConfigParser, NoSectionError, NoOptionError
 from swift.common import utils
 from swift.common.exceptions import MemcacheConnectionError, \
@@ -144,18 +144,27 @@ class MemcacheConnPool(Pool):
             with Timeout(self._connect_timeout, socket=sock):
                 sock.connect(sockaddr)
             if self._tls_context:
-                sock = self._tls_context.wrap_socket(sock,
-                                                     server_hostname=self.host)
+                # Under eventlet, pool_timeout bounds the handshake
+                with Timeout(None if USE_EVENTLET else self._connect_timeout,
+                             socket=sock):
+                    sock = self._tls_context.wrap_socket(
+                        sock, server_hostname=self.host)
         except (Exception, Timeout):
             sock.close()
             raise
         return (sock.makefile('rwb'), sock)
 
     def get(self, pool_timeout=None):
-        # pool_get_with_timeout enforces pool_timeout in both modes and
-        # raises MemcachePoolTimeout on expiry.
-        fp, sock = pool_get_with_timeout(
-            super(MemcacheConnPool, self), pool_timeout, MemcachePoolTimeout)
+        if USE_EVENTLET:
+            # One timer bounds the slot acquire and create(), as on master
+            with MemcachePoolTimeout(pool_timeout):
+                return self._get_or_create(super(MemcacheConnPool, self).get())
+        # Only the slot acquire is bounded. create() has its own timeout
+        return self._get_or_create(pool_get_with_timeout(
+            super(MemcacheConnPool, self), pool_timeout, MemcachePoolTimeout))
+
+    def _get_or_create(self, item):
+        fp, sock = item
         try:
             if fp is None:
                 # An error happened previously, so we need a new connection

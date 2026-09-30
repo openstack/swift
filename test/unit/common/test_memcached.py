@@ -29,7 +29,7 @@ from unittest import mock
 from configparser import NoSectionError, NoOptionError
 
 from swift.common.concurrency import SwiftPool, sleep, Queue, Empty, Pool, \
-    ssl
+    ssl, USE_EVENTLET
 from swift.common.exceptions import MemcachePoolTimeout
 
 from swift.common import memcached
@@ -1244,6 +1244,65 @@ class TestMemcached(unittest.TestCase):
                 next(conn_generator)
 
             self.assertEqual(1, mock_sock.close.call_count)
+
+    @unittest.skipUnless(USE_EVENTLET, "only eventlet can interrupt create()")
+    def test_pool_timeout_covers_create(self):
+        conn = (MagicMock(), MagicMock())
+
+        def slow_create():
+            sleep(0.2)
+            return conn
+
+        # placeholder taken from the pool: create() runs after the acquire
+        pool = memcached.MemcacheConnPool('1.2.3.4:11211', 2, 1.0)
+        with mock.patch.object(pool, 'create', side_effect=slow_create):
+            pool.put((None, None))
+            with self.assertRaises(MemcachePoolTimeout):
+                pool.get(pool_timeout=0.05)
+            # get() put the placeholder back
+            self.assertEqual([(None, None)], list(pool.free_items))
+
+    @unittest.skipIf(USE_EVENTLET, "socket timeouts are threading-mode only")
+    def test_tls_handshake_uses_connect_timeout(self):
+        seen = []
+        tls_sock = MagicMock()
+
+        def wrap_socket(sock, server_hostname=None):
+            seen.append(sock.gettimeout())
+            return tls_sock
+
+        context = mock.Mock()
+        context.wrap_socket.side_effect = wrap_socket
+        pool = memcached.MemcacheConnPool(
+            '1.2.3.4:11211', 2, connect_timeout=0.3, tls_context=context)
+        with mock.patch('swift.common.memcached.socket.socket') as sock_cls:
+            plain = sock_cls.return_value
+            timeouts = {}
+            plain.settimeout.side_effect = \
+                lambda t: timeouts.__setitem__('v', t)
+            plain.gettimeout.side_effect = lambda: timeouts.get('v')
+            fp, sock = pool.create()
+        # wrap_socket ran while the socket had connect_timeout
+        self.assertEqual([0.3], seen)
+        self.assertIs(sock, tls_sock)
+        context.wrap_socket.assert_called_once_with(
+            plain, server_hostname='1.2.3.4')
+
+    @unittest.skipUnless(USE_EVENTLET, "pool_timeout bounds it under eventlet")
+    def test_tls_handshake_outlasts_connect_timeout(self):
+        tls_sock = MagicMock()
+
+        def wrap_socket(sock, server_hostname=None):
+            sleep(0.1)
+            return tls_sock
+
+        context = mock.Mock()
+        context.wrap_socket.side_effect = wrap_socket
+        pool = memcached.MemcacheConnPool(
+            '1.2.3.4:11211', 2, connect_timeout=0.05, tls_context=context)
+        with mock.patch('swift.common.memcached.socket.socket'):
+            fp, sock = pool.create()
+        self.assertIs(sock, tls_sock)
 
     def test_failed_connect_keeps_pool_size(self):
         memcache_client = memcached.MemcacheRing(
