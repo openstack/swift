@@ -1143,6 +1143,7 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
     children = {}                      # pid -> port
     ready_fds = {}                     # pid -> read end of its ready pipe
     ready_gen = {}                     # pid -> generation its report must be
+    seen_gen = {}                      # pid -> highest generation it reported
     ready_buf = {}                     # pid -> unparsed bytes from its pipe
     reported = set()                   # pids that have reported ready
     desired = set()                    # ports we should be serving
@@ -1188,6 +1189,7 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
         children.pop(pid, None)
         reported.discard(pid)
         ready_gen.pop(pid, None)
+        seen_gen.pop(pid, None)
         ready_buf.pop(pid, None)
         fd = ready_fds.pop(pid, None)
         if fd is not None:
@@ -1339,6 +1341,9 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
             done, _, ready_buf[pid] = ready_buf.get(pid, b'').rpartition(b'\n')
             for line in done.split(b'\n'):
                 if line.startswith(_REPORT_REFUSED):
+                    # The arbiter kept its generation. Lower ready_gen to it.
+                    ready_gen[pid] = max(ready_gen.get(pid, 1) - 1,
+                                         seen_gen.get(pid, 1))
                     on_failure('port %s: %s' % (
                         children.get(pid),
                         line[len(_REPORT_REFUSED):].decode('utf8', 'replace')))
@@ -1347,6 +1352,7 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
                     generation = int(line)
                 except ValueError:
                     continue
+                seen_gen[pid] = max(seen_gen.get(pid, 1), generation)
                 if generation >= ready_gen.get(pid, 1):
                     reported.add(pid)
 

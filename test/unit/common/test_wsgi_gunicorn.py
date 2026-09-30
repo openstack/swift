@@ -1791,6 +1791,103 @@ class TestSupervisePerPort(unittest.TestCase):
 
         self.assertEqual(['port 6200: bad threads value'], self.refusals)
 
+    def test_ready_is_reported_after_a_refused_then_good_reload(self):
+        # the arbiter keeps its generation when it refuses a reload, so the
+        # supervisor must not keep waiting for one generation more
+        rounds = []
+        ready_seen = []                        # len(self.ready) per round
+
+        def refuse_then_reload(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) == 1:
+                pass                           # let startup readiness land
+            elif len(rounds) == 2:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            elif len(rounds) == 3:
+                os.write(self.pipes[-1][2], wsgi_gunicorn._REPORT_REFUSED
+                         + b'bad threads value\n')
+                os.write(self.pipes[-1][2], wsgi_gunicorn._REPORT_REFUSED
+                         + b'bad threads value\n')   # a repeat is harmless
+            elif len(rounds) == 4:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            elif len(rounds) == 5:
+                # a worker still on the old config reports the old generation
+                self._child_reports_ready(generation=1)
+            elif len(rounds) == 6:
+                ready_seen.append(len(self.ready))    # the stale report
+                self._child_reports_ready(generation=2)   # reloaded workers
+            else:
+                ready_seen.append(len(self.ready))    # the good report
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        pid_iter = iter([100])
+
+        def fork_and_report():
+            pid = next(pid_iter)
+            self._child_reports_ready()
+            return pid
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', side_effect=fork_and_report), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('select.select', side_effect=refuse_then_reload), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger, lambda port, fd: None,
+                lambda: self.ready.append(True), self.refusals.append)
+
+        self.assertEqual(['port 6200: bad threads value'] * 2, self.refusals)
+        # the stale report did not count, the good one did
+        self.assertEqual([1, 2], ready_seen)
+        # once at startup, once after the reload that went through
+        self.assertEqual(2, len(self.ready))
+
+    def test_a_respawned_arbiter_starts_at_generation_one(self):
+        # drop() and spawn() reset the generation counters, so the report
+        # of a respawned child counts and an old high generation does not
+        # clamp its next refusal
+        rounds = []
+
+        def crash_then_reload(r, w, x, timeout):
+            rounds.append(1)
+            if len(rounds) == 1:
+                pass                           # let startup readiness land
+            elif len(rounds) == 2:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            elif len(rounds) == 3:
+                self._child_reports_ready(generation=2)   # reloaded workers
+            elif len(rounds) == 4:
+                pass                           # the child is reaped now
+            elif len(rounds) == 5:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            elif len(rounds) == 6:
+                os.write(self.pipes[-1][2], wsgi_gunicorn._REPORT_REFUSED
+                         + b'bad threads value\n')
+            elif len(rounds) == 7:
+                self.handlers[signal.SIGHUP](signal.SIGHUP, None)
+            elif len(rounds) == 8:
+                self._child_reports_ready(generation=2)   # reloaded workers
+            else:
+                self.handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return ([], [], [])
+
+        # the old child died while ready, so the respawn is immediate and
+        # the kernel handed out the same pid again
+        self._run([6200], pids=[100, 100],
+                  waitpids=[None, None, None, (100, 9)],
+                  select_effect=crash_then_reload)
+
+        self.assertEqual([6200, 6200], self._started())
+        self.assertEqual(['port 6200: bad threads value'], self.refusals)
+        # at startup, after the first reload, after the reload that went
+        # through on the respawned child
+        self.assertEqual(3, len(self.ready))
+
     def test_ttin_and_ttou_reach_the_arbiters(self):
         sent = []
 
