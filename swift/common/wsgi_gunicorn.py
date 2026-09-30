@@ -1240,6 +1240,11 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
             status = 1
             try:
                 status = run_one_port(port, write_fd) or 0
+            except SystemExit as exc:
+                # the arbiter ends in sys.exit(), so keep its boot failure code
+                status = 0 if exc.code is None else exc.code
+                if not isinstance(status, int):
+                    status = 1
             finally:
                 os._exit(status)
         os.close(write_fd)
@@ -1390,8 +1395,11 @@ def _supervise_per_port(get_desired, logger, run_one_port, on_ready,
             drop(pid)
             if port is None or stop_signal:
                 continue
+            # Decode the wait status. The raw value shows exit code 3 as 768.
+            code = os.waitstatus_to_exitcode(status)
             logger.error('Arbiter for port %d (PID %d) exited with %s',
-                         port, pid, status)
+                         port, pid,
+                         'signal %d' % -code if code < 0 else 'code %d' % code)
             if was_ready:
                 failures.pop(port, None)      # it had been serving; retry now
                 retry_at.pop(port, None)

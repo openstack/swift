@@ -1153,6 +1153,15 @@ class TestSupervisePerPort(unittest.TestCase):
                   waitpids=[None, (101, 0)], stop_after=3)
         self.assertEqual([6200, 6201, 6201], self._started())
 
+    def test_the_reaper_logs_the_decoded_exit_status(self):
+        # gunicorn exits 3 when no worker boots; the raw status is 768
+        self._run([6200, 6201], pids=[100, 101, 102, 103],
+                  waitpids=[None, (101, 3 << 8), (100, 9)], stop_after=4)
+        exits = [c.args[1:] for c in self.logger.error.call_args_list
+                 if 'exited with' in c.args[0]]
+        self.assertEqual([(6201, 101, 'code 3'), (6200, 100, 'signal 9')],
+                         exits)
+
     def test_ready_is_reported_once_every_arbiter_is_up(self):
         self._run([6200, 6201], pids=[100, 101])
         self.assertEqual([True], self.ready)
@@ -1916,6 +1925,52 @@ class TestSupervisePerPort(unittest.TestCase):
 
         self.assertIn((100, signal.SIGTTIN), self.killed)
         self.assertIn((100, signal.SIGTTOU), self.killed)
+
+    class _ChildExited(Exception):
+        pass
+
+    def _run_child(self, run_one_port):
+        # play the forked child: os.fork() returns 0 and os._exit() is
+        # recorded instead of ending the test process
+        exits = []
+
+        def fake_exit(status):
+            exits.append(status)
+            raise self._ChildExited()
+
+        with mock.patch('os.pipe', side_effect=self._pipe), \
+                mock.patch('os.fork', return_value=0), \
+                mock.patch('os._exit', side_effect=fake_exit), \
+                mock.patch('os.waitpid', side_effect=ChildProcessError), \
+                mock.patch('os.kill', side_effect=self._record_kill), \
+                mock.patch('signal.set_wakeup_fd', return_value=-1), \
+                mock.patch('signal.signal',
+                           side_effect=lambda n, h: self.handlers.__setitem__(
+                               n, h)), \
+                self.assertRaises(self._ChildExited):
+            wsgi_gunicorn._supervise_per_port(
+                lambda: (True, [6200]), self.logger,
+                run_one_port, lambda: None, self.refusals.append)
+        return exits
+
+    def test_child_keeps_the_arbiter_boot_failure_code(self):
+        # gunicorn's Arbiter.run() ends in sys.exit(3) when no worker boots
+        def run_one_port(port, fd):
+            raise SystemExit(3)
+
+        self.assertEqual([3], self._run_child(run_one_port))
+
+    def test_child_exits_zero_on_a_plain_sys_exit(self):
+        def run_one_port(port, fd):
+            raise SystemExit()
+
+        self.assertEqual([0], self._run_child(run_one_port))
+
+    def test_child_exits_one_on_a_non_int_exit_code(self):
+        def run_one_port(port, fd):
+            raise SystemExit('bind failed')
+
+        self.assertEqual([1], self._run_child(run_one_port))
 
 
 class _BuildCfgHarness(unittest.TestCase):
