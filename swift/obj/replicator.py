@@ -218,7 +218,8 @@ class ObjectReplicator(Daemon):
 
     @property
     def total_stats(self):
-        return sum(self.stats_for_dev.values(), Stats())
+        # Copy first: the producer adds device keys during the heartbeat sum.
+        return sum(list(self.stats_for_dev.values()), Stats())
 
     def _emplace_log_prefix(self, worker_index):
         self.logger = get_prefixed_logger(

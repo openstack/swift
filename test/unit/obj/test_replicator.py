@@ -2607,6 +2607,24 @@ class TestObjectReplicator(BaseUnitTestCase):
         self.assertIn(
             "next_part_power set in policy 'one'. Skipping", warnings)
 
+    def test_total_stats_while_producer_adds_device(self):
+        # The heartbeat thread sums stats_for_dev while the producer thread
+        # adds device keys. Simulate the insert from inside Stats.__add__.
+        self.replicator.stats_for_dev['sda']
+        orig_add = object_replicator.Stats.__add__
+        added = []
+
+        def add_and_insert(stats, other):
+            if not added:
+                added.append(True)
+                self.replicator.stats_for_dev['sdb']
+            return orig_add(stats, other)
+
+        with mock.patch.object(object_replicator.Stats, '__add__',
+                               add_and_insert):
+            self.replicator.total_stats
+        self.assertEqual(added, [True])
+
     def test_replicate_rsync_timeout(self):
         cur_part = '0'
         df = self.df_mgr.get_diskfile('sda', cur_part, 'a', 'c', 'o',
