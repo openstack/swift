@@ -111,6 +111,37 @@ class TestDefaultEnvironExpect(unittest.TestCase):
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestNoContentKeepsContentLength(unittest.TestCase):
+    # RFC 9110 forbids Content-Length on a 204, and gunicorn 26.1.0 removes
+    # it. Eventlet sends it, so patch_gunicorn puts it back.
+    def _start_response(self, status, headers, method='HEAD'):
+        import gunicorn.http.wsgi
+        from gunicorn.config import Config
+        wsgi_gunicorn.patch_gunicorn()
+        req = MagicMock()
+        req.method = method
+        req.version = (1, 1)
+        req.headers = []
+        resp = gunicorn.http.wsgi.Response(req, MagicMock(), Config())
+        resp.start_response(status, headers)
+        return resp
+
+    def test_204_keeps_content_length(self):
+        resp = self._start_response(
+            '204 No Content', [('Content-Length', '0')])
+        self.assertIn(('Content-Length', '0'), resp.headers)
+
+    def test_204_without_content_length_gains_none(self):
+        resp = self._start_response('204 No Content', [('X-Trans-Id', 'tx1')])
+        self.assertEqual(
+            [], [v for n, v in resp.headers if n.lower() == 'content-length'])
+
+    def test_200_head_keeps_its_content_length(self):
+        resp = self._start_response('200 OK', [('Content-Length', '42')])
+        self.assertIn(('Content-Length', '42'), resp.headers)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestBindStr(unittest.TestCase):
     def test_ipv4_unbracketed(self):
         self.assertEqual(_bind_str('0.0.0.0', 6200), '0.0.0.0:6200')

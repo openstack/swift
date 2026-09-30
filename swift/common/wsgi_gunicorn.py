@@ -262,6 +262,24 @@ def patch_gunicorn():
 
     gunicorn.http.wsgi.Response.process_headers = swift_process_headers
 
+    # gunicorn 26.1.0 removes Content-Length from a 1xx or a 204 response,
+    # because RFC 9110 forbids it. Eventlet sends the header, and
+    # proxy_logging sets it on every response, so put it back to keep one
+    # wire format in both modes. An older gunicorn never removed it.
+    orig_start_response = gunicorn.http.wsgi.Response.start_response
+
+    def swift_start_response(self, status, headers, exc_info=None):
+        write = orig_start_response(self, status, headers, exc_info)
+        if self.status_code == 204 and not any(
+                n.lower() == 'content-length' for n, v in self.headers):
+            for name, value in headers:
+                if name.lower() == 'content-length':
+                    self.headers.append((name, value))
+                    break
+        return write
+
+    gunicorn.http.wsgi.Response.start_response = swift_start_response
+
     # Close the connection if the app finished without draining the request
     # body (client read timeout / abort). Checked once the response iterator is
     # exhausted -- not at header time -- so full-duplex apps like ssync, which
