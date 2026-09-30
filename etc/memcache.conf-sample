@@ -3,6 +3,7 @@
 # several other conf files under [filter:cache] for example. You can specify
 # multiple servers separated with commas, as in: 10.1.2.3:11211,10.1.2.4:11211
 # (IPv6 addresses must follow rfc3986 section-3.2.2, i.e. [::1]:11211)
+# Use IP addresses here. A hostname needs a name lookup that no timeout bounds.
 # memcache_servers = 127.0.0.1:11211
 #
 # Sets the maximum number of connections to each memcached server per worker

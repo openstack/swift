@@ -111,6 +111,7 @@ use = egg:swift#container
 # set log_address = /dev/log
 #
 # node_timeout = 3
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 0.5
 # allow_versions = false
 #
@@ -202,6 +203,7 @@ use = egg:swift#backend_ratelimit
 # databases_per_second = 50
 #
 # node_timeout = 10
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 0.5
 #
 # The replicator also performs reclamation
@@ -268,6 +270,7 @@ use = egg:swift#backend_ratelimit
 # interval = 300.0
 # concurrency = 4
 # node_timeout = 3
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 0.5
 #
 # Send at most this many container updates per second
@@ -338,6 +341,7 @@ use = egg:swift#backend_ratelimit
 # container_time = 60
 #
 # Maximum amount of time in seconds for the connection attempt
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 5
 # Server errors from requests will be retried by default
 # request_tries = 3
@@ -566,6 +570,7 @@ use = egg:swift#xprofile
 # max_diffs = 100
 # concurrency = 8
 # node_timeout = 10
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 0.5
 # reclaim_age = 604800
 # rsync_compress = no

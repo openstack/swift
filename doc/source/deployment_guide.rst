@@ -618,6 +618,12 @@ option does not apply.
 ``0`` means the worker exits without a drain. The option is unset by default,
 which means no limit.
 
+``conn_timeout`` bounds only the TCP connect to a backend node. It does not
+bound the name resolution of a ring or ``memcache_servers`` hostname. That
+lookup runs with the timeout of the resolver, which is often several seconds.
+Without eventlet a slow lookup holds an OS thread for that time on each
+backend call. Use IP addresses in the rings and in ``memcache_servers``.
+
 The ``nice_priority`` parameter can be used to set program scheduling priority.
 The ``ionice_class`` and ``ionice_priority`` parameters can be used to set I/O scheduling
 class and priority on the systems that use an I/O scheduler that supports

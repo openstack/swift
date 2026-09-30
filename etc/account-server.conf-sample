@@ -192,6 +192,7 @@ use = egg:swift#backend_ratelimit
 # databases_per_second = 50
 #
 # node_timeout = 10
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 0.5
 #
 # The replicator also performs reclamation
@@ -283,6 +284,7 @@ use = egg:swift#backend_ratelimit
 # concurrency = 25
 # interval = 3600.0
 # node_timeout = 10
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 0.5
 #
 # Normally, the reaper begins deleting account information for deleted accounts

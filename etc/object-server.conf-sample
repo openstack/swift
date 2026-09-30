@@ -73,6 +73,7 @@ bind_port = 6200
 # fallocate_reserve = 1%
 #
 # Time to wait while attempting to connect to another backend node.
+# This bounds the connect only, not name resolution. Use IP addresses in rings.
 # conn_timeout = 0.5
 # Time to wait while sending each chunk of data to another backend node.
 # node_timeout = 3
