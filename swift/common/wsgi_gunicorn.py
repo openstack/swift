@@ -43,6 +43,7 @@
 import errno
 import functools
 import logging
+import math
 import os
 import signal
 import re
@@ -69,7 +70,7 @@ from swift.common.storage_policy import BindPortsCache, \
 from swift.common.wsgi import _initrp, loadapp, appconfig, ConfigFileError
 from swift.common.utils import capture_stdio, config_fallocate_value, \
     clean_up_daemon_hygiene, systemd_notify, config_auto_int_value, \
-    config_true_value, non_negative_int
+    config_true_value, non_negative_float, non_negative_int
 
 import gunicorn.util
 import gunicorn.sock
@@ -129,6 +130,9 @@ _DRAIN_UNBOUNDED = 10 ** 9  # seconds
 # [DEFAULT] graceful_shutdown_timeout, set by build_cfg and applied by
 # swift_run to the worker's copy of graceful_timeout.
 _GRACEFUL_SHUTDOWN_TIMEOUT = _DRAIN_UNBOUNDED
+
+# keepalive_timeout when unset. Eventlet uses client_timeout instead.
+_KEEPALIVE_DEFAULT = 5  # seconds
 
 
 def _request_body_undrained(req, inp):
@@ -1070,6 +1074,23 @@ def _graceful_shutdown_timeout(conf):
         raise ValueError('graceful_shutdown_timeout: %s' % err)
 
 
+def _keepalive_timeout(conf):
+    """gunicorn keepalive seconds from [DEFAULT] keepalive_timeout. Empty or
+    unset means 5. gunicorn accepts only whole seconds, so a fraction becomes
+    the next whole second.
+
+    :raises ValueError: if the value is negative or not a number
+    """
+    raw = conf.get('keepalive_timeout')
+    if raw is None or not str(raw).strip():
+        return _KEEPALIVE_DEFAULT
+    try:
+        # math.ceil(inf) raises OverflowError, so clamp first
+        return math.ceil(min(non_negative_float(raw), _DRAIN_UNBOUNDED))
+    except ValueError as err:
+        raise ValueError('keepalive_timeout: %s' % err)
+
+
 def common_config():
     """Common config used both by production server and unittest server """
     patch_gunicorn()
@@ -1684,7 +1705,7 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         # Too small a pool lets a few slow clients starve the rest; default
         # generously (conf overridable).
         cfg.set('threads', int(rconf.get('threads', 16)))
-        cfg.set('keepalive', int(rconf.get('keepalive_timeout', 5) or 5))
+        cfg.set('keepalive', _keepalive_timeout(rconf))
         cfg.set('backlog', int(rconf.get('backlog', 4096)))
         cfg.set('loglevel', rconf.get('log_level', 'info').lower())
         cfg.set('timeout', 3600)  # Long -- Swift manages its own timeouts

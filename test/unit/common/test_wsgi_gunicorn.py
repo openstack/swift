@@ -2044,6 +2044,49 @@ class TestGracefulShutdownTimeout(_BuildCfgHarness):
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestKeepaliveTimeout(_BuildCfgHarness):
+    """[DEFAULT] keepalive_timeout maps onto gunicorn's keepalive. Zero
+    disables keepalive, like eventlet. gunicorn takes only whole seconds.
+    """
+
+    def test_unset_or_empty_uses_the_gunicorn_default(self):
+        holder = [{}]
+        build_cfg = self._capture_build_cfg(holder)
+        for conf in ({}, {'keepalive_timeout': ''}):
+            holder[0] = conf
+            self.assertEqual(5, build_cfg().keepalive)
+
+    def test_zero_disables_keepalive(self):
+        cfg = self._capture_build_cfg([{'keepalive_timeout': '0'}])()
+        self.assertEqual(0, cfg.keepalive)
+
+    def test_a_whole_value_is_used(self):
+        cfg = self._capture_build_cfg([{'keepalive_timeout': '30'}])()
+        self.assertEqual(30, cfg.keepalive)
+
+    def test_a_fraction_becomes_the_next_whole_second(self):
+        cfg = self._capture_build_cfg([{'keepalive_timeout': '2.5'}])()
+        self.assertEqual(3, cfg.keepalive)
+        self.assertIsInstance(cfg.keepalive, int)
+
+    def test_inf_is_clamped_like_a_long_timeout(self):
+        # eventlet accepts inf; math.ceil(inf) would raise OverflowError
+        cfg = self._capture_build_cfg([{'keepalive_timeout': 'inf'}])()
+        self.assertEqual(wsgi_gunicorn._DRAIN_UNBOUNDED, cfg.keepalive)
+        self.assertIsInstance(cfg.keepalive, int)
+
+    def test_a_bad_value_is_rejected(self):
+        # start valid and hand the bad value to the next (reload) call
+        holder = [{}]
+        build_cfg = self._capture_build_cfg(holder)
+        for value in ('-1', 'abc'):
+            holder[0] = {'keepalive_timeout': value}
+            with self.assertRaises(ValueError) as cm:
+                build_cfg()
+            self.assertIn('keepalive_timeout', str(cm.exception))
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestReloadValidatesBeforeApplying(_BuildCfgHarness):
     """A reload gunicorn goes on to reject must not have changed anything
     outside the config it was building.
