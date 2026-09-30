@@ -1245,7 +1245,7 @@ class TestSwiftLogAdapter(BaseTestCase):
 
 @unittest.skipUnless(USE_EVENTLET,
                      'PipeMutex is only used with eventlet; threading mode '
-                     'uses NoopMutex')
+                     'uses threading.RLock')
 class TestPipeMutex(BaseTestCase):
     def setUp(self):
         super().setUp()
@@ -1447,3 +1447,40 @@ class TestNoopMutex(BaseTestCase):
 
         with self.mutex as ref:
             self.assertIs(ref, self.mutex)
+
+
+class TestThreadSafeSysLogHandlerLock(BaseTestCase):
+    def _make_handler(self):
+        # A UDP address creates a socket but does not connect it.
+        handler = utils.logs.ThreadSafeSysLogHandler(
+            address=('127.0.0.1', 514))
+        self.addCleanup(self._close_handler, handler)
+        return handler
+
+    @staticmethod
+    def _close_handler(handler):
+        # close() takes the lock, so close the lock's pipe after it.
+        handler.close()
+        if isinstance(handler.lock, utils.PipeMutex):
+            handler.lock.close()
+
+    def test_thread_mode_uses_real_lock(self):
+        # SWIFT_NOOP_LOGGING_MUTEX has no effect in thread mode.
+        with mock.patch.object(utils.logs, 'USE_EVENTLET', False), \
+                mock.patch.dict(os.environ,
+                                {'SWIFT_NOOP_LOGGING_MUTEX': 'true'}):
+            handler = self._make_handler()
+        # the stdlib RLock type, whatever green threading is in effect
+        self.assertIsInstance(handler.lock, type(logging.Handler().lock))
+        # a fork while a thread holds the lock must not wedge the child
+        self.assertIn(handler, logging._at_fork_reinit_lock_weakset)
+
+    def test_eventlet_mode_keeps_mutex_choice(self):
+        with mock.patch.object(utils.logs, 'USE_EVENTLET', True), \
+                mock.patch.dict(os.environ):
+            os.environ.pop('SWIFT_NOOP_LOGGING_MUTEX', None)
+            handler = self._make_handler()
+            self.assertIsInstance(handler.lock, utils.NoopMutex)
+            os.environ['SWIFT_NOOP_LOGGING_MUTEX'] = 'false'
+            handler = self._make_handler()
+            self.assertIsInstance(handler.lock, utils.PipeMutex)

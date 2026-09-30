@@ -27,7 +27,7 @@ import time
 import fcntl
 from swift.common.concurrency import (
     green_http_client, green_threading as threading,
-    current_id, hub_prevent_multiple_readers,
+    current_id, hub_prevent_multiple_readers, USE_EVENTLET,
 )
 import datetime
 
@@ -195,6 +195,10 @@ class NoopMutex(object):
     We only allow our syslog logging to be configured via UDS or UDP, neither
     of which have the message-interleaving trouble you'd expect from TCP or
     file handlers.
+
+    Eventlet mode uses this class. There the socket close and the new
+    socket assignment in emit() have no yield point. Thread mode uses a
+    real ``threading.RLock`` instead.
     """
 
     def __init__(self):
@@ -228,7 +232,11 @@ class NoopMutex(object):
 
 class ThreadSafeSysLogHandler(SysLogHandler):
     def createLock(self):
-        if config_true_value(os.environ.get(
+        if not USE_EVENTLET:
+            # The stdlib RLock keeps the socket reconnect in emit() atomic
+            # between OS threads. logging.shutdown() needs it re-entrant.
+            super().createLock()
+        elif config_true_value(os.environ.get(
                 'SWIFT_NOOP_LOGGING_MUTEX') or 'true'):
             self.lock = NoopMutex()
         else:
