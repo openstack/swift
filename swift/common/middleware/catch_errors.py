@@ -81,7 +81,8 @@ class CatchErrorsContext(WSGIContext):
 
         trans_id = generate_trans_id(trans_id_suffix)
         env['swift.trans_id'] = trans_id
-        self.logger.txn_id = trans_id
+        # Clear the client_ip that a previous request left on this thread.
+        self.logger.thread_locals = (trans_id, None)
         try:
             # catch any errors in the pipeline
             resp = self._app_call(env)

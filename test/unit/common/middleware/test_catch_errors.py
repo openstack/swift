@@ -85,6 +85,24 @@ class TestCatchErrors(unittest.TestCase):
         app(req.environ, self.start_response)
         self.assertEqual(len(self.logger.txn_id), 34)
 
+    def test_stale_client_ip_is_cleared(self):
+        # A previous request on this thread left a client_ip behind.
+        self.logger.client_ip = '1.2.3.4'
+        seen = []
+
+        def capture_app(env, start_response):
+            seen.append(self.logger.thread_locals)
+            start_response('200 OK', [])
+            return [b'']
+
+        app = catch_errors.CatchErrorMiddleware(capture_app, {})
+        req = Request.blank('/v1/a/c/o')
+        list(app(req.environ, self.start_response))
+        self.assertEqual(len(seen), 1)
+        txn_id, client_ip = seen[0]
+        self.assertEqual(txn_id, req.environ['swift.trans_id'])
+        self.assertIsNone(client_ip)
+
     def test_error_in_iterator(self):
         app = catch_errors.CatchErrorMiddleware(
             FakeApp(body_iter=(int(x) for x in 'abcd')), {})
