@@ -29,6 +29,12 @@ class TestExceptions(unittest.TestCase):
         with exceptions.ReplicationLockTimeout(15, 'test') as exc:
             self.assertIsInstance(exc, exceptions.MessageTimeout)
 
+    def test_connection_timeout_is_a_timeout(self):
+        # Out-of-tree code imports this class. Keep it a Timeout subclass.
+        self.assertTrue(issubclass(exceptions.ConnectionTimeout,
+                                   exceptions.Timeout))
+        self.assertEqual(str(exceptions.ConnectionTimeout(9)), '9 seconds')
+
     def test_client_exception(self):
         strerror = 'test: HTTP://random:888/randompath?foo=1 666 reason: ' \
                    'device /sdb1   content'

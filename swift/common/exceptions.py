@@ -158,6 +158,12 @@ class ChunkWriteTimeout(Timeout):
     pass
 
 
+class ConnectionTimeout(Timeout):
+    """This class exists for code outside the tree. In-tree code bounds a
+    connect with the socket timeout.
+    """
+
+
 class ResponseTimeout(Timeout):
     pass
 
