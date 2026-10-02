@@ -875,7 +875,8 @@ class SwiftGunicornApp(gunicorn.app.base.BaseApplication):
             cfg = self.build_cfg()
         except TopologyChanged:
             raise               # _SwiftArbiter.reload() stops the reload
-        except Exception as err:
+        except (Exception, SystemExit) as err:
+            # reload_storage_policies() raises SystemExit for a bad policy
             self.swift_logger.exception(
                 'Ignoring invalid configuration during Gunicorn reload')
             self.report_failure(err)
@@ -1820,10 +1821,13 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
         # Everything above only built this config, so a file the server
         # refuses leaves the running one alone. It is known good now, so
         # apply the parts of it that live outside the config.
-        constraints.reload_constraints()
-        # Storage policies come from swift.conf too, and reload_constraints()
-        # only reloads [swift-constraints].
+        # reload_storage_policies() raises SystemExit for a bad policy, and
+        # reload() refuses the reload. It must run before reload_constraints()
+        # changes a global, or a refused file leaves new constraints applied.
         reload_storage_policies()
+        # Constraints come from swift.conf too, and reload_constraints() only
+        # reloads [swift-constraints].
+        constraints.reload_constraints()
         _set_request_limits(cfg)
         _CLIENT_TIMEOUT = client_timeout
         _GRACEFUL_SHUTDOWN_TIMEOUT = graceful_shutdown_timeout

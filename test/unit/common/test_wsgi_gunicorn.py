@@ -1094,6 +1094,26 @@ class TestSwiftGunicornApp(unittest.TestCase):
         logger.exception.assert_called_once_with(
             'Ignoring invalid configuration during Gunicorn reload')
 
+    def test_reload_refuses_a_bad_storage_policy(self):
+        # reload_storage_policies() raises SystemExit, not an Exception;
+        # the arbiter must not exit on a SIGHUP with a bad swift.conf
+        logger = MagicMock()
+        report_failure = MagicMock()
+        good_cfg = self._config()
+        build_cfg = MagicMock(
+            side_effect=[good_cfg, SystemExit('bad policy')])
+        app = wsgi_gunicorn.SwiftGunicornApp(
+            MagicMock(), build_cfg, logger, report_failure)
+
+        with self.assertRaises(wsgi_gunicorn.ReloadRefused):
+            app.reload()
+
+        self.assertIs(app.cfg, good_cfg)
+        self.assertEqual(1, report_failure.call_count)
+        self.assertIsInstance(report_failure.call_args[0][0], SystemExit)
+        logger.exception.assert_called_once_with(
+            'Ignoring invalid configuration during Gunicorn reload')
+
     def test_reload_replaces_config_after_success(self):
         logger = MagicMock()
         old_cfg = self._config()
