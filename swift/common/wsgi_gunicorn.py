@@ -392,10 +392,12 @@ def patch_gunicorn():
         if self.keepalived_conns and self.cfg.keepalive < 1:
             nearest = min(c.timeout for c in self.keepalived_conns)
             timeout = max(0, min(timeout, nearest - time.monotonic()))
-        if not self.alive:
+        if not self.alive or self.ppid != os.getppid():
             # Draining (see swift_run below). The stock drain loop never
             # calls notify(), so the arbiter would murder a long drain.
             # Wake once per second to notify and to reap idle keepalives.
+            # An orphaned worker drains with alive still True. Without the
+            # cap, poller.select() gets about 1e9 s and raises OverflowError.
             self.notify()
             timeout = min(timeout, 1.0)
         return orig_wait_for_events(self, timeout)

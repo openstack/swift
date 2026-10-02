@@ -641,6 +641,14 @@ class TestUnboundedDrain(unittest.TestCase):
         self.worker.poller.select.assert_called_once_with(2.0)
         self.assertFalse(self.worker.tmp.notify.called)
 
+    def test_orphan_drain_wakeups_are_clamped(self):
+        # the arbiter died without a SIGTERM: run() leaves alive True and
+        # drains with the unbounded deadline, which select() cannot take
+        self.worker.alive = True
+        self.worker.ppid = os.getppid() + 1
+        self.cls.wait_for_and_dispatch_events(self.worker, 10 ** 9)
+        self.worker.poller.select.assert_called_once_with(1.0)
+
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
 class TestDrainClosesTheListener(unittest.TestCase):
