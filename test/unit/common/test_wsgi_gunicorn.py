@@ -874,11 +874,14 @@ class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
         fut.exception.return_value = exc
         fut.result.return_value = result
         # capture the done callback enqueue_req registers, then fire it
+        # from another thread, as a pool worker would
         submitted = MagicMock()
         self.worker.tpool.submit.return_value = submitted
         self.cls.enqueue_req(self.worker, self.conn)
         callback = submitted.add_done_callback.call_args[0][0]
-        callback(fut)
+        worker = threading.Thread(target=callback, args=(fut,))
+        worker.start()
+        worker.join()
         return fut
 
     def assert_inline(self, fut):
@@ -919,6 +922,40 @@ class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
         # the callback never throws inside the thread pool
         fut = self._run(exc=ValueError('boom'))
         fut.result.assert_not_called()
+
+    def _run_already_done(self, result):
+        # the future finished before add_done_callback() ran, so the stdlib
+        # calls the callback inline on the thread that called enqueue_req
+        fut = MagicMock()
+        fut.cancelled.return_value = False
+        fut.exception.return_value = None
+        fut.result.return_value = result
+        finish_threads = []
+        self.worker.finish_request = lambda conn, fs: finish_threads.append(
+            threading.current_thread())
+        submitted = MagicMock()
+        submitted.add_done_callback.side_effect = lambda cb: cb(fut)
+        self.worker.tpool.submit.return_value = submitted
+        self.cls.enqueue_req(self.worker, self.conn)
+        return fut, finish_threads
+
+    def test_already_done_close_is_not_run_on_the_poller_thread(self):
+        fut, finish_threads = self._run_already_done(result=False)
+        # a close would run close_graceful() on the poll thread
+        self.assertNotIn(threading.current_thread(), finish_threads)
+        self.worker.method_queue.defer.assert_not_called()
+        # the close goes back to the pool instead
+        self.assertEqual(
+            (self.worker.finish_request, self.conn, fut),
+            self.worker.tpool.submit.call_args_list[-1][0])
+
+    def test_already_done_keepalive_still_goes_to_the_main_thread(self):
+        fut, finish_threads = self._run_already_done(result=True)
+        self.assertEqual([], finish_threads)
+        self.worker.method_queue.defer.assert_called_once_with(
+            self.worker.finish_request, self.conn, fut)
+        # only the request itself went to the pool
+        self.assertEqual(1, self.worker.tpool.submit.call_count)
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')

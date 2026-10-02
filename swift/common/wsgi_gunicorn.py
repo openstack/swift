@@ -532,15 +532,21 @@ def patch_gunicorn():
     # so costly today.
     def swift_enqueue_req(self, conn):
         fs = self.tpool.submit(self.handle, conn)
+        poller_thread = threading.get_ident()
 
         def done(fut):
-            # Runs on the worker thread that finished the request.
+            # Runs on the worker thread that finished the request. Runs on
+            # the poll thread when the future was already done.
             needs_poller = False
             if self.alive and not fut.cancelled() and fut.exception() is None:
                 result = fut.result()
                 needs_poller = result is _DEFER or bool(result)
             if needs_poller:
                 self.method_queue.defer(self.finish_request, conn, fut)
+            elif threading.get_ident() == poller_thread:
+                # Do not run close_graceful() and its 2 s wait on the poll
+                # thread.
+                self.tpool.submit(self.finish_request, conn, fut)
             else:
                 # same call, just not via the main thread; it re-reads the
                 # future and takes its close/error branch
