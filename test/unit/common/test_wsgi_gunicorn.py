@@ -945,12 +945,13 @@ class TestHandleRequestClientTimeout(unittest.TestCase):
         self.conn.is_http2 = False
         self.conn.client = ('1.2.3.4', 5678)
 
-    def _handle(self, parser, resp):
+    def _handle(self, parser, resp, client_timeout=60):
         self.conn.parser = parser
         environ = {'wsgi.file_wrapper': type('FileWrapper', (), {})}
         with mock.patch('gunicorn.workers.gthread.wsgi.create',
                         return_value=(resp, environ)), \
-                mock.patch.object(wsgi_gunicorn, '_CLIENT_TIMEOUT', 60):
+                mock.patch.object(wsgi_gunicorn, '_CLIENT_TIMEOUT',
+                                  client_timeout):
             return self.cls.handle(self.worker, self.conn)
 
     def test_response_write_timeout_logs_a_slow_client(self):
@@ -979,17 +980,44 @@ class TestHandleRequestClientTimeout(unittest.TestCase):
         self.assertEqual(
             [], self.worker.swift_logger.get_lines_for_level('warning'))
 
-    def test_request_read_timeout_is_unchanged(self):
-        # handle() reads the request line and headers before handle_request,
-        # so a stalled request read keeps gthread's own handling
-        def parser():
-            raise socket.timeout('timed out')
-            yield  # pragma: no cover
+    def _parser(self, exc):
+        # a real RequestParser: handle() reads the request line and headers
+        # with next(conn.parser), and exc is raised from that read
+        from gunicorn.http.parser import RequestParser
+        parser = RequestParser(self.worker.cfg, iter([]), self.conn.client)
+        parser.mesg_class = MagicMock(side_effect=exc)
+        return parser
 
+    def test_request_read_timeout_logs_a_slow_client(self):
         resp = MagicMock()
-        result = self._handle(parser(), resp)
+        # build_cfg stores client_timeout as a float; the log shows 60s
+        result = self._handle(self._parser(socket.timeout('timed out')), resp,
+                              client_timeout=60.0)
+        # handle() closes the connection, as it did for the OSError branch
         self.assertIs(False, result)
         resp.write.assert_not_called()
+        self.worker.log.exception.assert_not_called()
+        self.assertEqual(
+            ['Client did not send a complete request within 60s: '
+             "('1.2.3.4', 5678)"],
+            self.worker.swift_logger.get_lines_for_level('warning'))
+        self.assertEqual([], self.worker.swift_logger.get_lines_for_level(
+            'error'))
+
+    def test_request_read_etimedout_is_not_a_slow_client(self):
+        resp = MagicMock()
+        result = self._handle(
+            self._parser(socket.timeout(errno.ETIMEDOUT, 'timed out')), resp)
+        self.assertIs(False, result)
+        self.worker.log.exception.assert_called_once_with(
+            'Socket error processing request.')
+        self.assertEqual(
+            [], self.worker.swift_logger.get_lines_for_level('warning'))
+
+    def test_request_read_oserror_is_unchanged(self):
+        resp = MagicMock()
+        result = self._handle(self._parser(OSError('boom')), resp)
+        self.assertIs(False, result)
         self.worker.log.exception.assert_called_once_with(
             'Socket error processing request.')
         self.assertEqual(

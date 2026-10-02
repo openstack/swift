@@ -80,6 +80,7 @@ from gunicorn import debug
 import gunicorn.http.message
 import gunicorn.http.wsgi
 import gunicorn.http.body
+import gunicorn.http.parser
 from gunicorn.config import Config
 from gunicorn.glogging import Logger
 from gunicorn.workers.gthread import ThreadWorker, TConn
@@ -705,9 +706,30 @@ def patch_gunicorn():
         if isinstance(exc, LimitRequestHeaders):
             gunicorn.util.write_error(client, 400, "Bad Request", str(exc))
             return
+        if isinstance(exc, RequestReadTimeout):
+            logger = getattr(self, 'swift_logger', None) or self.log
+            logger.warning('Client did not send a complete request within '
+                           '%gs: %s', _CLIENT_TIMEOUT, addr)
+            return
         return orig_handle_error(self, req, client, addr, exc)
 
     ThreadWorker.handle_error = swift_handle_error
+
+    # A client that stalls inside its request line or headers makes the read
+    # in Parser.__next__ raise socket.timeout, which gthread's handle() logs
+    # at ERROR with a traceback. Raise RequestReadTimeout instead: handle()
+    # passes it to swift_handle_error, which logs it once at WARNING.
+    orig_parser_next = gunicorn.http.parser.Parser.__next__
+
+    def swift_parser_next(self):
+        try:
+            return orig_parser_next(self)
+        except socket.timeout as exc:
+            if exc.errno is not None:
+                raise  # ETIMEDOUT from the kernel, not the socket timeout
+            raise RequestReadTimeout() from exc
+
+    gunicorn.http.parser.Parser.__next__ = swift_parser_next
 
     # swift_tconn_init sets client_timeout on the client socket, so a client
     # that does not read the response makes sendall raise socket.timeout.
@@ -768,6 +790,13 @@ def _map_chunk_read_error(err):
         return ChunkReadError(
             'unexpected end of file while parsing chunked data')
     return ChunkReadError(str(err))
+
+
+class RequestReadTimeout(Exception):
+    """The client did not send a complete request line and headers within
+    client_timeout. swift_parser_next raises this in place of socket.timeout,
+    so gthread's handle() routes the stall to swift_handle_error.
+    """
 
 
 class TopologyChanged(Exception):
