@@ -26,6 +26,7 @@ import signal
 import socket
 import threading
 import time
+from collections import deque
 import weakref
 
 from swift.common.concurrency import USE_EVENTLET
@@ -480,6 +481,7 @@ class TestUnboundedDrain(unittest.TestCase):
         self.worker.sockets = []
         self.worker._accepting = False
         self.worker.keepalived_conns = []
+        self.worker.pending_conns = deque()
         self.worker.poller = MagicMock()
         self.worker.poller.select.return_value = []
         self.worker.method_queue = MagicMock()
@@ -666,6 +668,7 @@ class TestDrainClosesTheListener(unittest.TestCase):
         self.worker.ppid = os.getppid()
         self.worker.sockets = [self.listener]
         self.worker._accepting = False
+        self.worker.pending_conns = deque()
         self.worker.poller = selectors.DefaultSelector()
         self.addCleanup(self.worker.poller.close)
 
@@ -742,6 +745,7 @@ class TestAcceptOnAShutDownListener(unittest.TestCase):
         self.worker.ppid = os.getppid()
         self.worker.nr_conns = 0
         self.worker._accepting = False
+        self.worker.pending_conns = deque()
         self.worker.poller = selectors.DefaultSelector()
         self.addCleanup(self.worker.poller.close)
 
@@ -964,6 +968,90 @@ class TestEnqueueReqCloseOnWorkerThread(unittest.TestCase):
             self.worker.finish_request, self.conn, fut)
         # only the request itself went to the pool
         self.assertEqual(1, self.worker.tpool.submit.call_count)
+
+
+@unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')
+class TestPendingConnectionTimeout(unittest.TestCase):
+    """A new connection with no data yet lives for client_timeout, as under
+    eventlet. Only a connection that served a request gets keepalive.
+    """
+
+    def setUp(self):
+        wsgi_gunicorn.patch_gunicorn()
+        from gunicorn.workers.gthread import ThreadWorker
+        self.cls = ThreadWorker
+        self.worker = ThreadWorker.__new__(ThreadWorker)
+        self.worker.alive = True
+        self.worker.ppid = os.getppid()
+        self.worker.nr_conns = 1
+        self.worker.cfg = MagicMock()
+        self.worker.cfg.keepalive = 5
+        self.worker.sockets = []
+        self.worker._accepting = False
+        self.worker.pending_conns = deque()
+        self.worker.keepalived_conns = deque()
+        self.worker.poller = MagicMock()
+
+    def _finish(self, result, client_timeout=60.0):
+        conn = MagicMock()
+        conn.set_timeout.side_effect = lambda: setattr(
+            conn, 'timeout', 'keepalive')
+        fut = MagicMock()
+        fut.cancelled.return_value = False
+        fut.result.return_value = result
+        with mock.patch.object(wsgi_gunicorn, '_CLIENT_TIMEOUT',
+                               client_timeout):
+            self.cls.finish_request(self.worker, conn, fut)
+        return conn
+
+    def test_a_deferred_connection_gets_client_timeout(self):
+        from gunicorn.workers.gthread import _DEFER
+        before = time.monotonic()
+        conn = self._finish(_DEFER)
+        self.assertEqual([conn], list(self.worker.pending_conns))
+        self.assertGreaterEqual(conn.timeout, before + 60.0)
+        self.assertLess(conn.timeout, before + 61.0)
+
+    def test_a_served_connection_keeps_the_keepalive_timeout(self):
+        conn = self._finish(True)
+        self.assertEqual([conn], list(self.worker.keepalived_conns))
+        self.assertEqual([], list(self.worker.pending_conns))
+        self.assertEqual('keepalive', conn.timeout)
+
+    def test_no_client_timeout_leaves_the_keepalive_deadline(self):
+        # the in-process test server: socket_timeout maps to keepalive
+        from gunicorn.workers.gthread import _DEFER
+        before = time.monotonic()
+        conn = self._finish(_DEFER, client_timeout=None)
+        self.assertLess(conn.timeout, before + 6.0)
+
+    def test_an_orphaned_worker_keeps_the_keepalive_deadline(self):
+        from gunicorn.workers.gthread import _DEFER
+        self.worker.ppid = 1 if os.getppid() != 1 else 2
+        before = time.monotonic()
+        conn = self._finish(_DEFER)
+        self.assertEqual([conn], list(self.worker.pending_conns))
+        self.assertLess(conn.timeout, before + 6.0)
+
+    def test_the_drain_closes_idle_new_connections(self):
+        from gunicorn.workers.gthread import _DEFER
+        conns = [self._finish(_DEFER) for _ in range(2)]
+        self.worker.nr_conns = 2
+        # a stop or reload: run() clears alive and stops accepting
+        self.worker.alive = False
+        self.cls.set_accept_enabled(self.worker, False)
+        self.assertEqual([], list(self.worker.pending_conns))
+        self.assertEqual(0, self.worker.nr_conns)
+        for conn in conns:
+            conn.close.assert_called_once_with()
+            self.worker.poller.unregister.assert_any_call(conn.sock)
+
+    def test_a_saturated_worker_keeps_idle_new_connections(self):
+        from gunicorn.workers.gthread import _DEFER
+        conn = self._finish(_DEFER)
+        self.cls.set_accept_enabled(self.worker, False)
+        self.assertEqual([conn], list(self.worker.pending_conns))
+        self.assertFalse(conn.close.called)
 
 
 @unittest.skipIf(USE_EVENTLET, 'gunicorn is only used without eventlet')

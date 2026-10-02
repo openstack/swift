@@ -488,6 +488,10 @@ def patch_gunicorn():
         if not enabled and (not self.alive or self.ppid != os.getppid()):
             for listener in self.sockets:
                 listener.close()  # idempotent, run() closes them again
+            # Like eventlet, close the idle new connections now
+            for conn in self.pending_conns:
+                conn.timeout = 0
+            self.murder_pending()
 
     ThreadWorker.set_accept_enabled = swift_set_accept_enabled
 
@@ -557,6 +561,25 @@ def patch_gunicorn():
         fs.add_done_callback(done)
 
     ThreadWorker.enqueue_req = swift_enqueue_req
+
+    # handle() gives a new connection 5 s for its first byte and then
+    # returns _DEFER. finish_request() parks it with the keepalive deadline.
+    # So an idle new connection is closed after 5 s plus keepalive, and
+    # immediately with keepalive_timeout = 0. Eventlet bounded the first
+    # read by client_timeout. A load balancer that opens connections early
+    # relies on that. Give a parked new connection the same bound.
+    orig_finish_request = ThreadWorker.finish_request
+
+    def swift_finish_request(self, conn, fs):
+        orig_finish_request(self, conn, fs)
+        # finish_request() appended the connection to pending_conns when it
+        # parked it. A connection that served a request keeps its deadline.
+        # So does a connection that an orphaned worker parks in its drain.
+        if _CLIENT_TIMEOUT is not None and self.ppid == os.getppid() \
+                and self.pending_conns and self.pending_conns[-1] is conn:
+            conn.timeout = time.monotonic() + _CLIENT_TIMEOUT
+
+    ThreadWorker.finish_request = swift_finish_request
 
     # Gunicorn rejects requests with both Content-Length and Transfer-Encoding
     # (RFC 9112), but Swift sends both (e.g. Content-Length: 0 + chunked PUT).
