@@ -3713,7 +3713,10 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         for i in range(17):
             pool.spawn(
                 worker_process,
-                random.uniform(0, self.avg_backend_fetch_time * 10),
+                # These requests start 50ms after the token holders and 100ms
+                # before the token expires.
+                random.uniform(self.avg_backend_fetch_time * 0.5,
+                               self.avg_backend_fetch_time * 9),
                 self.avg_backend_fetch_time
             )
 
@@ -3721,14 +3724,16 @@ class TestCooperativeCachePopulator(unittest.TestCase):
         for i in range(3):
             pool.spawn(
                 worker_process,
-                self.avg_backend_fetch_time * 10,
+                # The token holders start 50ms after the first token expired.
+                self.avg_backend_fetch_time * 10.5,
                 self.avg_backend_fetch_time * 5
             )
         for i in range(17):
             pool.spawn(
                 worker_process,
-                random.uniform(self.avg_backend_fetch_time * 10,
-                               self.avg_backend_fetch_time * 11),
+                # These requests start 50ms after the token holders.
+                random.uniform(self.avg_backend_fetch_time * 11,
+                               self.avg_backend_fetch_time * 12),
                 self.avg_backend_fetch_time
             )
         # Wait for all requests to complete
