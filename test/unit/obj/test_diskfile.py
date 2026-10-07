@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """Tests for swift.obj.diskfile"""
-
 import pickle
 import binascii
 import os
@@ -38,14 +37,14 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 import pyeclib.ec_iface
 
-from swift.common.concurrency import hubs, timeout, tpool, spawn, sleep
+from swift.common.concurrency import hubs, timeout, spawn, sleep
 from swift.obj.diskfile import update_auditor_status, EUCLEAN
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        patch_policies, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE, requires_o_tmpfile_support_in_tmp,
                        encode_frag_archive_bodies, skip_if_no_xattrs,
-                       BaseUnitTestCase)
+                       BaseUnitTestCase, mock_tpool_execute)
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.base_storage_server import TimingBreakdown
@@ -1301,8 +1300,6 @@ class BaseDiskFileTestMixin(object):
                                 diskfile.get_tmp_dir(policy)))
             mkdirs(os.path.join(self.testdir, self.existing_device2,
                                 diskfile.get_tmp_dir(policy)))
-        self._orig_tpool_exc = tpool.execute
-        tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
         self.conf = dict(devices=self.testdir, mount_check='false',
                          keep_cache_size=2 * 1024, mb_per_sync=1)
         self.logger = debug_logger('test-' + self.__class__.__name__)
@@ -1311,7 +1308,6 @@ class BaseDiskFileTestMixin(object):
 
     def tearDown(self):
         rmtree(self.tmpdir, ignore_errors=True)
-        tpool.execute = self._orig_tpool_exc
 
     def _manager_mock(self, manager_attribute_name, df=None):
         mgr_cls = df._manager.__class__ if df else self.mgr_cls
@@ -4615,6 +4611,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # can close again
             writer.close()
 
+    @mock_tpool_execute()
     def test_disk_file_concurrent_writes(self):
         def threadA(df, events, errors):
             try:
@@ -4663,6 +4660,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         with df.open(), open(df._data_file, 'rb') as fp:
             self.assertEqual(b'dataB', fp.read())
 
+    @mock_tpool_execute()
     def test_disk_file_concurrent_marked_durable(self):
         ts = self.ts()
 
@@ -4710,6 +4708,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 self.assertTrue(df._data_file.endswith('#d.data'))
             self.assertEqual(b'dataA', fp.read())
 
+    @mock_tpool_execute()
     def test_disk_file_concurrent_delete(self):
         def threadA(df, events, errors):
             try:
