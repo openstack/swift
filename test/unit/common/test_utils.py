@@ -2606,9 +2606,9 @@ cluster_dfw1 = http://dfw1.host/v1/
             def load(self):
                 return self.value
 
-        repl_obj = object()
-        ec_obj = object()
-        other_obj = object()
+        repl_obj = 'swift.obj.diskfile:DiskFileManager'
+        ec_obj = 'swift.obj.diskfile:ECDiskFileManager'
+        other_obj = 'some.other:entrypoint'
         mock_driver.return_value.entry_points = [
             TestEntryPoint(group='swift.diskfile',
                            name='replication.fs',
