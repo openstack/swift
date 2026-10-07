@@ -16,6 +16,7 @@
 - job:
     name: swift-tox-py37
     parent: swift-tox-base
+    nodeset: ubuntu-focal
     description: |
       Run unit-tests for swift under cPython version 3.7.
 
@@ -55,7 +56,7 @@
 - job:
     name: swift-tox-py312-arm64
     parent: swift-tox-py312
-    nodeset: debian-bookworm-arm64
+    nodeset: ubuntu-noble-arm64
     description: |
       Run unit tests for an OpenStack Python project under cPython
       version 3.12 on top of arm64 architecture.
@@ -94,7 +95,7 @@
 - job:
     name: swift-tox-py311
     parent: swift-tox-base
-    nodeset: ubuntu-jammy
+    nodeset: debian-bookworm
     description: |
       Run unit-tests for swift under cPython version 3.11.
 
@@ -108,7 +109,7 @@
 - job:
     name: swift-tox-py312
     parent: swift-tox-base
-    nodeset: debian-bookworm
+    nodeset: ubuntu-noble
     description: |
       Run unit-tests for swift under cPython version 3.12.
 
@@ -123,7 +124,7 @@
 - job:
     name: swift-tox-py313
     parent: swift-tox-base
-    nodeset: ubuntu-noble
+    nodeset: debian-trixie-8GB
     description: |
       Run unit-tests for swift under cPython version 3.13.
 
@@ -138,7 +139,7 @@
 - job:
     name: swift-tox-py314
     parent: swift-tox-base
-    nodeset: ubuntu-noble
+    nodeset: debian-trixie-8GB
     description: |
       Run unit-tests for swift under cPython version 3.14.
 
