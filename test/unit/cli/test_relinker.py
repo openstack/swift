@@ -4551,12 +4551,12 @@ class TestRelinker(unittest.TestCase):
         expected_part = utils.get_partition_for_hash(hsh, PART_POWER)
         ancestor_part = expected_part >> 1
         hp = self._make_hash_path(hsh, ancestor_part)
-        lock_timeout = LockTimeout(10, 'quarantine-lock')
-
-        with mock.patch('swift.obj.diskfile.quarantine_dir_renamer',
-                        side_effect=lock_timeout):
-            r.audit_location(self.existing_device, hp)
-
+        with LockTimeout(10, 'quarantine-lock') as lock_timeout:
+            # use LockTimeout as a contextmanager to ensure it is cancelled
+            with mock.patch('swift.obj.diskfile.quarantine_dir_renamer',
+                            side_effect=lock_timeout):
+                r.audit_location(self.existing_device, hp)
+        self.assertIsNone(lock_timeout.timer)  # confirm no lingering timeout
         self.assertEqual(r.stats['removed'], 0)
         self.assertEqual(r.stats['quarantined'], 0)
         self.assertEqual(r.stats['errors'], 1)
