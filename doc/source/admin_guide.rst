@@ -517,12 +517,87 @@ allows it to be more easily consumed by third party utilities::
     $ swift-dispersion-report -j
     {"object": {"retries:": 0, "missing_two": 0, "copies_found": 7863, "missing_one": 0, "copies_expected": 7863, "pct_found": 100.0, "overlapping": 0, "missing_all": 0}, "container": {"retries:": 0, "missing_two": 0, "copies_found": 12534, "missing_one": 0, "copies_expected": 12534, "pct_found": 100.0, "overlapping": 15, "missing_all": 0}}
 
-Note that you may select which storage policy to use by setting the option
-'--policy-name silver' or '-P silver' (silver is the example policy name here).
-If no policy is specified, the default will be used per the swift.conf file.
-When you specify a policy the containers created also include the policy index,
-thus even when running a container_only report, you will need to specify the
-policy not using the default.
+You may select an object storage policy with ``--policy-name silver`` or
+``-P silver``. If no policy is specified, the default policy is used. Container
+dispersion is shared by all object policies because Swift has one container
+ring. The default invocation populates and reports both the shared container
+ring and the default object ring. To populate or report a non-default policy,
+use ``--object-only --policy-name silver``. Population rejects a non-default
+policy together with a container operation. Reporting skips the shared
+container report for a non-default policy and runs only the object report
+when enabled.
+
+Container samples use the canonical names ``dispersion_<suffix>``. The
+suffix is an integer chosen so that the container's hash path selects a ring
+partition; it is not a policy index or a partition number. Policy-era names
+``dispersion_<policy-index>_<suffix>`` are obsolete for every policy because
+all policies share the same container ring.
+
+Reporting and population without ``--purge`` warn on standard error when
+obsolete names are present. Purge removes those names without warning.
+Reports and ``--no-overlap`` use only canonical samples; obsolete samples do
+not contribute to coverage or health metrics. A report exits with an error
+if its selected dataset has no canonical samples. Warnings explain that
+population with ``--purge`` replaces existing samples, including obsolete
+names, without printing executable migration commands.
+JSON metrics remain on standard output.
+
+To replace all container samples with the canonical names, populate with
+``--purge``::
+
+    $ swift-dispersion-populate --container-only --purge
+
+The purge removes both ``dispersion_<suffix>`` and
+``dispersion_<policy-index>_<suffix>`` container samples. It does not remove
+object sample containers. Once deletion succeeds, the same invocation
+populates canonical samples using the configured coverage. Deletion fails if
+an unexpected container is not empty, and population does not start.
+
+The same workflow replaces dispersion data for an object policy::
+
+    $ swift-dispersion-populate --object-only --policy-name silver --purge
+
+This deletes the expected ``dispersion_<suffix>`` objects from
+``dispersion_objects_<policy-index>`` and then deletes that container
+before populating canonical samples at the configured coverage. The sample
+container is created only when there are samples to create. An unexpected
+object prevents the container deletion and subsequent population. Purge
+requires exactly one of ``--container-only`` or ``--object-only``; object purge
+also requires an explicit policy. The dispersion account itself is retained for
+the other rings.
+
+Policy 0 object samples use the canonical ``dispersion_objects`` container.
+The policy-era ``dispersion_objects_0`` container is obsolete: reporting and
+population without ``--purge`` warn if it exists. Reports and ``--no-overlap``
+ignore it, and ``--purge`` removes it along with the canonical population
+before replacement. Other object policies use
+``dispersion_objects_<policy-index>`` as their canonical container names.
+
+``dispersion_coverage`` controls the percentage of ring partitions to sample.
+With ``--no-overlap``, population adds that many percentage points using only
+partitions not already covered by canonical samples, up to the available
+partition space. Ordinary population does not remove an existing population;
+use ``--purge`` to replace it at the configured coverage, including reducing
+coverage. ``--purge`` and ``--no-overlap`` are mutually exclusive.
+
+A coverage of ``0`` creates neither samples nor an object sample container.
+Combined with ``--purge``, it removes the selected population without creating
+a replacement. A subsequent report for that empty dataset exits with an
+error because there are no samples to measure.
+
+One ``dispersion.conf`` can describe independent jobs for each ring. Put
+shared authentication and Swift directory settings in ``[dispersion]``, then
+add a section with only the overrides for a ring. For example, this describes
+an object-1 report job::
+
+    [object-1]
+    container_report = no
+    object_report = yes
+    policy_name = silver
+
+Run it with ``swift-dispersion-report --section object-1``. The same option is
+available to ``swift-dispersion-populate``; use ``container_populate = no`` and
+``object_populate = yes`` for a non-default object-population job.
 
 -----------------------------------------------
 Geographically Distributed Swift Considerations

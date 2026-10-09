@@ -976,9 +976,18 @@ class SimpleClient(object):
         # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, **kwargs)
 
+    def delete_container(self, container, **kwargs):
+        # Used in swift-dispersion-populate
+        return self.retry_request('DELETE', container=container, **kwargs)
+
     def get_container(self, container, **kwargs):
         # Used in swift-dispersion-populate
         return self.retry_request('GET', container=container, **kwargs)
+
+    def delete_object(self, container, name, **kwargs):
+        # Used in swift-dispersion-populate
+        return self.retry_request(
+            'DELETE', container=container, name=name, **kwargs)
 
     def put_object(self, container, name, contents, **kwargs):
         # Used in swift-dispersion-populate

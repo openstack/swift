@@ -1771,6 +1771,25 @@ class TestGetAuth(unittest.TestCase):
 
 class TestSimpleClient(unittest.TestCase):
 
+    def test_delete_container_request(self):
+        client = internal_client.SimpleClient(url='http://127.0.0.1')
+        with mock.patch.object(client, 'retry_request') as request:
+            client.delete_container(
+                'dispersion_1_2', headers={'X-Test': 'value'})
+        request.assert_called_once_with(
+            'DELETE', container='dispersion_1_2',
+            headers={'X-Test': 'value'})
+
+    def test_delete_object_request(self):
+        client = internal_client.SimpleClient(url='http://127.0.0.1')
+        with mock.patch.object(client, 'retry_request') as request:
+            client.delete_object(
+                'dispersion_objects_5', 'dispersion_3',
+                headers={'X-Test': 'value'})
+        request.assert_called_once_with(
+            'DELETE', container='dispersion_objects_5',
+            name='dispersion_3', headers={'X-Test': 'value'})
+
     def _test_get_head(self, request, urlopen, method):
 
         mock_time_value = [1401224049.98]

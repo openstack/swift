@@ -57,7 +57,11 @@ The default is false.
 .IP "\fBswift_dir\fR"
 Location of OpenStack Swift configuration and ring files
 .IP "\fBdispersion_coverage\fR"
-Percentage of partition coverage to use. The default is 1.0.
+Percentage of partition coverage to create. The default is 1.0. With
+--no-overlap, add this coverage on partitions not covered by canonical
+samples. With --purge, replace the selected population at this coverage.
+Zero creates no samples or empty object sample container; with --purge, it
+removes the selected population without replacement.
 .IP "\fBretries\fR"
 Maximum number of attempts. The default is 5.
 .IP "\fBconcurrency\fR"
@@ -72,6 +76,14 @@ Whether to output in json format. The default is no.
 Whether to run the container report. The default is yes.
 .IP "\fBobject_report\fR"
 Whether to run the object report. The default is yes.
+.IP "\fBpolicy_name\fR"
+Object storage policy used for object population and reporting. The default
+policy is used when this option is omitted. A non-default policy requires
+container_populate to be disabled. Reporting skips the shared container report
+for a non-default policy and runs the object report when enabled.
+.IP "\fBadditional sections\fR"
+An additional named section may override values from [dispersion]. Select it
+with the --section option to define an independent per-ring job.
 .RE
 .PD
 
@@ -93,6 +105,14 @@ Whether to run the object report. The default is yes.
 .IP "# dump_json = no"
 .IP "# container_report = yes"
 .IP "# object_report = yes"
+.IP "# policy_name ="
+.IP ""
+.IP "[object-1]"
+.IP "container_populate = no"
+.IP "container_report = no"
+.IP "object_populate = yes"
+.IP "object_report = yes"
+.IP "policy_name = silver"
 .RE
 .PD
 
@@ -109,4 +129,3 @@ and
 .SH "SEE ALSO"
 .BR swift-dispersion-report(1),
 .BR swift-dispersion-populate(1)
-
