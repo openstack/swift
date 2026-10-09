@@ -1369,6 +1369,16 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         assert_invalid('-1.1')
         assert_invalid('auto')
 
+    def test_init_rejects_non_positive_disk_chunk_size(self):
+        # a disk_chunk_size of 0 read no bytes and then quarantined a
+        # healthy object, so refuse to start instead
+        with self.assertRaises(ValueError) as cm:
+            diskfile.DiskFileRouter({'disk_chunk_size': '0'}, self.logger)
+        self.assertIn('positive int', str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            diskfile.DiskFileRouter({'disk_chunk_size': '-1'}, self.logger)
+        self.assertIn('positive int', str(cm.exception))
+
     def test_cleanup_uses_configured_reclaim_age(self):
         # verify that the reclaim_age used when cleaning up tombstones is
         # either the default or the configured value
