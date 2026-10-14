@@ -24,7 +24,6 @@ from swift.common.constraints import AUTO_CREATE_ACCOUNT_PREFIX
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import HTTP_CONFLICT, is_success, HTTP_NOT_FOUND
-from swift.common.middleware.symlink import ALLOW_RESERVED_NAMES
 from swift.common.object_ref import ObjectRef, UploadId
 from swift.common.storage_policy import POLICIES
 from swift.common.utils import drain_and_close, \
@@ -666,8 +665,7 @@ class BaseMPUHandler:
         The sub-request does *not* inherit headers or query-string parameters
         from ``self.req``.
 
-        The sub-request will have a truthy 'X-Backend-Allow-Reserved-Names'
-        header and its swift source will be set to 'MPU'.
+        The sub-request will have  its swift source will be set to 'MPU'.
 
         :param method: the sub-request method.
         :param path: the sub-request path.
@@ -676,9 +674,7 @@ class BaseMPUHandler:
         :param params: a dict of query-string parameters for the sub-request.
         """
         quoted_path = quote(path)
-        req_headers = {'X-Backend-Allow-Reserved-Names': 'true'}
-        if headers:
-            req_headers.update(headers)
+        req_headers = {} if headers is None else headers
         sub_req = make_pre_authed_request(
             self.req.environ,
             path=quoted_path,
@@ -816,8 +812,6 @@ class MPUSessionsHandler(BaseMPUHandler):
             'Content-Type': MPU_MARKER_CONTENT_TYPE,
             'Content-Length': '0',
             'X-Timestamp': timestamp.internal,
-            # TODO: no longer necessary?...
-            'X-Backend-Allow-Reserved-Names': 'true',
         }
         lifeline_req = self.make_subrequest(
             path=lifeline_path, method='PUT', headers=headers)
@@ -1122,7 +1116,6 @@ class MPUSessionHandler(BaseMPUHandler):
             # also send the size of the manifest...
             get_container_update_override_key('manifest-size'):
                 str(len(manifest_body)),
-            ALLOW_RESERVED_NAMES: 'true',
             MPU_SYSMETA_MANIFEST_KEY: 'true',
             MPU_SYSMETA_UPLOAD_ID_KEY: str(self.upload_id),
             MPU_SYSMETA_ETAG_KEY: internal_manifest.mpu_etag,
@@ -1405,7 +1398,9 @@ class MPUObjHandler(BaseMPUHandler):
             ua_suffix='MPU GET',
             swift_source='MPU',
             max_get_time=self.mw.max_get_time,
-            allow_reserved_names=True
+            # Use preauthed part GET requests because the parts are in the
+            # 'hidden' .mpu_<user_account> namespace
+            use_preauthed_req=True
         )
 
         try:

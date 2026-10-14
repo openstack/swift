@@ -300,7 +300,6 @@ class TestMPUSession(unittest.TestCase):
 
 
 class BaseTestMPUMiddleware(unittest.TestCase):
-    # TODO: assert 'X-Backend-Allow-Reserved-Names' in backend requests
     def setUp(self):
         self.app = FakeSwift()
         self.ts_iter = make_timestamp_iter()
@@ -380,7 +379,6 @@ class TestBaseMpuHandler(BaseTestMPUMiddleware):
 
         self.assertEqual({'Host': 'localhost:80',
                           'User-Agent': 'Swift',
-                          'X-Backend-Allow-Reserved-Names': 'true',
                           'X-Extra': 'extra'},
                          dict(subreq.headers))
         self.assertEqual({'added': 'test'}, subreq.params)
@@ -718,7 +716,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': self.ts_now.internal,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-2])
@@ -734,7 +731,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': self.ts_now.internal,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-2])
@@ -758,7 +754,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': mock.ANY,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/test'},
             self.app.headers[-2])
@@ -773,7 +768,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': mock.ANY,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'text/html'},
             self.app.headers[-2])
@@ -807,7 +801,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Timestamp': self.ts_now.internal,
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Mpu-User-X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Mpu-Content-Type': 'application/octet-stream'},
             self.app.headers[-2])
@@ -1223,7 +1216,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                         'User-Agent': 'Swift',
                         'Etag': 'test-etag',
                         'Transfer-Encoding': 'test-encoding',
-                        'X-Backend-Allow-Reserved-Names': 'true',
                         'X-Timestamp': ts_now.normal}
         self.assertEqual(exp_put_hdrs, actual_put_hdrs)
 
@@ -1516,7 +1508,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'Content-Type': 'application/x-mpu-session-completing',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Timestamp': ts_complete.internal},
             dict(session_post.headers))
 
@@ -1539,9 +1530,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Content-Type': 'application/test',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Meta-Foo': 'blah',
-             'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Container-Update-Override-Etag':
                  '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
              'X-Object-Sysmeta-Container-Update-Override-Size': '5242979',
@@ -1563,7 +1552,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'Content-Type': 'application/x-mpu-session-completed',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Timestamp': mock.ANY},
             session_post.headers)
 
@@ -1625,7 +1613,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'Content-Type': 'application/x-mpu-session-completing',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Timestamp': ts_complete.internal},
             session_post.headers)
 
@@ -1648,9 +1635,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'Content-Type': 'application/test',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Object-Meta-Foo': 'blah',
-             'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Container-Update-Override-Etag':
                  '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
              'X-Object-Sysmeta-Container-Update-Override-Size': '5242979',
@@ -1672,7 +1657,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'Content-Type': 'application/x-mpu-session-completed',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Timestamp': mock.ANY},
             session_post.headers)
 
@@ -2095,7 +2079,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'Content-Type': 'application/x-mpu-session-aborted',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Timestamp': ts_abort.internal},
             session_post_hdrs)
 
@@ -2175,7 +2158,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             {'Content-Type': 'application/x-mpu-session-aborted',
              'Host': 'localhost:80',
              'User-Agent': 'Swift',
-             'X-Backend-Allow-Reserved-Names': 'true',
              'X-Timestamp': ts_abort.internal},
             session_post_hdrs)
 
@@ -2481,11 +2463,9 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Backend-Etag-Is-At': 'x-object-sysmeta-mpu-etag'},
             self.app.call_list[-3].headers)
         self.assertEqual({'Host': 'localhost:80',
-                          'X-Backend-Allow-Reserved-Names': 'true',
                           'User-Agent': 'MPU GET'},
                          self.app.call_list[-2].headers)
         self.assertEqual({'Host': 'localhost:80',
-                          'X-Backend-Allow-Reserved-Names': 'true',
                           'User-Agent': 'MPU GET'},
                          self.app.call_list[-1].headers)
 
@@ -2679,7 +2659,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  'x-object-sysmeta-mpu-manifest'},
             self.app.call_list[-2].headers)
         self.assertEqual({'Host': 'localhost:80',
-                          'X-Backend-Allow-Reserved-Names': 'true',
                           'User-Agent': 'MPU GET'},
                          self.app.call_list[-1].headers)
         self.assertEqual(part2_body.encode('utf8'), resp_body)
@@ -2919,7 +2898,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  'x-object-sysmeta-mpu-manifest'},
             self.app.call_list[-2].headers)
         self.assertEqual({'Host': 'localhost:80',
-                          'X-Backend-Allow-Reserved-Names': 'true',
                           'User-Agent': 'MPU GET',
                           'Range': 'bytes=1-10'},
                          self.app.call_list[-1].headers)
@@ -3008,12 +2986,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
                  'x-object-sysmeta-mpu-manifest'},
             self.app.call_list[-3].headers)
         self.assertEqual({'Host': 'localhost:80',
-                          'X-Backend-Allow-Reserved-Names': 'true',
                           'User-Agent': 'MPU GET',
                           'Range': 'bytes=5242875-'},
                          self.app.call_list[-2].headers)
         self.assertEqual({'Host': 'localhost:80',
-                          'X-Backend-Allow-Reserved-Names': 'true',
                           'User-Agent': 'MPU GET',
                           'Range': 'bytes=0-4'},
                          self.app.call_list[-1].headers)
