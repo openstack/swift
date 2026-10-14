@@ -38,7 +38,7 @@ from swift.common.exceptions import LockTimeout
 from swift.container.backend import ContainerBroker, \
     merge_item_with_existing, UNSHARDED, SHARDING, SHARDED, \
     COLLAPSED, SHARD_LISTING_STATES, SHARD_UPDATE_STATES, sift_shard_ranges, \
-    merge_shards, CONTAINER_INFO_TABLE_SCRIPT, POLICY_STAT_TABLE_CREATE, \
+    merge_shards, POLICY_STAT_TABLE_CREATE, \
     POLICY_STAT_TRIGGER_SCRIPT, CONTAINER_STAT_VIEW_SCRIPT
 from swift.common.db import DatabaseAlreadyExists, GreenDBConnection, \
     TombstoneReclaimer, GreenDBCursor
@@ -2640,7 +2640,7 @@ class TestContainerBroker(test_db.TestDbBase):
         put_timestamp = Timestamp.now().internal
         sleep(.001)
         delete_timestamp = Timestamp.now().internal
-        broker.reported(put_timestamp, delete_timestamp, 2, 1123)
+        broker.reported(put_timestamp, delete_timestamp, 2, 1123, 0, 0)
         info = broker.get_info()
         self.assertEqual(info['object_count'], 2)
         self.assertEqual(info['bytes_used'], 1123)
@@ -3602,8 +3602,14 @@ class TestContainerBroker(test_db.TestDbBase):
                                  account='a', container='c')
         broker.initialize(Timestamp('1').internal, 0)
         id = broker.get_info()['id']
+        broker.reported(Timestamp('1').internal, '0', 1, 2, 3, 4)
         broker.newid('someid')
         self.assertNotEqual(id, broker.get_info()['id'])
+        info = broker.get_info()
+        self.assertEqual(0, info['reported_object_count'])
+        self.assertEqual(0, info['reported_bytes_used'])
+        self.assertEqual(0, info['reported_bytes_in_parts'])
+        self.assertEqual(0, info['reported_bytes_in_manifests'])
         # ends in the device name (from the path) unless it's an old
         # container with just a uuid4 (tested in legecy broker
         # tests e.g *BeforeMetaData)
@@ -6296,7 +6302,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.update_reconciler_sync(3)
         self.assertEqual(3, broker.get_reconciler_sync())
         broker.reported(self.ts().internal, self.ts().internal,
-                        self.ts().internal, self.ts().internal)
+                        self.ts().internal, self.ts().internal, 0, 0)
         epoch = self.normal_ts()
         broker.enable_sharding(epoch)
         self.assertEqual(UNSHARDED, broker.get_db_state())
@@ -6344,7 +6350,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.update_reconciler_sync(3)
         self.assertEqual(3, broker.get_reconciler_sync())
         broker.reported(self.ts().internal, self.ts().internal,
-                        self.ts().internal, self.ts().internal)
+                        self.ts().internal, self.ts().internal, 0, 0)
         epoch = self.normal_ts()
         broker.enable_sharding(epoch)
         self.assertEqual(UNSHARDED, broker.get_db_state())
@@ -7110,13 +7116,33 @@ def pre_manifest_size_create_policy_stat_table(
 def pre_manifest_size_create_container_info_table(
         self, conn, put_timestamp, storage_policy_index):
     """
-    Copied from ContainerBroker before the bytes_in_parts and
-    bytes_in_manifests columns were added to the container_stat view; used
-    for testing with TestContainerBrokerBeforeSystags.
+    Copied from ContainerBroker before the mpu byte counts were added to the
+    container_info table and the container_stat view.
     """
     if put_timestamp is None:
         put_timestamp = Timestamp(0).internal
-    conn.executescript(CONTAINER_INFO_TABLE_SCRIPT + '''
+    conn.executescript('''
+        CREATE TABLE container_info (
+            account TEXT,
+            container TEXT,
+            created_at TEXT,
+            put_timestamp TEXT DEFAULT '0',
+            delete_timestamp TEXT DEFAULT '0',
+            reported_put_timestamp TEXT DEFAULT '0',
+            reported_delete_timestamp TEXT DEFAULT '0',
+            reported_object_count INTEGER DEFAULT 0,
+            reported_bytes_used INTEGER DEFAULT 0,
+            hash TEXT default '00000000000000000000000000000000',
+            id TEXT,
+            status TEXT DEFAULT '',
+            status_changed_at TEXT DEFAULT '0',
+            metadata TEXT DEFAULT '',
+            x_container_sync_point1 INTEGER DEFAULT -1,
+            x_container_sync_point2 INTEGER DEFAULT -1,
+            storage_policy_index INTEGER DEFAULT 0,
+            reconciler_sync_point INTEGER DEFAULT -1
+        );
+
         CREATE VIEW container_stat
         AS SELECT ci.account, ci.container, ci.created_at,
             ci.put_timestamp, ci.delete_timestamp,
@@ -7384,7 +7410,7 @@ class TestContainerBrokerBeforeSystags(TestContainerBroker):
                                      'storage_policy_index'}
     # get_info doesn't migrate the DB, so every call retries the query once
     # per missing column before falling back to reporting zeros
-    expected_get_info_queries = 3
+    expected_get_info_queries = 2
 
     def setUp(self):
         super().setUp()
@@ -7552,7 +7578,7 @@ class TestContainerBrokerBeforeManifestSize(TestContainerBroker):
                                      'storage_policy_index', 'systags'}
     # get_info doesn't migrate the DB, so every call retries the query once
     # per missing column before falling back to reporting zeros
-    expected_get_info_queries = 3
+    expected_get_info_queries = 2
 
     def setUp(self):
         super().setUp()
@@ -7687,6 +7713,59 @@ class TestContainerBrokerBeforeManifestSize(TestContainerBroker):
         self.assertEqual(0, info['bytes_in_parts'])
         self.assertEqual(0, info['bytes_in_manifests'])
 
+    def test_newid_does_not_migrate(self):
+        self._insert_object_row(self.broker, 'test1', self.ts())
+        self.broker.reported(self.ts().internal, '0', 1, 123, 0, 0)
+        old_id = self.broker.get_info()['id']
+        self.broker.newid('remote-id')
+        self.assert_pre_migration(self.broker)
+        info = self.broker.get_info()
+        # the id change was not lost when the mpu columns were absent
+        self.assertNotEqual(old_id, info['id'])
+        self.assertEqual('0', info['reported_put_timestamp'])
+        self.assertEqual(0, info['reported_object_count'])
+        self.assertEqual(0, info['reported_bytes_used'])
+
+    def test_reported_does_not_migrate(self):
+        # the container updater visits un-migrated dbs and must not migrate
+        # them; such a db cannot hold any mpus, so zero is the right answer
+        self._insert_object_row(self.broker, 'test1', self.ts())
+        info = self.broker.get_info()
+        self.assertEqual(0, info['bytes_in_parts'])
+        self.assertEqual(0, info['bytes_in_manifests'])
+        self.assertEqual(0, info['reported_bytes_in_parts'])
+        self.assertEqual(0, info['reported_bytes_in_manifests'])
+
+        ts_reported = self.ts().internal
+        self.broker.reported(ts_reported, '0', 1, 123, 0, 0)
+        self.assert_pre_migration(self.broker)
+
+        info = self.broker.get_info()
+        self.assertEqual(ts_reported, info['reported_put_timestamp'])
+        self.assertEqual(1, info['reported_object_count'])
+        self.assertEqual(123, info['reported_bytes_used'])
+        self.assertEqual(0, info['reported_bytes_in_parts'])
+        self.assertEqual(0, info['reported_bytes_in_manifests'])
+
+    def test_reported_after_migration(self):
+        self.broker.put_object('test2', self.ts().internal, 456, 'text/plain',
+                               'cbac50c175793513fa3c581551c876ab',
+                               storage_policy_index=0, manifest_size=7)
+        # commit_puts will trigger migration
+        self.broker._commit_puts_stale_ok()
+        self.assert_migrated(self.broker)
+
+        ts_reported = self.ts().internal
+        self.broker.reported(ts_reported, '0', 1, 456, 456, 7)
+        info = self.broker.get_info()
+        self.assertEqual(456, info['reported_bytes_in_parts'])
+        self.assertEqual(7, info['reported_bytes_in_manifests'])
+        # ... and the container is now considered up to date
+        self.assertEqual(info['bytes_in_parts'],
+                         info['reported_bytes_in_parts'])
+        self.assertEqual(info['bytes_in_manifests'],
+                         info['reported_bytes_in_manifests'])
+
     def test_migration_without_policy_stat_table(self):
         # a db old enough to have no policy_stat table has no triggers or
         # view to patch up either; _migrate_add_storage_policy creates them
@@ -7740,6 +7819,82 @@ class TestContainerBrokerBeforeManifestSize(TestContainerBroker):
         self.assert_column_in_table(self.broker, 'manifest_size', 'object')
         self.assert_column_in_table(self.broker, 'bytes_in_parts',
                                     'policy_stat')
+
+    def assert_reported_columns(self, broker, table):
+        self.assert_column_in_table(broker, 'reported_bytes_in_parts', table)
+        self.assert_column_in_table(broker, 'reported_bytes_in_manifests',
+                                    table)
+
+    def test_migration_with_up_to_date_policy_stat_adds_reported_columns(self):
+        # policy_stat is already migrated, but container_info is not
+        with self.broker.get() as conn:
+            conn.executescript('''
+                DROP TRIGGER object_insert_policy_stat;
+                DROP TRIGGER object_delete_policy_stat;
+                DROP TRIGGER container_stat_update;
+                DROP VIEW container_stat;
+                DROP TABLE policy_stat;
+            ''')
+            conn.executescript(POLICY_STAT_TABLE_CREATE +
+                               POLICY_STAT_TRIGGER_SCRIPT)
+            conn.execute('INSERT INTO policy_stat (storage_policy_index) '
+                         'VALUES (0)')
+            conn.executescript('''
+                CREATE VIEW container_stat AS SELECT ci.account,
+                    ci.container, ci.created_at, ci.put_timestamp,
+                    ci.delete_timestamp, ci.reported_put_timestamp,
+                    ci.reported_delete_timestamp, ci.reported_object_count,
+                    ci.reported_bytes_used, ci.hash, ci.id, ci.status,
+                    ci.status_changed_at, ci.metadata,
+                    ci.x_container_sync_point1, ci.x_container_sync_point2,
+                    ci.reconciler_sync_point, ci.storage_policy_index,
+                    p.object_count, p.bytes_used
+                FROM container_info ci, policy_stat p
+                WHERE p.storage_policy_index = ci.storage_policy_index;
+            ''')
+            self.assert_column_not_in_table(
+                self.broker, 'reported_bytes_in_parts', 'container_info')
+            self.broker._migrate_add_object_manifest_size(conn)
+        self.assert_migrated(self.broker)
+        self.assert_reported_columns(self.broker, 'container_info')
+        self.assert_reported_columns(self.broker, 'container_stat')
+
+    def test_migration_with_up_to_date_container_info(self):
+        # container_info already has the reported columns, but the view does
+        # not expose them and policy_stat has not been migrated
+        with self.broker.get() as conn:
+            conn.executescript('''
+                ALTER TABLE container_info
+                ADD COLUMN reported_bytes_in_parts INTEGER DEFAULT 0;
+                ALTER TABLE container_info
+                ADD COLUMN reported_bytes_in_manifests INTEGER DEFAULT 0;
+            ''')
+        self.assert_pre_migration(self.broker)
+        self.assert_column_not_in_table(
+            self.broker, 'reported_bytes_in_parts', 'container_stat')
+        with self.broker.get() as conn:
+            self.broker._migrate_add_object_manifest_size(conn)
+        self.assert_migrated(self.broker)
+        self.assert_reported_columns(self.broker, 'container_info')
+        # the view was recreated so that it exposes the existing columns
+        self.assert_reported_columns(self.broker, 'container_stat')
+
+    def test_migration_with_container_stat_table_adds_reported_columns(self):
+        # the container_stat table is left alone, but the reported columns
+        # are still added to container_info
+        with self.broker.get() as conn:
+            conn.executescript('''
+                DROP TRIGGER container_stat_update;
+                DROP VIEW container_stat;
+                CREATE TABLE container_stat (account TEXT, container TEXT);
+            ''')
+            self.broker._migrate_add_object_manifest_size(conn)
+            self.assertEqual(
+                'table',
+                self.broker._get_schema_object_type(conn, 'container_stat'))
+        self.assert_reported_columns(self.broker, 'container_info')
+        self.assert_column_not_in_table(
+            self.broker, 'reported_bytes_in_parts', 'container_stat')
 
     def test_list_objects_iter_table_migration(self):
         ts_put = self.ts()

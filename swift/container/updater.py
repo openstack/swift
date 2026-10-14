@@ -255,17 +255,22 @@ class ContainerUpdater(Daemon):
             # The sharder should get these stats to the root container,
             # and the root's updater will get them to the right account.
             info['object_count'] = info['bytes_used'] = 0
+            info['bytes_in_parts'] = info['bytes_in_manifests'] = 0
 
-        if info['put_timestamp'] > info['reported_put_timestamp'] or \
-                info['delete_timestamp'] > info['reported_delete_timestamp'] \
-                or info['object_count'] != info['reported_object_count'] or \
-                info['bytes_used'] != info['reported_bytes_used']:
+        reported_keys = ('object_count', 'bytes_used', 'bytes_in_parts',
+                         'bytes_in_manifests')
+        if (info['put_timestamp'] > info['reported_put_timestamp']
+                or info['delete_timestamp'] > info['reported_delete_timestamp']
+                or any(info[key] != info['reported_' + key]
+                       for key in reported_keys)):
             container = '/%s/%s' % (info['account'], info['container'])
             part, nodes = self.get_account_ring().get_nodes(info['account'])
             events = [spawn(self.container_report, node, part, container,
                             info['put_timestamp'], info['delete_timestamp'],
                             info['object_count'], info['bytes_used'],
-                            info['storage_policy_index'])
+                            info['storage_policy_index'],
+                            info['bytes_in_parts'],
+                            info['bytes_in_manifests'])
                       for node in nodes]
             successes = 0
             stub404s = 0
@@ -283,7 +288,8 @@ class ContainerUpdater(Daemon):
                     {'container': container, 'dbfile': dbfile})
                 broker.reported(info['put_timestamp'],
                                 info['delete_timestamp'], info['object_count'],
-                                info['bytes_used'])
+                                info['bytes_used'], info['bytes_in_parts'],
+                                info['bytes_in_manifests'])
             elif stub404s == len(events):
                 self.logger.increment('failures')
                 self.failures += 1
@@ -312,7 +318,8 @@ class ContainerUpdater(Daemon):
 
     def container_report(self, node, part, container, put_timestamp,
                          delete_timestamp, count, bytes,
-                         storage_policy_index):
+                         storage_policy_index, bytes_in_parts,
+                         bytes_in_manifests):
         """
         Report container info to an account server.
 
@@ -324,6 +331,9 @@ class ContainerUpdater(Daemon):
         :param count: object count in the container
         :param bytes: bytes used in the container
         :param storage_policy_index: the policy index for the container
+        :param bytes_in_parts: bytes stored in mpu parts in the container
+        :param bytes_in_manifests: bytes stored in mpu manifests in the
+            container
         """
         with ConnectionTimeout(self.conn_timeout):
             try:
@@ -332,6 +342,8 @@ class ContainerUpdater(Daemon):
                     'X-Delete-Timestamp': delete_timestamp,
                     'X-Object-Count': count,
                     'X-Bytes-Used': bytes,
+                    'X-Bytes-In-Parts': bytes_in_parts,
+                    'X-Bytes-In-Manifests': bytes_in_manifests,
                     'X-Account-Override-Deleted': 'yes',
                     'X-Backend-Storage-Policy-Index': storage_policy_index,
                     'user-agent': self.user_agent}

@@ -247,6 +247,8 @@ class TestContainerUpdater(BaseUnitTestCase):
                     self.assertIn(b'x-delete-timestamp', headers)
                     self.assertIn(b'x-object-count', headers)
                     self.assertIn(b'x-bytes-used', headers)
+                    self.assertIn(b'x-bytes-in-parts', headers)
+                    self.assertIn(b'x-bytes-in-manifests', headers)
             except BaseException as err:
                 import traceback
                 traceback.print_exc()
@@ -276,6 +278,131 @@ class TestContainerUpdater(BaseUnitTestCase):
         self.assertEqual(info['bytes_used'], 3)
         self.assertEqual(info['reported_object_count'], 1)
         self.assertEqual(info['reported_bytes_used'], 3)
+
+    def _capture_account_update(self, cu, expected_path=b'/sda1/0/a/c'):
+        # run the updater against a stub account server and return the headers
+        # of the account update that it sends
+        captured = []
+
+        def accept(sock, addr):
+            try:
+                with Timeout(3):
+                    inc = sock.makefile('rb')
+                    out = sock.makefile('wb')
+                    out.write(b'HTTP/1.1 201 OK\r\nContent-Length: 0\r\n\r\n')
+                    out.flush()
+                    self.assertEqual(
+                        inc.readline(),
+                        b'PUT ' + expected_path + b' HTTP/1.1\r\n')
+                    headers = {}
+                    line = inc.readline()
+                    while line and line != b'\r\n':
+                        headers[line.split(b':')[0].lower()] = \
+                            line.split(b':')[1].strip()
+                        line = inc.readline()
+                    captured.append(headers)
+            except BaseException as err:
+                import traceback
+                traceback.print_exc()
+                return err
+            return None
+
+        bindsock = listen_zero()
+
+        def spawn_accepts():
+            events = []
+            for _junk in range(2):
+                sock, addr = bindsock.accept()
+                events.append(spawn(accept, sock, addr))
+            return events
+
+        spawned = spawn(spawn_accepts)
+        for dev in cu.get_account_ring().devs:
+            if dev is not None:
+                dev['replication_port'] = bindsock.getsockname()[1]
+        cu.run_once()
+        with Timeout(5):
+            for event in spawned.wait():
+                err = event.wait()
+                if err:
+                    raise err
+        self.assertTrue(captured)
+        return captured[0]
+
+    def _make_container_broker(self, account='a', container='c'):
+        containers_dir = os.path.join(self.sda1, DATADIR)
+        subdir = os.path.join(containers_dir, 'subdir')
+        os.makedirs(subdir, exist_ok=True)
+        cb = ContainerBroker(os.path.join(subdir, 'hash.db'), account=account,
+                             container=container)
+        cb.initialize(self.ts().internal, 0)
+        return cb
+
+    def test_run_once_reports_mpu_stats(self):
+        cu = self._get_container_updater()
+        cb = self._make_container_broker()
+        cb.put_object('o', self.ts().internal, 3, 'text/plain',
+                      '68b329da9893e34099c7d8ad5cb9c940')
+        cb.put_object('mpu', self.ts().internal, 400, 'text/plain',
+                      'cbac50c175793513fa3c581551c876ab', manifest_size=7)
+        info = cb.get_info()
+        self.assertEqual(403, info['bytes_used'])
+        self.assertEqual(400, info['bytes_in_parts'])
+        self.assertEqual(7, info['bytes_in_manifests'])
+
+        headers = self._capture_account_update(cu)
+        self.assertEqual(b'2', headers[b'x-object-count'])
+        self.assertEqual(b'403', headers[b'x-bytes-used'])
+        self.assertEqual(b'400', headers[b'x-bytes-in-parts'])
+        self.assertEqual(b'7', headers[b'x-bytes-in-manifests'])
+
+        info = cb.get_info()
+        self.assertEqual(400, info['reported_bytes_in_parts'])
+        self.assertEqual(7, info['reported_bytes_in_manifests'])
+
+        # nothing has changed, so nothing more is reported
+        cu.run_once()
+        self.assertEqual(1, cu.no_changes)
+
+    def test_run_once_reports_mpu_stats_changed(self):
+        # a change to only the manifest/part split must still be reported
+        cu = self._get_container_updater()
+        cb = self._make_container_broker()
+        cb.put_object('mpu', self.ts().internal, 400, 'text/plain',
+                      'cbac50c175793513fa3c581551c876ab', manifest_size=7)
+        headers = self._capture_account_update(cu)
+        self.assertEqual(b'7', headers[b'x-bytes-in-manifests'])
+
+        # replace the mpu with one of the same total part size but a
+        # different manifest size: bytes_used is unchanged
+        cb.put_object('mpu', self.ts().internal, 400, 'text/plain',
+                      'cbac50c175793513fa3c581551c876ab', manifest_size=11)
+        info = cb.get_info()
+        self.assertEqual(info['bytes_used'], info['reported_bytes_used'])
+        self.assertEqual(info['object_count'], info['reported_object_count'])
+        self.assertEqual(11, info['bytes_in_manifests'])
+
+        headers = self._capture_account_update(cu)
+        self.assertEqual(b'11', headers[b'x-bytes-in-manifests'])
+
+    def test_shard_container_does_not_report_mpu_stats(self):
+        # shards must not double-up the account stats
+        cu = self._get_container_updater()
+        cb = self._make_container_broker(account='.shards_a', container='c')
+        cb.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        self.assertFalse(cb.is_root_container())
+        cb.put_object('mpu', self.ts().internal, 400, 'text/plain',
+                      'cbac50c175793513fa3c581551c876ab', manifest_size=7)
+        info = cb.get_info()
+        self.assertEqual(400, info['bytes_in_parts'])
+        self.assertEqual(7, info['bytes_in_manifests'])
+
+        headers = self._capture_account_update(
+            cu, expected_path=b'/sda1/2/.shards_a/c')
+        self.assertEqual(b'0', headers[b'x-object-count'])
+        self.assertEqual(b'0', headers[b'x-bytes-used'])
+        self.assertEqual(b'0', headers[b'x-bytes-in-parts'])
+        self.assertEqual(b'0', headers[b'x-bytes-in-manifests'])
 
     @mock.patch('os.listdir')
     def test_listdir_with_exception(self, mock_listdir):
@@ -377,7 +504,7 @@ class TestContainerUpdater(BaseUnitTestCase):
         cb.put_object('o', self.ts().internal, 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
         # Fake us having already reported *bad* stats under swift 2.18.0
-        cb.reported('0', '0', 1, 3)
+        cb.reported('0', '0', 1, 3, 0, 0)
 
         # Should fail with a bunch of connection-refused
         cu.run_once()
@@ -468,7 +595,7 @@ class TestContainerUpdater(BaseUnitTestCase):
         cb.put_object('o', self.ts().internal, 3, 'text/plain',
                       '68b329da9893e34099c7d8ad5cb9c940')
         # Fake us having already reported *bad* stats under swift 2.18.0
-        cb.reported('0', '0', 1, 3)
+        cb.reported('0', '0', 1, 3, 0, 0)
 
         # Should fail with a bunch of connection-refused
         cu.run_once()
