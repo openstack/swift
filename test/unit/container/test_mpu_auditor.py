@@ -23,12 +23,10 @@ from tempfile import mkdtemp
 from unittest import mock
 
 from swift.common.internal_client import InternalClient
-from swift.common.middleware.mpu import MPU_DELETED_MARKER_SUFFIX, \
-    MPU_MARKER_CONTENT_TYPE, MPU_SESSION_CREATED_CONTENT_TYPE, \
+from swift.common.middleware.mpu import MPU_SESSION_CREATED_CONTENT_TYPE, \
     MPU_SESSION_COMPLETED_CONTENT_TYPE, MPU_SESSION_ABORTED_CONTENT_TYPE, \
     MPU_SESSION_COMPLETING_CONTENT_TYPE, normalize_part_number, MPUItem, \
     make_parts_container_name, make_sessions_container_name
-from swift.common.middleware.s3api.utils import unique_id
 from swift.common.middleware.versioned_writes.object_versioning import \
     build_versions_object_name
 from swift.common.object_ref import ObjectRef, UploadId
@@ -37,7 +35,7 @@ from swift.common.swob import Request, HTTPOk, HTTPNoContent, \
     HTTPNotFound, HTTPAccepted, HTTPServerError, wsgi_quote, \
     HTTPInternalServerError
 from swift.common.utils import md5, Timestamp, decode_timestamps, \
-    encode_timestamps, MD5_OF_EMPTY_STRING, param_str_from_dict, quote
+    encode_timestamps, param_str_from_dict, quote
 from swift.container.backend import ContainerBroker
 from swift.container.mpu_auditor import MpuAuditorDispatcher, \
     yield_item_batches, BaseMpuAuditor, MpuAuditorConfig
@@ -1275,85 +1273,3 @@ class TestMpuAuditorSessions(BaseTestMpuAuditor):
         self.assertEqual(expected_calls, fake_swift.calls)
         # row is not updated until the object server forwards DELETE update
         self._check_broker_rows([session])
-
-
-@unittest.skip
-class TestMpuAuditorSLO(BaseTestMpuAuditor):
-    user_container = 'c'
-    audit_container = user_container + '+segments'
-
-    def _create_upload_parts(self, num_parts):
-        ts = next(self.ts_iter)
-        upload_id = unique_id()
-        upload = '%s/%s' % (self.user_obj_name, upload_id)
-        parts = [{'name': '%s/%d' % (upload, i),
-                  'created_at': ts.normal,
-                  'content_type': 'text/plain',
-                  'etag': 'etag_1',
-                  'size': 1024,
-                  } for i in range(num_parts)]
-        return upload, parts
-
-    def test(self):
-        upload_1, parts_1 = self._create_upload_parts(3)
-        upload_2, parts_2 = self._create_upload_parts(2)
-        marker_name = '%s/%s' % (upload_1, MPU_DELETED_MARKER_SUFFIX)
-        marker = self._create_db_item(marker_name,
-                                      next(self.ts_iter),
-                                      ctype=MPU_MARKER_CONTENT_TYPE,
-                                      etag=MD5_OF_EMPTY_STRING,
-                                      state=2)
-        # NB: not all parts are inserted into DB yet
-        items = parts_1[:2] + parts_2 + [marker]
-        self.put_objects(items)
-        rows = self.broker.list_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in items]),
-                         sorted([o['name'] for o in rows]))
-
-        part_paths = ['/v1/a/%s/%s' % (self.audit_container, part['name'])
-                      for part in parts_1]
-        registered_calls = [
-            ('DELETE', part_path, HTTPNoContent, {})
-            for part_path in part_paths]
-        marker_path = '/v1/a/%s/%s' % (self.audit_container, marker['name'])
-        registered_calls.append(('DELETE', marker_path, HTTPNoContent, {}))
-        fake_swift = FakeSwift()
-        for call in registered_calls:
-            fake_swift.register(*call)
-        fake_ic = InternalClient(None, 'test-ic', 1, app=fake_swift)
-
-        with mock.patch('swift.container.mpu_auditor.InternalClient',
-                        return_value=fake_ic):
-            auditor = MpuAuditorDispatcher({}, self.logger)
-        auditor.audit(self.broker)
-
-        expected_calls = [call[:2] for call in registered_calls
-                          if call[1] != part_paths[2]]
-        self.assertEqual(expected_calls, fake_swift.calls)
-
-        rows = self.broker.get_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in items]),
-                         sorted([row['name'] for row in rows]))
-        rows = self.broker.get_objects(include_deleted=True)
-        self.assertEqual([], rows)
-
-        # remove deleted object rows and add another orphaned upload part to
-        # the DB...
-        self.delete_objects(parts_1[:2] + [marker])
-        self.put_objects(parts_1[2:])
-        rows = self.broker.get_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in parts_1[2:] + parts_2]),
-                         sorted([row['name'] for row in rows]))
-
-        fake_swift.clear_calls()
-        with mock.patch('swift.container.mpu_auditor.InternalClient',
-                        return_value=fake_ic):
-            auditor = MpuAuditorDispatcher({}, self.logger)
-        auditor.audit(self.broker)
-
-        expected_calls = [registered_calls[2][:2]]
-        self.assertEqual(expected_calls, fake_swift.calls)
-        rows = self.broker.get_objects(include_deleted=False)
-        self.assertEqual(sorted([o['name'] for o in parts_1[2:] + parts_2]),
-                         sorted([row['name'] for row in rows]))
-        # 3 rows deleted, 1 row added

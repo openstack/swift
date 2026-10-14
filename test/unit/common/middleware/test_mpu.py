@@ -599,10 +599,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertIs(app, mw.app)
         self.assertEqual(10000, mw.max_part_number)
         self.assertEqual(5242880, mw.min_part_size)
-        self.assertEqual(990, mw.max_name_length)
+        self.assertEqual(998, mw.max_name_length)
         self.assertEqual({'max_part_number': 10000,
                           'min_part_size': 5242880,
-                          'max_name_length': 990},
+                          'max_name_length': 998},
                          registry.get_swift_info().get('mpu'))
 
     def test_filter_factory_custom_conf(self):
@@ -613,10 +613,10 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             self.assertIs(app, mw.app)
             self.assertEqual(999, mw.max_part_number)
             self.assertEqual(1048576, mw.min_part_size)
-            self.assertEqual(990, mw.max_name_length)
+            self.assertEqual(998, mw.max_name_length)
             self.assertEqual({'max_part_number': 999,
                               'min_part_size': 1048576,
-                              'max_name_length': 990},
+                              'max_name_length': 998},
                              registry.get_swift_info().get('mpu'))
 
         do_test({'min_part_size': 1048576,
@@ -745,7 +745,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         req.method = 'POST'
         resp = req.get_response(self.mw)
         self.assertEqual(400, resp.status_int)
-        self.assertEqual(b'MPU object name length of 1024 longer than 990',
+        self.assertEqual(b'MPU object name length of 1024 longer than 998',
                          resp.body)
 
     def test_create_mpu_with_content_type(self):

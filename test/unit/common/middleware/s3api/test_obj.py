@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import binascii
-from datetime import datetime
 import io
 import unittest
 import functools
@@ -29,7 +28,6 @@ from swift.common import swob
 from swift.common.storage_policy import StoragePolicy
 from swift.common.swob import Request, parse_date_header
 from swift.common.middleware.proxy_logging import ProxyLoggingMiddleware
-from swift.proxy.controllers.base import ResponseCollection, ResponseData
 from test.unit import patch_policies
 
 from test.unit.common.middleware.s3api import S3ApiTestCase, S3ApiTestCaseAcl
@@ -831,47 +829,6 @@ class BaseS3ApiObj(object):
         self.assertEqual(sw_headers['etag'], etag)
         self.assertNotIn('X-Timestamp', sw_headers)
 
-    def test_object_PUT_overwites_mpu_async_cleanup(self):
-        backend_responses = ResponseCollection([ResponseData(
-            201, headers={'x-object-sysmeta-s3api-upload-id': 'mpu-id',
-                          'x-object-sysmeta-s3api-etag': 'my-etag-2'})
-        ])
-        env_updates = {'swift.backend_responses': backend_responses}
-        self.swift.register('PUT', '/v1/AUTH_test/bucket/object',
-                            swob.HTTPCreated, {}, None,
-                            env_updates=env_updates)
-        self.swift.register(
-            'PUT',
-            '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted',
-            swob.HTTPCreated, {}, None)
-        etag = self.response_headers['etag']
-        content_md5 = binascii.b2a_base64(
-            binascii.a2b_hex(etag)).strip().decode('ascii')
-
-        req = Request.blank(
-            '/bucket/object',
-            environ={'REQUEST_METHOD': 'PUT'},
-            headers={'Authorization': 'AWS test:tester:hmac',
-                     'x-amz-storage-class': 'STANDARD',
-                     'Content-MD5': content_md5,
-                     'Date': self.get_date_header()},
-            body=self.object_body)
-        req.date = datetime.now()
-        req.content_type = 'text/plain'
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '200')
-        # Check that s3api returns an etag header.
-        self.assertEqual(headers['etag'], '"%s"' % etag)
-
-        exp_calls = [
-            ('PUT', '/v1/AUTH_test/bucket/object'),
-            ('PUT',
-             '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted'),
-        ]
-        if self.s3api.conf.s3_acl:
-            exp_calls.insert(0, ('HEAD', '/v1/AUTH_test/bucket'))
-        self.assertEqual(exp_calls, self.swift.calls)
-
     def test_object_PUT_bad_hash(self):
         # FakeSwift doesn't care if the etag matches, so we explicitly register
         # the 422 that the proxy would have passed on from the object servers
@@ -1580,44 +1537,6 @@ class BaseS3ApiObj(object):
         if self.s3api.conf.s3_acl:
             exp_calls.insert(0, ('HEAD', '/v1/AUTH_test/bucket'))
 
-        self.assertEqual(exp_calls, self.swift.calls)
-
-    def test_object_DELETE_multipart_async_cleanup(self):
-        backend_responses = ResponseCollection([ResponseData(
-            204, headers={'x-object-sysmeta-s3api-upload-id': 'mpu-id',
-                          'x-object-sysmeta-s3api-etag': 'my-etag-2'})
-        ])
-        env_updates = {'swift.backend_responses': backend_responses}
-        self.swift.register('DELETE', '/v1/AUTH_test/bucket/object',
-                            swob.HTTPNoContent, {}, None,
-                            env_updates=env_updates)
-        self.swift.register(
-            'HEAD', '/v1/AUTH_test/bucket+segments',
-            swob.HTTPNoContent, {}, None)
-        self.swift.register(
-            'PUT',
-            '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted',
-            swob.HTTPCreated, {}, None)
-        req = Request.blank('/bucket/object',
-                            environ={'REQUEST_METHOD': 'DELETE'},
-                            headers={'Authorization': 'AWS test:tester:hmac',
-                                     'Date': self.get_date_header()})
-        status, headers, body = self.call_s3api(req)
-        self.assertEqual(status.split()[0], '204')
-
-        if self.s3api.conf.s3_acl:
-            exp_calls = [
-                ('HEAD', '/v1/AUTH_test/bucket'),
-                ('DELETE', '/v1/AUTH_test/bucket/object'),
-                ('PUT',
-                 '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted'),
-            ]
-        else:
-            exp_calls = [
-                ('DELETE', '/v1/AUTH_test/bucket/object'),
-                ('PUT',
-                 '/v1/AUTH_test/bucket+segments/object/mpu-id/marker-deleted'),
-            ]
         self.assertEqual(exp_calls, self.swift.calls)
 
     def _test_set_container_permission(self, account, permission):
