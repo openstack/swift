@@ -108,7 +108,6 @@ class TestCRC32(unittest.TestCase):
     def test_zlib(self):
         self.check_crc_func(zlib.crc32)
 
-    @unittest.skipIf(checksum.crc32_anycrc is None, 'No anycrc CRC32')
     def test_anycrc(self):
         self.check_crc_func(checksum.crc32_anycrc)
 
@@ -136,15 +135,6 @@ class TestCRC32(unittest.TestCase):
         self.assertIn('Using crc32_anycrc implementation for CRC32.',
                       self.logger.get_lines_for_level('info'))
 
-    def test_falls_back_to_zlib(self):
-        with mock.patch.object(checksum, 'crc32_isal', None), \
-                mock.patch.object(checksum, 'crc32_anycrc', None):
-            self.assertIs(zlib.crc32, checksum._select_crc32_impl())
-            self.assertIs(zlib.crc32, checksum.crc32().crc_func)
-            checksum.log_selected_implementation(self.logger)
-        self.assertIn('Using zlib.crc32 implementation for CRC32.',
-                      self.logger.get_lines_for_level('info'))
-
 
 # If you're curious about the 0xe3069283, see "check" at
 # https://reveng.sourceforge.io/crc-catalogue/17plus.htm#crc.cat.crc-32-iscsi
@@ -155,7 +145,6 @@ class TestCRC32C(unittest.TestCase):
         partial = impl(b"12345")
         self.assertEqual(impl(b"6789", partial), 0xe3069283)
 
-    @unittest.skipIf(checksum.crc32c_anycrc is None, 'No anycrc CRC32C')
     def test_anycrc(self):
         self.check_crc_func(checksum.crc32c_anycrc)
         # Check preferences -- beats out reference, but not kernel or ISA-L
@@ -266,7 +255,6 @@ class TestCRC64NVME(unittest.TestCase):
         partial = impl(b"12345")
         self.assertEqual(impl(b"6789", partial), 0xae8b14860a799888)
 
-    @unittest.skipIf(checksum.crc64nvme_anycrc is None, 'No anycrc CRC64NVME')
     def test_anycrc(self):
         self.check_crc_func(checksum.crc64nvme_anycrc)
         if checksum.crc64nvme_isal is None:
