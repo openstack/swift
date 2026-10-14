@@ -28,12 +28,14 @@ from swift.common.utils import json, public, config_true_value, Timestamp, \
     cap_length
 from swift.common.registry import get_swift_info
 
+from swift.common.middleware.acl import clean_acl
 from swift.common.middleware.s3api.acl_handlers import BucketAclHandler
+from swift.common.middleware.s3api.acl_utils import handle_acl_header
 from swift.common.middleware.s3api.controllers.base import Controller
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     tostring, fromstring, XMLSyntaxError, DocumentInvalid
 from swift.common.middleware.s3api.s3response import \
-    HTTPOk, S3NotImplemented, InvalidArgument, \
+    HTTPOk, S3NotImplemented, InvalidArgument, InvalidRequest, \
     MalformedXML, InvalidLocationConstraint, NoSuchBucket, \
     BucketNotEmpty, VersionedBucketNotEmpty, InternalError, \
     ServiceUnavailable, NoSuchKey
@@ -423,11 +425,43 @@ class BucketController(Controller):
                 # s3api cannot support multiple regions currently.
                 raise InvalidLocationConstraint()
 
-        resp = req.get_response(self.app)
+        # BucketAclHandler.PUT sets the ACL when s3_acl is on
+        if 'HTTP_X_AMZ_ACL' in req.environ and not self.conf.s3_acl:
+            resp = self._create_bucket_and_set_acl(req)
+        else:
+            resp = req.get_response(self.app)
 
         resp.status = HTTP_OK
         resp.location = '/' + req.container_name
 
+        return resp
+
+    def _create_bucket_and_set_acl(self, req):
+        handle_acl_header(req)
+        acl_headers = {header: req.headers.pop(header)
+                       for header in ('X-Container-Read', 'X-Container-Write')
+                       if header in req.headers}
+
+        # a bad ACL must fail before the create
+        for header, value in acl_headers.items():
+            try:
+                clean_acl(header.lower(), value)
+            except ValueError as err:
+                raise InvalidRequest(msg=str(err))
+
+        # a bucket that exists raises BucketAlreadyOwnedByYou here
+        resp = req.get_response(self.app)
+
+        req.headers.update(acl_headers)
+
+        # The POST answer has no policy index. Keep the PUT index for the log.
+        policy_index = req.policy_index
+        try:
+            # FIXME: A failed POST leaves a new bucket with the default ACL.
+            # A retry does not repair it. The s3_acl path has the same fault.
+            req.get_response(self.app, 'POST', body=b'')
+        finally:
+            req.policy_index = policy_index
         return resp
 
     @public

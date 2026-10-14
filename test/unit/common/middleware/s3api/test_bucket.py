@@ -1691,6 +1691,84 @@ class TestS3ApiBucketNoACL(BaseS3ApiBucket, S3ApiTestCase):
         self.assertEqual(headers.get('X-Container-Read'), '.r:*,.rlistings')
         self.assertNotIn('X-Container-Sysmeta-S3api-Acl', headers)
 
+    def test_bucket_PUT_with_amz_acl_sets_acl_after_create(self):
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Acl': 'public-read'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(self.swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket'),
+            ('POST', '/v1/AUTH_test/bucket'),
+        ])
+        _, _, put_headers = self.swift.calls_with_headers[0]
+        self.assertNotIn('X-Container-Read', put_headers)
+        _, _, post_headers = self.swift.calls_with_headers[1]
+        self.assertEqual(post_headers.get('X-Container-Read'),
+                         '.r:*,.rlistings')
+
+    def test_bucket_PUT_with_amz_acl_keeps_existing_acl(self):
+        self.swift.register('PUT', '/v1/AUTH_test/bucket',
+                            swob.HTTPAccepted, {}, None)
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Acl': 'private'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '409')
+        self.assertEqual(self._get_error_code(body),
+                         'BucketAlreadyOwnedByYou')
+        self.assertNotIn('POST', [m for m, _ in self.swift.calls])
+        method, path, put_headers = self.swift.calls_with_headers[0]
+        self.assertEqual((method, path), ('PUT', '/v1/AUTH_test/bucket'))
+        self.assertNotIn('X-Container-Read', put_headers)
+        self.assertNotIn('X-Container-Write', put_headers)
+
+    def test_bucket_PUT_with_invalid_amz_acl(self):
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Acl': 'invalid'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body), 'InvalidArgument')
+        self.assertEqual(self.swift.calls, [])
+
+    def test_bucket_PUT_rejects_public_read_write_acl(self):
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Acl': 'public-read-write'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '400')
+        self.assertEqual(self._get_error_code(body), 'InvalidRequest')
+        self.assertIn(b'Referrers not allowed in write ACL', body)
+        self.assertEqual(self.swift.calls, [])
+
+    def test_bucket_PUT_with_private_acl_sets_both_acl_headers(self):
+        req = Request.blank('/bucket',
+                            environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header(),
+                                     'X-Amz-Acl': 'private'})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+        self.assertEqual(self.swift.calls, [
+            ('PUT', '/v1/AUTH_test/bucket'),
+            ('POST', '/v1/AUTH_test/bucket'),
+        ])
+        _, _, put_headers = self.swift.calls_with_headers[0]
+        self.assertNotIn('X-Container-Read', put_headers)
+        self.assertNotIn('X-Container-Write', put_headers)
+        _, _, post_headers = self.swift.calls_with_headers[1]
+        self.assertEqual(post_headers.get('X-Container-Read'), '.')
+        self.assertEqual(post_headers.get('X-Container-Write'), '.')
+
 
 class TestS3ApiBucketAcl(BaseS3ApiBucket, S3ApiTestCaseAcl):
     def test_bucket_PUT_with_canned_s3acl(self):
