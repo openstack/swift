@@ -1526,8 +1526,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         # the session timestamp's offset is preserved...
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw + 123)
-        exp_mpu_link = quote(
-            'c~mpu_parts/%s' % self.session_ref.serialize())
         manifest_put = self.app.call_list[-2]
         exp_systags = {
             'relic_id': quote(self.upload_id.serialize()),
@@ -1545,8 +1543,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 '%s; mpu_etag=%s; mpu_link=%s'
-                 % (exp_mpu_etag, exp_mpu_etag, exp_mpu_link),
+                 '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
              'X-Object-Sysmeta-Container-Update-Override-Size': '5242979',
              'X-Object-Sysmeta-Container-Update-Override-Manifest-Size':
                  str(len(actual_manifest_body)),
@@ -1638,8 +1635,6 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
             json.loads(actual_manifest_body))
         exp_put_ts = Timestamp(ts_session,
                                offset=ts_complete.raw - ts_session.raw)
-        exp_mpu_link = swob.wsgi_quote(
-            'c~mpu_parts/%s' % self.session_name)
         manifest_put = self.app.call_list[-2]
         exp_systags = {
             'relic_id': quote(self.upload_id.serialize()),
@@ -1657,8 +1652,7 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
              'X-Object-Meta-Foo': 'blah',
              'X-Object-Sysmeta-Allow-Reserved-Names': 'true',
              'X-Object-Sysmeta-Container-Update-Override-Etag':
-                 '%s; mpu_etag=%s; mpu_link=%s'
-                 % (exp_mpu_etag, exp_mpu_etag, exp_mpu_link),
+                 '%s; mpu_etag=%s' % (exp_mpu_etag, exp_mpu_etag),
              'X-Object-Sysmeta-Container-Update-Override-Size': '5242979',
              'X-Object-Sysmeta-Container-Update-Override-Systags':
                 param_str_from_dict(exp_systags),
@@ -2241,17 +2235,12 @@ class TestMPUMiddleware(BaseTestMPUMiddleware):
         self.assertEqual(expected, self.app.calls)
 
     def test_container_listing(self):
-        mpu_link = swob.wsgi_quote(
-            'c~mpu_parts/%s' % self.session_name_wsgi)
         listing = [
             # MPU
             {'name': 'a-mpu',
              'bytes': 10485760,  # SLO fixes this up from swift_bytes
-             'hash': '%s; '
-                     'other_mw_etag=banana; '
-                     'mpu_etag=my-mpu-etag; '
-                     'mpu_link=%s'
-                     % (MD5_OF_EMPTY_STRING, mpu_link),
+             'hash': '%s; other_mw_etag=banana; mpu_etag=my-mpu-etag'
+                     % MD5_OF_EMPTY_STRING,
              'content_type': 'application/test',
              'last_modified': '2024-09-10T14:16:00.579190',
              },

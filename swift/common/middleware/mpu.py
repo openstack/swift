@@ -1140,13 +1140,11 @@ class MPUSessionHandler(BaseMPUHandler):
         if 'If-None-Match' in self.req.headers:
             manifest_headers['If-None-Match'] = \
                 self.req.headers['If-None-Match']
-        # set the MPU etag override to be forwarded to the manifest container
-        part_prefix_path = quote(make_relative_path(
-            self.parts_container, self.session_ref.serialize()))
+        # set the MPU etag override to be forwarded to the manifest container;
+        # the default value may not be preserved, the param will be preserved.
         update_etag_override_header(
             manifest_headers, internal_manifest.mpu_etag,
-            [('mpu_etag', internal_manifest.mpu_etag),
-             ('mpu_link', part_prefix_path)])
+            [('mpu_etag', internal_manifest.mpu_etag)])
         manifest_req = self.make_subrequest(
             path=make_path(self.account, self.container, self.obj),
             method='PUT',
@@ -1584,8 +1582,6 @@ class MPUContainerHandler(BaseMPUHandler):
             for k, v in params:
                 if k == 'mpu_etag':
                     mpu_etag = v
-                elif k == 'mpu_link':
-                    continue
                 else:
                     new_params.append((k, v))
 
