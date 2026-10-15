@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2013 OpenStack Foundation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -3014,7 +3013,7 @@ class TestSloGetOldManifests(TestSloGetManifests):
         # N.B. if the _setup_manifest helper is called from a class w/
         # modern_manifest_headers = True the fake sysmeta is calculated from
         # the manifests provided bytes; real modern swift would have rejected
-        # the PUT when the HEAD resp showed a size mis-match with sub-slo resp
+        # the PUT when the HEAD resp showed a size mismatch with sub-slo resp
         self._setup_manifest('abcd-alt', _abcd_alt_manifest,
                              container='gettest')
         # verify correct content-length when the sub-slo segment in the
@@ -5260,7 +5259,7 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
                          self.app.headers[0]['X-Backend-Etag-Is-At'])
 
     def test_manifest_get_if_match_mismatches_alternate_etag(self):
-        # mis-match alternate etag
+        # mismatch alternate etag
         req = Request.blank(
             '/v1/AUTH_test/c/manifest-alt?multipart-manifest=get',
             headers={'If-Match': self.manifest_alt_json_md5})
@@ -5331,7 +5330,7 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
         self.assertEqual(self.app.calls, expected_calls)
 
     def test_if_match_mismatches_alternate_etag_non_slo(self):
-        # mis-match alternate etag
+        # mismatch alternate etag
         req = Request.blank(
             '/v1/AUTH_test/c/alt_00',
             headers={'If-Match': md5hex(b'alt_00' * 5)})
@@ -5373,7 +5372,7 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             # and since the response includes modern sysmeta, slo trusts the
             # 412 w/o refetch
             self.assertEqual(status, '412 Precondition Failed')
-            # N.B. if the first repsonse had included a matching
+            # N.B. if the first response had included a matching
             # alt-object-etag in sysmeta we would have returned 200, see
             # test_if_match_matches_alternate_etag with "alt-etag-1"
             self.assertEqual('"%s"' % self.manifest_alt_slo_etag,
@@ -5426,7 +5425,7 @@ class TestSloConditionalGetOldManifest(SloGETorHEADTestCase):
             # and since the response includes modern sysmeta, slo trusts the
             # 412 w/o refetch
             self.assertEqual(status, '412 Precondition Failed')
-            # N.B. the first repsonse included an alt-etag in sysmeta (i.e.
+            # N.B. the first response included an alt-etag in sysmeta (i.e.
             # "alt-etag-1"), it just doesn't match either - see
             # test_if_match_mismatches_alternate_etag
             self.assertEqual('"%s"' % self.manifest_alt_slo_etag,

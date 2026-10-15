@@ -351,7 +351,6 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.exceptions import ListingIterError, SegmentError
 from swift.common.middleware.listing_formats import \
     MAX_CONTAINER_LISTING_CONTENT_LENGTH
-from swift.common.middleware.symlink import ALLOW_RESERVED_NAMES
 from swift.common.swob import Request, HTTPBadRequest, HTTPServerError, \
     HTTPMethodNotAllowed, HTTPRequestEntityTooLarge, HTTPLengthRequired, \
     HTTPOk, HTTPPreconditionFailed, HTTPException, HTTPNotFound, \
@@ -649,8 +648,7 @@ class RespAttrs(object):
     :param slo_etag: the Etag of the SLO.
     :param slo_size: the size of the SLO.
     """
-    def __init__(self, is_slo, timestamp, manifest_etag, slo_etag, slo_size,
-                 is_reserved=False):
+    def __init__(self, is_slo, timestamp, manifest_etag, slo_etag, slo_size):
         self.is_slo = bool(is_slo)
         self.timestamp = Timestamp(timestamp or Timestamp.zero())
         # manifest_etag is unambiguous, but json_md5 is even more explicit
@@ -663,7 +661,6 @@ class RespAttrs(object):
         except (ValueError, TypeError):
             self.slo_size = -1
         self.is_legacy = not self._has_size_and_etag()
-        self.is_reserved = is_reserved
 
     def _has_size_and_etag(self):
         return self.slo_size >= 0 and self.slo_etag
@@ -676,7 +673,7 @@ class RespAttrs(object):
         :param response_headers: list of tuples from a object response
         :returns: an instance of RespAttrs to represent the response headers
         """
-        is_slo = is_reserved = False
+        is_slo = False
         timestamp = None
         found_etag = None
         slo_etag = None
@@ -693,11 +690,8 @@ class RespAttrs(object):
                 slo_etag = value
             elif header == SYSMETA_SLO_SIZE:
                 slo_size = value
-            elif header == ALLOW_RESERVED_NAMES:
-                is_reserved = config_true_value(value)
         manifest_etag = found_etag if is_slo else None
-        return cls(is_slo, timestamp, manifest_etag, slo_etag, slo_size,
-                   is_reserved)
+        return cls(is_slo, timestamp, manifest_etag, slo_etag, slo_size)
 
     def update_from_segments(self, segments):
         """
@@ -1077,8 +1071,7 @@ class SloGetContext(WSGIContext):
             else:
                 byteranges = calculate_byteranges(
                     req, segments, resp_attrs, part_num)
-                resp_iter = self._build_resp_iter(
-                    req, segments, resp_attrs, byteranges)
+                resp_iter = self._build_resp_iter(req, segments, byteranges)
         return self._return_response(req, start_response, resp_iter,
                                      replace_headers=headers)
 
@@ -1155,10 +1148,6 @@ class SloGetContext(WSGIContext):
         orig_path_info = req.path_info
         resp_iter = self._app_call(req.environ)
         resp_attrs = RespAttrs.from_headers(self._response_headers)
-
-        if resp_attrs.is_slo and resp_attrs.is_reserved and is_manifest_get:
-            raise HTTPBadRequest('multipart-manifest parameter not allowed')
-
         if resp_attrs.is_slo and not is_manifest_get:
             try:
                 # only validate part-number if the request is to an SLO
@@ -1237,7 +1226,7 @@ class SloGetContext(WSGIContext):
             raise HTTPServerError(msg)
         return segments
 
-    def _build_resp_iter(self, req, segments, resp_attrs, byteranges):
+    def _build_resp_iter(self, req, segments, byteranges):
         """
         Build a response iterable for a GET request.
 
@@ -1280,9 +1269,7 @@ class SloGetContext(WSGIContext):
             name=req.path, logger=self.slo.logger,
             ua_suffix="SLO MultipartGET",
             swift_source="SLO",
-            max_get_time=self.slo.max_get_time,
-            allow_reserved_names=resp_attrs.is_reserved
-        )
+            max_get_time=self.slo.max_get_time)
 
         try:
             segmented_iter.validate_first_segment()
@@ -1418,13 +1405,10 @@ class StaticLargeObject(object):
                                  str_to_wsgi(obj_name.lstrip('/'))])
             obj_path = wsgi_quote(obj_path)
 
-            headers = {}
-            for key in ('x-auth-token', 'x-backend-allow-reserved-names'):
-                headers[key] = req.headers.get(key)
             sub_req = make_subrequest(
                 req.environ, path=obj_path + '?',  # kill the query string
                 method='HEAD',
-                headers=headers,
+                headers={'x-auth-token': req.headers.get('x-auth-token')},
                 agent='%(orig)s SLO MultipartPUT', swift_source='SLO')
             return obj_name, sub_req.get_response(self)
 
@@ -1713,7 +1697,7 @@ class StaticLargeObject(object):
         new_env['QUERY_STRING'] = 'multipart-manifest=get'
         if 'version-id' in req.params:
             new_env['QUERY_STRING'] += \
-                '&version-id=' + quote(req.params['version-id'])
+                '&version-id=' + req.params['version-id']
         new_env['CONTENT_LENGTH'] = 0
         new_env['HTTP_USER_AGENT'] = \
             '%s MultipartDELETE' % new_env.get('HTTP_USER_AGENT')
