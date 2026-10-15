@@ -668,7 +668,7 @@ def with_tempdir(f):
     return wrapped
 
 
-def mock_execute(execute='eventlet.tpool.execute'):
+def mock_tpool_execute():
     """
     Decorator to bypass tpool.execute and execute the function in same thread
     to assist debugging.
@@ -676,12 +676,15 @@ def mock_execute(execute='eventlet.tpool.execute'):
     def executor(*ex_args, **ex_kwargs):
         return ex_args[0](*ex_args[1:], **ex_kwargs)
 
+    execute = 'swift.common.concurrency.tpool.execute'
+
     def _mock_execute(func):
         @functools.wraps(func)
         def wrapped(*args, **kwargs):
             with mocklib.patch(execute, executor):
                 return func(*args, **kwargs)
         return wrapped
+
     return _mock_execute
 
 
@@ -1397,7 +1400,7 @@ def fake_ec_node_response(node_frags, policy):
             req['headers']['X-Backend-Storage-Policy-Index'])
         if int(policy) != requested_policy:
             AssertionError(
-                "Requested polciy doesn't fit the fake response policy")
+                "Requested policy doesn't fit the fake response policy")
         if not node_map:
             _build_node_map(req, policy)
 

@@ -147,7 +147,7 @@ def _parse_add_command(round_index, command_index, command):
 
 def _parse_remove_command(round_index, command_index, command):
     if len(command) != 2:
-        raise ParseCommandError('remove commnd', round_index, command_index,
+        raise ParseCommandError('remove command', round_index, command_index,
                                 "expected array of length 2, but got %r" %
                                 (command,))
 

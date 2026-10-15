@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import collections
 import errno
 import json
@@ -2147,7 +2148,7 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
         cleaving_context = CleavingContext.load(broker)
         if not cleaving_context.misplaced_done:
             # ensure any misplaced objects in the source broker are moved; note
-            # that this invocation of _move_misplaced_objects is targetted at
+            # that this invocation of _move_misplaced_objects is targeted at
             # the *retiring* db.
             self.db_logger.debug(
                 broker,

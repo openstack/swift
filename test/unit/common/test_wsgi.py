@@ -1118,7 +1118,7 @@ class TestWSGI(unittest.TestCase):
             mock.call('logger', "STOPPING=1"),
         ])
         # run_wsgi() no longer calls drop_privileges() in the parent process,
-        # just clean_up_daemon_hygene()
+        # just clean_up_daemon_hygiene()
         self.assertEqual([], _d_privs.mock_calls)
         self.assertEqual([mock.call()], _c_hyg.mock_calls)
         self.assertEqual(0, logging.logThreads)  # fixed in our monkey_patch
@@ -1152,7 +1152,7 @@ class TestWSGI(unittest.TestCase):
                                                            socket=True,
                                                            select=True,
                                                            thread=True)
-        # run_wsgi() stops before calling clean_up_daemon_hygene() or
+        # run_wsgi() stops before calling clean_up_daemon_hygiene() or
         # creating sockets
         self.assertEqual([], _d_privs.mock_calls)
         self.assertEqual([], _c_hyg.mock_calls)

@@ -54,7 +54,7 @@ from unittest import mock
 from test.debug_logger import debug_logger
 from test.unit import (patch_policies, with_tempdir, mock_timestamp_now,
                        mock_normal_timestamp_now, BaseUnitTestCase,
-                       check_db_connections_get_closed, mock_execute)
+                       check_db_connections_get_closed, mock_tpool_execute)
 from test.unit.common import test_db
 
 
@@ -842,7 +842,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker.initialize(Timestamp('1').internal, 0)
         for i, obj_spec in enumerate(obj_specs):
             # with object12 before object2 and shuffled ts.internal we
-            # shouldn't be able to accidently rely on any implicit ordering
+            # shouldn't be able to accidentally rely on any implicit ordering
             obj_name = 'object%s' % i
             pidx = random.choice(policy_indexes)
             ts, is_deleted = obj_spec
@@ -3596,7 +3596,7 @@ class TestContainerBroker(test_db.TestDbBase):
     def test_newid(self, tempdir):
         # test DatabaseBroker.newid
         db_path = os.path.join(
-            tempdir, "d1234", 'contianers', 'part', 'suffix', 'hsh')
+            tempdir, "d1234", 'containers', 'part', 'suffix', 'hsh')
         os.makedirs(db_path)
         broker = ContainerBroker(os.path.join(db_path, 'my.db'),
                                  account='a', container='c')
@@ -3611,7 +3611,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(0, info['reported_bytes_in_parts'])
         self.assertEqual(0, info['reported_bytes_in_manifests'])
         # ends in the device name (from the path) unless it's an old
-        # container with just a uuid4 (tested in legecy broker
+        # container with just a uuid4 (tested in legacy broker
         # tests e.g *BeforeMetaData)
         if len(id) > 36:
             self.assertTrue(id.endswith('d1234'))
@@ -3659,7 +3659,7 @@ class TestContainerBroker(test_db.TestDbBase):
         broker2.merge_syncs(broker1.get_syncs())
         self.assertEqual(broker2.get_sync('12345'), 3)
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def test_merge_items(self):
         broker1 = ContainerBroker(self.get_db_path(), account='a',
                                   container='c')
@@ -3694,7 +3694,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(0, info['bytes_in_parts'])
         self.assertEqual(0, info['bytes_in_manifests'])
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def test_merge_items_with_manifest_size(self):
         self.broker.put_object('1mpu', self.ts().internal, 12345, 'text/plain',
                                'd41d8cd98f00b204e9800998ecf8427e',
@@ -4056,7 +4056,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(sorted(expected), items)
         self.assertEqual(exp_actions, actions)
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def _do_test_merge_items_version_overwrite_unversions_in_batch(self, obj):
         ts = [self.ts() for _ in range(6)]
         systags1 = 'relic_id=my-uid1'
@@ -4092,7 +4092,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self._do_test_merge_items_version_overwrite_unversions_in_batch(
             '\x00obj\x00version')
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def test_merge_items_version_overwrite_in_batch_unversions_in_db(self):
         ts = [self.ts() for _ in range(6)]
         systags1 = 'relic_id=my-uid1'
@@ -4128,7 +4128,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(sorted(expected), items)
         self.assertEqual(exp_actions, actions)
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def test_merge_items_version_overwrite_in_db_unversions_in_batch(self):
         ts = [self.ts() for _ in range(7)]
         systags1 = 'relic_id=my-uid1'
@@ -4164,7 +4164,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(sorted(expected), items)
         self.assertEqual(exp_actions, actions)
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def test_merge_items_version_overwrite_tombstone_in_batch(self):
         ts = [self.ts() for _ in range(6)]
         systags1 = 'relic_id=my-uid1'
@@ -4190,7 +4190,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(sorted(expected), items)
         self.assertEqual(exp_actions, actions)
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def test_merge_items_version_overwrite_tombstone_in_db(self):
         ts = [self.ts() for _ in range(6)]
         systags1 = 'relic_id=my-uid1'
@@ -4219,7 +4219,7 @@ class TestContainerBroker(test_db.TestDbBase):
         self.assertEqual(sorted(expected), items)
         self.assertEqual(exp_actions, actions)
 
-    @mock_execute('swift.container.backend.tpool.execute')
+    @mock_tpool_execute()
     def test_merge_items_version_overwrite_version_in_batch(self):
         # version does not cause relic of another version
         ts = [self.ts() for _ in range(6)]

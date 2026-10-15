@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from collections import defaultdict
 
 from unittest import mock
@@ -1156,7 +1157,7 @@ class TestSsyncECReconstructorSyncJob(TestBaseSsyncEC):
         # First fragment to sync gets only one response for reconstructor to
         # rebuild with, and that response is for the tx_node frag index: it
         # should be quarantined, but after that the ssync session should still
-        # proceeed with rebuilding the second frag.
+        # proceed with rebuilding the second frag.
         lonely_frag_responses = [
             FakeResponse(i, self.obj_data, status=404)
             for i in range(self.policy.ec_ndata + self.policy.ec_nparity)]

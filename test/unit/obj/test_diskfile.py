@@ -14,7 +14,6 @@
 # limitations under the License.
 
 """Tests for swift.obj.diskfile"""
-
 import pickle
 import binascii
 import os
@@ -38,14 +37,14 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 import pyeclib.ec_iface
 
-from swift.common.concurrency import hubs, timeout, tpool, spawn, sleep
+from swift.common.concurrency import hubs, timeout, spawn, sleep
 from swift.obj.diskfile import update_auditor_status, EUCLEAN
 from test.debug_logger import debug_logger
 from test.unit import (mock as unit_mock, temptree, mock_check_drive,
                        patch_policies, make_timestamp_iter,
                        DEFAULT_TEST_EC_TYPE, requires_o_tmpfile_support_in_tmp,
                        encode_frag_archive_bodies, skip_if_no_xattrs,
-                       BaseUnitTestCase)
+                       BaseUnitTestCase, mock_tpool_execute)
 from swift.obj import diskfile
 from swift.common import utils
 from swift.common.base_storage_server import TimingBreakdown
@@ -1301,8 +1300,6 @@ class BaseDiskFileTestMixin(object):
                                 diskfile.get_tmp_dir(policy)))
             mkdirs(os.path.join(self.testdir, self.existing_device2,
                                 diskfile.get_tmp_dir(policy)))
-        self._orig_tpool_exc = tpool.execute
-        tpool.execute = lambda f, *args, **kwargs: f(*args, **kwargs)
         self.conf = dict(devices=self.testdir, mount_check='false',
                          keep_cache_size=2 * 1024, mb_per_sync=1)
         self.logger = debug_logger('test-' + self.__class__.__name__)
@@ -1311,7 +1308,6 @@ class BaseDiskFileTestMixin(object):
 
     def tearDown(self):
         rmtree(self.tmpdir, ignore_errors=True)
-        tpool.execute = self._orig_tpool_exc
 
     def _manager_mock(self, manager_attribute_name, df=None):
         mgr_cls = df._manager.__class__ if df else self.mgr_cls
@@ -1372,6 +1368,16 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         assert_invalid(-1.1)
         assert_invalid('-1.1')
         assert_invalid('auto')
+
+    def test_init_rejects_non_positive_disk_chunk_size(self):
+        # a disk_chunk_size of 0 read no bytes and then quarantined a
+        # healthy object, so refuse to start instead
+        with self.assertRaises(ValueError) as cm:
+            diskfile.DiskFileRouter({'disk_chunk_size': '0'}, self.logger)
+        self.assertIn('positive int', str(cm.exception))
+        with self.assertRaises(ValueError) as cm:
+            diskfile.DiskFileRouter({'disk_chunk_size': '-1'}, self.logger)
+        self.assertIn('positive int', str(cm.exception))
 
     def test_cleanup_uses_configured_reclaim_age(self):
         # verify that the reclaim_age used when cleaning up tombstones is
@@ -1945,7 +1951,7 @@ class DiskFileManagerMixin(BaseDiskFileTestMixin):
         self._check_quarantine_suffix(errno.ENODATA)
 
     def test_get_diskfile_from_hash_fs_corrupt_nested_euclean(self):
-        self._check_quarantine_suffix(errno.EUCLEAN)
+        self._check_quarantine_suffix(utils.EUCLEAN)
 
     def test_get_diskfile_from_hash_no_dir(self):
         self.df_mgr.get_dev_path = mock.MagicMock(return_value='/srv/dev/')
@@ -4615,6 +4621,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # can close again
             writer.close()
 
+    @mock_tpool_execute()
     def test_disk_file_concurrent_writes(self):
         def threadA(df, events, errors):
             try:
@@ -4663,6 +4670,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
         with df.open(), open(df._data_file, 'rb') as fp:
             self.assertEqual(b'dataB', fp.read())
 
+    @mock_tpool_execute()
     def test_disk_file_concurrent_marked_durable(self):
         ts = self.ts()
 
@@ -4710,6 +4718,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
                 self.assertTrue(df._data_file.endswith('#d.data'))
             self.assertEqual(b'dataA', fp.read())
 
+    @mock_tpool_execute()
     def test_disk_file_concurrent_delete(self):
         def threadA(df, events, errors):
             try:
@@ -5097,7 +5106,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             pass
 
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
-                                      'xyz', policy=POLICIES.legacy)
+                                      'xyz', policy=POLICIES.default)
         self.assertRaises(DiskFileQuarantined, df.open)
         self.assertTrue(os.path.exists(df._quarantined_dir))
 
@@ -5113,7 +5122,7 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             hashdir = df._datadir
             df = self.df_mgr.get_diskfile(
                 self.existing_device, '0', 'abc', '123', 'xyz',
-                policy=POLICIES.legacy)
+                policy=POLICIES.default)
             with mock.patch('os.listdir',
                             side_effect=OSError(eno, 'nope')):
                 self.assertRaises(DiskFileQuarantined, df.open)
@@ -5122,6 +5131,42 @@ class DiskFileMixin(BaseDiskFileTestMixin):
             # not have moved, as that could have many objects in it
             self.assertFalse(os.path.exists(hashdir))
             self.assertTrue(os.path.exists(os.path.dirname(hashdir)))
+
+    def test_quarantine_hashdir_not_listable_fallback_to_suffix(self):
+        for eno in (errno.ENODATA, EUCLEAN):
+            df, df_data = self._create_test_file(b'1234567890', account='abc',
+                                                 container='123',
+                                                 obj='xyz-%s' % eno)
+            hashdir = df._datadir
+            suffixdir = os.path.dirname(hashdir)
+            orig_listdir = os.listdir
+            orig_quarantine_dir_renamer = diskfile.quarantine_dir_renamer
+
+            def mock_listdir(path):
+                if path == hashdir:
+                    raise OSError(eno, 'nope')
+                return orig_listdir(path)
+
+            def mock_quarantine_dir_renamer(device_path, from_dir):
+                if from_dir == hashdir:
+                    raise OSError()
+                return orig_quarantine_dir_renamer(device_path, from_dir)
+
+            df = self.df_mgr.get_diskfile(
+                self.existing_device, '0', 'abc', '123', 'xyz-%s' % eno,
+                policy=POLICIES.default)
+            with mock.patch('os.listdir', side_effect=mock_listdir), \
+                    mock.patch('swift.obj.diskfile.BaseDiskFileManager.'
+                               'quarantine_dir_renamer',
+                               side_effect=mock_quarantine_dir_renamer):
+                self.assertRaises(DiskFileQuarantined, df.open)
+
+            self.assertFalse(os.path.exists(suffixdir))
+            quarantine_path = os.path.join(
+                df._device_path, 'quarantined', 'objects',
+                os.path.basename(suffixdir))
+            self.assertEqual(quarantine_path, df._quarantined_dir)
+            self.assertTrue(os.path.exists(quarantine_path))
 
     def test_create_prealloc(self):
         df = self.df_mgr.get_diskfile(self.existing_device, '0', 'abc', '123',
@@ -7467,7 +7512,7 @@ class TestECDiskFile(DiskFileMixin, BaseUnitTestCase):
     def test_reader_frag_check_does_not_quarantine_if_its_not_binary(self):
         # This may look weird but for super-safety, check the
         # ECDiskFileReader._frag_check doesn't quarantine when non-binary
-        # type chunk incomming (that would occurre only from coding bug)
+        # type chunk incoming (that would occur only from coding bug)
         policy = POLICIES.default
 
         df, df_data = self._create_test_file(b'x' * policy.ec_segment_size,
@@ -9923,11 +9968,11 @@ class TestSuffixHashes(BaseUnitTestCase):
                 {'000': 'fake', '001': 'fake'},  # modification
                 {'000': 'fake', '001': 'fake', '002': 'fake'},  # read
                 {'000': 'fake', '001': 'fake', '002': 'fake',
-                 '003': 'fake'},  # modifed
+                 '003': 'fake'},  # modified
                 {'000': 'fake', '001': 'fake', '002': 'fake',
                  '003': 'fake', '004': 'fake'},  # read
                 {'000': 'fake', '001': 'fake', '002': 'fake',
-                 '003': 'fake', '004': 'fake'},  # not modifed
+                 '003': 'fake', '004': 'fake'},  # not modified
             ])
 
 

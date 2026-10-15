@@ -31,7 +31,7 @@ accounted in the containers.
 
 The experience of running large scale clusters suggests that Swift does
 not have any particular bugs that trigger creation of dark data. So,
-this is an excercise in writing watchers, with a plausible function.
+this is an exercise in writing watchers, with a plausible function.
 
 When enabled, Dark Data watcher definitely drags down the cluster's overall
 performance. Of course, the load increase can be mitigated as usual,
@@ -39,7 +39,7 @@ but at the expense of the total time taken by the pass of auditor.
 
 Because the watcher only deems an object dark when all container
 servers agree, it will silently fail to detect anything if even one
-of container servers in the ring is down or unreacheable. This is
+of container servers in the ring is down or unreachable. This is
 done in the interest of operators who run with action=delete.
 
 If a container is sharded, there is a small edgecase where an object row could

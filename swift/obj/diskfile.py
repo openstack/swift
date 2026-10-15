@@ -23,7 +23,7 @@ an alternative backend for the object server must implement the three
 classes. An example alternative implementation can be found in the
 `mem_server.py` and `mem_diskfile.py` modules along size this one.
 
-The `DiskFileManager` is a reference implemenation specific class and is not
+The `DiskFileManager` is a reference implementation specific class and is not
 part of the backend API.
 
 The remaining methods in this module are considered implementation specific and
@@ -65,7 +65,8 @@ from swift.common.utils import mkdirs, Timestamp, \
     MD5_OF_EMPTY_STRING, link_fd_to_path, \
     O_TMPFILE, makedirs_count, replace_partition_in_path, remove_directory, \
     md5, is_file_older, non_negative_float, config_fallocate_value, \
-    fs_has_free_space, CooperativeIterator, EUCLEAN
+    fs_has_free_space, CooperativeIterator, EUCLEAN, \
+    config_positive_int_value
 from swift.common.splice import splice, tee
 from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
     DiskFileCollision, DiskFileNoSpace, DiskFileDeviceUnavailable, \
@@ -750,7 +751,8 @@ class BaseDiskFileManager(object):
     def __init__(self, conf, logger):
         self.logger = logger
         self.devices = conf.get('devices', '/srv/node')
-        self.disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
+        self.disk_chunk_size = config_positive_int_value(
+            conf.get('disk_chunk_size', 65536))
         self.keep_cache_size = int(conf.get('keep_cache_size', 5242880))
         self.bytes_per_sync = int(conf.get('mb_per_sync', 512)) * 1024 * 1024
         self.mount_check = config_true_value(conf.get('mount_check', 'true'))
@@ -1975,9 +1977,6 @@ class BaseDiskFileWriter(object):
         if self._tmppath:
             # It was a named temp file created by mkstemp()
             renamer(self._tmppath, target_path)
-            # If rename is successful, clear self._tmppath. This is done to
-            # avoid unnecessary os.unlink() of tempfile later. As renamer() has
-            # succeeded, tempfile would no longer exist at its original path.
             self._tmppath = None
         else:
             # It was an unnamed temp file created by open() with O_TMPFILE
@@ -2614,7 +2613,7 @@ class BaseDiskFile(object):
             exceptions, but is only required to raise `DiskFileNotExist` when
             the object representation does not exist.
 
-        :raises DiskFileCollision: on name mis-match with metadata
+        :raises DiskFileCollision: on name mismatch with metadata
         :raises DiskFileNotExist: if the object does not exist
         :raises DiskFileDeleted: if the object was previously deleted
         :raises DiskFileQuarantined: if while reading metadata of the file

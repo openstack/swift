@@ -34,7 +34,7 @@ from swift.common.utils import get_logger, whataremyips, storage_directory, \
     unlink_older_than, dump_recon_cache, rsync_module_interpolation, \
     parse_override_options, round_robin_iter, Everything, get_db_files, \
     parse_db_filename, quote, RateLimitedIterator, config_auto_int_value, \
-    listdir, unlink_paths_older_than
+    listdir, unlink_paths_older_than, node_to_string
 
 from swift.common import ring
 from swift.common.ring.utils import is_local_device
@@ -585,13 +585,40 @@ class Replicator(Daemon):
                 info['max_row'] - rinfo['max_row'] > self.per_diff):
             self.stats['remote_merge'] += 1
             self.logger.increment('remote_merges')
-            return self._rsync_db(broker, node, http, info['id'],
-                                  replicate_method='rsync_then_merge',
-                                  replicate_timeout=(info['count'] / 2000),
-                                  different_region=different_region)
-        # else send diffs over to the remote server
-        return self._usync_db(max(rinfo['point'], local_sync),
-                              broker, http, rinfo['id'], info['id'])
+            # rsync the whole db to the remote server and tell it to
+            # merge the missing rows from its own db into the rsynced one
+            method = 'rsync_then_merge'
+        else:
+            # send diffs over to the remote server
+            method = 'usync'
+
+        peer = node_to_string(node, True)
+        self.db_logger.info(
+            broker, 'Starting replication to %s, method: %s, '
+            'local max row: %s, remote max row: %s, remote sync point: %s, '
+            'local sync point: %s',
+            peer, method, info['max_row'], rinfo['max_row'], rinfo['point'],
+            local_sync)
+        start = time.monotonic()
+        outcome = 'error'
+        try:
+            if method == 'rsync_then_merge':
+                success = self._rsync_db(
+                    broker, node, http, info['id'],
+                    replicate_method=method,
+                    replicate_timeout=(info['count'] / 2000),
+                    different_region=different_region)
+            else:
+                success = self._usync_db(
+                    max(rinfo['point'], local_sync), broker, http,
+                    rinfo['id'], info['id'])
+            outcome = 'success' if success else 'incomplete'
+            return success
+        finally:
+            self.db_logger.info(
+                broker, 'Finished replication to %s, method: %s, '
+                'outcome: %s, elapsed: %.3fs',
+                peer, method, outcome, time.monotonic() - start)
 
     def _post_replicate_hook(self, broker, info, responses):
         """

@@ -38,7 +38,8 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     ErrorResponse, MalformedXML, KeyTooLongError, InvalidPart, \
     EntityTooSmall, InvalidPartOrder, InvalidRequest, HTTPOk, \
     NoSuchUpload, NoSuchBucket, PreconditionFailed, S3NotImplemented
-from swift.common.middleware.s3api.utils import S3Timestamp, sysmeta_header
+from swift.common.middleware.s3api.utils import S3Timestamp, \
+    s3api_sysmeta_header
 from swift.common.middleware.s3api.etree import Element, SubElement, \
     fromstring, tostring, XMLSyntaxError, DocumentInvalid
 
@@ -134,7 +135,7 @@ class NativePartController(Controller):
         if 'X-Amz-Copy-Source' in req.headers:
             # Clear some problematic headers that might be on the source
             req.headers.update({
-                sysmeta_header('object', 'etag'): '',
+                s3api_sysmeta_header('object', 'etag'): '',
                 'X-Object-Sysmeta-Swift3-Etag': '',  # for legacy data
                 'X-Object-Sysmeta-Slo-Etag': '',
                 'X-Object-Sysmeta-Slo-Size': '',

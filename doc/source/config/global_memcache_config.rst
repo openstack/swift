@@ -37,7 +37,7 @@ tries                        3                  Number of servers to retry on fa
 io_timeout                   2.0                Timeout for read and writes
 error_suppression_interval   60.0               How long without an error before a server's
                                                 error count is reset. This will also be how
-                                                long before a server is reenabled after
+                                                long before a server is re-enabled after
                                                 suppression is triggered.
                                                 Set to 0 to disable error-limiting.
 error_suppression_limit      10                 How many errors can accumulate before a
@@ -51,7 +51,7 @@ item_size_warning_threshold  -1                 If an item size ever gets above
                                                 value to 0 will warn on every memcache set.
                                                 A value of -1 disables the warning
 tls_enabled                  False              (Optional) Global toggle for TLS usage
-                                                when comunicating with the caching servers
+                                                when communicating with the caching servers
 tls_cafile                                      (Optional) Path to a file of concatenated
                                                 CA certificates in PEM format necessary to
                                                 establish the caching server's authenticity.
@@ -66,7 +66,7 @@ tls_certfile                                    (Optional) Path to a single file
                                                 necessary. If tls_enabled is False,
                                                 this option is ignored
 tls_keyfile                                     (Optional) Path to a single file containing
-                                                the client's private key in. Otherwhise the
+                                                the client's private key in. Otherwise the
                                                 private key will be taken from the file
                                                 specified in tls_certfile. If tls_enabled
                                                 is False, this option is ignored

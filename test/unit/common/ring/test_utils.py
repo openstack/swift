@@ -747,7 +747,7 @@ class TestUtils(unittest.TestCase):
         self.assertEqual(rb.dispersion, 2.8645833333333335)
         self.assertEqual(report['worst_tier'], 'r1z1-127.0.0.1')
         self.assertEqual(report['max_dispersion'], 6.593406593406593)
-        # do a sencond rebalance
+        # do a second rebalance
         rb.rebalance(seed=100)
         report = dispersion_report(rb, verbose=True)
         self.assertEqual(rb.dispersion, 16.666666666666668)

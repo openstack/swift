@@ -1,4 +1,3 @@
-
 Deployment Guide
 ================
 
@@ -56,7 +55,6 @@ cluster.
 Load balancing and network design is left as an exercise to the reader,
 but this is a very important part of the cluster, so time should be spent
 designing the network for a Swift cluster.
-
 
 ---------------------
 Web Front End Options
@@ -477,7 +475,6 @@ pipeline. See :doc:`middleware` and the ``proxy-server.conf-sample`` file for
 more information. In particular, the use of some type of :doc:`authentication
 and authorization middleware <overview_auth>` is highly recommended.
 
-
 ------------------------
 Memcached Considerations
 ------------------------
@@ -505,7 +502,7 @@ If you over-run your max configured memcache size you'll see messages like::
   Error setting value in memcached: 127.0.0.1:11211: SERVER_ERROR object too large for cache
 
 When you see these messages your root containers are getting hammered and
-probably returning 503 reponses to clients.  Override the default 1MB limit to
+probably returning 503 responses to clients. Override the default 1MB limit to
 5MB with something like::
 
   /usr/bin/memcached -I 5000000 ...
@@ -519,7 +516,6 @@ reaches the current max an increase might be in order::
   STAT 448 1
   STAT 576 1
   END
-
 
 -----------
 System Time

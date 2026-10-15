@@ -13,28 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-try:
-    import anycrc
-except ImportError:
-    anycrc = None
+import anycrc
 import binascii
 import ctypes
 import ctypes.util
 import errno
 import socket
 import struct
-import zlib
 
 
-# See if anycrc is available...
-if anycrc:
-    crc32_anycrc = anycrc.Model('CRC32').calc
-    crc32c_anycrc = anycrc.Model('CRC32C').calc
-    crc64nvme_anycrc = anycrc.Model('CRC64-NVME').calc
-else:
-    crc32_anycrc = None
-    crc32c_anycrc = None
-    crc64nvme_anycrc = None
+crc32_anycrc = anycrc.Model('CRC32').calc
+crc32c_anycrc = anycrc.Model('CRC32C').calc
+crc64nvme_anycrc = anycrc.Model('CRC64-NVME').calc
 
 
 def find_isal():
@@ -146,7 +136,7 @@ else:
 
 
 def _select_crc32_impl():
-    return crc32_isal or crc32_anycrc or zlib.crc32
+    return crc32_isal or crc32_anycrc
 
 
 def _select_crc32c_impl():
@@ -161,19 +151,11 @@ def _select_crc32c_impl():
     # AMD 3900XT     | ~20GB/s   | ~5GB/s
     #
     # i.e., ISA-L is consistently 3-5x faster than kernel sockets
-    selected = crc32c_isal or crc32c_kern or crc32c_anycrc or None
-    if not selected:
-        raise NotImplementedError(
-            'no crc32c implementation, install isal or anycrc')
-    return selected
+    return crc32c_isal or crc32c_kern or crc32c_anycrc
 
 
 def _select_crc64nvme_impl():
-    selected = crc64nvme_isal or crc64nvme_anycrc or None
-    if not selected:
-        raise NotImplementedError(
-            'no crc64nvme implementation, install isal or anycrc')
-    return selected
+    return crc64nvme_isal or crc64nvme_anycrc
 
 
 class CRCHasher(object):
@@ -269,23 +251,10 @@ def crc64nvme(data=None, initial_value=0):
 
 def log_selected_implementation(logger):
     impl = _select_crc32_impl()
-    impl_name = 'zlib.crc32' if impl is zlib.crc32 else impl.__name__
-    logger.info('Using %s implementation for CRC32.' % impl_name)
+    logger.info('Using %s implementation for CRC32.' % impl.__name__)
 
-    try:
-        impl = _select_crc32c_impl()
-    except NotImplementedError:
-        logger.warning(
-            'No implementation found for CRC32C; '
-            'install ISA-L or anycrc for support.')
-    else:
-        logger.info('Using %s implementation for CRC32C.' % impl.__name__)
+    impl = _select_crc32c_impl()
+    logger.info('Using %s implementation for CRC32C.' % impl.__name__)
 
-    try:
-        impl = _select_crc64nvme_impl()
-    except NotImplementedError:
-        logger.warning(
-            'No implementation found for CRC64NVME; '
-            'install ISA-L or anycrc for support.')
-    else:
-        logger.info('Using %s implementation for CRC64NVME.' % impl.__name__)
+    impl = _select_crc64nvme_impl()
+    logger.info('Using %s implementation for CRC64NVME.' % impl.__name__)

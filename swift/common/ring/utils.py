@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 import array
 from collections import defaultdict
 import contextlib
@@ -224,7 +225,7 @@ def validate_and_normalize_address(address):
     normalized to all lower case. IPv6-addresses are converted to
     lowercase and fully expanded.
 
-    RFC1123 2.1 Host Names and Nubmers
+    RFC1123 2.1 Host Names and Numbers
     DISCUSSION
         This last requirement is not intended to specify the complete
         syntactic form for entering a dotted-decimal host number;
@@ -465,7 +466,7 @@ def parse_change_values_from_opts(opts):
     Convert optparse style options into a dictionary for changing.
 
     :param opts: optparse style options
-    :returns: a dictonary with change values to filter devices,
+    :returns: a dictionary with change values to filter devices,
               supported parameters are ip, port, replication_ip,
               replication_port
     """

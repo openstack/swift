@@ -503,7 +503,7 @@ class WatcherWrapper(object):
         try:
             self.watcher = watcher_class(conf, self.logger)
         except (Exception, Timeout):
-            self.logger.exception('Error intializing watcher')
+            self.logger.exception('Error initializing watcher')
             self.watcher_in_error = True
 
     def start(self, audit_type):

@@ -816,7 +816,7 @@ class TestDatabaseBroker(TestDbBase):
         # ensure that metadata was cleared by default
         do_test({'foo': ['', timestamps[2].internal]})
 
-        # If the meta is in the brokers delete_meta_whitelist it wont get
+        # If the meta is in the brokers delete_meta_whitelist it won't get
         # cleared up
         do_test(meta, ['foo'])
 
@@ -1076,7 +1076,7 @@ class TestDatabaseBroker(TestDbBase):
 
         for incoming in (True, False):
             # Can't mock out timestamp now, because the update_at in the sync
-            # tables are cuase by a trigger inside sqlite which uses it's own
+            # tables are caused by a trigger inside sqlite which uses its own
             # now method. So instead track the time before and after to make
             # sure we're getting the right timestamps.
             ts0 = Timestamp.now()
@@ -1494,7 +1494,7 @@ class TestDatabaseBroker(TestDbBase):
     def test_possibly_quarantine_db_errors(self):
         dbpath = os.path.join(self.testdir, 'dev', 'dbs', 'par', 'pre', 'db')
         qpath = os.path.join(self.testdir, 'dev', 'quarantined', 'tests', 'db')
-        # Data is a list of Excpetions to be raised and expected values in the
+        # Data is a list of Exceptions to be raised and expected values in the
         # log
         data = [
             (sqlite3.DatabaseError('database disk image is malformed'),

@@ -307,7 +307,7 @@ class DiskFile(object):
 
         :param current_time: Unix time used in checking expiration. If not
              present, the current time will be used.
-        :raises DiskFileCollision: on name mis-match with metadata
+        :raises DiskFileCollision: on name mismatch with metadata
         :raises DiskFileDeleted: if it does not exist, or a tombstone is
                                  present
         :raises DiskFileQuarantined: if while reading metadata of the file

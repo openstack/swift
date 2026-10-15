@@ -222,7 +222,8 @@ class InternalClient(object):
             if params:
                 req.params = params
             try:
-                # execute in a separate greenthread to not polute corolocals
+                # execute in a separate greenthread to avoid
+                # polluting corolocals
                 resp = spawn(req.get_response, self.app).wait()
             except (Exception, Timeout) as e:
                 err = e
@@ -977,9 +978,18 @@ class SimpleClient(object):
         # Used in swift-dispersion-populate
         return self.retry_request('PUT', container=container, **kwargs)
 
+    def delete_container(self, container, **kwargs):
+        # Used in swift-dispersion-populate
+        return self.retry_request('DELETE', container=container, **kwargs)
+
     def get_container(self, container, **kwargs):
         # Used in swift-dispersion-populate
         return self.retry_request('GET', container=container, **kwargs)
+
+    def delete_object(self, container, name, **kwargs):
+        # Used in swift-dispersion-populate
+        return self.retry_request(
+            'DELETE', container=container, name=name, **kwargs)
 
     def put_object(self, container, name, contents, **kwargs):
         # Used in swift-dispersion-populate

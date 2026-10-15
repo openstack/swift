@@ -1017,14 +1017,15 @@ class TestTempURL(unittest.TestCase):
         self.assertIn(b'Temp URL invalid', resp.body)
         self.assertIn('Www-Authenticate', resp.headers)
 
-    def test_disallowed_header_object_manifest(self):
+    def test_disallowed_headers(self):
         self.tempurl = tempurl.filter_factory({})(self.auth)
         expires = int(time() + 86400)
         path = '/v1/a/c/o'
         key = b'abc'
         for method in ('PUT', 'POST'):
             for hdr, value in [('X-Object-Manifest', 'private/secret'),
-                               ('X-Symlink-Target', 'cont/symlink')]:
+                               ('X-Symlink-Target', 'cont/symlink'),
+                               ('X-Copy-From', 'private/secret')]:
                 hmac_body = ('%s\n%i\n%s' %
                              (method, expires, path)).encode('utf-8')
                 sig = hmac.new(key, hmac_body, hashlib.sha256).hexdigest()
