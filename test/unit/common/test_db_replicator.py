@@ -2508,7 +2508,9 @@ class TestReplicatorSync(BaseUnitTestCase):
             broker.reported(info['put_timestamp'],
                             info['delete_timestamp'],
                             info['object_count'],
-                            info['bytes_used'])
+                            info['bytes_used'],
+                            info['bytes_in_parts'],
+                            info['bytes_in_manifests'])
         info = broker.get_replication_info()
         self.assertTrue(daemon.report_up_to_date(info))
         # we have a part dir

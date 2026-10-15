@@ -1672,6 +1672,183 @@ class TestDatabaseBroker(TestDbBase):
         self.assertFalse(pending)
 
 
+class BaseTestExecuteHelpers(TestDbBase):
+    # the helpers only need a connection to a db that has a table with a known
+    # set of columns, so a minimal db is made directly rather than via a broker
+    table = 'test'
+
+    def setUp(self):
+        super(BaseTestExecuteHelpers, self).setUp()
+        self.broker = DatabaseBroker(self.db_path)
+        mkdirs(os.path.dirname(self.db_path))
+        self.conn = get_db_connection(self.db_path, okay_to_create=True)
+        self.conn.execute(
+            'CREATE TABLE %s (aa INTEGER, bb INTEGER)' % self.table)
+        self.conn.execute(
+            'INSERT INTO %s (aa, bb) VALUES (1, 2)' % self.table)
+        self.conn.commit()
+        # what the helper under test did, in the order it did it
+        self.migrations_run = []
+        self.queries_run = []
+        self.optional_selects_used = []
+
+    def tearDown(self):
+        self.conn.close()
+        super(BaseTestExecuteHelpers, self).tearDown()
+
+    def select(self, *columns):
+        # a stub query that selects the given column expressions from the
+        # single row
+        self.queries_run.append(columns)
+        return dict(self.conn.execute(
+            'SELECT %s FROM %s'
+            % (', '.join(columns), self.table)).fetchone())
+
+
+class TestExecuteWithMigrations(BaseTestExecuteHelpers):
+    def make_migration(self, column, value):
+        def add_column(conn):
+            # a stub migration that adds a column and backfills it
+            conn.execute('ALTER TABLE %s ADD COLUMN %s INTEGER'
+                         % (self.table, column))
+            conn.execute('UPDATE %s SET %s = ?' % (self.table, column),
+                         (value,))
+            conn.commit()
+            self.migrations_run.append(column)
+        return add_column
+
+    def test_no_migration_required(self):
+        migrations = {
+            'no such column: c': self.make_migration(column='cc', value=3)
+        }
+        result = self.broker._execute_with_migrations(
+            self.conn, self.select, migrations, 'aa', 'bb')
+        self.assertEqual({'aa': 1, 'bb': 2}, result)
+        # the query succeeded first time, so nothing was migrated
+        self.assertEqual([], self.migrations_run)
+        self.assertEqual([('aa', 'bb')], self.queries_run)
+
+    def test_migration_applied_then_retried(self):
+        migrations = {
+            'no such column: c': self.make_migration(column='cc', value=3)
+        }
+        result = self.broker._execute_with_migrations(
+            self.conn, self.select, migrations, 'aa', 'cc')
+        self.assertEqual({'aa': 1, 'cc': 3}, result)
+        self.assertEqual(['cc'], self.migrations_run)
+        # once to fail, once to succeed
+        self.assertEqual([('aa', 'cc')] * 2, self.queries_run)
+
+    def test_several_migrations_applied(self):
+        # sqlite only reports the first missing column, so the helper must keep
+        # going until every migration that is needed has been applied
+        migrations = {
+            'no such column: c': self.make_migration(column='cc', value=3),
+            'no such column: d': self.make_migration(column='dd', value=4),
+        }
+        result = self.broker._execute_with_migrations(
+            self.conn, self.select, migrations, 'aa', 'cc', 'dd')
+        self.assertEqual({'aa': 1, 'cc': 3, 'dd': 4}, result)
+        self.assertEqual(['cc', 'dd'], self.migrations_run)
+        self.assertEqual([('aa', 'cc', 'dd')] * 3, self.queries_run)
+
+    def test_unmatched_error_raises(self):
+        migrations = {
+            'no such column: c': self.make_migration(column='cc', value=3)
+        }
+        with self.assertRaises(sqlite3.OperationalError) as cm:
+            self.broker._execute_with_migrations(
+                self.conn, self.select, migrations, 'aa', 'zz')
+        self.assertIn('no such column: zz', str(cm.exception))
+        self.assertEqual([], self.migrations_run)
+        self.assertEqual([('aa', 'zz')], self.queries_run)
+
+    def test_each_migration_attempted_at_most_once(self):
+        # a migration that does not fix the error must not loop forever
+        migrations = {
+            'no such column: c': self.make_migration(column='not_c', value=3)
+        }
+        with self.assertRaises(sqlite3.OperationalError) as cm:
+            self.broker._execute_with_migrations(
+                self.conn, self.select, migrations, 'aa', 'cc')
+        self.assertIn('no such column: c', str(cm.exception))
+        self.assertEqual(['not_c'], self.migrations_run)
+        self.assertEqual([('aa', 'cc')] * 2, self.queries_run)
+
+    def test_args_passed_to_func(self):
+        func = mock.Mock(return_value='result')
+        result = self.broker._execute_with_migrations(
+            self.conn, func, {}, 'pos', key='word')
+        self.assertEqual('result', result)
+        self.assertEqual([mock.call('pos', key='word')], func.call_args_list)
+
+
+class TestExecuteWithColumnFallbacks(BaseTestExecuteHelpers):
+    def make_query(self, mandatory_columns):
+        def query(optional_selects):
+            # a stub query that selects the mandatory columns plus whatever
+            # optional column expressions the helper supplies
+            self.optional_selects_used.append(optional_selects)
+            return self.select(*(mandatory_columns + optional_selects))
+        return query
+
+    def test_no_missing_columns(self):
+        result = self.broker._execute_with_column_fallbacks(
+            self.conn, self.make_query(('aa',)), {('bb',): 0})
+        self.assertEqual({'aa': 1, 'bb': 2}, result)
+        # the column exists, so it is selected by name and nothing is retried
+        self.assertEqual([('bb',)], self.optional_selects_used)
+
+    def test_missing_column_falls_back_to_value(self):
+        result = self.broker._execute_with_column_fallbacks(
+            self.conn, self.make_query(('aa',)), {('cc',): 0})
+        # the db has no c, so zero is reported in its place
+        self.assertEqual({'aa': 1, 'cc': 0}, result)
+        self.assertEqual([('cc',), ('0 AS cc',)], self.optional_selects_used)
+
+    def test_missing_column_with_none_fallback_is_dropped(self):
+        result = self.broker._execute_with_column_fallbacks(
+            self.conn, self.make_query(('aa',)), {('cc',): None})
+        # a caller can tell the db has nothing to say about c
+        self.assertEqual({'aa': 1}, result)
+        self.assertEqual([('cc',), ()], self.optional_selects_used)
+
+    def test_several_missing_columns(self):
+        result = self.broker._execute_with_column_fallbacks(
+            self.conn,
+            self.make_query(('aa',)), {('bb',): 0, ('cc',): -1, ('dd',): None})
+        self.assertEqual({'aa': 1, 'bb': 2, 'cc': -1}, result)
+        self.assertEqual([('bb', 'cc', 'dd'),
+                          ('bb', '-1 AS cc', 'dd'),
+                          ('bb', '-1 AS cc')], self.optional_selects_used)
+
+    def test_several_coupled_columns(self):
+        result = self.broker._execute_with_column_fallbacks(
+            self.conn,
+            self.make_query(('aa',)), {('bb', 'cc',): -1, ('dd', 'ee'): None})
+        self.assertEqual({'aa': 1, 'bb': -1, 'cc': -1}, result)
+        self.assertEqual([('bb', 'cc', 'dd', 'ee'),
+                          ('-1 AS bb', '-1 AS cc', 'dd', 'ee'),
+                          ('-1 AS bb', '-1 AS cc')],
+                         self.optional_selects_used)
+
+    def test_unmatched_error_raises(self):
+        with self.assertRaises(sqlite3.OperationalError) as cm:
+            self.broker._execute_with_column_fallbacks(
+                self.conn, self.make_query(('aa', 'zz')), {('cc',): 0})
+        self.assertIn('no such column: zz', str(cm.exception))
+        # the error was not about c, so no fallback was applied
+        self.assertEqual([('cc',)], self.optional_selects_used)
+
+    def test_each_column_falls_back_at_most_once(self):
+        # a fallback that does not fix the error must not loop forever
+        with self.assertRaises(sqlite3.OperationalError) as cm:
+            self.broker._execute_with_column_fallbacks(
+                self.conn, self.make_query(('aa',)), {('cc',): 'zz'})
+        self.assertIn('no such column: zz', str(cm.exception))
+        self.assertEqual([('cc',), ('zz AS cc',)], self.optional_selects_used)
+
+
 class TestTombstoneReclaimer(TestDbBase):
     def _make_object(self, broker, obj_name, ts, deleted):
         if deleted:

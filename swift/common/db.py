@@ -780,6 +780,109 @@ class DatabaseBroker(object):
             curs.row_factory = dict_factory
             return curs.fetchone()
 
+    @staticmethod
+    def _get_table_columns(conn, table):
+        # returns the set of column names of the named table, which is empty
+        # if there is no such table
+        return {row[1]
+                for row in conn.execute('PRAGMA table_info(%s)' % table)}
+
+    def _execute_with_migrations(
+            self, conn, func, migrations, *args, **kwargs):
+        """
+        Call ``func``, retrying it after applying a migration if it raises an
+        ``sqlite3.OperationalError`` that an entry in ``migrations`` claims to
+        fix. Each migration is applied at most once, so a migration that fails
+        to fix the error will not cause an infinite loop.
+
+        :param conn: a DB connection; used to rollback any transaction left
+            open by the failed call, and passed to each migration.
+        :param func: the callable to execute.
+        :param migrations: a dict mapping a substring of an
+            ``sqlite3.OperationalError`` message to a callable that takes a
+            single ``conn`` argument and migrates the DB to fix that error.
+        :param args: positional args for ``func``.
+        :param kwargs: keyword args for ``func``.
+        :returns: the value returned by ``func``.
+        :raises sqlite3.OperationalError: if the error does not match any
+            not-yet-applied migration.
+        """
+        migrations_done = set()
+        while True:
+            try:
+                return func(*args, **kwargs)
+            except sqlite3.OperationalError as err:
+                # Without the rollback, new enough (>= py37) python/sqlite3
+                # will panic:
+                #   sqlite3.OperationalError: cannot start a transaction
+                #   within a transaction
+                conn.rollback()
+                for err_str, migration in migrations.items():
+                    if err_str in migrations_done:
+                        continue
+                    if err_str in str(err):
+                        migration(conn)
+                        migrations_done.add(err_str)
+                        break
+                else:
+                    raise
+
+    def _execute_with_column_fallbacks(self, conn, query, column_fallbacks):
+        """
+        Call the ``query`` function with a tuple of column expressions for the
+        query's select list, retrying it when the db reports a column as
+        missing. Each retry will either substitute an expression to select the
+        fallback value for missing column(s), or drop the column(s) from the
+        tuple if the fallback value is None.
+
+        :param conn: a DB connection; used to roll back any transaction left
+            open by the failed call.
+        :param query: a callable taking a single argument which is a tuple of
+            column expressions to select. The tuple will be empty if every
+            optional column has been dropped.
+        :param column_fallbacks: a map of tuples of column names to fallback
+            values. The fallback value is applied to all column names in a
+            tuple if the db reports any of them as missing. A fallback value
+            should be an SQL literal or None. A value of None means that the
+            column names are dropped from the select list if the db reports any
+            of them as missing.
+        :returns: the value returned by ``query``.
+        :raises sqlite3.OperationalError: if the error does not report one of
+            ``column_fallbacks`` to be missing.
+        """
+        # The column_to_expression dict initially maps columns to their names
+        # but will be mutated as required to apply fallbacks.
+        column_to_expression = {}
+        for columns in column_fallbacks.keys():
+            for column in columns:
+                column_to_expression[column] = column
+
+        fallbacks_done = set()
+        while True:
+            selects = tuple(column_to_expression.values())
+            try:
+                return query(selects)
+            except sqlite3.OperationalError as err:
+                # see the comment in _execute_with_migrations
+                conn.rollback()
+                for columns, fallback in column_fallbacks.items():
+                    if columns in fallbacks_done:
+                        continue
+                    if any('no such column: %s' % c in str(err)
+                            for c in columns):
+                        # if any of the column names matches the errors then
+                        # change all the columns to select the fallback value
+                        for col in columns:
+                            if fallback is None:
+                                del column_to_expression[col]
+                            else:
+                                column_to_expression[col] = \
+                                    '%s AS %s' % (fallback, col)
+                        fallbacks_done.add(columns)
+                        break
+                else:
+                    raise
+
     def put_record(self, record):
         """
         Put a record into the DB. If the DB has an associated pending file with

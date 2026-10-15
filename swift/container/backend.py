@@ -144,6 +144,8 @@ CONTAINER_INFO_TABLE_SCRIPT = '''
         reported_delete_timestamp TEXT DEFAULT '0',
         reported_object_count INTEGER DEFAULT 0,
         reported_bytes_used INTEGER DEFAULT 0,
+        reported_bytes_in_parts INTEGER DEFAULT 0,
+        reported_bytes_in_manifests INTEGER DEFAULT 0,
         hash TEXT default '00000000000000000000000000000000',
         id TEXT,
         status TEXT DEFAULT '',
@@ -161,8 +163,9 @@ CONTAINER_STAT_VIEW_SCRIPT = '''
     AS SELECT ci.account, ci.container, ci.created_at,
         ci.put_timestamp, ci.delete_timestamp,
         ci.reported_put_timestamp, ci.reported_delete_timestamp,
-        ci.reported_object_count, ci.reported_bytes_used, ci.hash,
-        ci.id, ci.status, ci.status_changed_at, ci.metadata,
+        ci.reported_object_count, ci.reported_bytes_used,
+        ci.reported_bytes_in_parts, ci.reported_bytes_in_manifests,
+        ci.hash, ci.id, ci.status, ci.status_changed_at, ci.metadata,
         ci.x_container_sync_point1, ci.x_container_sync_point2,
         ci.reconciler_sync_point,
         ci.storage_policy_index,
@@ -186,6 +189,8 @@ CONTAINER_STAT_VIEW_SCRIPT = '''
             reported_delete_timestamp = NEW.reported_delete_timestamp,
             reported_object_count = NEW.reported_object_count,
             reported_bytes_used = NEW.reported_bytes_used,
+            reported_bytes_in_parts = NEW.reported_bytes_in_parts,
+            reported_bytes_in_manifests = NEW.reported_bytes_in_manifests,
             hash = NEW.hash,
             id = NEW.id,
             status = NEW.status,
@@ -810,10 +815,23 @@ class ContainerBroker(DatabaseBroker):
         return 'deleted'
 
     def _newid(self, conn):
-        conn.execute('''
+        legacy_update = '''
             UPDATE container_stat
             SET reported_put_timestamp = 0, reported_delete_timestamp = 0,
-                reported_object_count = 0, reported_bytes_used = 0''')
+                reported_object_count = 0, reported_bytes_used = 0
+        '''
+        migrated_update = '''
+            , reported_bytes_in_parts = 0, reported_bytes_in_manifests = 0
+        '''
+        try:
+            conn.execute(legacy_update + migrated_update)
+        except sqlite3.OperationalError as err:
+            # a db that has not been migrated has no mpu reported columns.
+            # No rollback: the caller has uncommitted changes in the same
+            # transaction, which a prepare-time failure leaves intact.
+            if 'no such column: reported_bytes_in_' not in str(err):
+                raise
+            conn.execute(legacy_update)
 
     def _commit_puts_load(self, item_list, entry):
         """See :func:`swift.common.db.DatabaseBroker._commit_puts_load`"""
@@ -1043,43 +1061,28 @@ class ContainerBroker(DatabaseBroker):
         return info
 
     def _do_get_info_query(self, conn):
-        data = None
-        trailing_sync = 'x_container_sync_point1, x_container_sync_point2'
-        trailing_pol = 'storage_policy_index'
-        trailing_bytes_in_parts = 'bytes_in_parts'
-        trailing_bytes_in_manifests = 'bytes_in_manifests'
-        errors = set()
-        while not data:
-            try:
-                curs = conn.execute(('''
-                    SELECT account, container, created_at, put_timestamp,
-                        delete_timestamp, status, status_changed_at,
-                        object_count, bytes_used,
-                        reported_put_timestamp, reported_delete_timestamp,
-                        reported_object_count, reported_bytes_used, hash,
-                        id, %s, %s, %s, %s
-                        FROM container_stat
-                ''') % (trailing_sync, trailing_pol, trailing_bytes_in_parts,
-                        trailing_bytes_in_manifests))
-                data = curs.fetchone()
-            except sqlite3.OperationalError as err:
-                err_msg = str(err)
-                if err_msg in errors:
-                    # only attempt migration once
-                    raise
-                errors.add(err_msg)
-                if 'no such column: storage_policy_index' in err_msg:
-                    trailing_pol = '0 AS storage_policy_index'
-                elif 'no such column: x_container_sync_point' in err_msg:
-                    trailing_sync = '-1 AS x_container_sync_point1, ' \
-                                    '-1 AS x_container_sync_point2'
-                elif 'no such column: bytes_in_parts' in err_msg:
-                    trailing_bytes_in_parts = '0 AS bytes_in_parts'
-                elif 'no such column: bytes_in_manifests' in err_msg:
-                    trailing_bytes_in_manifests = '0 AS bytes_in_manifests'
-                else:
-                    raise
-        data = dict(data)
+        # columns of container_stat that may not exist in an older db, mapped
+        # to a default value to select in their place
+        column_fallbacks = {
+            ('x_container_sync_point1', 'x_container_sync_point2'): -1,
+            ('storage_policy_index',): 0,
+            ('bytes_in_parts', 'bytes_in_manifests',
+             'reported_bytes_in_parts', 'reported_bytes_in_manifests'): 0,
+        }
+
+        def do_query(optional_selects):
+            columns = ('account', 'container', 'created_at', 'put_timestamp',
+                       'delete_timestamp', 'status', 'status_changed_at',
+                       'object_count', 'bytes_used',
+                       'reported_put_timestamp', 'reported_delete_timestamp',
+                       'reported_object_count', 'reported_bytes_used', 'hash',
+                       'id') + optional_selects
+            return conn.execute('''
+                SELECT %s FROM container_stat
+            ''' % ', '.join(columns)).fetchone()
+
+        data = dict(self._execute_with_column_fallbacks(
+            conn, do_query, column_fallbacks))
         # populate instance cache
         self._storage_policy_index = data['storage_policy_index']
         self.account = data['account']
@@ -1099,13 +1102,20 @@ class ContainerBroker(DatabaseBroker):
 
     def _get_alternate_object_stats(self):
         db_state = self.get_db_state()
+        # TODO: shard ranges do not yet carry bytes_in_parts or
+        #   bytes_in_manifests, so neither the retiring db nor the shard usage
+        #   can supply them. Report zero rather than the misleading value that
+        #   this (fresh or empty) db happens to hold.
         if db_state == SHARDING:
             with self.get_brokers()[0] as sub_broker:
                 other_info = sub_broker._get_info()
             stats = {'object_count': other_info['object_count'],
-                     'bytes_used': other_info['bytes_used']}
+                     'bytes_used': other_info['bytes_used'],
+                     'bytes_in_parts': 0,
+                     'bytes_in_manifests': 0}
         elif db_state == SHARDED and self.is_root_container():
-            stats = self.get_shard_usage()
+            stats = dict(self.get_shard_usage(),
+                         bytes_in_parts=0, bytes_in_manifests=0)
         else:
             stats = {}
         return db_state, stats
@@ -1116,11 +1126,13 @@ class ContainerBroker(DatabaseBroker):
 
         :returns: dict with keys: account, container, created_at,
                   put_timestamp, delete_timestamp, status, status_changed_at,
-                  object_count, bytes_used, reported_put_timestamp,
+                  object_count, bytes_used, bytes_in_parts,
+                  bytes_in_manifests, reported_put_timestamp,
                   reported_delete_timestamp, reported_object_count,
-                  reported_bytes_used, hash, id, x_container_sync_point1,
-                  x_container_sync_point2, and storage_policy_index,
-                  db_state.
+                  reported_bytes_used, reported_bytes_in_parts,
+                  reported_bytes_in_manifests, hash, id,
+                  x_container_sync_point1, x_container_sync_point2,
+                  storage_policy_index and db_state.
         """
         data = self._get_info()
         state, stats = self._get_alternate_object_stats()
@@ -1234,21 +1246,43 @@ class ContainerBroker(DatabaseBroker):
         self._storage_policy_index = policy_index
 
     def reported(self, put_timestamp, delete_timestamp, object_count,
-                 bytes_used):
+                 bytes_used, bytes_in_parts, bytes_in_manifests):
         """
         Update reported stats, available with container's `get_info`.
+
+        A database that pre-dates the reported_bytes_in_parts and
+        reported_bytes_in_manifests columns is *not* migrated: only the
+        legacy stats are updated. Such a database cannot contain any mpu rows,
+        so its bytes_in_parts and bytes_in_manifests are necessarily zero and
+        there is nothing to report.
 
         :param put_timestamp: put_timestamp to update
         :param delete_timestamp: delete_timestamp to update
         :param object_count: object_count to update
         :param bytes_used: bytes_used to update
+        :param bytes_in_parts: bytes_in_parts to update
+        :param bytes_in_manifests: bytes_in_manifests to update
         """
+        legacy_update = '''
+            UPDATE container_stat
+            SET reported_put_timestamp    = ?, reported_delete_timestamp = ?,
+                reported_object_count     = ?, reported_bytes_used       = ?
+        '''
+        legacy_values = (put_timestamp, delete_timestamp, object_count,
+                         bytes_used)
+        migrated_update = '''
+            , reported_bytes_in_parts = ?, reported_bytes_in_manifests = ?
+        '''
+        migrated_values = (bytes_in_parts, bytes_in_manifests)
         with self.get() as conn:
-            conn.execute('''
-                UPDATE container_stat
-                SET reported_put_timestamp = ?, reported_delete_timestamp = ?,
-                    reported_object_count = ?, reported_bytes_used = ?
-            ''', (put_timestamp, delete_timestamp, object_count, bytes_used))
+            try:
+                conn.execute(legacy_update + migrated_update,
+                             legacy_values + migrated_values)
+            except sqlite3.OperationalError as err:
+                if 'no such column: reported_bytes_in_' not in str(err):
+                    raise
+                conn.rollback()
+                conn.execute(legacy_update, legacy_values)
             conn.commit()
 
     def list_objects(self, limit=None, marker='', end_marker='',
@@ -1524,30 +1558,9 @@ class ContainerBroker(DatabaseBroker):
             all_policies=True, allow_reserved=True
         )
 
-    def _execute_with_migrations(
-            self, conn, migrations, func, *args, **kwargs):
-        migrations_done = set()
-        while True:
-            try:
-                return func(*args, **kwargs)
-            except sqlite3.OperationalError as err:
-                # Without the rollback, new enough (>= py37) python/sqlite3
-                # will panic:
-                #   sqlite3.OperationalError: cannot start a transaction
-                #   within a transaction
-                conn.rollback()
-                for err_str, migration in migrations.items():
-                    if err_str in migrations_done:
-                        continue
-                    if err_str in str(err):
-                        migration(conn)
-                        migrations_done.add(err_str)
-                        break
-                else:
-                    raise
-
     def _execute_with_object_table_migrations(
             self, conn, func, *args, **kwargs):
+        # map potential SELECT errors to migrations
         migrations = {
             'no such column: storage_policy_index':
                 self._migrate_add_storage_policy,
@@ -1557,10 +1570,11 @@ class ContainerBroker(DatabaseBroker):
                 self._migrate_add_object_manifest_size,
         }
         return self._execute_with_migrations(
-            conn, migrations, func, *args, **kwargs)
+            conn, func, migrations, *args, **kwargs)
 
     def _execute_with_shard_range_migrations(
             self, conn, func, *args, **kwargs):
+        # map potential SELECT errors to migrations
         migrations = {
             'no such column: reported':
                 self._migrate_add_shard_range_reported,
@@ -1570,7 +1584,7 @@ class ContainerBroker(DatabaseBroker):
                 self.create_shard_range_table,
         }
         return self._execute_with_migrations(
-            conn, migrations, func, *args, **kwargs)
+            conn, func, migrations, *args, **kwargs)
 
     def _make_relic(self, item, relic_id, timestamp=None):
         relic_name = '%s\x00%s' % (item['name'].rstrip('\x00'), relic_id)
@@ -1612,6 +1626,9 @@ class ContainerBroker(DatabaseBroker):
                      item_list[offset:offset + SQLITE_ARG_LIMIT]]
             records.update(
                 ((rec[0], rec[6]), rec)
+                # note: migration of older db's is triggered by this SELECT
+                # failing so it must remain ahead of the later INSERTs that
+                # would not trigger migration
                 for rec in curs.execute(
                     'SELECT name, created_at, size, content_type,'
                     'etag, deleted, storage_policy_index, manifest_size, '
@@ -1993,19 +2010,14 @@ class ContainerBroker(DatabaseBroker):
         ).fetchone()
         return row[0] if row else None
 
-    @staticmethod
-    def _get_table_columns(conn, table):
-        # returns the set of column names of the named table, which is empty
-        # if there is no such table
-        return {row[1]
-                for row in conn.execute('PRAGMA table_info(%s)' % table)}
-
     def _migrate_add_object_manifest_size(self, conn):
         """
         Add the manifest_size column to the 'object' table, add the
         bytes_in_parts and bytes_in_manifests columns to the 'policy_stat'
-        table, and recreate the policy_stat triggers and the container_stat
-        view, both of which reference those columns.
+        table, add the reported_bytes_in_parts and reported_bytes_in_manifests
+        columns to the 'container_info' table, and recreate the policy_stat
+        triggers and the container_stat view, both of which reference those
+        columns.
 
         Existing object rows take the manifest_size default of -1, so they
         contribute nothing to the new policy_stat columns. That is correct
@@ -2017,6 +2029,8 @@ class ContainerBroker(DatabaseBroker):
         :meth:`_migrate_add_storage_policy` before this migration runs.
         """
         script = []
+        recreate_view = False
+
         if 'manifest_size' not in self._get_table_columns(conn, 'object'):
             script.append('''
                 ALTER TABLE object
@@ -2032,10 +2046,9 @@ class ContainerBroker(DatabaseBroker):
                 and 'bytes_in_manifests' not in policy_stat_columns):
             # the triggers and the view were compiled when the DB was created
             # and don't reference the new columns, so recreate them.
-            # note: the
-            # bytes_in_manifests and bytes_in_parts columns must not be added
-            # to an *older schema* table by any other path because that would
-            # prevent this migration script updating the triggers.
+            # note: the bytes_in_manifests and bytes_in_parts columns must not
+            # be added to an *older schema* table by any other path because
+            # that would prevent this migration script updating the triggers.
             script.extend([
                 '''
                     ALTER TABLE policy_stat
@@ -2049,16 +2062,35 @@ class ContainerBroker(DatabaseBroker):
                 ''',
                 POLICY_STAT_TRIGGER_SCRIPT,
             ])
-            # a DB that pre-dates the metadata column still has a
-            # container_stat table rather than a view
-            if self._get_schema_object_type(conn, 'container_stat') == 'view':
-                script.extend([
-                    '''
-                        DROP TRIGGER IF EXISTS container_stat_update;
-                        DROP VIEW container_stat;
-                    ''',
-                    CONTAINER_STAT_VIEW_SCRIPT,
-                ])
+            recreate_view = True
+
+        # A DB that pre-dates the metadata column has no container_info table:
+        # container_stat is still a table rather than a view, and
+        # _migrate_add_storage_policy will create both with the current schema.
+        container_info_columns = self._get_table_columns(
+            conn, 'container_info')
+        if (container_info_columns
+                and 'reported_bytes_in_manifests' not in
+                container_info_columns):
+            script.append('''
+                ALTER TABLE container_info
+                ADD COLUMN reported_bytes_in_parts INTEGER DEFAULT 0;
+
+                ALTER TABLE container_info
+                ADD COLUMN reported_bytes_in_manifests INTEGER DEFAULT 0;
+            ''')
+            recreate_view = True
+
+        # the view is recreated last so that it sees every added column
+        if (recreate_view and self._get_schema_object_type(
+                conn, 'container_stat') == 'view'):
+            script.extend([
+                '''
+                    DROP TRIGGER IF EXISTS container_stat_update;
+                    DROP VIEW container_stat;
+                ''',
+                CONTAINER_STAT_VIEW_SCRIPT,
+            ])
 
         if not script:
             return
@@ -3036,7 +3068,7 @@ class ContainerBroker(DatabaseBroker):
                 self.create_action_table,
         }
         return self._execute_with_migrations(
-            conn, migrations, func, *args, **kwargs)
+            conn, func, migrations, *args, **kwargs)
 
     def merge_actions(self, actions):
         """
