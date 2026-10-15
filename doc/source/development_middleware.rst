@@ -170,7 +170,7 @@ syntax.
 
 .. _PasteDeploy: https://pypi.org/project/PasteDeploy/
 
-Middleware may advertize its availability and capabilities via Swift's
+Middleware may advertise its availability and capabilities via Swift's
 :ref:`discoverability` support by using
 :func:`.register_swift_info`::
 

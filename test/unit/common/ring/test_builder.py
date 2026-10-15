@@ -2531,7 +2531,7 @@ class TestRingBuilder(unittest.TestCase):
 
         # sanity, all part but only one replica moved to new devices
         self.assertEqual(changed_part, 2 ** 8)
-        # so the first time, rings are still unbalanced becase we'll only move
+        # so the first time, rings are still unbalanced because we'll only move
         # one replica of each part.
         self.assertEqual(rb.get_balance(), 50.1953125)
         self.assertEqual(rb.dispersion, 16.6015625)
@@ -2584,7 +2584,7 @@ class TestRingBuilder(unittest.TestCase):
         # sanity, all part but only one replica moved to new devices
         self.assertEqual(changed_part, 2 ** 8)
 
-        # but the first time, those are still unbalance becase ring builder
+        # but the first time, those are still unbalance because ring builder
         # can move only one replica for each part
         self.assertEqual(rb.get_balance(), 17.96875)
         self.assertEqual(rb.dispersion, 9.9609375)

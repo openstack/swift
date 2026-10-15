@@ -710,7 +710,7 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     # Force the decrypter context updates to be less than one of our range
     # sizes to check that the decrypt context offset is setup correctly with
-    # offset to first byte of range for first update and then re-used.
+    # offset to first byte of range for first update and then reused.
     # Do mocking here to have the mocked value have effect in the generator
     # function.
     @mock.patch.object(decrypter, 'DECRYPT_CHUNK_SIZE', 4)

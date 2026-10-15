@@ -391,7 +391,7 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertRaises(PolicyError, StoragePolicyCollection,
                           test_policies)
 
-        # checking correct retrival using other names
+        # checking correct retrieval using other names
         test_policies = [StoragePolicy(0, 'zero', True, aliases='cero, kore'),
                          StoragePolicy(1, 'one', False, aliases='uno, tahi'),
                          StoragePolicy(2, 'two', False, aliases='dos, rua')]
@@ -468,7 +468,7 @@ class TestStoragePolicies(unittest.TestCase):
         self.assertRaises(PolicyError, StoragePolicyCollection,
                           test_policies_ec)
 
-        # checking correct retrival using other names
+        # checking correct retrieval using other names
         good_test_policies_EC = [
             ECStoragePolicy(0, 'ec8-2', aliases='zeus, jupiter',
                             ec_type=DEFAULT_TEST_EC_TYPE,
@@ -1356,7 +1356,7 @@ class TestStoragePolicies(unittest.TestCase):
                         self.assertRaisesWithMessage(RingLoadError, msg,
                                                      policy.load_ring, 'mock')
 
-        # first, do somethign completely different
+        # first, do something completely different
         do_test([8, 10, 7, 11])
         # then again, closer to true, but fractional
         do_test([9.9, 14.1, 5.99999, 12.000000001])

@@ -96,7 +96,7 @@ Swift Design Principles
 -  `The Zen of Python <https://peps.python.org/pep-0020>`__
 -  Simple Scales
 -  Minimal dependencies
--  Re-use existing tools and libraries when reasonable
+-  Reuse existing tools and libraries when reasonable
 -  Leverage the economies of scale
 -  Small, loosely coupled RESTful services
 -  No single points of failure

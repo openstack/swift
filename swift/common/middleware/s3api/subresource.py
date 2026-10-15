@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 """
 ---------------------------
 s3api's ACLs implementation
@@ -28,9 +29,9 @@ Current s3api(real S3)'s ACLs Model is as follows::
                 (Grantee, Permission)
 
 Each bucket or object has its own acl consisting of Owner and
-AcessControlList. AccessControlList can contain some Grants.
+AccessControlList. AccessControlList can contain some Grants.
 By default, AccessControlList has only one Grant to allow FULL
-CONTROLL to owner. Each Grant includes single pair with Grantee,
+CONTROL to owner. Each Grant includes single pair with Grantee,
 Permission. Grantee is the user (or user group) allowed the given permission.
 
 This module defines the groups and the relation tree.
@@ -38,7 +39,7 @@ This module defines the groups and the relation tree.
 If you wanna get more information about S3's ACLs model in detail,
 please see official documentation here,
 
-http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html
+https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html
 
 """
 from functools import partial

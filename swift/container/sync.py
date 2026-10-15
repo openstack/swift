@@ -185,7 +185,7 @@ class ContainerSync(Daemon):
 
         #: Per container stats. These are collected per container.
         #: puts - the number of puts that were done for the container
-        #: deletes - the number of deletes that were fot the container
+        #: deletes - the number of deletes that were for the container
         #: bytes - the total number of bytes transferred per the container
         self.container_stats = collections.defaultdict(int)
         self.container_stats.clear()

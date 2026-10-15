@@ -24,7 +24,7 @@
 
 .SH SYNOPSIS
 .LP
-.B swift-dispersion-report [-d|--debug] [-j|--dump-json] [-p|--partitions] [--container-only|--object-only] [--insecure] [conf_file]
+.B swift-dispersion-report [-d|--debug] [-j|--dump-json] [-p|--partitions] [--container-only|--object-only] [-P policy_name] [-s section] [--insecure] [conf_file]
 
 .SH DESCRIPTION
 .PP
@@ -77,7 +77,23 @@ Allow accessing insecure keystone server. The keystone's certificate will not
 be verified.
 
 .IP "\fB-P, --policy-name\fR"
-Specify storage policy name
+Specify the object storage policy name. For a non-default policy, skip the
+container report and run the object report when enabled.
+
+.IP "\fB-s, --section\fR"
+Read overrides from the named dispersion.conf section.
+
+.PP
+Container reports use only canonical dispersion_<suffix> samples. The suffix
+selects a hash path, not a storage policy. Policy-indexed container samples are
+obsolete for every policy. For policy 0, object reports use only
+dispersion_objects; dispersion_objects_0 is obsolete. Other object policies
+use dispersion_objects_<policy-index> as their canonical container names.
+Obsolete names cause a warning on standard error and are excluded from health
+metrics. Warnings explain that population with --purge replaces existing
+samples, including obsolete names, without printing executable migration
+commands. If a selected dataset has no canonical samples, the report exits
+with an error. JSON metrics remain on standard output.
 
 .SH CONFIGURATION
 .PD 0

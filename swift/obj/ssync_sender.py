@@ -154,7 +154,7 @@ class Sender(object):
         self.node = node
         self.job = job
         self.suffixes = suffixes
-        # When remote_check_objs is given in job, ssync_sender trys only to
+        # When remote_check_objs is given in job, ssync_sender tries only to
         # make sure those objects exist or not in remote.
         self.remote_check_objs = remote_check_objs
         self.include_non_durable = include_non_durable

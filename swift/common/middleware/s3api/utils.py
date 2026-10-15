@@ -55,11 +55,6 @@ def s3api_sysmeta_header(resource, name):
     return s3api_sysmeta_prefix(resource) + name
 
 
-# Keep the original short spellings as backwards compatibility aliases.
-sysmeta_prefix = s3api_sysmeta_prefix
-sysmeta_header = s3api_sysmeta_header
-
-
 def is_s3api_sysmeta(server_type, name):
     return name.lower().startswith(
         get_sys_meta_prefix(server_type) + 's3api-')

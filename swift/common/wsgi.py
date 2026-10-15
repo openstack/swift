@@ -140,7 +140,7 @@ class ConfigString(NamedConfigLoader):
 
 def wrap_conf_type(f):
     """
-    Wrap a function whos first argument is a paste.deploy style config uri,
+    Wrap a function whose first argument is a paste.deploy style config uri,
     such that you can pass it an un-adorned raw filesystem path (or config
     string) and the config directive (either config:, config_dir:, or
     config_str:) will be added automatically based on the type of entity
@@ -654,7 +654,7 @@ class StrategyBase(object):
                             if e.errno != errno.ESRCH:
                                 self.logger.error(
                                     "Could not kill stale pid %d: %s", pid, e)
-                    # else, pid got re-used?
+                    # else, pid got reused?
 
             eventlet.spawn_n(smother)
 
@@ -801,7 +801,7 @@ class ServersPerPortStrategy(StrategyBase):
         self.ring_check_interval = float(conf.get('ring_check_interval', 15))
 
         # typically ring_ip will be the same as bind_ip, but in a container the
-        # bind_ip might be differnt than the host ip address used to lookup
+        # bind_ip might be different than the host ip address used to lookup
         # devices/ports in the ring
         ring_ip = conf.get('ring_ip', conf.get('bind_ip', '0.0.0.0'))
         self.cache = BindPortsCache(self.swift_dir, ring_ip)
@@ -1026,8 +1026,8 @@ def run_wsgi(conf_path, app_section, *args, **kwargs):
     if kwargs.get('test_config'):
         return 0
 
-    # Do some daemonization process hygene before we fork any children or run a
-    # server without forking.
+    # Do some daemonization process hygiene before we fork any children
+    # or run a server without forking.
     clean_up_daemon_hygiene()
 
     allow_modify_pipeline = kwargs.get('allow_modify_pipeline', True)

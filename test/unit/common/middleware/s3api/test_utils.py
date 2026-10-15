@@ -51,10 +51,6 @@ class TestS3ApiUtils(unittest.TestCase):
         self.assertEqual('x-container-sysmeta-s3api-foo',
                          utils.s3api_sysmeta_header('container', 'foo'))
 
-    def test_sysmeta_aliases(self):
-        self.assertIs(utils.sysmeta_prefix, utils.s3api_sysmeta_prefix)
-        self.assertIs(utils.sysmeta_header, utils.s3api_sysmeta_header)
-
     def test_swift3_object_sysmeta_header(self):
         self.assertEqual('x-object-sysmeta-swift3-etag',
                          utils.swift3_object_sysmeta_header('etag'))

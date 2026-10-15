@@ -632,7 +632,7 @@ def retry(func, *args, **kwargs):
     :param retries: number of retries
     :param error_log: logger for errors
     :param args: arguments to send to func
-    :param kwargs: keyward arguments to send to func (if retries or
+    :param kwargs: keyword arguments to send to func (if retries or
                    error_log are sent, they will be deleted from kwargs
                    before sending on to func)
     :returns: result of func

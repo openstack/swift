@@ -30,6 +30,10 @@ from swift.common.exceptions import ClientException
 from swift.common.utils import compute_eta, get_time_units, \
     config_true_value, node_to_string
 from swift.common.storage_policy import POLICIES
+from swift.cli.dispersion import (
+    container_dispersion_names, object_dispersion_container,
+    object_dispersion_names, obsolete_container_dispersion_names,
+    obsolete_object_dispersion_containers, warn_on_obsolete_samples)
 
 
 unmounted = []
@@ -42,7 +46,6 @@ insecure = False
 def get_error_log(prefix):
 
     def error_log(msg_or_exc):
-        global debug, unmounted, notfound
         if hasattr(msg_or_exc, 'http_status'):
             identifier = '%s:%s/%s' % (msg_or_exc.http_host,
                                        msg_or_exc.http_port,
@@ -67,16 +70,16 @@ def get_error_log(prefix):
 
 
 def container_dispersion_report(coropool, connpool, account, container_ring,
-                                retries, output_missing_partitions, policy):
+                                retries, output_missing_partitions):
     with connpool.item() as conn:
-        containers = [c['name'] for c in conn.get_account(
-            prefix='dispersion_%d' % policy.idx, full_listing=True)[1]]
+        account_listing = conn.get_account(
+            prefix='dispersion_', full_listing=True)[1]
+    warn_on_obsolete_samples(
+        'container', obsolete_container_dispersion_names(account_listing))
+    containers = container_dispersion_names(account_listing)
     containers_listed = len(containers)
     if not containers_listed:
-        print('No containers to query. Has '
-              'swift-dispersion-populate been run?', file=stderr)
-        stderr.flush()
-        return
+        exit('ERROR: No canonical container dispersion samples to report.')
     retries_done = [0]
     containers_queried = [0]
     container_copies_missing = defaultdict(int)
@@ -165,25 +168,26 @@ def container_dispersion_report(coropool, connpool, account, container_ring,
 
 def object_dispersion_report(coropool, connpool, account, object_ring,
                              retries, output_missing_partitions, policy):
-    container = 'dispersion_objects_%d' % policy.idx
+    container = object_dispersion_container(policy.idx)
+    with connpool.item() as conn:
+        account_listing = conn.get_account(
+            prefix='dispersion_objects', full_listing=True)[1]
+    warn_on_obsolete_samples(
+        'object', obsolete_object_dispersion_containers(
+            account_listing, policy.idx))
     with connpool.item() as conn:
         try:
-            objects = [o['name'] for o in conn.get_container(
-                container, prefix='dispersion_', full_listing=True)[1]]
+            listing = conn.get_container(
+                container, prefix='dispersion_', full_listing=True)[1]
         except ClientException as err:
             if err.http_status != 404:
                 raise
-
-            print('No objects to query. Has '
-                  'swift-dispersion-populate been run?', file=stderr)
-            stderr.flush()
-            return
+            listing = []
+    objects = [(container, name) for name in object_dispersion_names(listing)]
     objects_listed = len(objects)
     if not objects_listed:
-        print('No objects to query. Has swift-dispersion-populate '
-              'been run?', file=stderr)
-        stderr.flush()
-        return
+        exit('ERROR: No canonical object dispersion samples for policy %s '
+             'to report.' % policy.name)
     retries_done = [0]
     objects_queried = [0]
     object_copies_found = [0]
@@ -197,7 +201,7 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
         headers = {}
         headers['X-Backend-Storage-Policy-Index'] = int(policy)
 
-    def direct(obj, part, nodes):
+    def direct(container, obj, part, nodes):
         found_count = 0
         for node in nodes:
             error_log = get_error_log(node_to_string(node))
@@ -236,12 +240,12 @@ def object_dispersion_report(coropool, connpool, account, object_ring,
                       end='')
             stdout.flush()
     object_parts = {}
-    for obj in objects:
+    for container, obj in objects:
         part, nodes = object_ring.get_nodes(account, container, obj)
         if part not in object_parts:
             object_copies_expected[0] += len(nodes)
             object_parts[part] = part
-            coropool.spawn(direct, obj, part, nodes)
+            coropool.spawn(direct, container, obj, part, nodes)
     coropool.waitall()
     distinct_partitions = len(object_parts)
     copies_found = object_copies_found[0]
@@ -328,6 +332,8 @@ Usage: %%prog [options] [conf_file]
                            'The keystone\'s certificate will not be verified.')
     parser.add_option('-P', '--policy-name', dest='policy_name',
                       help="Specify storage policy name")
+    parser.add_option('-s', '--section', dest='section',
+                      help="Read overrides from this dispersion.conf section")
 
     options, args = parser.parse_args()
     if args:
@@ -340,7 +346,14 @@ Usage: %%prog [options] [conf_file]
     c = ConfigParser()
     if not c.read(conffile):
         exit('Unable to read config file: %s' % conffile)
+    if not c.has_section('dispersion'):
+        exit('Unable to find [dispersion] in config file: %s' % conffile)
     conf = dict(c.items('dispersion'))
+    if options.section:
+        if not c.has_section(options.section):
+            exit('Unable to find [%s] in config file: %s' %
+                 (options.section, conffile))
+        conf.update(c.items(options.section))
 
     if options.dump_json:
         conf['dump_json'] = 'yes'
@@ -353,7 +366,10 @@ Usage: %%prog [options] [conf_file]
     if options.partitions:
         conf['partitions'] = 'yes'
 
-    output = generate_report(conf, options.policy_name)
+    try:
+        output = generate_report(conf, options.policy_name)
+    except ValueError as err:
+        exit(str(err))
 
     if json_output:
         print(json.dumps(output))
@@ -367,6 +383,7 @@ def generate_report(conf, policy_name=None):
         from swift.common.internal_client import get_auth
     global json_output
     json_output = config_true_value(conf.get('dump_json', 'no'))
+    policy_name = policy_name or conf.get('policy_name')
     if policy_name is None:
         policy = POLICIES.default
     else:
@@ -384,7 +401,17 @@ def generate_report(conf, policy_name=None):
     container_report = config_true_value(conf.get('container_report', 'yes'))
     object_report = config_true_value(conf.get('object_report', 'yes'))
     if not (object_report or container_report):
-        exit("Neither container or object report is set to run")
+        raise ValueError('Neither container nor object report is set to run')
+    if container_report and policy.idx != POLICIES.default.idx:
+        if not json_output:
+            print('Skipping container report: container dispersion is '
+                  'shared by all storage policies. Use --container-only '
+                  'with the default policy to report the container ring.',
+                  file=stderr)
+            stderr.flush()
+        container_report = False
+    if not container_report and not object_report:
+        raise ValueError('Neither container nor object report is set to run')
     user_domain_name = str(conf.get('user_domain_name', ''))
     project_domain_name = str(conf.get('project_domain_name', ''))
     project_name = str(conf.get('project_name', ''))
@@ -419,7 +446,7 @@ def generate_report(conf, policy_name=None):
     if container_report:
         output['container'] = container_dispersion_report(
             coropool, connpool, account, container_ring, retries,
-            conf.get('partitions'), policy)
+            conf.get('partitions'))
     if object_report:
         output['object'] = object_dispersion_report(
             coropool, connpool, account, object_ring, retries,
