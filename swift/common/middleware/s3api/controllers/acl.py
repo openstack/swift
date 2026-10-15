@@ -96,7 +96,8 @@ class AclController(Controller):
         """
         resp = req.get_response(self.app, method='HEAD')
 
-        return get_acl(req.user_id, resp.headers)
+        # the S3 headers of the answer hold no container ACL
+        return get_acl(req.user_id, resp.sw_headers)
 
     @public
     def PUT(self, req):

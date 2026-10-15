@@ -19,7 +19,7 @@ from unittest import mock
 
 from io import BytesIO
 
-from swift.common.swob import Request, HTTPAccepted
+from swift.common.swob import Request, HTTPAccepted, HTTPNoContent
 from swift.common.middleware.s3api.etree import fromstring, tostring, \
     Element, SubElement, XMLNS_XSI
 from swift.common.middleware.s3api.s3response import InvalidArgument
@@ -28,6 +28,8 @@ from swift.common.utils import md5
 
 from test.unit.common.middleware.s3api import S3ApiTestCase, S3ApiTestCaseAcl
 from test.unit.common.middleware.s3api.helpers import UnreadableInput
+
+ALL_USERS = 'http://acs.amazonaws.com/groups/global/AllUsers'
 
 
 class BaseS3ApiAcl(object):
@@ -204,6 +206,50 @@ class TestS3ApiAclNoSetup(BaseS3ApiAcl, S3ApiTestCase):
         self.assertEqual(cm.exception.info['argument_name'], 'x-amz-acl')
         self.assertTrue('argument_value' in cm.exception.info)
         self.assertEqual(cm.exception.info['argument_value'], 'invalid')
+
+    def _get_bucket_acl_grants(self, container_acl):
+        """Return a (grantee type, name, permission) tuple for each grant."""
+        self.swift.register('HEAD', '/v1/AUTH_test/bucket',
+                            HTTPNoContent, container_acl, None)
+        req = Request.blank('/bucket?acl',
+                            environ={'REQUEST_METHOD': 'GET'},
+                            headers={'Authorization': 'AWS test:tester:hmac',
+                                     'Date': self.get_date_header()})
+        status, headers, body = self.call_s3api(req)
+        self.assertEqual(status.split()[0], '200')
+
+        elem = fromstring(body, 'AccessControlPolicy')
+        grants = []
+        for grant in elem.findall('./AccessControlList/Grant'):
+            grantee = grant.find('./Grantee')
+            name = grantee.find('./URI')
+            if name is None:
+                name = grantee.find('./ID')
+            grants.append((grantee.get('{%s}type' % XMLNS_XSI), name.text,
+                           grant.find('./Permission').text))
+        return grants
+
+    def test_bucket_acl_GET_reports_a_public_read_bucket(self):
+        self.assertEqual(
+            [('CanonicalUser', 'test:tester', 'FULL_CONTROL'),
+             ('Group', ALL_USERS, 'READ')],
+            self._get_bucket_acl_grants(
+                {'X-Container-Read': '.r:*,.rlistings'}))
+
+    def test_bucket_acl_GET_reports_a_public_write_bucket(self):
+        self.assertEqual(
+            [('CanonicalUser', 'test:tester', 'FULL_CONTROL'),
+             ('Group', ALL_USERS, 'READ'),
+             ('Group', ALL_USERS, 'WRITE')],
+            self._get_bucket_acl_grants(
+                {'X-Container-Read': '.r:*,.rlistings',
+                 'X-Container-Write': '.r:*'}))
+
+    def test_bucket_acl_GET_reports_no_grant_for_a_private_bucket(self):
+        self.assertEqual(
+            [('CanonicalUser', 'test:tester', 'FULL_CONTROL')],
+            self._get_bucket_acl_grants({'X-Container-Read': '.',
+                                         'X-Container-Write': '.'}))
 
 
 class TestS3ApiAclCommonSetup(BaseS3ApiAcl, S3ApiTestCaseAcl):
