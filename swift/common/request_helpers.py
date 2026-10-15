@@ -552,7 +552,7 @@ class SegmentedIterable(object):
     def __init__(self, req, app, listing_iter, max_get_time,
                  logger, ua_suffix, swift_source,
                  name='<not specified>', response_body_length=None,
-                 allow_reserved_names=False):
+                 use_preauthed_req=False):
         self.req = req
         self.app = app
         self.listing_iter = listing_iter
@@ -566,7 +566,7 @@ class SegmentedIterable(object):
         self.app_iter = self._internal_iter()
         self.validated_first_segment = False
         self.current_resp = None
-        self.allow_reserved_names = allow_reserved_names
+        self.use_preauthed_req = use_preauthed_req
 
     def _coalesce_requests(self):
         pending_req = pending_etag = pending_size = None
@@ -598,11 +598,8 @@ class SegmentedIterable(object):
                 path = quote(seg_path) + '?multipart-manifest=get'
                 headers = {h: self.req.headers.get(h)
                            for h in ('x-auth-token', 'x-open-expired')}
-                if self.allow_reserved_names:
-                    # TODO: see similar logic in symlink _recursive_get_head -
-                    #   is this a safe, re-usable pattern? if so, make a helper
+                if self.use_preauthed_req:
                     # TODO: add unit test for this condition
-                    headers['x-backend-allow-reserved-names'] = 'true'
                     subreq_method = make_pre_authed_request
                 else:
                     subreq_method = make_subrequest
