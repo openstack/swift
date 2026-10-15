@@ -44,7 +44,7 @@ class TestObjectVersioning(BaseS3TestCase):
     def setUp(self):
         self.client = self.get_s3_client(1)
         self.bucket_name = self.create_name('versioning')
-        resp = self.client.create_bucket(Bucket=self.bucket_name)
+        resp = self.create_bucket(self.client, self.bucket_name)
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
 
         def enable_versioning():
@@ -71,7 +71,7 @@ class TestObjectVersioning(BaseS3TestCase):
 
     def test_setup(self):
         bucket_name = self.create_name('new-bucket')
-        resp = self.client.create_bucket(Bucket=bucket_name)
+        resp = self.create_bucket(self.client, bucket_name)
         self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
         expected_location = '/%s' % bucket_name
         self.assertEqual(expected_location, resp['Location'])

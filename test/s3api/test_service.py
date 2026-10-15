@@ -83,7 +83,7 @@ class TestGetServiceSigV4(BaseS3TestCase):
         client = self.get_s3_client(client_num)
         buckets = [self.create_name('bucket%s' % i) for i in range(5)]
         for bucket in buckets:
-            client.create_bucket(Bucket=bucket)
+            self.create_bucket(client, bucket)
         return buckets
 
     def _do_test_service_with_buckets(self, client_num, buckets):
