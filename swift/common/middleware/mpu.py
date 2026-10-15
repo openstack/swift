@@ -48,7 +48,6 @@ from swift.proxy.controllers.base import get_container_info
 
 DEFAULT_MIN_PART_SIZE = 5 * 1024 * 1024
 DEFAULT_MAX_PART_NUMBER = 10000
-MAX_COMPLETE_UPLOAD_BODY_SIZE = 2048 * 1024
 MPU_SWIFT_SOURCE = 'MPU'
 
 MPU_HIDDEN_ACCOUNT_PREFIX = AUTO_CREATE_ACCOUNT_PREFIX + 'mpu_'
@@ -70,11 +69,9 @@ MPU_SESSION_COMPLETING_CONTENT_TYPE = 'application/x-mpu-session-completing'
 MPU_SESSION_COMPLETED_CONTENT_TYPE = 'application/x-mpu-session-completed'
 MPU_MANIFEST_DEFAULT_CONTENT_TYPE = 'application/x-mpu'
 MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
-MPU_PHONY_OBJECT_CONTENT_TYPE = 'application/x-phony;swift_source=mpu'
 
 MPU_GENERIC_MARKER_SUFFIX = 'marker'
 
-MPU_UNEXPECTED_UPLOAD_ID_MSG = 'Request does not support upload-id'
 MPU_INVALID_UPLOAD_ID_MSG = 'Invalid upload-id'
 MPU_NO_SUCH_UPLOAD_ID_MSG = 'No such upload-id'
 
@@ -84,7 +81,7 @@ MPU_INCLUDE_SYSMETA_HEADER = 'x-backend-include-mpu-sysmeta'
 def _get_mac_digest(signing_key, path, obj_id):
     # drop the version so that tags are valid for v1, v1.0 or any future
     # API version
-    v, a, c, o = split_path(path, 4, 4, True)
+    _, a, c, o = split_path(path, 4, 4, True)
     aco_path = '/'.join([a, c, o])
     mac = hmac.HMAC(signing_key, b'', 'sha256')
     mac.update(aco_path.encode('utf8'))
@@ -1564,7 +1561,7 @@ class MPUContainerHandler(BaseMPUHandler):
             if 'hash' not in item:
                 continue
 
-            hash_value, params = parse_content_type(item['hash'])
+            _, params = parse_content_type(item['hash'])
             new_params = []
             mpu_etag = None
             for k, v in params:
@@ -1705,7 +1702,7 @@ class MPUMiddleware:
     def __call__(self, env, start_response):
         req = Request(env)
         try:
-            vrs, account, container, obj = req.split_path(3, 4, True)
+            _, account, container, obj = req.split_path(3, 4, True)
         except ValueError:
             return self.app(env, start_response)
 
