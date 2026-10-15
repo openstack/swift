@@ -23,7 +23,6 @@ import zlib
 
 from swift.common.utils import checksum
 from test.debug_logger import debug_logger
-from test.unit import requires_crc32c, requires_crc64nvme
 
 
 class TestModuleFunctions(unittest.TestCase):
@@ -333,7 +332,6 @@ class TestCRCHasher(unittest.TestCase):
         self.assertEqual('fe6b0d8c', hasher.hexdigest())
         self.assertEqual('04e7e407', hasher_copy.hexdigest())
 
-    @requires_crc32c
     def test_crc32c_hasher(self):
         # See CRC-32/ISCSI at
         # https://reveng.sourceforge.io/crc-catalogue/17plus.htm
@@ -349,21 +347,18 @@ class TestCRCHasher(unittest.TestCase):
         self.assertEqual(b'\xe3\x06\x92\x83', hasher.digest())
         self.assertEqual('e3069283', hasher.hexdigest())
 
-    @requires_crc32c
     def test_crc32c_hasher_constructed_with_data(self):
         hasher = checksum.crc32c(b'123456789')
         self.assertEqual(0xe3069283, hasher.crc)
         self.assertEqual(b'\xe3\x06\x92\x83', hasher.digest())
         self.assertEqual('e3069283', hasher.hexdigest())
 
-    @requires_crc32c
     def test_crc32c_hasher_initial_value(self):
         hasher = checksum.crc32c(initial_value=0xe3069283)
         self.assertEqual(0xe3069283, hasher.crc)
         self.assertEqual(b'\xe3\x06\x92\x83', hasher.digest())
         self.assertEqual('e3069283', hasher.hexdigest())
 
-    @requires_crc32c
     def test_crc32c_hasher_copy(self):
         hasher = checksum.crc32c(b'123456789')
         self.assertEqual('e3069283', hasher.hexdigest())
@@ -381,8 +376,7 @@ class TestCRCHasher(unittest.TestCase):
     def test_crc32c_hasher_selects_kern_impl(self):
         scuc = 'swift.common.utils.checksum'
         with mock.patch(scuc + '.crc32c_isal', None), \
-                mock.patch(scuc + '.crc32c_kern') as mock_kern, \
-                mock.patch(scuc + '.crc32c_anycrc', None):
+                mock.patch(scuc + '.crc32c_kern') as mock_kern:
             mock_kern.__name__ = 'crc32c_kern'
             self.assertIs(mock_kern, checksum.crc32c().crc_func)
             checksum.log_selected_implementation(self.logger)
@@ -411,7 +405,6 @@ class TestCRCHasher(unittest.TestCase):
         self.assertIn('Using crc32c_isal implementation for CRC32C.',
                       self.logger.get_lines_for_level('info'))
 
-    @requires_crc64nvme
     def test_crc64nvme_hasher(self):
         # See CRC-64/NVME at
         # https://reveng.sourceforge.io/crc-catalogue/17plus.htm
@@ -428,19 +421,16 @@ class TestCRCHasher(unittest.TestCase):
         self.assertEqual(b'\xae\x8b\x14\x86\x0a\x79\x98\x88', hasher.digest())
         self.assertEqual('ae8b14860a799888', hasher.hexdigest())
 
-    @requires_crc64nvme
     def test_crc64nvme_hasher_constructed_with_data(self):
         hasher = checksum.crc64nvme(b'123456789')
         self.assertEqual(b'\xae\x8b\x14\x86\x0a\x79\x98\x88', hasher.digest())
         self.assertEqual('ae8b14860a799888', hasher.hexdigest())
 
-    @requires_crc64nvme
     def test_crc64nvme_hasher_initial_value(self):
         hasher = checksum.crc64nvme(initial_value=0xae8b14860a799888)
         self.assertEqual(b'\xae\x8b\x14\x86\x0a\x79\x98\x88', hasher.digest())
         self.assertEqual('ae8b14860a799888', hasher.hexdigest())
 
-    @requires_crc64nvme
     def test_crc64nvme_hasher_copy(self):
         hasher = checksum.crc64nvme(b'123456789')
         self.assertEqual('ae8b14860a799888', hasher.hexdigest())
