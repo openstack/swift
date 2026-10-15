@@ -74,8 +74,6 @@ MPU_MARKER_CONTENT_TYPE = 'application/x-mpu-marker'
 MPU_PHONY_OBJECT_CONTENT_TYPE = 'application/x-phony;swift_source=mpu'
 
 MPU_GENERIC_MARKER_SUFFIX = 'marker'
-MPU_DELETED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-deleted'
-MPU_ABORTED_MARKER_SUFFIX = MPU_GENERIC_MARKER_SUFFIX + '-aborted'
 
 MPU_UNEXPECTED_UPLOAD_ID_MSG = 'Request does not support upload-id'
 MPU_INVALID_UPLOAD_ID_MSG = 'Invalid upload-id'
@@ -174,14 +172,9 @@ def make_parts_container_name(container):
 
 def calculate_max_name_length():
     # TODO: ideally we'd allow longer internal names in hidden containers
-    max_suffix = ''
-    for suffix in (MPU_DELETED_MARKER_SUFFIX, normalize_part_number(0),
-                   'PUT', 'DELETE'):
-        if len(suffix) > len(max_suffix):
-            max_suffix = suffix
+    max_suffix = normalize_part_number(0)
     obj_id = UploadId(Timestamp.now())
     ref = ObjectRef('', obj_id=obj_id.serialize(), tail=max_suffix)
-
     return constraints.MAX_OBJECT_NAME_LENGTH - len(ref.serialize())
 
 
