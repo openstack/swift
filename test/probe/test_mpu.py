@@ -453,9 +453,9 @@ class BaseTestNativeMPU(BaseTestMPU):
         return (self.get_mpu_sessions(),
                 self.get_mpu_parts())
 
-    def _make_mpu(self, num_parts=1):
+    def _make_mpu(self, name, num_parts=1):
         # create
-        resp, body = self.post_object(self.bucket_name, self.mpu_name,
+        resp, body = self.post_object(self.bucket_name, name,
                                       query_string='uploads=true')
         upload_id = resp.headers.get('X-Upload-Id')
         self.assertIsNotNone(upload_id)
@@ -466,7 +466,7 @@ class BaseTestNativeMPU(BaseTestMPU):
         for i in range(num_parts):
             with open(part_file, 'rb') as fd:
                 part_etag = swiftclient.put_object(
-                    self.url, self.token, self.bucket_name, self.mpu_name,
+                    self.url, self.token, self.bucket_name, name,
                     contents=fd, content_type='ignored',
                     query_string='upload-id=%s&part-number=%d'
                                  % (upload_id, i + 1)
@@ -474,7 +474,7 @@ class BaseTestNativeMPU(BaseTestMPU):
             self.assertEqual(hash_, part_etag)
             manifest.append({'part_number': i + 1, 'etag': part_etag})
         # complete
-        resp, body = self.post_object(self.bucket_name, self.mpu_name,
+        resp, body = self.post_object(self.bucket_name, name,
                                       query_string='upload-id=%s' % upload_id,
                                       body=json.dumps(manifest).encode(
                                           'ascii'))
@@ -486,11 +486,53 @@ class BaseTestNativeMPU(BaseTestMPU):
         self.assert_etag(mpu_etag, body_dict.get('Etag'))
         # get mpu
         headers, body = swiftclient.get_object(
-            self.url, self.token, self.bucket_name, self.mpu_name)
+            self.url, self.token, self.bucket_name, name)
         self.assertEqual(str(num_parts * self.part_size),
                          headers.get('content-length'))
         self.assert_etag(mpu_etag, headers.get('etag'), rfc_compliant=True)
         return upload_id, mpu_etag
+
+    def check_container_stats(self, metadata,
+                              exp_object_count,
+                              exp_bytes_used,
+                              exp_bytes_in_parts,
+                              exp_bytes_in_manifests):
+        self.assertEqual(str(exp_object_count),
+                         metadata.get('x-container-object-count'),
+                         metadata)
+        self.assertEqual(str(exp_bytes_used),
+                         metadata.get('x-container-bytes-used'),
+                         metadata)
+        self.assertEqual(
+            str(exp_bytes_in_parts),
+            metadata.get('x-backend-container-bytes-in-parts'),
+            metadata)
+        self.assertEqual(
+            str(exp_bytes_in_manifests),
+            metadata.get('x-backend-container-bytes-in-manifests'))
+
+    def check_account_stats(self, metadata,
+                            exp_container_count,
+                            exp_object_count,
+                            exp_bytes_used,
+                            exp_bytes_in_parts,
+                            exp_bytes_in_manifests):
+        self.assertEqual(str(exp_container_count),
+                         metadata.get('x-account-container-count'),
+                         metadata)
+        self.assertEqual(str(exp_object_count),
+                         metadata.get('x-account-object-count'),
+                         metadata)
+        self.assertEqual(str(exp_bytes_used),
+                         metadata.get('x-account-bytes-used'),
+                         metadata)
+        self.assertEqual(
+            str(exp_bytes_in_parts),
+            metadata.get('x-backend-account-bytes-in-parts'),
+            metadata)
+        self.assertEqual(
+            str(exp_bytes_in_manifests),
+            metadata.get('x-backend-account-bytes-in-manifests'))
 
 
 class TestNativeMPU(BaseTestNativeMPU):
@@ -604,6 +646,7 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assertEqual(int_upload_id.serialize(),
                          mpu_meta.get('x-object-sysmeta-mpu-upload-id'),
                          mpu_meta)
+        manifest_size = mpu_meta['content-length']
 
         # check user container listing
         resp_hdrs, user_objs = swiftclient.get_container(
@@ -621,17 +664,13 @@ class TestNativeMPU(BaseTestNativeMPU):
                          resp_hdrs.get('x-container-bytes-used'))
 
         # check internal container metadata
-        metadata = self.internal_client.get_container_metadata(
+        container_meta = self.internal_client.get_container_metadata(
             self.account, self.bucket_name)
-        self.assertEqual('1', metadata.get('x-container-object-count'))
-        self.assertEqual(str(self.part_size),
-                         metadata.get('x-container-bytes-used'))
-        self.assertEqual(str(self.part_size),
-                         metadata.get('x-backend-container-bytes-in-parts'),
-                         metadata)
-        self.assertGreater(
-            int(metadata.get('x-backend-container-bytes-in-manifests', 0)),
-            0, metadata)
+        self.check_container_stats(container_meta,
+                                   1,
+                                   self.part_size,
+                                   self.part_size,
+                                   manifest_size)
 
         sessions, parts = self.get_mpu_resources()
         self.assertIn(self.mpu_name, sessions[0]['name'])
@@ -680,14 +719,13 @@ class TestNativeMPU(BaseTestNativeMPU):
 
         # check account stats
         Manager(['container-updater']).once()
-        account_hdrs, account_listing = swiftclient.get_account(
-            self.url, self.token)
-        self.assertEqual('1', account_hdrs.get('X-Account-Container-Count'))
-        # account only reports user object
-        self.assertEqual('1', account_hdrs.get('X-Account-Object-Count'))
-        # account only reports the sum of part size, not manifest
-        self.assertEqual(str(self.part_size),
-                         account_hdrs.get('X-Account-Bytes-Used'))
+        account_meta = self.internal_client.get_account_metadata(self.account)
+        self.check_account_stats(account_meta,
+                                 1,
+                                 1,
+                                 self.part_size,
+                                 self.part_size,
+                                 manifest_size)
 
         # delete the mpu
         swiftclient.delete_object(self.url, self.token, self.bucket_name,
@@ -712,14 +750,75 @@ class TestNativeMPU(BaseTestNativeMPU):
 
         # check the account stats
         Manager(['container-updater']).once()
-        account_hdrs, account_listing = swiftclient.get_account(
-            self.url, self.token)
-        self.assertEqual('1', account_hdrs.get('X-Account-Container-Count'))
-        self.assertEqual('0', account_hdrs.get('X-Account-Object-Count'))
-        self.assertEqual('0', account_hdrs.get('X-Account-Bytes-Used'))
+        account_meta = self.internal_client.get_account_metadata(self.account)
+        self.check_account_stats(account_meta, 1, 0, 0, 0, 0)
 
-    def test_mpu_overwritten_by_mpu(self):
-        upload_id, etag = self._make_mpu(num_parts=1)
+    def test_native_mpu_stats(self):
+        mpus = [
+            {'name': 'mpu1', 'num_parts': 1},
+            {'name': 'mpu2', 'num_parts': 2},
+            {'name': 'mpu3', 'num_parts': 3}
+        ]
+        for mpu_data in mpus:
+            self._make_mpu(mpu_data['name'], num_parts=mpu_data['num_parts'])
+            mpu_meta = self.internal_client.get_object_metadata(
+                self.account, self.bucket_name, mpu_data['name'],
+                headers={'x-backend-include-mpu-sysmeta': 'true'}
+            )
+            mpu_data['manifest_size'] = int(mpu_meta['content-length'])
+
+        # also upload a non-mpu object
+        non_mpu_size = 99
+        swiftclient.put_object(
+            self.url, self.token, self.bucket_name, self._make_name('non-mpu'),
+            contents='x' * non_mpu_size,)
+
+        # check container stats
+        exp_manifest_bytes = sum(d['manifest_size'] for d in mpus)
+        container_meta = self.internal_client.get_container_metadata(
+            self.account, self.bucket_name)
+        self.check_container_stats(container_meta,
+                                   4,
+                                   non_mpu_size + 6 * self.part_size,
+                                   6 * self.part_size,
+                                   exp_manifest_bytes)
+
+        # check account stats
+        Manager(['container-updater']).once()
+        account_meta = self.internal_client.get_account_metadata(self.account)
+        self.check_account_stats(account_meta,
+                                 1,
+                                 4,
+                                 non_mpu_size + 6 * self.part_size,
+                                 6 * self.part_size,
+                                 exp_manifest_bytes)
+
+        # delete an object
+        swiftclient.delete_object(
+            self.url, self.token, self.bucket_name, 'mpu3')
+
+        # check container stats
+        exp_manifest_bytes = sum(d['manifest_size'] for d in mpus[:2])
+        container_meta = self.internal_client.get_container_metadata(
+            self.account, self.bucket_name)
+        self.check_container_stats(container_meta,
+                                   3,
+                                   non_mpu_size + 3 * self.part_size,
+                                   3 * self.part_size,
+                                   exp_manifest_bytes)
+
+        # check account stats
+        Manager(['container-updater']).once()
+        account_meta = self.internal_client.get_account_metadata(self.account)
+        self.check_account_stats(account_meta,
+                                 1,
+                                 3,
+                                 non_mpu_size + 3 * self.part_size,
+                                 3 * self.part_size,
+                                 exp_manifest_bytes)
+
+    def test_native_mpu_overwritten_by_mpu(self):
+        upload_id, etag = self._make_mpu(self.mpu_name, num_parts=1)
         int_upload_id = self.internalize_upload_id(upload_id)
         part_base = '%s/%s/' % (self.mpu_name, int_upload_id)
         exp_parts_items_1 = [
@@ -735,7 +834,7 @@ class TestNativeMPU(BaseTestNativeMPU):
              'last_modified': mock.ANY}
         ]
         # overwrite with another mpu
-        upload_id, etag = self._make_mpu(num_parts=2)
+        upload_id, etag = self._make_mpu(self.mpu_name, num_parts=2)
         int_upload_id = self.internalize_upload_id(upload_id)
         part_base = '%s/%s/' % (self.mpu_name, int_upload_id)
         exp_parts_items_2 = [
@@ -795,8 +894,8 @@ class TestNativeMPU(BaseTestNativeMPU):
         self.assert_etag(etag, headers.get('etag'), rfc_compliant=True)
         self.assertEqual(2 * self.part_size, len(body))
 
-    def test_mpu_overwritten_by_non_mpu(self):
-        upload_id, etag = self._make_mpu(num_parts=1)
+    def test_native_mpu_overwritten_by_non_mpu(self):
+        upload_id, etag = self._make_mpu(self.mpu_name, num_parts=1)
         int_upload_id = self.internalize_upload_id(upload_id)
         part_base = '%s/%s/' % (self.mpu_name, int_upload_id)
         exp_parts_items_1 = [
@@ -1221,7 +1320,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         # enable versioning
         self.enable_versioning()
         # put an mpu
-        self._make_mpu()
+        self._make_mpu(self.mpu_name)
         # put an object as a control item
         obj_name = 'non-mpu-obj'
         swiftclient.put_object(self.url, self.token, self.bucket_name,
@@ -1232,7 +1331,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
 
     def test_delete_null_version_while_versioning_enabled(self):
         # put an mpu
-        self._make_mpu()
+        self._make_mpu(self.mpu_name)
         # put an object as a control item
         obj_name = 'non-mpu-obj'
         swiftclient.put_object(self.url, self.token, self.bucket_name,
@@ -1251,7 +1350,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         #   * DELETE objects - no version retained, no delete markers written
 
         # put an mpu
-        self._make_mpu()
+        self._make_mpu(self.mpu_name)
 
         # put an object as a control item
         obj_name = 'non-mpu-obj'
@@ -1306,7 +1405,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
                               policy=self.policy)
 
         # put an mpu
-        upload_id, etag = self._make_mpu(num_parts=2)
+        upload_id, etag = self._make_mpu(self.mpu_name, num_parts=2)
         upload_id = self.internalize_upload_id(upload_id)
 
         # stash the timestamp
@@ -1400,12 +1499,12 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         #   * PUT mpu (new null version)
 
         # put an mpu
-        upload_id, etag1 = self._make_mpu(num_parts=1)
+        upload_id, etag1 = self._make_mpu(self.mpu_name, num_parts=1)
         upload_id1 = self.internalize_upload_id(upload_id)
         # enable versioning
         self.enable_versioning()
         # put an mpu again
-        upload_id, etag2 = self._make_mpu(num_parts=2)
+        upload_id, etag2 = self._make_mpu(self.mpu_name, num_parts=2)
         upload_id2 = self.internalize_upload_id(upload_id)
         self.assertNotEqual(upload_id1, upload_id2)
         self.assertNotEqual(etag1, etag2)
@@ -1443,7 +1542,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         # suspend versioning
         self.disable_versioning()
         # put an mpu again
-        upload_id, etag3 = self._make_mpu(num_parts=3)
+        upload_id, etag3 = self._make_mpu(self.mpu_name, num_parts=3)
         upload_id3 = self.internalize_upload_id(upload_id)
         self.assertNotEqual(upload_id2, upload_id3)
         self.assertNotEqual(etag2, etag3)
@@ -1480,7 +1579,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
 
         # rinse and repeat...
         self.enable_versioning()
-        upload_id, etag4 = self._make_mpu(num_parts=4)
+        upload_id, etag4 = self._make_mpu(self.mpu_name, num_parts=4)
         upload_id4 = self.internalize_upload_id(upload_id)
         self.assertNotEqual(upload_id3, upload_id4)
         self.assertNotEqual(etag3, etag4)
@@ -1517,7 +1616,7 @@ class TestNativeMPUWithS3CompatVersioning(BaseTestNativeMPU):
         self.assert_etag(etag3, headers.get('etag'))
 
         self.disable_versioning()
-        upload_id, etag5 = self._make_mpu(num_parts=5)
+        upload_id, etag5 = self._make_mpu(self.mpu_name, num_parts=5)
         upload_id5 = self.internalize_upload_id(upload_id)
         self.assertNotEqual(upload_id4, upload_id5)
         self.assertNotEqual(etag4, etag5)

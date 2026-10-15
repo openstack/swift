@@ -190,7 +190,10 @@ class AccountController(BaseStorageServer):
                                  req.headers['x-delete-timestamp'],
                                  req.headers['x-object-count'],
                                  req.headers['x-bytes-used'],
-                                 container_policy_index)
+                                 container_policy_index,
+                                 int(req.headers.get('x-bytes-in-parts') or 0),
+                                 int(req.headers.get('x-bytes-in-manifests')
+                                     or 0))
             if req.headers['x-delete-timestamp'] > \
                     req.headers['x-put-timestamp']:
                 return HTTPNoContent(request=req)

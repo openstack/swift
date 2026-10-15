@@ -344,6 +344,8 @@ class TestAccountController(BaseUnitTestCase):
             'X-Account-Container-Count': '0',
             'X-Account-Object-Count': '0',
             'X-Account-Bytes-Used': '0',
+            'X-Backend-Account-Bytes-In-Parts': '0',
+            'X-Backend-Account-Bytes-In-Manifests': '0',
             'X-Timestamp': created_at_timestamp.normal,
             'X-Put-Timestamp': put_timestamp.normal,
         }, dict(headers))
@@ -406,6 +408,78 @@ class TestAccountController(BaseUnitTestCase):
         self.assertEqual(resp.headers['x-account-container-count'], '2')
         self.assertEqual(resp.headers['x-account-object-count'], '4')
         self.assertEqual(resp.headers['x-account-bytes-used'], '6')
+
+    def test_HEAD_with_mpu_containers(self):
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Timestamp': '0'})
+        req.get_response(self.controller)
+        # an older container server sends no mpu byte counts at all
+        req = Request.blank('/sda1/p/a/c1', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Put-Timestamp': '1',
+                                     'X-Delete-Timestamp': '0',
+                                     'X-Object-Count': '1',
+                                     'X-Bytes-Used': '2',
+                                     'X-Timestamp': self.ts().internal})
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers['x-account-bytes-used'], '2')
+        self.assertEqual(resp.headers['x-backend-account-bytes-in-parts'], '0')
+        self.assertEqual(
+            resp.headers['x-backend-account-bytes-in-manifests'], '0')
+
+        # a newer container server sends them
+        req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Put-Timestamp': '2',
+                                     'X-Delete-Timestamp': '0',
+                                     'X-Object-Count': '3',
+                                     'X-Bytes-Used': '400',
+                                     'X-Bytes-In-Parts': '300',
+                                     'X-Bytes-In-Manifests': '7',
+                                     'X-Timestamp': self.ts().internal})
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(resp.status_int, 204)
+        self.assertEqual(resp.headers['x-account-object-count'], '4')
+        self.assertEqual(resp.headers['x-account-bytes-used'], '402')
+        self.assertEqual(
+            resp.headers['x-backend-account-bytes-in-parts'], '300')
+        self.assertEqual(
+            resp.headers['x-backend-account-bytes-in-manifests'], '7')
+        policy_name = POLICIES[0].name
+        self.assertEqual(
+            resp.headers['x-backend-account-storage-policy-%s-bytes-in-parts'
+                         % policy_name], '300')
+        self.assertEqual(
+            resp.headers[
+                'x-backend-account-storage-policy-%s-bytes-in-manifests'
+                % policy_name], '7')
+
+        # ... and an update that drops the mpu decrements them again
+        req = Request.blank('/sda1/p/a/c2', environ={'REQUEST_METHOD': 'PUT'},
+                            headers={'X-Put-Timestamp': '3',
+                                     'X-Delete-Timestamp': '0',
+                                     'X-Object-Count': '1',
+                                     'X-Bytes-Used': '100',
+                                     'X-Bytes-In-Parts': '0',
+                                     'X-Bytes-In-Manifests': '0',
+                                     'X-Timestamp': self.ts().internal})
+        self.assertEqual(201, req.get_response(self.controller).status_int)
+        req = Request.blank('/sda1/p/a', environ={'REQUEST_METHOD': 'HEAD'})
+        resp = req.get_response(self.controller)
+        self.assertEqual(
+            resp.headers['x-backend-account-bytes-in-parts'], '0')
+        self.assertEqual(
+            resp.headers['x-backend-account-bytes-in-manifests'], '0')
+        self.assertEqual(
+            resp.headers['x-backend-account-storage-policy-%s-bytes-in-parts'
+                         % policy_name], '0')
+        self.assertEqual(
+            resp.headers[
+                'x-backend-account-storage-policy-%s-bytes-in-manifests'
+                % policy_name], '0')
 
     def test_HEAD_invalid_partition(self):
         req = Request.blank('/sda1/./a', environ={'REQUEST_METHOD': 'HEAD',
