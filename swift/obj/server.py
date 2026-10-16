@@ -277,13 +277,6 @@ class ObjectController(BaseStorageServer):
         return self._diskfile_router[policy].get_diskfile(
             device, partition, account, container, obj, policy, **kwargs)
 
-    def _make_common_update_headers(self, request, policy):
-        return HeaderKeyDict({
-            'x-trans-id': request.headers.get('x-trans-id', '-'),
-            'referer': request.as_referer(),
-            'X-Backend-Storage-Policy-Index': int(policy),
-        })
-
     def async_update(self, op, account, container, obj, host, partition,
                      contdevice, headers_out, objdevice, policy,
                      logger_thread_locals=None, container_path=None,
@@ -430,7 +423,9 @@ class ObjectController(BaseStorageServer):
         else:
             updates = []
 
-        headers_out.update(self._make_common_update_headers(request, policy))
+        headers_out['x-trans-id'] = headers_in.get('x-trans-id', '-')
+        headers_out['referer'] = request.as_referer()
+        headers_out['X-Backend-Storage-Policy-Index'] = int(policy)
         update_greenthreads = []
         for conthost, contdevice in updates:
             gt = spawn(self.async_update, op, account, container, obj,
