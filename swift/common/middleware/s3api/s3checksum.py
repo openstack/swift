@@ -40,15 +40,9 @@ def get_checksum_hasher(header):
     """
     Return a checksum hasher for an x-amz-checksum-* header.
 
-    :raises NotImplementedError: if the checksum algorithm is not supported
+    :raises KeyError: if the header does not name a supported algorithm.
     """
-    try:
-        return CHECKSUMS_BY_HEADER[header]()
-    except (KeyError, NotImplementedError):
-        # We don't want to import s3response in this module
-        # so we cannot raise S3NotImplemented here.
-        raise NotImplementedError(
-            'The %s algorithm is not supported.' % header)
+    return CHECKSUMS_BY_HEADER[header]()
 
 
 def validate_checksum_value(checksum_hasher, b64digest):

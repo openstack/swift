@@ -127,15 +127,6 @@ ALLOWED_COPY_SOURCE_HEADERS = frozenset((
 ))
 
 
-def _get_checksum_hasher(header):
-    """Return an S3 checksum hasher or raise an S3 response error."""
-    # This is to avoid cyclical imports between checksum and s3response.
-    try:
-        return get_checksum_hasher(header)
-    except NotImplementedError as err:
-        raise S3NotImplemented(str(err))
-
-
 def _validate_checksum_header_cardinality(num_checksum_headers,
                                           headers_and_trailer=False):
     if num_checksum_headers > 1:
@@ -1511,8 +1502,6 @@ class S3Request(swob.Request):
             an invalid algorithm; the algorithm does not match the value of any
             ``x-amz-sdk-checksum-algorithm`` header that is also present; the
             checksum value is invalid when validate_value is True.
-        :raises S3NotImplemented: if the declared algorithm is valid but not
-            supported.
         :return: a tuple of
             (hasher, checksum header name, checksum trailer name) where at
             least one of (checksum header name, checksum trailer name) will be
@@ -1528,7 +1517,7 @@ class S3Request(swob.Request):
         if checksum_headers:
             checksum_trailer = None
             checksum_header, b64digest = list(checksum_headers.items())[0]
-            checksum_hasher = _get_checksum_hasher(checksum_header)
+            checksum_hasher = get_checksum_hasher(checksum_header)
             if validate_value:
                 try:
                     # early check on the value...
@@ -1539,7 +1528,7 @@ class S3Request(swob.Request):
         elif checksum_trailer_headers:
             checksum_header = None
             checksum_trailer = checksum_trailer_headers[0]
-            checksum_hasher = _get_checksum_hasher(checksum_trailer)
+            checksum_hasher = get_checksum_hasher(checksum_trailer)
             # checksum should appear at end of request in trailers
         else:
             checksum_hasher = checksum_header = checksum_trailer = None

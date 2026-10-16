@@ -48,7 +48,7 @@ from swift.common.db import GreenDBConnection
 from swift.common.memcached import MemcacheConnectionError
 from swift.common.storage_policy import (StoragePolicy, ECStoragePolicy,
                                          VALID_EC_TYPES)
-from swift.common.utils import Timestamp, md5, close_if_possible, checksum
+from swift.common.utils import Timestamp, md5, close_if_possible
 from swift.common.utils.timestamp import NormalTimestamp
 from test import get_config, BaseTestCase
 from test.debug_logger import FakeLogger
@@ -1219,28 +1219,6 @@ def requires_o_tmpfile_support_in_tmp(func):
     def wrapper(*args, **kwargs):
         if not utils.o_tmpfile_in_tmpdir_supported():
             raise SkipTest('Requires O_TMPFILE support in TMPDIR')
-        return func(*args, **kwargs)
-    return wrapper
-
-
-def requires_crc32c(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            checksum.crc32c()
-        except NotImplementedError as e:
-            raise SkipTest(str(e))
-        return func(*args, **kwargs)
-    return wrapper
-
-
-def requires_crc64nvme(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        try:
-            checksum.crc64nvme()
-        except NotImplementedError as e:
-            raise SkipTest(str(e))
         return func(*args, **kwargs)
     return wrapper
 

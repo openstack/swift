@@ -16,7 +16,6 @@
 import base64
 from io import BytesIO
 import unittest
-from unittest import mock
 
 from swift.common.middleware.s3api.s3checksum import \
     ChecksummingInput, get_checksum_hasher, validate_checksum_value, \
@@ -24,8 +23,6 @@ from swift.common.middleware.s3api.s3checksum import \
 from swift.common.middleware.s3api.exception import \
     S3InputChecksumMismatch, S3InputChecksumTrailerInvalid
 from swift.common.utils import checksum
-
-from test.unit import requires_crc32c, requires_crc64nvme
 
 
 class TestChecksummingInput(unittest.TestCase):
@@ -131,42 +128,20 @@ class TestChecksummingInput(unittest.TestCase):
 
 
 class TestGetChecksumHasher(unittest.TestCase):
-    def _check_hasher(self, crc):
-        hasher = get_checksum_hasher('x-amz-checksum-%s' % crc)
-        self.assertEqual(crc, hasher.name)
-
     def test_get_checksum_hasher(self):
-        self._check_hasher('crc32')
-        self._check_hasher('sha1')
-        self._check_hasher('sha256')
-
-    @requires_crc32c
-    def test_get_checksum_hasher_crc32c(self):
-        self._check_hasher('crc32c')
-
-    @requires_crc64nvme
-    def test_get_checksum_hasher_crc64nvme(self):
-        self._check_hasher('crc64nvme')
+        for algo in ('crc32', 'crc32c', 'crc64nvme', 'sha1', 'sha256'):
+            with self.subTest(algo=algo):
+                hasher = get_checksum_hasher('x-amz-checksum-%s' % algo)
+                self.assertEqual(algo, hasher.name)
 
     def test_get_checksum_hasher_invalid(self):
         # the algorithm is not recognised
         def do_test(crc):
-            with self.assertRaises(NotImplementedError):
+            with self.assertRaises(KeyError):
                 get_checksum_hasher('x-amz-checksum-%s' % crc)
 
         do_test('nonsense')
         do_test('')
-
-    def test_get_checksum_hasher_no_implementation(self):
-        # the algorithm is known but the platform has no implementation
-        with mock.patch.object(checksum, '_select_crc32c_impl',
-                               side_effect=NotImplementedError):
-            with self.assertRaises(NotImplementedError):
-                get_checksum_hasher('x-amz-checksum-crc32c')
-        with mock.patch.object(checksum, '_select_crc64nvme_impl',
-                               side_effect=NotImplementedError):
-            with self.assertRaises(NotImplementedError):
-                get_checksum_hasher('x-amz-checksum-crc64nvme')
 
 
 class TestValidateChecksumValue(unittest.TestCase):

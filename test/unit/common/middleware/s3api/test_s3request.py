@@ -39,11 +39,10 @@ from swift.common.middleware.s3api.s3response import InvalidArgument, \
     NoSuchBucket, InternalError, ServiceUnavailable, \
     AccessDenied, SignatureDoesNotMatch, RequestTimeTooSkewed, \
     InvalidPartArgument, InvalidPartNumber, InvalidRequest, \
-    XAmzContentSHA256Mismatch, ErrorResponse, S3NotImplemented, MalformedXML
+    XAmzContentSHA256Mismatch, ErrorResponse, MalformedXML
 from swift.common.utils import checksum
 from swift.common.utils.timestamp import Timestamp
 from test.debug_logger import debug_logger
-from test.unit import requires_crc32c, requires_crc64nvme
 from test.unit.common.middleware.s3api.test_s3api import S3ApiTestCase
 
 Fake_ACL_MAP = {
@@ -2143,7 +2142,6 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(S3InputChecksumMismatch):
             sigv4_req.environ['wsgi.input'].read()
 
-    @requires_crc32c
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_crc32c_ok(self):
         body = 'a\r\nabcdefghij\r\n' \
@@ -2160,7 +2158,6 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(b'abcdefghijklmnopqrstuvwxyz\n',
                          sigv4_req.environ['wsgi.input'].read())
 
-    @requires_crc32c
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_crc32c_mismatch(self):
         body = 'a\r\nabcdefghij\r\n' \
@@ -2176,7 +2173,6 @@ class TestRequest(S3ApiTestCase):
         with self.assertRaises(S3InputChecksumMismatch):
             sigv4_req.environ['wsgi.input'].read()
 
-    @requires_crc64nvme
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_crc64nvme_ok(self):
         body = 'a\r\nabcdefghij\r\n' \
@@ -2193,7 +2189,6 @@ class TestRequest(S3ApiTestCase):
         self.assertEqual(b'abcdefghijklmnopqrstuvwxyz\n',
                          sigv4_req.environ['wsgi.input'].read())
 
-    @requires_crc64nvme
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_crc64nvme_invalid(self):
         body = 'a\r\nabcdefghij\r\n' \
@@ -2239,24 +2234,6 @@ class TestRequest(S3ApiTestCase):
         sigv4_req = SigV4Request(req.environ)
         with self.assertRaises(S3InputChecksumMismatch):
             sigv4_req.environ['wsgi.input'].read()
-
-    @requires_crc32c
-    @patch.object(S3Request, '_validate_dates', lambda *a: None)
-    def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_unsupported(self):
-        body = 'a\r\nabcdefghij\r\n' \
-               'a\r\nklmnopqrst\r\n' \
-               '7\r\nuvwxyz\n\r\n' \
-               '0\r\n'
-        crc = base64.b64encode(
-            checksum.crc32c(b'abcdefghijklmnopqrstuvwxyz\n').digest())
-        req = self._make_sig_v4_streaming_unsigned_payload_trailer_req(
-            body=body,
-            extra_headers={'x-amz-checksum-crc32c': crc}
-        )
-        with patch('swift.common.middleware.s3api.s3checksum.checksum.'
-                   '_select_crc32c_impl', side_effect=NotImplementedError):
-            with self.assertRaises(S3NotImplemented):
-                SigV4Request(req.environ)
 
     @patch.object(S3Request, '_validate_dates', lambda *a: None)
     def test_sig_v4_strm_unsgnd_pyld_trl_checksum_hdr_and_trailer(self):
