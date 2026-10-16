@@ -608,15 +608,15 @@ class ObjectController(BaseStorageServer):
         """
         Applies any overrides to the container update headers.
 
-        Overrides may be in the x-object-sysmeta-container-update- namespace or
-        the x-backend-container-update-override- namespace. The former is
-        preferred and is used by proxy middlewares. The latter is historical
-        but is still used with EC policy PUT requests; for backwards
+        Overrides may be in the x-object-sysmeta-container-update-override-
+        namespace or the x-backend-container-update-override- namespace. The
+        former is preferred and is used by proxy middlewares. The latter is
+        historical but is still used with EC policy PUT requests; for backwards
         compatibility the header names used with EC policy requests have not
         been changed to the sysmeta namespace - that way the EC PUT path of a
         newer proxy will remain compatible with an object server that pre-dates
-        the introduction of the x-object-sysmeta-container-update- namespace
-        and vice-versa.
+        the introduction of the x-object-sysmeta-container-update-override
+        namespace and vice-versa.
 
         :param update_headers: a dict of headers used in the container update
         :param metadata: a dict that may container override items
