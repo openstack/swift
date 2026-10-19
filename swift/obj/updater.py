@@ -535,6 +535,8 @@ class ObjectUpdater(Daemon):
         self.logger.info('Begin object update sweep of all devices')
         self.begin = time.time()
         devices = self._listdir(self.devices)
+        # randomize devices in case of process restart before sweep completed
+        shuffle(devices)
         self._process_devices(devices)
         now = time.time()
         elapsed = now - self.begin
