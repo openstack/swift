@@ -1,3 +1,19 @@
+swift (2.37.4, gazpacho stable backports)
+
+    * Prohibit object copies via PUT tempurls. Previously, an attacker with a
+      PUT tempurl could copy arbitrary data from within the same container
+      (or, if the tempurl was signed using an account key, anywhere within the
+      same account) provided they know the object path, then read back the
+      object's metadata via a HEAD using the same signature. Refer to
+      CVE-2026-97149 for more information.
+
+    * Fix how s3api copies multipart uploads, both for `CopyObject` and
+      `UploadPartCopy` operations. Previously, these would fail with a
+      `412 Precondition Failed` response if the client included a
+      `x-amz-copy-source-if-match` header. Recent AWS clients began including
+      this header by default for copy operations.
+
+
 swift (2.37.3, gazpacho stable backports)
 
     * Fixed `Accept` header parsing to avoid excessive backtracking. Previously,
