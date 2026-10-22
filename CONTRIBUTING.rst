@@ -36,6 +36,10 @@ Filing a bug is the easiest way to contribute. You can find currently-tracked bu
 Use the `Report a bug <https://bugs.launchpad.net/swift/+filebug>`__ link to
 file a new bug.
 
+If you think that the bug is a security vulnerability, do not file it as a
+public bug. Follow the steps in
+`SECURITY.md <https://opendev.org/openstack/swift/src/branch/master/SECURITY.md>`__.
+
 If you find something in Swift that doesn't match the documentation or doesn't
 meet your expectations with how it should work, please let us know. Of course,
 if you ever get an error (like a Traceback message in the logs), we definitely
