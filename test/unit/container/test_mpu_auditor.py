@@ -41,7 +41,7 @@ from swift.container.mpu_auditor import MpuAuditorDispatcher, \
     yield_item_batches, BaseMpuAuditor, MpuAuditorConfig
 from swift.container.server import ContainerController
 from test.debug_logger import debug_logger
-from test.unit import make_timestamp_iter
+from test.unit import make_timestamp_iter, patch_policies
 from test.unit.common.middleware.helpers import FakeSwift
 
 
@@ -51,6 +51,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
     audit_account = 'a'
     hidden_account = '.mpu_a'
     audit_container = user_container
+    policy_index = 0
 
     def setUp(self):
         self.tempdir = mkdtemp()
@@ -91,7 +92,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
             account=account_name,
             container=container_name,
             logger=self.logger)
-        broker.initialize(put_timestamp=float(next(self.ts_iter)))
+        broker.initialize(put_timestamp=float(next(self.ts_iter)),
+                          storage_policy_index=self.policy_index)
         return broker
 
     def _create_upload_ref(self, obj, ts_data=None):
@@ -125,7 +127,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
             'x-etag': obj['etag'],
             'x-size': obj['size'],
             'x-systags': obj['systags'],
-            'x-backend-object-state': obj['deleted']
+            'x-backend-object-state': obj['deleted'],
+            'x-backend-storage-policy-index': self.policy_index,
         }
         path = '/sda1/p/a/%s/%s' % (self.audit_container, obj['name'])
         # Request.blank unquotes path so quote it before passing in ?
@@ -147,7 +150,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
     def delete_object(self, item, ts=None):
         ts = ts or next(self.ts_iter)
         headers = {'name': item['name'],
-                   'x-timestamp': ts.internal}
+                   'x-timestamp': ts.internal,
+                   'x-backend-storage-policy-index': self.policy_index}
         req = Request.blank(
             '/sda1/p/a/%s/%s' % (self.audit_container, item['name']),
             method='DELETE', headers=headers)
@@ -177,7 +181,7 @@ class BaseTestMpuAuditor(unittest.TestCase):
             'etag': etag,
             'size': size,
             'deleted': state,
-            'storage_policy_index': 0,
+            'storage_policy_index': self.policy_index,
             'manifest_size': manifest_size,
             'systags': param_str_from_dict(systags),
         }
@@ -187,7 +191,8 @@ class BaseTestMpuAuditor(unittest.TestCase):
                            table='object'):
         include_states = include_states or {0}
         rows = self.broker.list_objects(
-            allow_reserved=True, include_states=include_states, table=table)
+            allow_reserved=True, include_states=include_states, table=table,
+            storage_policy_index=self.policy_index)
         self.assertEqual(sorted([o['name'] for o in expected_items]),
                          sorted([row['name'] for row in rows]))
         return rows
@@ -622,6 +627,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
     audit_account = BaseTestMpuAuditor.hidden_account
     audit_container = make_parts_container_name(
         BaseTestMpuAuditor.user_container)
+    auditor_conf = {}
 
     def _create_part_spec(self, obj_name, upload_id, part_number, ts_data=None,
                           systags=None, state=0):
@@ -671,7 +677,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client([]) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditorDispatcher({}, self.logger)
+                auditor = MpuAuditorDispatcher(self.auditor_conf, self.logger)
                 auditor.audit(self.broker)
         self.assertFalse(fake_swift.calls)
         self._check_broker_rows(parts[3:] + [lifeline], include_states={0})
@@ -701,7 +707,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditorDispatcher({}, self.logger)
+                auditor = MpuAuditorDispatcher(self.auditor_conf, self.logger)
                 auditor.audit(self.broker)
 
         # expect DELETEs for parts...
@@ -741,7 +747,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client([]) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditorDispatcher({}, self.logger)
+                auditor = MpuAuditorDispatcher(self.auditor_conf, self.logger)
                 auditor.audit(self.broker)
         self.assertFalse(fake_swift.calls)
         self._check_broker_rows([], include_states={0})
@@ -771,7 +777,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditorDispatcher({}, self.logger)
+                auditor = MpuAuditorDispatcher(self.auditor_conf, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -822,7 +828,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditorDispatcher({}, self.logger)
+                auditor = MpuAuditorDispatcher(self.auditor_conf, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -873,7 +879,7 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         with self._mock_internal_client(registered_calls) as fake_swift:
             with mock.patch('swift.container.mpu_auditor.time.time',
                             return_value=float(next(self.ts_iter))):
-                auditor = MpuAuditorDispatcher({}, self.logger)
+                auditor = MpuAuditorDispatcher(self.auditor_conf, self.logger)
                 auditor.audit(self.broker)
 
         expected_calls = [call[:2] for call in registered_calls]
@@ -883,6 +889,45 @@ class TestMpuAuditorParts(BaseTestMpuAuditor):
         self._check_broker_rows([exp_relic], include_states={2})
         self._check_action_rows([exp_action], include_states={0})
         self._check_action_rows([], include_states={1})
+
+    def test_audit_ignores_rows_in_other_policy(self):
+        # storage policy reconciliation may replace a lifeline with a tombstone
+        # in the old policy; this should not cause the parts to be deleted
+        other_policy = 0
+        while other_policy == self.policy_index:
+            other_policy += 1
+        lifeline = dict(self._create_lifeline_spec(
+            self.user_obj_name, self.upload_id),
+            storage_policy_index=other_policy)
+        tombstone = dict(self._create_db_item(
+            lifeline['name'], next(self.ts_iter), state=1),
+            storage_policy_index=other_policy)
+        parts = [dict(self._create_part_spec(
+            self.user_obj_name, self.upload_id, i),
+            storage_policy_index=other_policy) for i in range(1, 3)]
+        self.broker.merge_items(parts + [lifeline])
+        self.broker.merge_items([tombstone])
+        with self._mock_internal_client([]) as fake_swift:
+            auditor = MpuAuditorDispatcher(self.auditor_conf, self.logger)
+            auditor.audit(self.broker)
+        self.assertFalse(fake_swift.calls)
+        # the auditor must not process the action
+        # TODO: when is the misplaced action reclaimed?
+        actions = self.broker.list_objects(
+            table='action', storage_policy_index=other_policy,
+            allow_reserved=True)
+        self.assertEqual(1, len(actions))
+
+
+@patch_policies
+class TestMpuAuditorPartsPolicy1(TestMpuAuditorParts):
+    # run the part tests in a policy other than policy 0
+    policy_index = 1
+
+
+class TestMpuAuditorPartsSmallBatches(TestMpuAuditorParts):
+    # run the part tests with more parts than one listing returns
+    auditor_conf = {'mpu_audit_batch_size': '2'}
 
 
 class TestMpuAuditorSessions(BaseTestMpuAuditor):

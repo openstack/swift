@@ -47,6 +47,7 @@ def yield_item_batches(broker, max_batches, batch_size, include_states, table):
             marker=marker,
             limit=batch_limit,
             allow_reserved=True,
+            storage_policy_index=broker.storage_policy_index,
             include_states=include_states,
             table=table
         )
@@ -132,11 +133,13 @@ class BaseMpuAuditor:
         self.stats[key] += 1
         self.statsd_client.increment('%s.%s' % (self.resource_type, key))
 
-    def _get_items_with_prefix(self, prefix, limit, include_states=None):
+    def _get_items_with_prefix(self, prefix, limit, include_states=None,
+                               marker=''):
         # get results as dicts...
         broker_items = self.broker.list_objects(
-            limit, '', '', prefix, None, include_states=include_states,
-            allow_reserved=True)
+            limit, marker, '', prefix, None, include_states=include_states,
+            allow_reserved=True,
+            storage_policy_index=self.broker.storage_policy_index)
         self.debug('get_items_with_prefix %s (%d): %s',
                    prefix, len(broker_items), broker_items)
         return [MPUItem(**item) for item in broker_items]
@@ -260,10 +263,18 @@ class MpuPartMarkerAuditor(BaseMpuAuditor):
     def _find_orphans(self, marker_item, prefix):
         # TODO: prefix query may scoop up some alien objects??
         #   need to check that each orphan is an MPU resource
-        return [
-            item for item in
-            self._get_items_with_prefix(prefix, limit=1000, include_states={0})
-            if item.name != marker_item.name]
+        # an upload can have more parts than one listing returns
+        limit = self.config.batch_size
+        marker = ''
+        while True:
+            items = self._get_items_with_prefix(
+                prefix, limit, include_states={0}, marker=marker)
+            for item in items:
+                if item.name != marker_item.name:
+                    yield item
+            if len(items) < limit:
+                return
+            marker = items[-1].name
 
     def _delete_resources(self, marker_item, prefix):
         orphan_parts = self._find_orphans(marker_item, prefix)
