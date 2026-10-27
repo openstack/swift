@@ -425,7 +425,8 @@ class ContainerReplicatorRpc(db_replicator.ReplicatorRpc):
         # if the local db has started sharding since the original 'sync'
         # request then abort object replication now; instantiate a fresh broker
         # each time this check if performed so to get latest state
-        with ContainerBroker(db_file, logger=self.logger) as broker:
+        with ContainerBroker(db_file, logger=self.logger,
+                             quarantine_ok=True) as broker:
             return broker.sharding_initiated()
 
     def _post_rsync_then_merge_hook(self, existing_broker, new_broker):

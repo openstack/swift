@@ -25,6 +25,7 @@ import time
 import errno
 import pickle  # nosec: B403
 from tempfile import mkstemp
+import warnings
 
 from swift.common.concurrency import sleep, Timeout
 import sqlite3
@@ -305,6 +306,28 @@ class TombstoneReclaimer(object):
         return self.remaining_tombstones
 
 
+#: Default for a broker's ``quarantine_ok`` when the caller does not give one.
+_UNSPECIFIED = object()
+
+
+def resolve_quarantine_ok(quarantine_ok):
+    """
+    Resolve the ``quarantine_ok`` argument of a broker constructor.
+
+    :param quarantine_ok: the value given to the constructor, or
+        ``_UNSPECIFIED`` if the caller did not give one.
+    :returns: the effective value of ``quarantine_ok``.
+    """
+    if quarantine_ok is _UNSPECIFIED:
+        warnings.warn(
+            'Constructing a broker without quarantine_ok is deprecated; '
+            'pass ``quarantine_ok`` explicitly instead.',
+            DeprecationWarning, stacklevel=3
+        )
+        return True
+    return quarantine_ok
+
+
 class DatabaseBroker(object):
     """Encapsulates working with a database."""
 
@@ -312,7 +335,8 @@ class DatabaseBroker(object):
 
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
-                 stale_reads_ok=False, skip_commits=False):
+                 stale_reads_ok=False, skip_commits=False,
+                 quarantine_ok=_UNSPECIFIED):
         """Encapsulates working with a database.
 
         :param db_file: path to a database file.
@@ -329,6 +353,11 @@ class DatabaseBroker(object):
             commit records from the pending file to the database;
             :meth:`~swift.common.db.DatabaseBroker.put_record` should not
             called on brokers with skip_commits True.
+        :param quarantine_ok: if True then quarantine() moves the database
+            under <device>/quarantined/ before raising; if False the database
+            is left in place. Set it False when the path is unverified input,
+            such as one an operator typed. Omitting it is deprecated and
+            behaves as True; pass an explicit value.
         """
         self.conn = None
         self._db_file = db_file
@@ -342,6 +371,7 @@ class DatabaseBroker(object):
         self.container = container
         self._db_version = -1
         self.skip_commits = skip_commits
+        self.quarantine_ok = resolve_quarantine_ok(quarantine_ok)
 
     def __enter__(self):
         return self
@@ -478,9 +508,21 @@ class DatabaseBroker(object):
 
     def quarantine(self, reason):
         """
-        The database will be quarantined and a
-        sqlite3.DatabaseError will be raised indicating the action taken.
+        Unless ``quarantine_ok`` is False, the database will be quarantined
+        and a sqlite3.DatabaseError will be raised indicating the action
+        taken.
+
+        If ``quarantine_ok`` is False, the database is left in place, and
+        the raised sqlite3.DatabaseError carries the reason, which is also
+        logged.
         """
+        if not self.quarantine_ok:
+            self.logger.error(
+                'Database error in %(db_dir)s: %(reason)s; quarantining is '
+                'disabled for this broker, so the database has been left in '
+                'place', {'db_dir': self.db_dir, 'reason': reason})
+            raise sqlite3.DatabaseError(reason)
+
         device_path = self.get_device_path()
         quar_path = os.path.join(device_path, 'quarantined',
                                  self.db_type + 's',
@@ -503,8 +545,9 @@ class DatabaseBroker(object):
         """
         Checks the exception info to see if it indicates a quarantine situation
         (malformed or corrupted database). If not, the original exception will
-        be reraised. If so, the database will be quarantined and a new
-        sqlite3.DatabaseError will be raised indicating the action taken.
+        be reraised. If so, the database will be quarantined -- unless the
+        broker was constructed with ``quarantine_ok`` False, in which case it
+        is left in place -- and a new sqlite3.DatabaseError will be raised.
         """
         if 'database disk image is malformed' in str(err):
             exc_hint = 'malformed database'

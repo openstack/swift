@@ -708,7 +708,8 @@ class Replicator(Daemon):
         broker = None
         try:
             broker = self.brokerclass(object_file, pending_timeout=30,
-                                      logger=self.logger)
+                                      logger=self.logger,
+                                      quarantine_ok=True)
             self._reclaim(broker, now)
             info = broker.get_replication_info()
             bpart = self.ring.get_part(
@@ -1006,7 +1007,8 @@ class ReplicatorRpc(object):
             mkdirs(os.path.join(self.root, drive, 'tmp'))
             if not self._db_file_exists(db_file):
                 return HTTPNotFound()
-            with self.broker_class(db_file, logger=self.logger) as broker:
+            with self.broker_class(db_file, logger=self.logger,
+                                   quarantine_ok=True) as broker:
                 return getattr(self, op)(broker, args)
 
     @contextmanager
@@ -1117,7 +1119,8 @@ class ReplicatorRpc(object):
             return HTTPNotFound()
         if not os.path.exists(old_filename):
             return HTTPNotFound()
-        with self.broker_class(old_filename, logger=self.logger) as broker:
+        with self.broker_class(old_filename, logger=self.logger,
+                               quarantine_ok=True) as broker:
             broker.newid(args[0])
         renamer(old_filename, db_file)
         return HTTPNoContent()
@@ -1134,10 +1137,10 @@ class ReplicatorRpc(object):
         tmp_filename = os.path.join(self.root, drive, 'tmp', args[0])
         if self._abort_rsync_then_merge(db_file, tmp_filename):
             return HTTPNotFound()
-        with self.broker_class(tmp_filename,
-                               logger=self.logger) as new_broker, \
-                self.broker_class(db_file,
-                                  logger=self.logger) as existing_broker:
+        with self.broker_class(tmp_filename, logger=self.logger,
+                               quarantine_ok=True) as new_broker, \
+                self.broker_class(db_file, logger=self.logger,
+                                  quarantine_ok=True) as existing_broker:
             db_file = existing_broker.db_file
             point = -1
             objects = existing_broker.get_items_since(point, 1000)

@@ -129,6 +129,36 @@ class TestManageShardRanges(BaseUnitTestCase):
         broker.merge_shard_ranges([own_sr])
         return epoch
 
+    def test_malformed_db_is_not_quarantined(self):
+        # main() builds a broker on a path someone typed, so it has no way to
+        # know the file is in its proper place in the cluster; it must report
+        # the error rather than move the database.
+        broker = self._make_broker()
+        broker.put_object('o', NormalTimestamp.now().internal, 0,
+                          'text/plain', 'etag')
+        db_file = broker.db_file
+        db_dir = os.path.dirname(db_file)
+        # lop off the back half of the file, keeping the header, so sqlite
+        # reports "database disk image is malformed"
+        size = os.path.getsize(db_file)
+        with open(db_file, 'r+b') as f:
+            f.truncate(size // 2)
+
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([db_file, 'show'])
+        self.assertEqual(1, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assert_starts_with(
+            err_lines[0],
+            'Error opening container DB %s: malformed database' % db_file)
+        self.assertTrue(os.path.exists(db_file))
+        quarantine_dir = os.path.join(
+            self.testdir, 'sda', 'quarantined', 'containers')
+        self.assertFalse(os.path.exists(quarantine_dir))
+        self.assertTrue(os.path.isdir(db_dir))
+
     def test_conf_file_options(self):
         db_file = os.path.join(self.testdir, 'hash.db')
         broker = ContainerBroker(db_file, account='a', container='c')

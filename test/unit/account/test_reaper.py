@@ -25,6 +25,7 @@ from swift.common.concurrency import eventlet
 
 from swift.account import reaper
 from swift.account.backend import DATADIR
+from swift.common.db import _UNSPECIFIED
 from swift.common.exceptions import ClientException
 from swift.common.utils.timestamp import Timestamp
 
@@ -42,7 +43,7 @@ class FakeBroker(object):
 
 
 class FakeAccountBroker(object):
-    def __init__(self, containers, logger):
+    def __init__(self, containers, logger, quarantine_ok=_UNSPECIFIED):
         self.containers = containers
         self.containers_yielded = []
 

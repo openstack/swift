@@ -22,12 +22,13 @@ from tempfile import mkdtemp
 from shutil import rmtree
 from swift.common.concurrency import Timeout
 
+from swift.common.db import _UNSPECIFIED
 from swift.common.db_auditor import DatabaseAuditor
 from test.debug_logger import debug_logger
 
 
 class FakeDatabaseBroker(object):
-    def __init__(self, path, logger):
+    def __init__(self, path, logger, quarantine_ok=_UNSPECIFIED):
         self.path = path
         self.db_file = path
         self.file = os.path.basename(path)

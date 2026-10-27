@@ -33,7 +33,8 @@ from swift.common.utils import extract_swift_bytes, storage_directory, \
     parse_db_filename, make_db_file_path, split_path, RESERVED_BYTE, \
     ShardRangeList, Namespace
 from swift.common.db import DatabaseBroker, BROKER_TIMEOUT, \
-    zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT
+    zero_like, DatabaseAlreadyExists, SQLITE_ARG_LIMIT, \
+    resolve_quarantine_ok, _UNSPECIFIED
 
 DATADIR = 'containers'
 
@@ -384,12 +385,13 @@ class ContainerBroker(DatabaseBroker):
     def __init__(self, db_file, timeout=BROKER_TIMEOUT, logger=None,
                  account=None, container=None, pending_timeout=None,
                  stale_reads_ok=False, skip_commits=False,
-                 force_db_file=False):
+                 force_db_file=False, quarantine_ok=_UNSPECIFIED):
         self._init_db_file = db_file
         base_db_file = make_db_file_path(db_file, None)
         super(ContainerBroker, self).__init__(
             base_db_file, timeout, logger, account, container, pending_timeout,
-            stale_reads_ok, skip_commits=skip_commits)
+            stale_reads_ok, skip_commits=skip_commits,
+            quarantine_ok=resolve_quarantine_ok(quarantine_ok))
         # the root account and container are populated on demand
         self._root_account = self._root_container = None
         self._force_db_file = force_db_file
@@ -422,7 +424,7 @@ class ContainerBroker(DatabaseBroker):
         db_path = make_db_file_path(
             os.path.join(device_path, db_dir, hsh + '.db'), epoch)
         broker = ContainerBroker(db_path, account=account, container=container,
-                                 logger=logger)
+                                 logger=logger, quarantine_ok=True)
         initialized = False
         if not os.path.exists(broker.db_file):
             try:
@@ -2165,7 +2167,8 @@ class ContainerBroker(DatabaseBroker):
         tmp_db_file = os.path.join(self.db_dir,
                                    "fresh%s.db.tmp" % str(uuid4()))
         fresh_broker = ContainerBroker(tmp_db_file, self.timeout, self.logger,
-                                       self.account, self.container)
+                                       self.account, self.container,
+                                       quarantine_ok=self.quarantine_ok)
         fresh_broker.initialize(info['put_timestamp'],
                                 info['storage_policy_index'])
         # copy relevant data from the retiring db to the fresh db
@@ -2283,7 +2286,8 @@ class ContainerBroker(DatabaseBroker):
             sub_broker = ContainerBroker(
                 db_file, self.timeout, self.logger, self.account,
                 self.container, self.pending_timeout, self.stale_reads_ok,
-                force_db_file=True, skip_commits=bool(db_files))
+                force_db_file=True, skip_commits=bool(db_files),
+                quarantine_ok=self.quarantine_ok)
             brokers.append(sub_broker)
         return brokers
 

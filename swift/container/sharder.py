@@ -2567,7 +2567,8 @@ class ContainerSharder(ContainerSharderConf, ContainerReplicator):
                 node['index'] = 'handoff'
 
             broker = ContainerBroker(path, logger=self.logger,
-                                     timeout=self.broker_timeout)
+                                     timeout=self.broker_timeout,
+                                     quarantine_ok=True)
             error = processing_time = None
             try:
                 self._identify_sharding_candidate(broker, node)

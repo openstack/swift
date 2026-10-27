@@ -14,6 +14,7 @@
 
 from argparse import Namespace
 import os
+import sqlite3
 from unittest import mock
 from shutil import rmtree
 from tempfile import mkdtemp
@@ -23,6 +24,7 @@ from test.unit import patch_policies, write_fake_ring, skip_if_no_xattrs, \
     BaseUnitTestCase
 
 from swift.common import ring, utils
+from swift.common.db import DatabaseConnectionError
 from swift.common.swob import Request
 from swift.common.storage_policy import StoragePolicy, POLICIES
 from swift.common.utils.timestamp import NormalTimestamp
@@ -796,6 +798,90 @@ Shard Ranges (3):
             self.assertEqual(out.getvalue().strip(), exp_out)
         else:
             self.fail("Expected an InfoSystemExit exception to be raised")
+
+    def _create_db(self, db_type):
+        # PUT an empty account or container and return the path of the
+        # database the server created for it
+        if db_type == 'account':
+            controller = AccountController(
+                {'devices': self.testdir, 'mount_check': 'false'})
+            path = '/sda1/1/acct'
+            db_hash = 'dc5be2aa4347a22a0fee6bc7de505b47'
+            db_dir = os.path.join(self.testdir, 'sda1', 'accounts', '1', 'b47')
+        else:
+            controller = ContainerController(
+                {'devices': self.testdir, 'mount_check': 'false'})
+            path = '/sda1/1/acct/cont'
+            db_hash = 'd49d0ecbb53be1fcc49624f2f7c7ccae'
+            db_dir = os.path.join(
+                self.testdir, 'sda1', 'containers', '1', 'cae')
+        req = Request.blank(path, environ={'REQUEST_METHOD': 'PUT',
+                                           'HTTP_X_TIMESTAMP': '0'})
+        resp = req.get_response(controller)
+        self.assertEqual(resp.status_int, 201)
+        return os.path.join(db_dir, db_hash, db_hash + '.db')
+
+    def _test_print_info_does_not_quarantine_malformed_db(self, db_type):
+        db_file = self._create_db(db_type)
+        # lop off the back half of the file, keeping the header, to
+        # trigger possibly_quarantine()'s malformed-database handling
+        size = os.path.getsize(db_file)
+        with open(db_file, 'r+b') as f:
+            f.truncate(size // 2)
+        db_dir = os.path.dirname(db_file)
+        out = StringIO()
+        with mock.patch('sys.stdout', out), \
+                self.assertRaises(InfoSystemExit):
+            print_info(db_type, db_file, swift_dir=self.testdir)
+        self.assertEqual(
+            out.getvalue().strip(),
+            'Database error: malformed database\n'
+            'This command does not quarantine; the database has been '
+            'left in place.')
+        self.assertTrue(os.path.exists(db_dir))
+        quarantine_dir = os.path.join(self.testdir, 'sda1', 'quarantined')
+        self.assertFalse(os.path.exists(quarantine_dir))
+
+    def test_print_info_does_not_quarantine_malformed_account_db(self):
+        self._test_print_info_does_not_quarantine_malformed_db('account')
+
+    def test_print_info_does_not_quarantine_malformed_container_db(self):
+        self._test_print_info_does_not_quarantine_malformed_db('container')
+
+    def test_print_info_connection_error_message_preserved(self):
+        # Check that our database error diagnosis does not swallow a
+        # connection error
+        db_file = self._create_db('account')
+        conn_err = DatabaseConnectionError(db_file, 'permission denied')
+        out = StringIO()
+        with mock.patch('swift.account.backend.AccountBroker.get_info',
+                        side_effect=conn_err), \
+                mock.patch('sys.stdout', out), \
+                self.assertRaises(InfoSystemExit):
+            print_info('account', db_file, swift_dir=self.testdir)
+        self.assertEqual(
+            out.getvalue().strip(),
+            'Database error: DB connection error (%s, 0):\n'
+            'permission denied\n'
+            'This command does not quarantine; the database has been '
+            'left in place.' % db_file)
+
+    def test_print_info_sync_reports_malformed_db(self):
+        # get_syncs() is called after the main try/except, so it needs its
+        # own handling
+        db_file = self._create_db('account')
+        out = StringIO()
+        with mock.patch('swift.account.backend.AccountBroker.get_syncs',
+                        side_effect=sqlite3.DatabaseError(
+                            'malformed database')), \
+                mock.patch('sys.stdout', out), \
+                self.assertRaises(InfoSystemExit):
+            print_info('account', db_file, swift_dir=self.testdir, sync=True)
+        self.assertEqual(
+            out.getvalue().strip().splitlines()[-2:],
+            ['Database error: malformed database',
+             'This command does not quarantine; the database has been '
+             'left in place.'])
 
     def test_parse_get_node_args(self):
         # Capture error messages
