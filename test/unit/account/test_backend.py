@@ -476,6 +476,38 @@ class TestAccountBroker(test_db.TestDbBase):
         info = broker.get_info()
         self.assertEqual(info['container_count'], 0)
 
+    def test_get_info_partially_truncated_db(self):
+        # A db file truncated mid-stream has corrupt pages; SQLite reports
+        # this as a malformed database error, which possibly_quarantine()
+        # turns into a quarantine.
+        db_path = self.get_db_path()
+        broker = AccountBroker(db_path, account='test1',
+                               quarantine_ok=True)
+        broker.initialize(Timestamp.now().internal)
+        for i in range(100):
+            broker.put_container('c%d' % i, Timestamp.now().internal,
+                                 0, 0, 0, POLICIES.default.idx)
+        broker._commit_puts()
+
+        # lop off the back half of the file, keeping the header
+        size = os.path.getsize(db_path)
+        with open(db_path, 'r+b') as f:
+            f.truncate(size // 2)
+
+        broker = AccountBroker(db_path, account='test1',
+                               quarantine_ok=True)
+        db_dir = os.path.dirname(db_path)
+        qpath = os.path.join(self.testdir, 'quarantined', 'accounts',
+                             os.path.basename(db_dir))
+        with self.assertRaises(sqlite3.DatabaseError) as raised:
+            broker.get_info()
+        self.assertEqual(
+            str(raised.exception),
+            'Quarantined %s to %s due to malformed database' %
+            (db_dir, qpath))
+        self.assertTrue(os.path.isdir(qpath))
+        self.assertFalse(os.path.exists(db_dir))
+
     def test_list_containers_iter(self):
         # Test AccountBroker.list_containers_iter
         broker = AccountBroker(self.get_db_path(), account='a',
