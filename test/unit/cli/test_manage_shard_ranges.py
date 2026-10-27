@@ -115,7 +115,7 @@ class TestManageShardRanges(BaseUnitTestCase):
             self.testdir, device, 'containers', str(part), 'ash', 'hash')
         db_file = os.path.join(datadir, 'hash.db')
         broker = ContainerBroker(
-            db_file, account=account, container=container)
+            db_file, account=account, container=container, quarantine_ok=True)
         broker.initialize()
         return broker
 
@@ -161,7 +161,8 @@ class TestManageShardRanges(BaseUnitTestCase):
 
     def test_conf_file_options(self):
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file, account='a', container='c')
+        broker = ContainerBroker(db_file, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize()
 
         conf = """
@@ -289,7 +290,8 @@ class TestManageShardRanges(BaseUnitTestCase):
     def test_conf_file_deprecated_options(self):
         # verify that deprecated percent-based do get applied
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file, account='a', container='c')
+        broker = ContainerBroker(db_file, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize()
 
         conf = """
@@ -390,7 +392,8 @@ class TestManageShardRanges(BaseUnitTestCase):
 
     def test_conf_file_invalid(self):
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file, account='a', container='c')
+        broker = ContainerBroker(db_file, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize()
 
         # conf file - invalid value for shard_container_threshold
@@ -417,7 +420,8 @@ class TestManageShardRanges(BaseUnitTestCase):
 
     def test_conf_file_invalid_deprecated_options(self):
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file, account='a', container='c')
+        broker = ContainerBroker(db_file, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize()
 
         # conf file - invalid value for shard_container_threshold
@@ -443,7 +447,8 @@ class TestManageShardRanges(BaseUnitTestCase):
 
     def test_conf_file_does_not_exist(self):
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file, account='a', container='c')
+        broker = ContainerBroker(db_file, account='a', container='c',
+                                 quarantine_ok=True)
         broker.initialize()
         conf_file = os.path.join(self.testdir, 'missing_sharder.conf')
         out = StringIO()
@@ -456,7 +461,7 @@ class TestManageShardRanges(BaseUnitTestCase):
 
     def test_find_shard_ranges(self):
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file)
+        broker = ContainerBroker(db_file, quarantine_ok=True)
         broker.account = 'a'
         broker.container = 'c'
         broker.initialize()
@@ -533,7 +538,7 @@ class TestManageShardRanges(BaseUnitTestCase):
 
     def test_find_shard_ranges_with_minimum_size(self):
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file)
+        broker = ContainerBroker(db_file, quarantine_ok=True)
         broker.account = 'a'
         broker.container = 'c'
         broker.initialize()
@@ -1214,7 +1219,7 @@ class TestManageShardRanges(BaseUnitTestCase):
 
     def test_find_replace_enable(self):
         db_file = os.path.join(self.testdir, 'hash.db')
-        broker = ContainerBroker(db_file)
+        broker = ContainerBroker(db_file, quarantine_ok=True)
         broker.account = 'a'
         broker.container = 'c'
         broker.initialize()

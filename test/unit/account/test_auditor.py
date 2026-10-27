@@ -60,7 +60,8 @@ class TestAuditorRealBrokerMigration(
 
         self.restore_account_broker()
 
-        broker = auditor.AccountBroker(self.db_path, account='a')
+        broker = auditor.AccountBroker(self.db_path, account='a',
+                                       quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         # go after rows directly to avoid unintentional migration
         with broker.get() as conn:
@@ -86,7 +87,8 @@ class TestAuditorRealBroker(unittest.TestCase):
         ts = (Timestamp(t).internal for t in itertools.count(int(time.time())))
         db_path = os.path.join(tempdir, 'sda', 'accounts',
                                '0', '0', '0', 'test.db')
-        broker = auditor.AccountBroker(db_path, account='a')
+        broker = auditor.AccountBroker(db_path, account='a',
+                                       quarantine_ok=True)
         broker.initialize(next(ts))
         # add a few containers
         policies = itertools.cycle(POLICIES)

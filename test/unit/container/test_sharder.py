@@ -97,7 +97,7 @@ class BaseTestSharder(BaseUnitTestCase):
         db_file = os.path.join(datadir, filename)
         broker = ContainerBroker(
             db_file, account=account, container=container,
-            logger=self.logger)
+            logger=self.logger, quarantine_ok=True)
         put_ts_str = None if put_timestamp is None else put_timestamp.internal
         broker.initialize(put_timestamp=put_ts_str)
         return broker
@@ -113,7 +113,8 @@ class BaseTestSharder(BaseUnitTestCase):
             shard_bounds, state=ShardRange.CLEAVED)
         broker.merge_shard_ranges(shard_ranges)
         self.assertTrue(broker.set_sharding_state())
-        broker = ContainerBroker(broker.db_file, account='a', container='c')
+        broker = ContainerBroker(broker.db_file, account='a', container='c',
+                                 quarantine_ok=True)
         self.assertNotEqual(old_db_id, broker.get_info()['id'])  # sanity check
         return broker
 
@@ -127,7 +128,8 @@ class BaseTestSharder(BaseUnitTestCase):
             shard_bounds, state=ShardRange.CLEAVED)
         broker.merge_shard_ranges(shard_ranges)
         self.assertTrue(broker.set_sharding_state())
-        broker = ContainerBroker(broker.db_file, account='a', container='c')
+        broker = ContainerBroker(broker.db_file, account='a', container='c',
+                                 quarantine_ok=True)
         self.assertNotEqual(old_db_id, broker.get_info()['id'])  # sanity check
         return broker
 
@@ -1133,7 +1135,7 @@ class TestSharder(BaseTestSharder):
         shard_dbs = shard_dbs if isinstance(shard_dbs, list) else [shard_dbs]
         shard_objs = []
         for shard_db in shard_dbs:
-            shard_broker = ContainerBroker(shard_db)
+            shard_broker = ContainerBroker(shard_db, quarantine_ok=True)
             shard_objs.extend(self._get_raw_object_records(shard_broker))
         expected_objs = [list(obj) for obj in expected_objs]
         self.assertEqual(expected_objs, shard_objs)
@@ -1601,7 +1603,8 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[0], 0)
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         shard_own_sr = shard_broker.get_own_shard_range()
         self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
         shard_info = shard_broker.get_info()
@@ -1712,7 +1715,7 @@ class TestSharder(BaseTestSharder):
             [mock.call(0, db, 0) for db in expected_shard_dbs[1:3]]
         )
         for db in expected_shard_dbs[1:3]:
-            shard_broker = ContainerBroker(db)
+            shard_broker = ContainerBroker(db, quarantine_ok=True)
             shard_own_sr = shard_broker.get_own_shard_range()
             self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
             shard_info = shard_broker.get_info()
@@ -1779,7 +1782,8 @@ class TestSharder(BaseTestSharder):
         self.assertEqual(SHARDING, broker.get_db_state())
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[3], 0)
-        shard_broker = ContainerBroker(expected_shard_dbs[3])
+        shard_broker = ContainerBroker(expected_shard_dbs[3],
+                                       quarantine_ok=True)
         shard_own_sr = shard_broker.get_own_shard_range()
         self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
         shard_info = shard_broker.get_info()
@@ -1854,7 +1858,8 @@ class TestSharder(BaseTestSharder):
 
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[4], 0)
-        shard_broker = ContainerBroker(expected_shard_dbs[4])
+        shard_broker = ContainerBroker(expected_shard_dbs[4],
+                                       quarantine_ok=True)
         shard_own_sr = shard_broker.get_own_shard_range()
         self.assertEqual(ShardRange.ACTIVE, shard_own_sr.state)
         shard_info = shard_broker.get_info()
@@ -1978,9 +1983,11 @@ class TestSharder(BaseTestSharder):
         self._check_objects(objects[:4], expected_shard_dbs[0])
         self._check_objects(objects[4:7], expected_shard_dbs[1])
         # the actual object counts were set in the new shard brokers' own_sr's
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         self.assertEqual(4, shard_broker.get_own_shard_range().object_count)
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         self.assertEqual(2, shard_broker.get_own_shard_range().object_count)
         self.assertFalse(os.path.exists(expected_shard_dbs[2]))
 
@@ -2208,7 +2215,8 @@ class TestSharder(BaseTestSharder):
             [mock.call(0, misplaced_dbs[0], 0),
              mock.call(0, misplaced_dbs[1], 0),
              mock.call(0, expected_shard_dbs[0], 0)])
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         # NB cleaving a shard, state goes to CLEAVED not ACTIVE
         shard_own_sr = shard_broker.get_own_shard_range()
         self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
@@ -2252,7 +2260,8 @@ class TestSharder(BaseTestSharder):
         sharder._replicate_object.assert_has_calls(
             [mock.call(0, misplaced_dbs[0], 0),
              mock.call(0, expected_shard_dbs[1], 0)])
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         shard_own_sr = shard_broker.get_own_shard_range()
         self.assertEqual(ShardRange.CLEAVED, shard_own_sr.state)
 
@@ -2349,7 +2358,8 @@ class TestSharder(BaseTestSharder):
                 # acceptor broker's own shard range state to remain in the
                 # original state of the acceptor shard range rather than being
                 # set to CLEAVED as it would when *sharding*.
-                acceptor_broker = ContainerBroker(acceptor_db)
+                acceptor_broker = ContainerBroker(acceptor_db,
+                                                  quarantine_ok=True)
                 self.assertEqual(acceptor_state,
                                  acceptor_broker.get_own_shard_range().state)
                 acceptor_ranges = acceptor_broker.get_shard_ranges(
@@ -2656,10 +2666,12 @@ class TestSharder(BaseTestSharder):
         # check shard ranges were updated to ACTIVE
         self.assertEqual([ShardRange.ACTIVE] * 2,
                          [sr.state for sr in broker.get_shard_ranges()])
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         actual_objects = shard_broker.get_objects()
         self.assertEqual(objects[:4], actual_objects)
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         actual_objects = shard_broker.get_objects()
         self.assertEqual(objects[4:], actual_objects)
 
@@ -2698,11 +2710,13 @@ class TestSharder(BaseTestSharder):
         # check shard ranges were updated to ACTIVE
         self.assertEqual([ShardRange.ACTIVE] * 2,
                          [sr.state for sr in broker.get_shard_ranges()])
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         actual_objects = shard_broker.get_objects()
         self.assertEqual(objects[:4], actual_objects)
 
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         actual_objects = shard_broker.get_objects()
         self.assertEqual(objects[4:], actual_objects)
 
@@ -2768,7 +2782,8 @@ class TestSharder(BaseTestSharder):
         sharder._replicate_object.assert_called_once_with(
             0, expected_shard_dbs[0], 0)
         # shard broker has sync points
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         self.assertEqual(
             [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
             shard_broker.get_syncs())
@@ -2804,7 +2819,8 @@ class TestSharder(BaseTestSharder):
             [mock.call(0, expected_shard_dbs[0], 0),
              mock.call(0, expected_shard_dbs[1], 0)])
         # shard broker has sync points
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         self.assertEqual(
             [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
             shard_broker.get_syncs())
@@ -2849,11 +2865,13 @@ class TestSharder(BaseTestSharder):
             [mock.call(0, expected_shard_dbs[0], 0),
              mock.call(0, expected_shard_dbs[1], 0)])
         # first shard broker was created by misplaced object - no sync point
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         self.assertFalse(shard_broker.get_syncs())
         self.assertEqual([new_object], shard_broker.get_objects())
         # second shard broker has sync points
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         self.assertEqual(
             [{'remote_id': retiring_db_id, 'sync_point': len(objects)}],
             shard_broker.get_syncs())
@@ -3119,13 +3137,15 @@ class TestSharder(BaseTestSharder):
             expected_shard_dbs.append(
                 os.path.join(self.tempdir, 'sda', 'containers', '0',
                              db_hash[-3:], db_hash, db_hash + '.db'))
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         self.assertEqual(
             [{'remote_id': local_retiring_db_id, 'sync_point': 7},
              {'remote_id': remote_retiring_db_id, 'sync_point': 5}],
             shard_broker.get_syncs())
         self.assertEqual(objects[1:5], shard_broker.get_objects())
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         self.assertEqual(
             [{'remote_id': local_retiring_db_id, 'sync_point': 7},
              {'remote_id': remote_retiring_db_id, 'sync_point': 5}],
@@ -3158,13 +3178,15 @@ class TestSharder(BaseTestSharder):
                           (shard_ranges[1].name, objects[8:])],
                          merge_items_calls)
         # sync points are updated
-        shard_broker = ContainerBroker(expected_shard_dbs[0])
+        shard_broker = ContainerBroker(expected_shard_dbs[0],
+                                       quarantine_ok=True)
         self.assertEqual(
             [{'remote_id': local_retiring_db_id, 'sync_point': 7},
              {'remote_id': remote_retiring_db_id, 'sync_point': 8}],
             shard_broker.get_syncs())
         self.assertEqual(objects[:5], shard_broker.get_objects())
-        shard_broker = ContainerBroker(expected_shard_dbs[1])
+        shard_broker = ContainerBroker(expected_shard_dbs[1],
+                                       quarantine_ok=True)
         self.assertEqual(
             [{'remote_id': local_retiring_db_id, 'sync_point': 7},
              {'remote_id': remote_retiring_db_id, 'sync_point': 8}],
@@ -4988,7 +5010,7 @@ class TestSharder(BaseTestSharder):
         self._check_objects(new_objects, broker.db_file)  # sanity check
         shard_broker = ContainerBroker(
             expected_shard_dbs[0], account=root_shard_ranges[0].account,
-            container=root_shard_ranges[0].container)
+            container=root_shard_ranges[0].container, quarantine_ok=True)
         # update one shard container with even newer version of object
         timestamps = [self.ts() for i in range(7)]
         ts_newer = encode_timestamps(

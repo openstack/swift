@@ -204,7 +204,7 @@ class TestGetDBConnection(TestDbBase):
     def init_db_path(self):
         # Test ContainerBroker.empty
         db_path = self.get_db_path()
-        broker = ExampleBroker(db_path, account='a')
+        broker = ExampleBroker(db_path, account='a', quarantine_ok=True)
         broker.initialize(Timestamp.now().internal, 0)
         return db_path
 
@@ -359,7 +359,8 @@ class TestExampleBroker(TestDbBase):
         super(TestExampleBroker, self).setUp()
 
     def test_initialize(self):
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         put_timestamp = self.ts()
         with mock_normal_timestamp_now() as created_at:
             broker.initialize(put_timestamp.internal)
@@ -371,7 +372,8 @@ class TestExampleBroker(TestDbBase):
         self.assertFalse(broker.is_deleted())
 
     def test_initialize_default_put_timestamp(self):
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         with mock_normal_timestamp_now() as created_at:
             broker.initialize()
         info = broker.get_info()
@@ -383,20 +385,23 @@ class TestExampleBroker(TestDbBase):
 
     def test_broker_is_context_manager(self):
         with self.broker_class(
-                self.db_path, account='a', container='c') as broker:
+                self.db_path, account='a', container='c',
+                quarantine_ok=True) as broker:
             mock_conn = broker.conn = MagicMock()
         self.assertIsNone(broker.conn)
         self.assertIn(mock.call.close(), mock_conn.mock_calls)
 
     def test_delete_db(self):
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(self.ts().internal)
         broker.delete_db(self.ts().internal)
         self.assertTrue(broker.is_deleted())
 
     def test_merge_timestamps_simple_delete(self):
         put_timestamp = self.ts().internal
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(put_timestamp)
         created_at = broker.get_info()['created_at']
         broker.merge_timestamps(created_at, put_timestamp, '0')
@@ -423,7 +428,8 @@ class TestExampleBroker(TestDbBase):
 
     def test_merge_timestamps_delete_with_objects(self):
         put_timestamp = self.ts().internal
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         created_at = broker.get_info()['created_at']
         broker.merge_timestamps(created_at, put_timestamp, '0')
@@ -454,7 +460,8 @@ class TestExampleBroker(TestDbBase):
 
     def test_merge_timestamps_simple_recreate(self):
         put_timestamp = self.ts().internal
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         virgin_status_changed_at = broker.get_info()['status_changed_at']
         created_at = broker.get_info()['created_at']
@@ -481,7 +488,8 @@ class TestExampleBroker(TestDbBase):
 
     def test_merge_timestamps_recreate_with_objects(self):
         put_timestamp = self.ts().internal
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         created_at = broker.get_info()['created_at']
         # delete
@@ -515,7 +523,8 @@ class TestExampleBroker(TestDbBase):
 
     def test_merge_timestamps_update_put_no_status_change(self):
         put_timestamp = self.ts().internal
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         info = broker.get_info()
         orig_status_changed_at = info['status_changed_at']
@@ -528,7 +537,8 @@ class TestExampleBroker(TestDbBase):
 
     def test_merge_timestamps_update_delete_no_status_change(self):
         put_timestamp = self.ts().internal
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(put_timestamp, storage_policy_index=int(self.policy))
         created_at = broker.get_info()['created_at']
         broker.merge_timestamps(created_at, put_timestamp,
@@ -542,7 +552,8 @@ class TestExampleBroker(TestDbBase):
         self.assertEqual(orig_status_changed_at, info['status_changed_at'])
 
     def test_get_max_row(self):
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(self.ts().internal,
                           storage_policy_index=int(self.policy))
         self.assertEqual(-1, broker.get_max_row())
@@ -558,7 +569,8 @@ class TestExampleBroker(TestDbBase):
         self.assertEqual(3, broker.get_max_row())
 
     def test_get_info(self):
-        broker = self.broker_class(self.db_path, account='test', container='c')
+        broker = self.broker_class(self.db_path, account='test', container='c',
+                                   quarantine_ok=True)
         put_timestamp = self.ts()
         with mock_normal_timestamp_now() as created_at:
             broker.initialize(put_timestamp.internal,
@@ -578,7 +590,8 @@ class TestExampleBroker(TestDbBase):
                                  k, info[k], v))
 
     def test_get_raw_metadata(self):
-        broker = self.broker_class(self.db_path, account='test', container='c')
+        broker = self.broker_class(self.db_path, account='test', container='c',
+                                   quarantine_ok=True)
         broker.initialize(Timestamp(0).internal,
                           storage_policy_index=int(self.policy))
         self.assertEqual(broker.metadata, {})
@@ -592,7 +605,8 @@ class TestExampleBroker(TestDbBase):
                          json.dumps(metadata))
 
     def test_put_timestamp(self):
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         orig_put_timestamp = self.ts().internal
         broker.initialize(orig_put_timestamp,
                           storage_policy_index=int(self.policy))
@@ -613,7 +627,8 @@ class TestExampleBroker(TestDbBase):
                          newer_put_timestamp)
 
     def test_status_changed_at(self):
-        broker = self.broker_class(self.db_path, account='test', container='c')
+        broker = self.broker_class(self.db_path, account='test', container='c',
+                                   quarantine_ok=True)
         put_timestamp = self.ts().internal
         with mock_normal_timestamp_now() as created_at:
             broker.initialize(put_timestamp,
@@ -637,7 +652,8 @@ class TestExampleBroker(TestDbBase):
                          status_changed_at)
 
     def test_get_syncs(self):
-        broker = self.broker_class(self.db_path, account='a', container='c')
+        broker = self.broker_class(self.db_path, account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(Timestamp.now().internal,
                           storage_policy_index=int(self.policy))
         self.assertEqual([], broker.get_syncs())
@@ -652,7 +668,8 @@ class TestExampleBroker(TestDbBase):
 
     def test_commit_pending(self):
         broker = self.broker_class(os.path.join(self.testdir, 'test.db'),
-                                   account='a', container='c')
+                                   account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(self.ts().internal,
                           storage_policy_index=int(self.policy))
         self.put_item(broker, self.ts().internal)
@@ -668,7 +685,8 @@ class TestExampleBroker(TestDbBase):
 
     def test_maybe_get(self):
         broker = self.broker_class(os.path.join(self.testdir, 'test.db'),
-                                   account='a', container='c')
+                                   account='a', container='c',
+                                   quarantine_ok=True)
         broker.initialize(self.ts().internal,
                           storage_policy_index=int(self.policy))
         qry = 'select account from %s_stat' % broker.db_type
@@ -689,21 +707,21 @@ class TestDatabaseBroker(TestDbBase):
 
     def test_DB_PREALLOCATION_setting(self):
         u = uuid4().hex
-        b = DatabaseBroker(u)
+        b = DatabaseBroker(u, quarantine_ok=True)
         swift.common.db.DB_PREALLOCATION = False
         b._preallocate()
         swift.common.db.DB_PREALLOCATION = True
         self.assertRaises(OSError, b._preallocate)
 
     def test_memory_db_init(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         self.assertEqual(broker.db_file, self.db_path)
         self.assertRaises(AttributeError, broker.initialize,
                           self.ts().internal)
 
     def test_disk_db_init(self):
         db_file = os.path.join(self.testdir, '1.db')
-        broker = DatabaseBroker(db_file)
+        broker = DatabaseBroker(db_file, quarantine_ok=True)
         self.assertEqual(broker.db_file, db_file)
         self.assertIsNone(broker.conn)
 
@@ -719,7 +737,7 @@ class TestDatabaseBroker(TestDbBase):
             f = open(db_file, "w")
             f.write('@')
             f.close()
-            b = DatabaseBroker(db_file)
+            b = DatabaseBroker(db_file, quarantine_ok=True)
             b._preallocate()
             # We only wrote 1 byte, so we should end with the 1st step or 1 MB.
             self.assertEqual(test_size[0], 1024 * 1024)
@@ -727,7 +745,8 @@ class TestDatabaseBroker(TestDbBase):
     def test_initialize(self):
         ts_str = self.ts().internal
         self.assertRaises(AttributeError,
-                          DatabaseBroker(self.db_path).initialize,
+                          DatabaseBroker(self.db_path,
+                                         quarantine_ok=True).initialize,
                           ts_str)
         stub_dict = {}
 
@@ -735,7 +754,7 @@ class TestDatabaseBroker(TestDbBase):
             stub_dict.clear()
             stub_dict['args'] = args
             stub_dict.update(kwargs)
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         broker._initialize = stub
         broker.initialize(ts_str)
         self.assertTrue(hasattr(stub_dict['args'][0], 'execute'))
@@ -743,7 +762,8 @@ class TestDatabaseBroker(TestDbBase):
         with broker.get() as conn:
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'),
+                                quarantine_ok=True)
         broker._initialize = stub
         broker.initialize(ts_str)
         self.assertTrue(hasattr(stub_dict['args'][0], 'execute'))
@@ -751,7 +771,8 @@ class TestDatabaseBroker(TestDbBase):
         with broker.get() as conn:
             conn.execute('SELECT * FROM outgoing_sync')
             conn.execute('SELECT * FROM incoming_sync')
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'),
+                                quarantine_ok=True)
         broker._initialize = stub
         self.assertRaises(DatabaseAlreadyExists,
                           broker.initialize, ts_str)
@@ -776,7 +797,7 @@ class TestDatabaseBroker(TestDbBase):
         def do_test(expected_metadata, delete_meta_whitelist=None):
             if not delete_meta_whitelist:
                 delete_meta_whitelist = []
-            broker = DatabaseBroker(self.get_db_path())
+            broker = DatabaseBroker(self.get_db_path(), quarantine_ok=True)
             broker.delete_meta_whitelist = delete_meta_whitelist
             broker.db_type = 'test'
             broker._initialize = init_stub
@@ -797,7 +818,8 @@ class TestDatabaseBroker(TestDbBase):
             self.assertEqual(m2, expected_metadata)
 
             broker = DatabaseBroker(os.path.join(self.testdir,
-                                                 '%s.db' % uuid4()))
+                                                 '%s.db' % uuid4()),
+                                    quarantine_ok=True)
             broker.delete_meta_whitelist = delete_meta_whitelist
             broker.db_type = 'test'
             broker._initialize = init_stub
@@ -832,7 +854,7 @@ class TestDatabaseBroker(TestDbBase):
                 ['x-container-meta-test', 'x-something-else'])
 
     def test_get(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         with self.assertRaises(DatabaseConnectionError) as raised, \
                 broker.get() as conn:
             conn.execute('SELECT 1')
@@ -840,7 +862,8 @@ class TestDatabaseBroker(TestDbBase):
             str(raised.exception),
             "DB connection error (%s, 0):\nDB doesn't exist" % self.db_path)
 
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'),
+                                quarantine_ok=True)
         with self.assertRaises(DatabaseConnectionError) as raised, \
                 broker.get() as conn:
             conn.execute('SELECT 1')
@@ -861,14 +884,16 @@ class TestDatabaseBroker(TestDbBase):
                 conn.commit()
         except Exception:
             pass
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'),
+                                quarantine_ok=True)
         with broker.get() as conn:
             self.assertEqual(
                 [r[0] for r in conn.execute('SELECT * FROM test')], [])
         with broker.get() as conn:
             conn.execute('INSERT INTO test (one) VALUES ("1")')
             conn.commit()
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'))
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'),
+                                quarantine_ok=True)
         with broker.get() as conn:
             self.assertEqual(
                 [r[0] for r in conn.execute('SELECT * FROM test')], ['1'])
@@ -882,7 +907,8 @@ class TestDatabaseBroker(TestDbBase):
             copy(os.path.join(os.path.dirname(__file__),
                               'malformed_example.db'),
                  os.path.join(dbpath, '1.db'))
-            broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+            broker = DatabaseBroker(os.path.join(dbpath, '1.db'),
+                                    quarantine_ok=True)
             broker.db_type = 'test'
             with self.assertRaises(sqlite3.DatabaseError) as raised, \
                     broker.get() as conn:
@@ -895,7 +921,8 @@ class TestDatabaseBroker(TestDbBase):
             copy(os.path.join(os.path.dirname(__file__),
                               'malformed_schema_example.db'),
                  os.path.join(dbpath, '1.db'))
-            broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+            broker = DatabaseBroker(os.path.join(dbpath, '1.db'),
+                                    quarantine_ok=True)
             broker.db_type = 'test'
             with self.assertRaises(sqlite3.DatabaseError) as raised, \
                     broker.get() as conn:
@@ -908,7 +935,8 @@ class TestDatabaseBroker(TestDbBase):
             copy(os.path.join(os.path.dirname(__file__),
                               'corrupted_example.db'),
                  os.path.join(dbpath, '1.db'))
-            broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+            broker = DatabaseBroker(os.path.join(dbpath, '1.db'),
+                                    quarantine_ok=True)
             broker.db_type = 'test'
             with self.assertRaises(sqlite3.DatabaseError) as raised, \
                     broker.get() as conn:
@@ -984,7 +1012,8 @@ class TestDatabaseBroker(TestDbBase):
                           'missing_container_info.db'),
              os.path.join(dbpath, '1.db'))
 
-        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'),
+                                quarantine_ok=True)
         broker.db_type = 'container'
 
         with self.assertRaises(sqlite3.DatabaseError) as raised:
@@ -995,7 +1024,8 @@ class TestDatabaseBroker(TestDbBase):
             (dbpath, qpath))
 
     def test_lock(self):
-        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'), timeout=.1)
+        broker = DatabaseBroker(os.path.join(self.testdir, '1.db'), timeout=.1,
+                                quarantine_ok=True)
         with self.assertRaises(DatabaseConnectionError) as raised, \
                 broker.lock():
             pass
@@ -1017,7 +1047,7 @@ class TestDatabaseBroker(TestDbBase):
         self.assertEqual(raised.exception.args[0], 'boom!')
 
         broker2 = DatabaseBroker(os.path.join(self.testdir, '1.db'),
-                                 timeout=.1)
+                                 timeout=.1, quarantine_ok=True)
         broker2._initialize = stub
         with broker.lock():
             # broker2 raises the timeout
@@ -1044,7 +1074,7 @@ class TestDatabaseBroker(TestDbBase):
             pass
 
     def test_newid(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
         uuid1 = str(uuid4())
@@ -1095,7 +1125,7 @@ class TestDatabaseBroker(TestDbBase):
             self.assertEqual(points[0][1], uuid2)
 
     def test_get_items_since(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
 
@@ -1117,7 +1147,7 @@ class TestDatabaseBroker(TestDbBase):
         self.assertEqual(broker.get_items_since(999, 2), [])
 
     def test_get_syncs(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
         uuid1 = str(uuid4())
@@ -1166,7 +1196,7 @@ class TestDatabaseBroker(TestDbBase):
                 for s in actual_syncs]))
 
     def test_get_sync(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
         uuid1 = str(uuid4())
@@ -1206,7 +1236,7 @@ class TestDatabaseBroker(TestDbBase):
         self.assertEqual(broker.get_sync(uuid3, incoming=False), 2)
 
     def test_merge_syncs(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
 
         def stub(*args, **kwargs):
             pass
@@ -1251,7 +1281,7 @@ class TestDatabaseBroker(TestDbBase):
         self.get_replication_info_tester(metadata=True)
 
     def get_replication_info_tester(self, metadata=False):
-        broker = DatabaseBroker(self.db_path, account='a')
+        broker = DatabaseBroker(self.db_path, account='a', quarantine_ok=True)
         broker.db_type = 'test'
         broker.db_contains_type = 'test'
         broker.db_reclaim_timestamp = 'created_at'
@@ -1430,7 +1460,8 @@ class TestDatabaseBroker(TestDbBase):
                           'missing_container_info.db'),
              os.path.join(dbpath, '1.db'))
 
-        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'),
+                                quarantine_ok=True)
         broker.db_type = 'container'
 
         with self.assertRaises(sqlite3.DatabaseError) as raised:
@@ -1450,7 +1481,8 @@ class TestDatabaseBroker(TestDbBase):
                           'missing_container_info.db'),
              os.path.join(dbpath, '1.db'))
 
-        broker = DatabaseBroker(os.path.join(dbpath, '1.db'))
+        broker = DatabaseBroker(os.path.join(dbpath, '1.db'),
+                                quarantine_ok=True)
         broker.db_type = 'container'
 
         with self.assertRaises(sqlite3.DatabaseError) as raised, \
@@ -1565,7 +1597,8 @@ class TestDatabaseBroker(TestDbBase):
 
         for i, (ex, hint) in enumerate(data):
             mkdirs(dbpath)
-            broker = DatabaseBroker(os.path.join(dbpath, '%d.db' % (i)))
+            broker = DatabaseBroker(os.path.join(dbpath, '%d.db' % (i)),
+                                    quarantine_ok=True)
             broker.db_type = 'test'
             with self.assertRaises(sqlite3.DatabaseError) as raised:
                 broker.possibly_quarantine(ex)
@@ -1575,7 +1608,7 @@ class TestDatabaseBroker(TestDbBase):
                 (dbpath, qpath, hint))
 
     def test_skip_commits(self):
-        broker = DatabaseBroker(self.db_path)
+        broker = DatabaseBroker(self.db_path, quarantine_ok=True)
         self.assertTrue(broker._skip_commit_puts())
         broker._initialize = MagicMock()
         broker.initialize(Timestamp.now())
@@ -1583,7 +1616,7 @@ class TestDatabaseBroker(TestDbBase):
 
         # not initialized
         db_file = os.path.join(self.testdir, '1.db')
-        broker = DatabaseBroker(db_file)
+        broker = DatabaseBroker(db_file, quarantine_ok=True)
         self.assertFalse(os.path.exists(broker.db_file))  # sanity check
         self.assertTrue(broker._skip_commit_puts())
 
@@ -1605,16 +1638,16 @@ class TestDatabaseBroker(TestDbBase):
         self.assertTrue(broker._skip_commit_puts())
 
         # re-init
-        broker = DatabaseBroker(db_file)
+        broker = DatabaseBroker(db_file, quarantine_ok=True)
         self.assertFalse(broker._skip_commit_puts())
 
         # constructor can override
-        broker = DatabaseBroker(db_file, skip_commits=True)
+        broker = DatabaseBroker(db_file, skip_commits=True, quarantine_ok=True)
         self.assertTrue(broker._skip_commit_puts())
 
     def test_commit_puts(self):
         db_file = os.path.join(self.testdir, '1.db')
-        broker = DatabaseBroker(db_file)
+        broker = DatabaseBroker(db_file, quarantine_ok=True)
         broker._initialize = MagicMock()
         broker.initialize(Timestamp.now())
         with open(broker.pending_file, 'wb'):
@@ -1663,7 +1696,7 @@ class TestDatabaseBroker(TestDbBase):
 
         # skip_commits True - no merge
         db_file = os.path.join(self.testdir, '2.db')
-        broker = DatabaseBroker(db_file, skip_commits=True)
+        broker = DatabaseBroker(db_file, skip_commits=True, quarantine_ok=True)
         broker._initialize = MagicMock()
         broker.initialize(Timestamp.now())
         with open(broker.pending_file, 'wb') as fd:
@@ -1678,7 +1711,7 @@ class TestDatabaseBroker(TestDbBase):
 
     def test_put_record(self):
         db_file = os.path.join(self.testdir, '1.db')
-        broker = DatabaseBroker(db_file)
+        broker = DatabaseBroker(db_file, quarantine_ok=True)
         broker._initialize = MagicMock()
         broker.initialize(Timestamp.now())
 
@@ -1750,7 +1783,7 @@ class TestTombstoneReclaimer(TestDbBase):
     def _setup_tombstones(self, reverse_names=True):
         broker = ExampleBroker(self.db_path,
                                account='test_account',
-                               container='test_container')
+                               container='test_container', quarantine_ok=True)
         broker.initialize(Timestamp('1').internal, 0)
         now = time.time()
         top_of_the_minute = now - (now % 60)

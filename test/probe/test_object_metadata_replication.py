@@ -113,7 +113,7 @@ class Test(ReplProbeTest):
         _dir = utils.storage_directory('%ss' % server_type, part, path_hash)
         db_dir = os.path.join(root, device, _dir)
         db_file = os.path.join(db_dir, '%s.db' % path_hash)
-        db = ContainerBroker(db_file)
+        db = ContainerBroker(db_file, quarantine_ok=True)
         return db.get_info()
 
     def _assert_consistent_container_dbs(self):
