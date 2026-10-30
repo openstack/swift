@@ -312,7 +312,7 @@ class DecrypterObjContext(BaseDecrypterContext):
     def _read_crypto_meta(self, header, check):
         crypto_meta = None
         if (is_success(self._get_status_int()) or
-                self._get_status_int() in (304, 412)):
+                self._get_status_int() in (304, 412, 416)):
             try:
                 crypto_meta = self.get_crypto_meta(header, check)
             except EncryptionException as err:
