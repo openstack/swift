@@ -27,7 +27,7 @@ from swift.common.middleware.crypto.crypto_utils import CRYPTO_KEY_CALLBACK, \
     dump_crypto_meta, Crypto, load_crypto_meta
 from swift.common.swob import Request, HTTPException, HTTPOk, \
     HTTPPreconditionFailed, HTTPNotModified, HTTPNotFound, \
-    HTTPPartialContent, bytes_to_wsgi
+    HTTPPartialContent, HTTPRequestedRangeNotSatisfiable, bytes_to_wsgi
 
 from test.debug_logger import debug_logger
 from test.unit.common.middleware.crypto.crypto_helpers import md5hex, \
@@ -342,6 +342,27 @@ class TestDecrypterObjectRequests(unittest.TestCase):
 
     def test_HEAD_412_response(self):
         self._test_412_response('HEAD')
+
+    def test_GET_416_response_with_key_rotation(self):
+        # the object headers in a 416 response need the stored key ID
+        key_id = {'secret_id': 'myid'}
+        env = {CRYPTO_KEY_CALLBACK: fetch_crypto_keys}
+        resp_body = b'The requested range is not satisfiable'
+        req = Request.blank(
+            '/v1/a/c/o', environ=env,
+            headers={'Range': 'bytes=%d-' % len(resp_body)})
+        hdrs = self._make_response_headers(
+            len(resp_body), md5hex(b''), fetch_crypto_keys(key_id=key_id),
+            b'not used', key_id=key_id)
+        self.app.register(
+            'GET', '/v1/a/c/o', HTTPRequestedRangeNotSatisfiable,
+            body=resp_body, headers=hdrs)
+
+        resp = req.get_response(self.decrypter)
+
+        self.assertEqual('416 Requested Range Not Satisfiable', resp.status)
+        self.assertEqual(md5hex(b''), resp.headers['Etag'])
+        self.assertEqual('encrypt me', resp.headers['X-Object-Meta-Test'])
 
     def _test_304_response(self, method):
         # simulate a 304 response to a conditional GET which has an Etag header
