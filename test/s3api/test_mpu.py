@@ -12,6 +12,7 @@
 # implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import http.client
 import time
 
 from swift.common.utils import md5
@@ -353,7 +354,8 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.assertEqual(416, err_resp['ResponseMetadata']['HTTPStatusCode'])
         if is_head:
             err_code = '416'
-            err_msg = 'Requested Range Not Satisfiable'
+            # for an answer without a body, botocore uses this table
+            err_msg = http.client.responses[416]
         else:
             err_code = 'InvalidPartNumber'
             err_msg = 'The requested partnumber is not satisfiable'
