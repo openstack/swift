@@ -212,6 +212,39 @@ class TestS3ApiBucket(S3ApiBaseBoto3):
         self.assertEqual(
             ctx.exception.response['Error']['Code'], 'AccessDenied')
 
+    def test_put_bucket_again_does_not_overwrite_acl(self):
+        """
+        Verify that repeated create_bucket does not overwrite existing
+        container ACL metadata. The Swift API is used to write and read the ACL
+        metadata because the S3API [Put|Get]BucketAcl behaviour varies
+        depending on the value of the s3_acl option.
+        """
+
+        bucket = 'bucket'
+        resp = self.conn.create_bucket(Bucket=bucket)
+        self.assertEqual(200, resp['ResponseMetadata']['HTTPStatusCode'])
+
+        conn = Connection(tf.config)
+        conn.authenticate()
+        acl = 'test:tester3'
+        status = conn.make_request('POST', [bucket], hdrs={
+            'X-Container-Read': acl,
+            'X-Container-Write': acl,
+        })
+        self.assertEqual(204, status)
+
+        with self.assertRaises(botocore.exceptions.ClientError) as ctx:
+            self.conn.create_bucket(Bucket=bucket, ACL='private')
+        self.assertEqual(
+            409, ctx.exception.response['ResponseMetadata']['HTTPStatusCode'])
+        self.assertEqual('BucketAlreadyOwnedByYou',
+                         ctx.exception.response['Error']['Code'])
+
+        status = conn.make_request('HEAD', [bucket])
+        self.assertEqual(204, status)
+        self.assertEqual(acl, conn.response.getheader('x-container-read'))
+        self.assertEqual(acl, conn.response.getheader('x-container-write'))
+
     def test_put_bucket_with_LocationConstraint(self):
         resp = self.conn.create_bucket(
             Bucket='bucket',
