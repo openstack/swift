@@ -790,13 +790,26 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
             'ResponseMetadata']['HTTPStatusCode'])
         self.assertEqual([], list_mpu_resp.get('Uploads', []))
 
-    def test_create_upload_complete_complete(self):
+    def test_create_upload_complete_complete_same_manifest(self):
         key_name = self.create_name('key')
         upload_id = self.create_mpu(key_name)
         parts = self.upload_parts(key_name, upload_id, 2)
-        self.complete_mpu(key_name, upload_id, parts)
+        resp = self.complete_mpu(key_name, upload_id, parts)
+        self.assertTrue(etag_from_resp(resp).endswith('-2"'))
         # repeat complete gets 200
-        self.complete_mpu(key_name, upload_id, parts)
+        resp = self.complete_mpu(key_name, upload_id, parts)
+        self.assertTrue(etag_from_resp(resp).endswith('-2"'))
+
+    def test_create_upload_complete_complete_different_manifest(self):
+        key_name = self.create_name('key')
+        upload_id = self.create_mpu(key_name)
+        parts = self.upload_parts(key_name, upload_id, 2)
+        resp = self.complete_mpu(key_name, upload_id, parts)
+        self.assertTrue(etag_from_resp(resp).endswith('-2"'))
+        # repeat complete with different manifest gets 404
+        with self.assertRaises(ClientError) as cm:
+            self.complete_mpu(key_name, upload_id, parts[:1])
+        self.assert_no_such_upload_id(cm.exception)
 
     def test_create_upload_complete_delete_complete(self):
         key_name = self.create_name('key')
