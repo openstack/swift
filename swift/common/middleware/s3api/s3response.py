@@ -689,9 +689,8 @@ class NoSuchLifecycleConfiguration(ErrorResponse):
 
 class NoSuchUpload(ErrorResponse):
     _status = '404 Not Found'
-    _msg = 'The specified multipart upload does not exist. The upload ID ' \
-           'might be invalid, or the multipart upload might have been ' \
-           'aborted or completed.'
+    _msg = 'The specified upload does not exist. The upload ID may be ' \
+           'invalid, or the upload may have been aborted or completed.'
 
 
 class NoSuchVersion(ErrorResponse):

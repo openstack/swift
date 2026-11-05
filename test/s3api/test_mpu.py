@@ -16,7 +16,7 @@ import time
 
 from swift.common.utils import md5
 from test.s3api import BaseS3TestCase, status_from_error, code_from_error, \
-    etag_from_resp, size_from_resp
+    etag_from_resp, size_from_resp, message_from_error
 from botocore.exceptions import ClientError
 
 
@@ -133,6 +133,14 @@ class BaseMultiPartUploadTestCase(BaseS3TestCase):
         for obj in objs:
             self._sanitize_obj_listing(obj)
         return objs
+
+    def assert_no_such_upload_id(self, client_error):
+        self.assertEqual(404, status_from_error(client_error))
+        self.assertEqual('NoSuchUpload', code_from_error(client_error))
+        self.assertEqual(
+            'The specified upload does not exist. The upload ID may be '
+            'invalid, or the upload may have been aborted or completed.',
+            message_from_error(client_error))
 
 
 class TestMultiPartUpload(BaseMultiPartUploadTestCase):
@@ -800,8 +808,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         # repeat complete gets 404
         with self.assertRaises(ClientError) as cm:
             self.complete_mpu(key_name, upload_id, parts)
-        self.assertEqual(404, status_from_error(cm.exception))
-        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        self.assert_no_such_upload_id(cm.exception)
 
     def test_create_upload_abort_complete(self):
         key_name = self.create_name('key')
@@ -810,16 +817,14 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.abort_mpu(key_name, upload_id)
         with self.assertRaises(ClientError) as cm:
             self.complete_mpu(key_name, upload_id, parts)
-        self.assertEqual(404, status_from_error(cm.exception))
-        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        self.assert_no_such_upload_id(cm.exception)
 
     def test_abort_bogus_id(self):
         key_name = self.create_name('key')
         upload_id = self.create_mpu(key_name)
         with self.assertRaises(ClientError) as cm:
             self.abort_mpu(key_name, upload_id + 'x')
-        self.assertEqual(404, status_from_error(cm.exception))
-        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        self.assert_no_such_upload_id(cm.exception)
 
     def test_create_upload_abort_list_parts(self):
         key_name = self.create_name('key')
@@ -828,8 +833,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.abort_mpu(key_name, upload_id)
         with self.assertRaises(ClientError) as cm:
             self.list_parts(key_name, upload_id)
-        self.assertEqual(404, status_from_error(cm.exception))
-        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        self.assert_no_such_upload_id(cm.exception)
 
     def test_create_upload_abort_upload(self):
         key_name = self.create_name('key')
@@ -838,8 +842,7 @@ class TestMultiPartUpload(BaseMultiPartUploadTestCase):
         self.abort_mpu(key_name, upload_id)
         with self.assertRaises(ClientError) as cm:
             self.upload_parts(key_name, upload_id, 1)
-        self.assertEqual(404, status_from_error(cm.exception))
-        self.assertEqual('NoSuchUpload', code_from_error(cm.exception))
+        self.assert_no_such_upload_id(cm.exception)
 
     def test_create_upload_complete_subset_of_parts_list(self):
         key_name = self.create_name('key')

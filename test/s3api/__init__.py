@@ -174,6 +174,10 @@ def code_from_error(error):
     return error.response['Error']['Code']
 
 
+def message_from_error(error):
+    return error.response['Error']['Message']
+
+
 def status_from_error(error):
     return error.response['ResponseMetadata']['HTTPStatusCode']
 
