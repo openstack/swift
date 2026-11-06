@@ -2988,36 +2988,40 @@ class TestServiceToken(unittest.TestCase):
 
     def test_user_cannot_access_service_account(self):
         for method, container, obj in self._scenario_generator():
-            self.prepare_request(method, use_service_account=True,
-                                 container=container, obj=obj)
-            resp = retry(self.do_request)
-            self._assert_not_authed_response(method, container, obj, resp)
+            with self.subTest(method=method, container=container, obj=obj):
+                self.prepare_request(method, use_service_account=True,
+                                     container=container, obj=obj)
+                resp = retry(self.do_request)
+                self._assert_not_authed_response(method, container, obj, resp)
 
     def test_service_user_denied_with_x_auth_token(self):
         for method, container, obj in self._scenario_generator():
-            self.prepare_request(method, use_service_account=True,
-                                 container=container, obj=obj,
-                                 x_auth_token=self.SET_TO_SERVICE_TOKEN)
-            resp = retry(self.do_request, service_user=5)
-            self._assert_not_authed_response(method, container, obj, resp)
+            with self.subTest(method=method, container=container, obj=obj):
+                self.prepare_request(method, use_service_account=True,
+                                     container=container, obj=obj,
+                                     x_auth_token=self.SET_TO_SERVICE_TOKEN)
+                resp = retry(self.do_request, service_user=5)
+                self._assert_not_authed_response(method, container, obj, resp)
 
     def test_service_user_denied_with_x_service_token(self):
         for method, container, obj in self._scenario_generator():
-            self.prepare_request(method, use_service_account=True,
-                                 container=container, obj=obj,
-                                 x_auth_token=self.SET_TO_SERVICE_TOKEN,
-                                 x_service_token=self.SET_TO_SERVICE_TOKEN)
-            resp = retry(self.do_request, service_user=5)
-            self._assert_not_authed_response(method, container, obj, resp)
+            with self.subTest(method=method, container=container, obj=obj):
+                self.prepare_request(method, use_service_account=True,
+                                     container=container, obj=obj,
+                                     x_auth_token=self.SET_TO_SERVICE_TOKEN,
+                                     x_service_token=self.SET_TO_SERVICE_TOKEN)
+                resp = retry(self.do_request, service_user=5)
+                self._assert_not_authed_response(method, container, obj, resp)
 
     def test_user_plus_service_can_access_service_account(self):
         for method, container, obj in self._scenario_generator():
-            self.prepare_request(method, use_service_account=True,
-                                 container=container, obj=obj,
-                                 x_auth_token=self.SET_TO_USERS_TOKEN,
-                                 x_service_token=self.SET_TO_SERVICE_TOKEN)
-            resp = retry(self.do_request, service_user=5)
-            self._assert_is_authed_response(method, container, obj, resp)
+            with self.subTest(method=method, container=container, obj=obj):
+                self.prepare_request(method, use_service_account=True,
+                                     container=container, obj=obj,
+                                     x_auth_token=self.SET_TO_USERS_TOKEN,
+                                     x_service_token=self.SET_TO_SERVICE_TOKEN)
+                resp = retry(self.do_request, service_user=5)
+                self._assert_is_authed_response(method, container, obj, resp)
 
 
 if __name__ == '__main__':
