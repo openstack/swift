@@ -434,6 +434,7 @@ class TestObjectUpdater(BaseUnitTestCase):
             "0 outdated_unlinks, 0 errors, 0 redirects",
             completion_lines[0])
 
+    @mock.patch('swift.obj.updater.shuffle', lambda devices: devices)
     @mock.patch.object(object_updater, 'check_drive')
     @mock.patch('swift.obj.updater.os')
     def test_run_once_with_disk_unmounted(self, mock_os, mock_check_drive):
@@ -526,6 +527,7 @@ class TestObjectUpdater(BaseUnitTestCase):
         self.logger.clear()
         self.assertEqual(ou.logger.statsd_client.get_stats_counts(), {})
 
+    @mock.patch('swift.obj.updater.shuffle', lambda devices: devices)
     @mock.patch('swift.obj.updater.os')
     def test_run_once_child(self, mock_os):
         mock_os.path = os.path
@@ -553,6 +555,7 @@ class TestObjectUpdater(BaseUnitTestCase):
             mock.call(self.sda1, 'sda1'),
         ], mock_process.mock_calls)
 
+    @mock.patch('swift.obj.updater.shuffle', lambda devices: devices)
     @mock.patch('swift.obj.updater.os')
     def test_run_once_subsequent_children(self, mock_os):
         mock_os.path = os.path
@@ -587,6 +590,7 @@ class TestObjectUpdater(BaseUnitTestCase):
             mock.call(os.path.join(self.devices_dir, 'sda3'), 'sda3'),
         ], mock_process.mock_calls)
 
+    @mock.patch('swift.obj.updater.shuffle', lambda devices: devices)
     @mock.patch('swift.obj.updater.os')
     def test_run_once_child_with_more_workers(self, mock_os):
         mock_os.path = os.path
@@ -615,6 +619,7 @@ class TestObjectUpdater(BaseUnitTestCase):
             mock.call(os.path.join(self.devices_dir, 'sda2'), 'sda2'),
         ], mock_process.mock_calls)
 
+    @mock.patch('swift.obj.updater.shuffle', lambda devices: devices)
     @mock.patch.object(object_updater, 'check_drive')
     @mock.patch('swift.obj.updater.os')
     def test_run_once_parent_default(self, mock_os, mock_check_drive):
@@ -649,6 +654,27 @@ class TestObjectUpdater(BaseUnitTestCase):
             mock.call.wait(),
         ], mock_os.mock_calls)
 
+    @mock.patch('swift.obj.updater.dump_recon_cache')
+    @mock.patch('swift.obj.updater.shuffle',
+                side_effect=lambda devices: devices)
+    def test_run_once_shuffles_devices(self, mock_shuffle, mock_recon):
+        ou = object_updater.ObjectUpdater({
+            'devices': self.devices_dir,
+            'mount_check': 'false',
+            'swift_dir': self.testdir,
+            'recon_cache_path': self.testdir}, logger=self.logger)
+        for i in range(3):
+            mkdirs(os.path.join(self.devices_dir, 'sdb%d' % i))
+        devices = sorted(os.listdir(self.devices_dir))
+
+        with mock.patch.object(ou, '_listdir', return_value=devices), \
+                mock.patch.object(ou, '_process_devices') as mock_process:
+            ou.run_once()
+
+        self.assertEqual([mock.call(devices)], mock_shuffle.mock_calls)
+        self.assertEqual([mock.call(devices)], mock_process.mock_calls)
+
+    @mock.patch('swift.obj.updater.shuffle', lambda devices: devices)
     @mock.patch.object(object_updater, 'check_drive')
     @mock.patch('swift.obj.updater.os')
     def test_run_once_parent_more_updater_workers(self, mock_os,
