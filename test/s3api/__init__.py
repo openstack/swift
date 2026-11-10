@@ -190,6 +190,10 @@ class BaseS3Mixin(object):
     signature_version = 's3v4'
 
     @classmethod
+    def get_region(cls):
+        return get_opt('region', 'us-east-1')
+
+    @classmethod
     def get_s3_client(cls, user):
         return get_s3_client(user, cls.signature_version)
 
@@ -260,12 +264,26 @@ class BaseS3Mixin(object):
                     break
 
     @classmethod
+    def create_bucket(cls, client, bucket, **kwargs):
+        """
+        Create a bucket in the configured region.
+
+        A region-specific endpoint refuses a create that names no
+        location. us-east-1 refuses a create that names one.
+        """
+        if cls.get_region() != 'us-east-1':
+            kwargs['CreateBucketConfiguration'] = {
+                'LocationConstraint': cls.get_region()}
+        return client.create_bucket(Bucket=bucket, **kwargs)
+
+    @classmethod
     def create_name(cls, slug):
         return '%s%s-%s' % (TEST_PREFIX, slug, uuid.uuid4().hex)
 
     @classmethod
     def clear_account(cls, client):
-        for bucket in client.list_buckets()['Buckets']:
+        for bucket in client.list_buckets(
+                BucketRegion=cls.get_region())['Buckets']:
             if not bucket['Name'].startswith(TEST_PREFIX):
                 # these tests run against real s3 accounts
                 continue
@@ -303,7 +321,7 @@ class BaseS3TestCaseWithBucket(BaseS3Mixin, unittest.TestCase):
     def setUpClass(cls):
         cls.bucket_name = cls.create_name('bucket')
         client = cls.get_s3_client(1)
-        client.create_bucket(Bucket=cls.bucket_name)
+        cls.create_bucket(client, cls.bucket_name)
 
     @classmethod
     def tearDownClass(cls):

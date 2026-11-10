@@ -223,17 +223,63 @@ that the Swift S3 API behaves in the same way as the AWS S3 API. They should
 pass when run against either a Swift endpoint (with S3 API enabled) or an AWS
 S3 endpoint.
 
+The tests can be configured in the ``[s3api_test]`` section of the
+`/etc/swift/test.conf` file.
+
+By default the tests assume that the Swift endpoint's S3 API has the default
+region configuration, i.e. ``location = us-east-1``. To run the tests against a
+Swift endpoint with a different region configuration, set the region in
+`/etc/swift/test.conf`::
+
+    [s3api_test]
+    region = <region>
+
 To run against an AWS S3 endpoint, the `/etc/swift/test.conf` file must be
-edited to provide AWS key IDs and secrets. Alternatively, an AWS CLI style
-credentials file can be loaded by setting the ``SWIFT_TEST_AWS_CONFIG_FILE``
-environment variable, e.g.::
+edited to provide the AWS endpoint, region, key IDs and secrets. For example::
+
+    [s3api_test]
+    endpoint = <S3 endpoint>
+    region = us-east-1
+    access_key1 = <aws_access_key_id>
+    secret_key1 = <aws_secret_access_key>
+    session_token1 = <aws_session_token>
+
+.. note::
+  The full suite of cross-compatibility tests currently only passes when run
+  against AWS S3 ``us-east-1`` region. Other AWS S3 regions and endpoints may
+  be used, but some test failures should then be expected. This may change as
+  Swift's S3 API compatibility is improved.
+
+The options in the ``[s3api_test]`` section of the `/etc/swift/test.conf` file
+may be replaced entirely by options in an alternative config file, such as an
+AWS CLI style credentials file. To load an alternative config file, set the
+``SWIFT_TEST_AWS_CONFIG_FILE`` environment variable, e.g.::
 
     SWIFT_TEST_AWS_CONFIG_FILE=~/.aws/credentials pytest ./test/s3api
 
-.. note::
-  When using ``SWIFT_TEST_AWS_CONFIG_FILE``, the region defaults to
-  ``us-east-1`` and only the default credentials are loaded.
+The alternative config file should have a ``[default]`` section with the
+following keys:
 
+- ``aws_access_key_id``, ``aws_secret_access_key`` and ``aws_session_token``,
+  which are mapped to the tests' primary user's credentials.
+
+- ``endpoint``, which defaults to ``https://s3.amazonaws.com``.
+
+- ``region``, which defaults to ``us-east-1``.
+
+For example::
+
+    [default]
+    endpoint = https://s3.amazonaws.com
+    region = us-east-1
+    aws_access_key_id = <value used for access_key1>
+    aws_secret_access_key = <value used for secret_key1>
+    aws_session_token = <value used for session_token1>
+
+.. note::
+  When using ``SWIFT_TEST_AWS_CONFIG_FILE``, the tests take all options from
+  that file or assume their default values; options in the ``[s3api_test]``
+  section of `/etc/swift/test.conf` are ignored.
 
 ------------
 Coding Style
