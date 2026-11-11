@@ -65,7 +65,8 @@ from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, update_headers, bytes_to_skip, ByteCountEnforcer, \
     record_cache_op_metrics, get_cache_key, GetterBase, GetterSource, \
     is_good_source, NodeIter, get_namespaces_from_cache, \
-    namespace_bounds_to_list, namespace_list_to_bounds
+    namespace_bounds_to_list, namespace_list_to_bounds, \
+    BackendResponse
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPPreconditionFailed, HTTPRequestEntityTooLarge, HTTPRequestTimeout, \
     HTTPServerError, HTTPServiceUnavailable, HTTPClientDisconnect, \
@@ -623,22 +624,18 @@ class BaseObjectController(Controller):
                            min_responses=None):
         """
         Collect object responses to a PUT request and determine if a
-        satisfactory number of nodes have returned success.  Returns
-        lists of accumulated status codes, reasons, bodies and etags.
+        satisfactory number of nodes have returned success.
 
         :param req: the request
         :param putters: list of putters for the request
         :param num_nodes: number of nodes involved
         :param final_phase: boolean indicating if this is the last phase
         :param min_responses: minimum needed when not requiring quorum
-        :return: a tuple of lists of status codes, reasons, bodies and etags.
-                 The list of bodies and etags is only populated for the final
-                 phase of a PUT transaction.
+        :return: a list of BackendResponse. The BackendResponse body is only
+            populated for the final phase of a PUT transaction.
         """
+        backend_responses = []
         statuses = []
-        reasons = []
-        bodies = []
-        etags = set()
 
         pile = GreenAsyncPile(len(putters))
         for putter in putters:
@@ -648,18 +645,17 @@ class BaseObjectController(Controller):
                        self.logger.thread_locals, final_phase=final_phase)
 
         def _handle_response(putter, response):
-            statuses.append(response.status)
-            reasons.append(response.reason)
             if final_phase:
                 body = response.read()
             else:
                 body = b''
-            bodies.append(body)
+            backend_responses.append(
+                BackendResponse(response.status, response.reason,
+                                response.getheaders(), body))
+            statuses.append(response.status)
             if not self.app.check_response(putter.node, 'Object', response,
                                            req.method, req.path, body):
                 putter.failed = True
-            elif is_success(response.status):
-                etags.add(normalize_etag(response.getheader('etag')))
 
         for (putter, response) in pile:
             if response:
@@ -677,12 +673,10 @@ class BaseObjectController(Controller):
                 _handle_response(putter, response)
 
         if final_phase:
-            while len(statuses) < num_nodes:
-                statuses.append(HTTP_SERVICE_UNAVAILABLE)
-                reasons.append('')
-                bodies.append(b'')
-
-        return statuses, reasons, bodies, etags
+            while len(backend_responses) < num_nodes:
+                backend_responses.append(
+                    BackendResponse.synthesize(HTTP_SERVICE_UNAVAILABLE))
+        return backend_responses
 
     def _config_obj_expiration(self, req):
         delete_at_container = None
@@ -882,8 +876,8 @@ class BaseObjectController(Controller):
                                   node_iterator=node_iterator)
         return resp
 
-    def _post_extra_handoffs(self, req, obj_ring, partition, headers, results,
-                             handoff_nodes):
+    def _post_extra_handoffs(self, req, obj_ring, partition, headers,
+                             backend_responses, handoff_nodes):
         """
         Send POST requests to handoff nodes when primary nodes return mixed
         results.
@@ -891,33 +885,36 @@ class BaseObjectController(Controller):
         :param req: the POST Request
         :param obj_ring: the object ring
         :param partition: ring partition number
-        :param headers: system headers to storage nodes
-        :param results: results from primary node requests
+        :param headers: request headers to storage nodes
+        :param backend_responses: a list of BackendResponse from primary node
+            requests
         :param handoff_nodes: list of handoff nodes to try
-        :return: list of handoff results to extend the original results
+        :return: a list of handoff BackendResponse to extend the
+            original backend responses
         """
         node_iter = NodeIter(
             'object', self.app, obj_ring, partition, self.logger, req,
             node_iter=handoff_nodes)
         # we want the backend headers from the *missing* nodes
-        missing_headers = [h for h, r in zip(headers, results)
-                           if r[0].status != HTTP_ACCEPTED]
+        missing_headers = [h for h, r in zip(headers, backend_responses)
+                           if r.status != HTTP_ACCEPTED]
         # _make_requests will make requests per header, if our handoff_iter is
         # too short it can *recycle* the nodes (?) and get 409s!?
         missing_headers = missing_headers[:len(handoff_nodes)]
-        handoff_results = self._make_requests(
+        handoff_backend_responses = self._make_requests(
             req, obj_ring, partition, 'POST',
             req.swift_entity_path, missing_headers,
             node_count=len(handoff_nodes),
             node_iterator=node_iter)
-        return handoff_results
+        return handoff_backend_responses
 
-    def _collect_status_map(self, results):
+    def _collect_status_map(self, backend_responses):
         status_map = collections.defaultdict(list)
-        for resp, _body, node in results:
-            if not node:
+        for backend_response in backend_responses:
+            if not backend_response or not backend_response.node:
                 continue
-            status_map[resp.status].append(node_to_string(node))
+            status_map[backend_response.status].append(
+                node_to_string(backend_response.node))
         return status_map
 
     def _post_object(self, req, obj_ring, partition, headers):
@@ -932,13 +929,13 @@ class BaseObjectController(Controller):
         """
         node_iter = NodeIter(
             'object', self.app, obj_ring, partition, self.logger, req)
-        results = self._make_requests(
+        backend_responses = self._make_requests(
             req, obj_ring, partition, 'POST', req.swift_entity_path, headers,
             node_iterator=node_iter)
-        primary_status_map = self._collect_status_map(results)
+        primary_status_map = self._collect_status_map(backend_responses)
         # by default best_response quorum is resp length sized, presumably in
         # order to support fractional replicas
-        quorum = self._quorum_size(len(results))
+        quorum = self._quorum_size(len(backend_responses))
         found_count = len(primary_status_map[HTTP_ACCEPTED])
         if found_count and found_count < quorum:
             # ... but quorum is going to be wrong if we make extra requests
@@ -952,20 +949,16 @@ class BaseObjectController(Controller):
                 'Primary nodes returned mixed results on POST: %r,'
                 ' trying handoffs: %r', dict(primary_status_map),
                 [node_to_string(n) for n in handoff_nodes])
-            handoff_results = self._post_extra_handoffs(
-                req, obj_ring, partition, headers, results, handoff_nodes)
-            results.extend(handoff_results)
-
-        statuses, reasons, resp_headers, bodies = zip(*[(
-            resp.status, resp.reason, resp.getheaders(), body)
-            for resp, body, _node in results])
+            handoff_backend_responses = self._post_extra_handoffs(
+                req, obj_ring, partition, headers, backend_responses,
+                handoff_nodes)
+            backend_responses.extend(handoff_backend_responses)
 
         final_resp = self.best_response(
-            req, statuses, reasons, bodies, headers=resp_headers,
-            quorum_size=quorum)
+            req, backend_responses, copy_headers=True, quorum_size=quorum)
         if final_resp.status_int == HTTP_NOT_FOUND and found_count > 0:
             # 404 can't be right, we have an existence proof
-            final_status_map = self._collect_status_map(results)
+            final_status_map = self._collect_status_map(backend_responses)
             self.logger.debug(
                 'Unable to resolve mixed results on POST: %r',
                 dict(final_status_map))
@@ -1224,20 +1217,23 @@ class ReplicatedObjectController(BaseObjectController):
             self._transfer_data(req, data_source, putters, nodes)
 
             # get responses
-            statuses, reasons, bodies, etags = \
-                self._get_put_responses(req, putters, len(nodes))
+            backend_responses = self._get_put_responses(
+                req, putters, len(nodes))
         except HTTPException as resp:
             return resp
         finally:
             for putter in putters:
                 putter.close()
 
+        etags = set(normalize_etag(backend_response.getheader('etag'))
+                    for backend_response in backend_responses
+                    if is_success(backend_response.status))
         if len(etags) > 1:
             self.logger.error(
                 'Object servers returned %s mismatched etags', len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
-        resp = self.best_response(req, statuses, reasons, bodies, etag=etag)
+        resp = self.best_response(req, backend_responses, etag=etag)
         resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp
 
@@ -3089,14 +3085,11 @@ class ECObjectController(BaseObjectController):
             # here with less than ec_ndata 416's and may then return a 416
             # which is also questionable because a non-range get for same
             # object would return 404 or 503.
-            statuses = []
-            reasons = []
-            bodies = []
-            headers = []
             best_bucket.close_conns()
             rebalance_missing_suppression_count = min(
                 policy_options.rebalance_missing_suppression_count,
                 node_iter.num_primary_nodes - 1)
+            backend_responses = []
             for status, bad_bucket in buckets.bad_buckets.items():
                 for getter, _parts_iter in bad_bucket.get_responses():
                     if best_bucket.durable:
@@ -3123,21 +3116,19 @@ class ECObjectController(BaseObjectController):
                                 not timestamp):
                             rebalance_missing_suppression_count -= 1
                             continue
-                        statuses.append(getter.status)
-                        reasons.append(getter.reason)
-                        bodies.append(getter.body)
-                        headers.append(getter.source_headers)
+                        backend_responses.append(
+                            BackendResponse(getter.status, getter.reason,
+                                            getter.source_headers, getter.body)
+                        )
 
-            if not statuses and is_success(best_bucket.status) and \
+            if not backend_responses and is_success(best_bucket.status) and \
                     not best_bucket.durable:
                 # pretend that non-durable bucket was 404s
-                statuses.append(404)
-                reasons.append('Not Found')
-                bodies.append(b'')
-                headers.append({})
+                backend_responses.append(
+                    BackendResponse.synthesize(HTTP_NOT_FOUND))
 
-            resp = self.best_response(
-                req, statuses, reasons, bodies, headers=headers)
+            resp = self.best_response(req, backend_responses,
+                                      copy_headers=True)
         self._fix_response(req, resp)
 
         # For sure put this back before actually returning the response
@@ -3369,10 +3360,11 @@ class ECObjectController(BaseObjectController):
             # object data and metadata commit and is a necessary
             # condition to be met before starting 2nd PUT phase
             final_phase = False
-            statuses, reasons, bodies, _junk = \
-                self._get_put_responses(
-                    req, putters, len(nodes), final_phase=final_phase,
-                    min_responses=min_conns)
+            backend_responses = self._get_put_responses(
+                req, putters, len(nodes), final_phase=final_phase,
+                min_responses=min_conns)
+            statuses = [backend_response.status
+                        for backend_response in backend_responses]
             if not self.have_quorum(
                     statuses, len(nodes), quorum=min_conns):
                 self.logger.error(
@@ -3380,9 +3372,8 @@ class ECObjectController(BaseObjectController):
                     statuses.count(HTTP_CONTINUE))
                 raise HTTPServiceUnavailable(request=req)
 
-            elif not self._have_adequate_informational(
-                    statuses, min_conns):
-                resp = self.best_response(req, statuses, reasons, bodies,
+            elif not self._have_adequate_informational(statuses, min_conns):
+                resp = self.best_response(req, backend_responses,
                                           quorum_size=min_conns)
                 if is_client_error(resp.status_int):
                     # if 4xx occurred in this state it is absolutely
@@ -3527,10 +3518,9 @@ class ECObjectController(BaseObjectController):
             # future able to serve their non-durable fragment archives we may
             # be able to reduce this quorum count if needed.
             # ignore response etags
-            statuses, reasons, bodies, _etags = \
-                self._get_put_responses(req, putters, len(nodes),
-                                        final_phase=True,
-                                        min_responses=min_conns)
+            backend_responses = self._get_put_responses(
+                req, putters, len(nodes), final_phase=True,
+                min_responses=min_conns)
         except HTTPException as resp:
             return resp
         finally:
@@ -3538,7 +3528,7 @@ class ECObjectController(BaseObjectController):
                 putter.close()
 
         etag = etag_hasher.hexdigest()
-        resp = self.best_response(
-            req, statuses, reasons, bodies, etag=etag, quorum_size=min_conns)
+        resp = self.best_response(req, backend_responses, etag=etag,
+                                  quorum_size=min_conns)
         resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp
