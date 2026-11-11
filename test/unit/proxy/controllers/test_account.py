@@ -28,6 +28,7 @@ from swift.common.request_helpers import get_sys_meta_prefix
 import swift.proxy.controllers.base
 from swift.proxy.controllers.base import get_account_info
 
+from test.debug_logger import debug_logger
 from test.unit import patch_policies
 
 
@@ -38,11 +39,12 @@ class TestAccountController(BaseUnitTestCase):
 
     def setUp(self):
         super().setUp()
+        self.logger = debug_logger()
         self.app = self._make_app()
 
     def _make_app(self):
         return proxy_server.Application(
-            None,
+            None, logger=self.logger,
             account_ring=FakeRing(replicas=self.ACCOUNT_REPLICAS),
             container_ring=FakeRing(replicas=self.ACCOUNT_REPLICAS))
 
@@ -126,6 +128,17 @@ class TestAccountController(BaseUnitTestCase):
                         fake_http_connect(404, headers=resp_headers)):
             resp = controller.HEAD(req)
         self.assertEqual(410, resp.status_int)
+
+    def test_GET_503_error_log(self):
+        _part, nodes = self.app.account_ring.get_nodes('a')
+        for node in nodes:
+            self.app.error_limiter.limit(node)
+        req = Request.blank('/v1/a')
+        with mocked_http_conn():
+            resp = req.get_response(self.app)
+        self.assertEqual(503, resp.status_int)
+        self.assertEqual(['Account GET returning 503 for []'],
+                         self.logger.get_lines_for_level('error'))
 
     def test_long_acct_names(self):
         long_acct_name = '%sLongAccountName' % (

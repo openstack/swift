@@ -70,8 +70,8 @@ class AccountController(Controller):
         params['format'] = 'json'
         req.params = params
         resp = self.GETorHEAD_base(
-            req, 'Account', node_iter, partition,
-            req.swift_entity_path.rstrip('/'), concurrency)
+            req, node_iter, partition, req.swift_entity_path.rstrip('/'),
+            concurrency)
         if resp.status_int == HTTP_NOT_FOUND:
             if resp.headers.get('X-Account-Status', '').lower() == 'deleted':
                 resp.status = HTTP_GONE

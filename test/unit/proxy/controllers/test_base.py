@@ -1282,21 +1282,22 @@ class TestFuncs(BaseTest):
             (100, 'Continue', '', b''),
             (404, 'Not Found', '', b'Custom body'),
         ]
-        server_type = "Base DELETE"
         req = Request.blank('/v1/a/c/o', method='DELETE')
         statuses, reasons, headers, bodies = zip(*responses)
 
         # First test that you can't make a quorum with only overridden
         # responses
         overrides = {302: 204, 100: 204}
-        resp = base.best_response(req, statuses, reasons, bodies, server_type,
+        resp = base.best_response(req, statuses, reasons, bodies,
                                   headers=headers, overrides=overrides)
         self.assertEqual(resp.status, '503 Service Unavailable')
+        self.assertEqual(['Base DELETE returning 503 for (204, 204, 404)'],
+                         self.app.logger.get_lines_for_level('error'))
 
         # next make a 404 quorum and make sure the last delete (real) 404
         # status is the one returned.
         overrides = {100: 404}
-        resp = base.best_response(req, statuses, reasons, bodies, server_type,
+        resp = base.best_response(req, statuses, reasons, bodies,
                                   headers=headers, overrides=overrides)
         self.assertEqual(resp.status, '404 Not Found')
         self.assertEqual(resp.body, b'Custom body')

@@ -2197,7 +2197,6 @@ class Controller(object):
             resp.status, resp.reason, resp.getheaders(), body)
             for resp, body, _ in results])
         return self.best_response(req, statuses, reasons, bodies,
-                                  '%s %s' % (self.server_type, req.method),
                                   overrides=overrides, headers=resp_headers)
 
     def _quorum_size(self, n):
@@ -2227,7 +2226,7 @@ class Controller(object):
                     return True
         return False
 
-    def best_response(self, req, statuses, reasons, bodies, server_type,
+    def best_response(self, req, statuses, reasons, bodies,
                       etag=None, headers=None, overrides=None,
                       quorum_size=None):
         """
@@ -2238,7 +2237,6 @@ class Controller(object):
         :param statuses: list of statuses returned
         :param reasons: list of reasons for each status
         :param bodies: bodies of each response
-        :param server_type: type of server the responses came from
         :param etag: etag
         :param headers: headers of each response
         :param overrides: overrides to apply when lacking quorum
@@ -2269,9 +2267,10 @@ class Controller(object):
 
         if not resp:
             resp = HTTPServiceUnavailable(request=req)
-            self.logger.error('%(type)s returning 503 for %(statuses)s',
-                              {'type': server_type, 'statuses': statuses})
-
+            self.logger.error(
+                '%(type)s %(method)s returning 503 for %(statuses)s',
+                {'type': self.server_type, 'method': req.method,
+                 'statuses': statuses})
         return resp
 
     def _compute_quorum_response(self, req, statuses, reasons, bodies, etag,
@@ -2350,13 +2349,12 @@ class Controller(object):
             self.logger.warning('Could not autocreate account %r', path)
             return False
 
-    def GETorHEAD_base(self, req, server_type, node_iter, partition, path,
+    def GETorHEAD_base(self, req, node_iter, partition, path,
                        concurrency=1, policy=None):
         """
         Base handler for HTTP GET or HEAD requests.
 
         :param req: swob.Request object
-        :param server_type: server type used in logging
         :param node_iter: an iterator to obtain nodes from
         :param partition: partition
         :param path: path for the request
@@ -2376,7 +2374,6 @@ class Controller(object):
         if not res:
             res = self.best_response(
                 req, handler.statuses, handler.reasons, handler.bodies,
-                '%s %s' % (server_type, req.method),
                 headers=handler.source_headers)
 
         # if a backend policy index is present in resp headers, translate it

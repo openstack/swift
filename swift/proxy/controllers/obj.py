@@ -961,8 +961,8 @@ class BaseObjectController(Controller):
             for resp, body, _node in results])
 
         final_resp = self.best_response(
-            req, statuses, reasons, bodies, 'Object POST',
-            headers=resp_headers, quorum_size=quorum)
+            req, statuses, reasons, bodies, headers=resp_headers,
+            quorum_size=quorum)
         if final_resp.status_int == HTTP_NOT_FOUND and found_count > 0:
             # 404 can't be right, we have an existence proof
             final_status_map = self._collect_status_map(results)
@@ -1092,8 +1092,8 @@ class ReplicatedObjectController(BaseObjectController):
         concurrency = self.app.get_object_ring(policy.idx).replica_count \
             if self.app.get_policy_options(policy).concurrent_gets else 1
         resp = self.GETorHEAD_base(
-            req, 'Object', node_iter, partition,
-            req.swift_entity_path, concurrency, policy)
+            req, node_iter, partition, req.swift_entity_path, concurrency,
+            policy)
         return resp
 
     def _make_putter(self, node, part, req, headers):
@@ -1237,8 +1237,7 @@ class ReplicatedObjectController(BaseObjectController):
                 'Object servers returned %s mismatched etags', len(etags))
             return HTTPServerError(request=req)
         etag = etags.pop() if len(etags) else None
-        resp = self.best_response(req, statuses, reasons, bodies,
-                                  'Object PUT', etag=etag)
+        resp = self.best_response(req, statuses, reasons, bodies, etag=etag)
         resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp
 
@@ -2984,8 +2983,8 @@ class ECObjectController(BaseObjectController):
             concurrency = policy.ec_ndata \
                 if self.app.get_policy_options(policy).concurrent_gets else 1
             resp = self.GETorHEAD_base(
-                req, 'Object', node_iter, partition,
-                req.swift_entity_path, concurrency, policy)
+                req, node_iter, partition, req.swift_entity_path, concurrency,
+                policy)
             self._fix_response(req, resp)
             return resp
 
@@ -3138,8 +3137,7 @@ class ECObjectController(BaseObjectController):
                 headers.append({})
 
             resp = self.best_response(
-                req, statuses, reasons, bodies, 'Object',
-                headers=headers)
+                req, statuses, reasons, bodies, headers=headers)
         self._fix_response(req, resp)
 
         # For sure put this back before actually returning the response
@@ -3385,7 +3383,6 @@ class ECObjectController(BaseObjectController):
             elif not self._have_adequate_informational(
                     statuses, min_conns):
                 resp = self.best_response(req, statuses, reasons, bodies,
-                                          'Object PUT',
                                           quorum_size=min_conns)
                 if is_client_error(resp.status_int):
                     # if 4xx occurred in this state it is absolutely
@@ -3541,8 +3538,7 @@ class ECObjectController(BaseObjectController):
                 putter.close()
 
         etag = etag_hasher.hexdigest()
-        resp = self.best_response(req, statuses, reasons, bodies,
-                                  'Object PUT', etag=etag,
-                                  quorum_size=min_conns)
+        resp = self.best_response(
+            req, statuses, reasons, bodies, etag=etag, quorum_size=min_conns)
         resp.last_modified = Timestamp(req.headers['X-Timestamp'])
         return resp
