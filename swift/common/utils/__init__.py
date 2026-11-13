@@ -2185,7 +2185,7 @@ class GreenAsyncPile(object):
         """
         self._pending += 1
         self._inflight += 1
-        self._pool.spawn(self._run_func, func, args, kwargs)
+        return self._pool.spawn(self._run_func, func, args, kwargs)
 
     def waitfirst(self, timeout):
         """

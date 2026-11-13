@@ -4850,13 +4850,15 @@ class TestAuditLocationGenerator(unittest.TestCase):
         self.assertEqual({'unmounted': ['device']}, error_counter)
 
 
-class TestGreenAsyncPile(unittest.TestCase):
+class TestGreenAsyncPile(BaseUnitTestCase):
 
     def setUp(self):
+        super().setUp()
         self.timeout = Timeout(5.0)
 
     def tearDown(self):
         self.timeout.cancel()
+        super().tearDown()
 
     def test_runs_everything(self):
         def run_test():
@@ -4899,10 +4901,19 @@ class TestGreenAsyncPile(unittest.TestCase):
 
         completed = [0]
         pile = utils.GreenAsyncPile(3)
-        pile.spawn(run_test, 0.1)
-        pile.spawn(run_test, 1.0)
+        t1 = pile.spawn(run_test, 0.1)
+        t2 = pile.spawn(run_test, 1.0)
+        self.assertEqual(pile.inflight, 2)
         self.assertEqual(pile.waitall(0.5), [0.1])
         self.assertEqual(completed[0], 1)
+        self.assertEqual(pile.inflight, 1)
+        self.assertTrue(t1.dead)
+        self.assertFalse(t2.dead)
+        t2.kill()
+        self.assertTrue(t2.dead)
+        self.assertEqual(pile.waitall(0.5), [])
+        self.assertEqual(completed[0], 1)
+        self.assertEqual(pile.inflight, 0)
 
     def test_waitall_timeout_completes(self):
         def run_test(sleep_duration):
