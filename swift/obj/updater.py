@@ -36,7 +36,7 @@ from swift.common.utils import get_logger, renamer, \
     eventlet_monkey_patch, get_redirect_data, ContextPool, hash_path, \
     non_negative_float, config_positive_int_value, non_negative_int, \
     EventletRateLimiter, node_to_string, parse_options, load_recon_cache, \
-    Timestamp
+    Timestamp, param_str_to_dict
 from swift.common.daemon import Daemon, run_daemon
 from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.storage_policy import split_policy_string, PolicyError
@@ -412,6 +412,15 @@ def split_update_path(update):
     return acct, cont
 
 
+def is_update_replaceable(update):
+    """
+    Check if the async update can be replaced by a superseding one.
+    This is never the case for an mpu update carrying a relic_id systag.
+    """
+    systags = HeaderKeyDict(update['headers']).get('X-Systags')
+    return not param_str_to_dict(systags).get('relic_id')
+
+
 class ObjectUpdater(Daemon):
     """Update object information in container listings."""
 
@@ -685,7 +694,9 @@ class ObjectUpdater(Daemon):
         Async pending files that fail to load will be quarantined.
 
         Only the most recent update for the same object is yielded; older
-        (stale) async pending files are unlinked as they are located.
+        (stale) async pending files are unlinked as they are located, unless
+        their update carries a relic_id systag, in which case they are also
+        yielded.
 
         The iterator tries to clean up empty directories as it goes.
         """
@@ -746,8 +757,18 @@ class ObjectUpdater(Daemon):
                     # unlink timestamp2 and timestamp1 since we know they
                     # are obsolete.
                     #
+                    # The exception is an update that carries a relic_id
+                    # systag, such as an update for an mpu manifest or
+                    # lifeline. Older updates must still reach the container
+                    # server so that no parts are leaked.
+                    #
                     # This way, our caller only gets useful async_pendings.
-                    if obj_hash == last_obj_hash:
+                    superseded = obj_hash == last_obj_hash
+                    last_obj_hash = obj_hash
+                    update = self._load_update(device, update_path)
+                    if update is None:
+                        continue
+                    if superseded and is_update_replaceable(update):
                         self.stats.outdated_unlinks += 1
                         self.logger.increment('outdated_unlinks')
                         try:
@@ -756,15 +777,12 @@ class ObjectUpdater(Daemon):
                             if e.errno != errno.ENOENT:
                                 raise
                     else:
-                        last_obj_hash = obj_hash
-                        update = self._load_update(device, update_path)
-                        if update is not None:
-                            yield {'device': device,
-                                   'policy': policy,
-                                   'update_path': update_path,
-                                   'obj_hash': obj_hash,
-                                   'timestamp': timestamp,
-                                   'update': update}
+                        yield {'device': device,
+                               'policy': policy,
+                               'update_path': update_path,
+                               'obj_hash': obj_hash,
+                               'timestamp': timestamp,
+                               'update': update}
 
     def object_sweep(self, device):
         """

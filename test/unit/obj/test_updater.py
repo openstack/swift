@@ -1606,6 +1606,34 @@ class TestObjectUpdater(BaseUnitTestCase):
             'X-Backend-Storage-Policy-Index')
         do_test(headers_out, expected)
 
+    def test_iter_async_pendings_outdated_with_relic_id(self):
+        conf = {'devices': self.devices_dir, 'swift_dir': self.testdir}
+        daemon = object_updater.ObjectUpdater(conf, logger=self.logger)
+        dfmanager = DiskFileManager(conf, daemon.logger)
+
+        def do_test(systags, expected):
+            # write updates for the same object, oldest first
+            timestamps = [next(self.ts_iter) for _ in systags]
+            for ts, tags in zip(timestamps, systags):
+                headers = {'x-timestamp': ts.internal}
+                if tags:
+                    headers['x-systags'] = tags
+                self._write_async_update(dfmanager, ts, POLICIES[0],
+                                         headers=headers)
+            yielded = [ctx['timestamp']
+                       for ctx in daemon._iter_async_pendings(self.sda1)]
+            self.assertEqual([timestamps[i].internal for i in expected],
+                             yielded)
+            rmtree(os.path.join(self.sda1, get_async_dir(POLICIES[0])))
+
+        # superseded updates without a relic_id are unlinked
+        do_test([None, None], [1])
+        do_test(['version=1', None], [1])
+        do_test(['child=relic_id', 'xrelic_id=a', 'relic_id=', None], [3])
+        # superseded updates with a relic_id are yielded
+        do_test(['relic_id=a', None, 'relic_id=b'], [2, 0])
+        do_test(['version=1&relic_id=a', 'relic_id=a'], [1, 0])
+
     def _check_update_requests(self, requests, timestamp, policy):
         # do some sanity checks on update request
         expected_headers = {

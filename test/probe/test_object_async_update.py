@@ -34,7 +34,7 @@ from configparser import ConfigParser
 from swift.common import direct_client, manager
 from swift.common.manager import Manager, Server
 from swift.common.swob import normalize_etag
-from swift.common.utils import readconf
+from swift.common.utils import param_str_from_dict, quote, readconf
 from test.probe.common import kill_nonprimary_server, \
     kill_server, ReplProbeTest, start_server, ECProbeTest
 
@@ -70,6 +70,61 @@ class TestObjectAsyncUpdate(ReplProbeTest):
         objs = [o['name'] for o in direct_client.direct_get_container(
             cnode, cpart, self.account, container)[1]]
         self.assertIn(obj, objs)
+
+    def test_superseded_update_with_relic_id(self):
+        container = 'container-%s' % uuid4()
+        client.put_container(self.url, self.token, container,
+                             headers={'X-Storage-Policy': self.policy.name})
+
+        cpart, cnodes = self.container_ring.get_nodes(self.account, container)
+        cnode = cnodes[0]
+        kill_server((cnode['ip'], cnode['port']), self.ipport2server)
+
+        obj = 'object-%s' % uuid4()
+        opart, onodes = self.object_ring.get_nodes(self.account,
+                                                   container,
+                                                   obj)
+        headers = {
+            'X-Container-Host': '%(ip)s:%(port)s' % cnode,
+            'X-Container-Device': cnode['device'],
+            'X-Container-Partition': cpart,
+            'X-Backend-Storage-Policy-Index': int(self.policy),
+        }
+        relic_id = 'obj_relic_id'
+        systags = param_str_from_dict({'relic_id': quote(relic_id)})
+        mpu_headers = dict(headers, **{
+            'X-Object-Sysmeta-Container-Update-Override-Systags': systags})
+        onode = onodes[0]
+        direct_client.direct_put_object(onode,
+                                        opart,
+                                        self.account,
+                                        container,
+                                        obj,
+                                        b'mpu-body',
+                                        headers=mpu_headers)
+        direct_client.direct_put_object(onode,
+                                        opart,
+                                        self.account,
+                                        container,
+                                        obj,
+                                        b'plain-body',
+                                        headers=dict(headers))
+
+        start_server((cnode['ip'], cnode['port']), self.ipport2server)
+
+        Manager(['object-updater']).once()
+
+        relic = obj + '\x00' + relic_id
+        for cnode in cnodes:
+            objs = [o['name'] for o in direct_client.direct_get_container(
+                cnode, cpart, self.account, container,
+                headers={'X-Backend-Include-State': '0'})[1]]
+            self.assertEqual([obj], objs)
+
+            relics = [o['name'] for o in direct_client.direct_get_container(
+                cnode, cpart, self.account, container,
+                headers={'X-Backend-Include-State': '2'})[1]]
+            self.assertEqual([relic], relics)
 
     def test_missing_container(self):
         # In this test, we need to put container at handoff devices, so we
