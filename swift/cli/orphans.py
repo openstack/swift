@@ -22,7 +22,23 @@ import sys
 from swift.common.manager import RUN_DIR
 
 
-def main():
+def parse_etime(etime):
+    """Convert ps elapsed time (MM:SS, HH:MM:SS, D-HH:MM:SS) to hours.
+
+    :raises ValueError: if the field count or an integer conversion is invalid.
+    """
+    parts = etime.replace('-', ':').split(':')
+    if len(parts) not in (2, 3, 4):
+        raise ValueError('Unexpected elapsed-time field count')
+    parts = ['0'] * (4 - len(parts)) + parts
+    seconds = sum(
+        int(value) * scale
+        for value, scale in zip(parts, (86400, 3600, 60, 1))
+    )
+    return seconds / 3600.0
+
+
+def main(args=None):
     parser = optparse.OptionParser(usage='''%prog [options]
 
 Lists and optionally kills orphaned Swift processes. This is done by scanning
@@ -47,7 +63,7 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
                       dest="run_dir", default=RUN_DIR,
                       help="alternative directory to store running pid files "
                       "default: %s" % RUN_DIR)
-    (options, args) = parser.parse_args()
+    (options, args) = parser.parse_args(args)
 
     pids = []
 
@@ -67,7 +83,6 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
             stdout=subprocess.PIPE).communicate()[0].split(b'\n'):
         if not line:
             continue
-        hours = 0
         try:
             etime, pid, args = line.decode('ascii').split(None, 2)
         except ValueError:
@@ -81,21 +96,12 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
         ]):
             continue
         args = args.split('swift-', 1)[1]
-        etime = etime.split('-')
-        if len(etime) == 2:
-            hours = int(etime[0]) * 24
-            etime = etime[1]
-        elif len(etime) == 1:
-            etime = etime[0]
-        else:
-            sys.exit('Could not process etime value from %r' % line)
-        etime = etime.split(':')
-        if len(etime) == 3:
-            hours += int(etime[0])
-        elif len(etime) != 2:
+        try:
+            hours = parse_etime(etime)
+        except ValueError:
             sys.exit('Could not process etime value from %r' % line)
         if hours >= options.hours:
-            listing.append((str(hours), pid, args))
+            listing.append(('%.2f' % hours, pid, args))
 
     if not listing:
         sys.exit()
