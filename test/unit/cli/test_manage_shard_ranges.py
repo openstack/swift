@@ -1074,7 +1074,7 @@ class TestManageShardRanges(BaseUnitTestCase):
         stdin.seek(0)
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
                 mock.patch('sys.stdin', stdin):
-            ret = main(['-', 'analyze'])
+            ret = main(['-', 'analyze', '--json'])
         self.assertEqual(1, ret)
         expected = [
             'Found no complete sequence of shard ranges.',
@@ -1097,7 +1097,7 @@ class TestManageShardRanges(BaseUnitTestCase):
         stdin.seek(0)
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
                 mock.patch('sys.stdin', stdin):
-            ret = main(['-', 'analyze'])
+            ret = main(['-', 'analyze', '--json'])
         self.assertEqual(0, ret)
         expected = [
             'Found one complete sequence of 10 shard ranges '
@@ -1127,7 +1127,7 @@ class TestManageShardRanges(BaseUnitTestCase):
         stdin.seek(0)
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
                 mock.patch('sys.stdin', stdin):
-            ret = main(['-', 'analyze'])
+            ret = main(['-', 'analyze', '--json'])
         self.assertEqual(0, ret)
         expected = [
             'Repairs necessary to remove overlapping shard ranges.',
@@ -1139,6 +1139,262 @@ class TestManageShardRanges(BaseUnitTestCase):
             '    10 object records being moved to the chosen shard ranges.',
         ]
         self.assertEqual(expected, out.getvalue().splitlines())
+
+    def test_analyze_json_file_with_same_name_db(self):
+        broker = self._make_broker()
+        self.assertEqual([], broker.get_shard_ranges())
+        input_file = os.path.splitext(broker.db_file)[0] + '.json'
+        with open(input_file, 'w') as fd:
+            json.dump([dict(ShardRange('a/shard', 1))], fd)
+
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([input_file, 'analyze', '--json'])
+
+        self.assertEqual([
+            'Found one complete sequence of 1 shard ranges '
+            'and no overlapping shard ranges.',
+            'No repairs necessary.',
+        ], out.getvalue().splitlines())
+        self.assertEqual(0, ret)
+        self.assertEqual('', err.getvalue())
+        self.assertEqual([], broker.get_shard_ranges())
+
+    def test_analyze_db_file(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        with mock_normal_timestamp_now(next(self.ts_iter)):  # t1
+            shard_ranges = make_shard_ranges(
+                broker, self.shard_data, '.shards_')
+        with mock_normal_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_1 = make_shard_ranges(
+                broker, self.overlap_shard_data_1, '.shards_')
+        with mock_normal_timestamp_now(next(self.ts_iter)):
+            overlap_shard_ranges_2 = make_shard_ranges(
+                broker, self.overlap_shard_data_2, '.shards_')
+        broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
+                                  overlap_shard_ranges_2)
+        self.assertTrue(broker.is_root_container())
+
+        # run analyze command
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'analyze'])
+        self.assertEqual(0, ret)
+        err_lines = err.getvalue().split('\n')
+        self.assertEqual(
+            ['Loaded db broker for a/c'],
+            err_lines[:1], err_lines)
+        out_lines = out.getvalue().split('\n')
+        self.assertEqual(
+            ['Repairs necessary to remove overlapping shard ranges.'],
+            out_lines[:1], out_lines)
+        # no changes made to broker
+        self.assert_shard_ranges_equal(
+            sorted(shard_ranges + overlap_shard_ranges_1 +
+                   overlap_shard_ranges_2, key=ShardRange.sort_key),
+            broker.get_shard_ranges())
+
+    def test_analyze_json_option_missing_file(self):
+        missing_file = os.path.join(self.testdir, 'missing.json')
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            with self.assertRaises(SystemExit) as cm:
+                main([missing_file, 'analyze', '--json'])
+        self.assertEqual(2, cm.exception.code)
+        self.assertEqual('', out.getvalue())
+        self.assertEqual(
+            ['Failed to open file %s: [Errno 2] No such file or directory: '
+             '%r' % (missing_file, missing_file)],
+            err.getvalue().splitlines())
+
+    def test_analyze_missing_file(self):
+        missing_file = os.path.join(self.testdir, 'missing.db')
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([missing_file, 'analyze'])
+        self.assertEqual(1, ret)
+        self.assertEqual('', out.getvalue())
+        # the broker is given the real path, which may differ from the
+        # tempdir path, e.g. /private/var vs /var on macOS
+        self.assertEqual(
+            ['Error opening container DB %s: DB connection error (%s, 0):'
+             % (missing_file, os.path.realpath(missing_file)),
+             "DB doesn't exist"],
+            err.getvalue().splitlines())
+
+    def test_analyze_db_file_without_shard_ranges(self):
+        broker = self._make_broker()
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'analyze'])
+
+        self.assertEqual(0, ret)
+        self.assertEqual(['Loaded db broker for a/c'],
+                         err.getvalue().splitlines())
+        self.assertEqual(['No shards found, nothing to do.'],
+                         out.getvalue().splitlines())
+
+    def test_analyze_db_file_with_shard_range_read_error(self):
+        broker = self._make_broker()
+        out = StringIO()
+        err = StringIO()
+        with mock.patch.object(
+                ContainerBroker, 'get_shard_ranges',
+                side_effect=Exception('simulated read failure')):
+            with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+                ret = main([broker.db_file, 'analyze'])
+
+        self.assertEqual(1, ret)
+        self.assertEqual('', out.getvalue())
+        self.assertEqual([
+            'Loaded db broker for a/c',
+            'Error reading shard ranges from container DB %s: '
+            'simulated read failure' % broker.db_file,
+        ], err.getvalue().splitlines())
+
+    def test_analyze_db_file_with_json_option(self):
+        broker = self._make_broker()
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err), \
+                mock.patch('swift.cli.manage_shard_ranges.ContainerBroker') \
+                as mock_broker:
+            with self.assertRaises(SystemExit) as cm:
+                main([broker.db_file, 'analyze', '--json'])
+
+        self.assertEqual(2, cm.exception.code)
+        self.assertEqual('', out.getvalue())
+        err_lines = err.getvalue().splitlines()
+        self.assertEqual(1, len(err_lines), err_lines)
+        self.assert_starts_with(
+            err_lines[0], 'Failed to load valid shard range data: ')
+        # the error does not include the contents of the DB
+        self.assertNotIn('SQLite format 3', err_lines[0])
+        # the DB is read as a plain file, not opened as a DB
+        mock_broker.assert_not_called()
+        self.assertTrue(os.path.exists(broker.db_file))
+        broker.get_info()
+
+    def test_analyze_json_file_without_json_option(self):
+        input_dir = os.path.join(
+            self.testdir, 'sda', 'containers', '0', 'ash', 'hash')
+        utils.mkdirs(input_dir)
+        input_file = os.path.join(input_dir, 'shards.json')
+        shard_json = json.dumps([dict(ShardRange('a/shard', 1))])
+        with open(input_file, 'w') as fd:
+            fd.write(shard_json)
+
+        for options in ([], ['--db']):
+            with self.subTest(options=options):
+                out = StringIO()
+                err = StringIO()
+                with mock.patch('sys.stdout', out), \
+                        mock.patch('sys.stderr', err):
+                    ret = main([input_file, 'analyze'] + options)
+
+                self.assertEqual(1, ret)
+                self.assertEqual('', out.getvalue())
+                self.assertEqual(
+                    ['Error opening container DB %s: not recognized as a '
+                     'container DB file. Use --json to analyze a shard '
+                     'data file.' % input_file],
+                    err.getvalue().splitlines())
+                with open(input_file) as fd:
+                    self.assertEqual(shard_json, fd.read())
+
+    def test_analyze_json_file_without_json_option_with_same_name_db(self):
+        broker = self._make_broker()
+        input_file = os.path.splitext(broker.db_file)[0] + '.json'
+        with open(input_file, 'w') as fd:
+            json.dump([dict(ShardRange('a/shard', 1))], fd)
+
+        for options in ([], ['--db']):
+            with self.subTest(options=options):
+                out = StringIO()
+                err = StringIO()
+                with mock.patch('sys.stdout', out), \
+                        mock.patch('sys.stderr', err):
+                    ret = main([input_file, 'analyze'] + options)
+
+                # the same-name DB is not analyzed instead of the input
+                self.assertEqual(1, ret)
+                self.assertEqual('', out.getvalue())
+                self.assertEqual(
+                    ['Error opening container DB %s: not recognized as a '
+                     'container DB file. Use --json to analyze a shard '
+                     'data file.' % input_file],
+                    err.getvalue().splitlines())
+
+    def test_analyze_db_and_json_options(self):
+        broker = self._make_broker()
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            with self.assertRaises(SystemExit) as cm:
+                main([broker.db_file, 'analyze', '--db', '--json'])
+
+        self.assertEqual(2, cm.exception.code)
+        self.assertEqual('', out.getvalue())
+        self.assertIn('argument --json: not allowed with argument --db',
+                      err.getvalue())
+
+    def _make_broker_with_shard_ranges(self):
+        broker = self._make_broker()
+        broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
+        # analyze ignores the deleted shard range, which would otherwise
+        # overlap all the others
+        deleted_shard_range = ShardRange(
+            '.shards_a/c_deleted', next(self.ts_iter), deleted=True)
+        broker.merge_shard_ranges(
+            make_shard_ranges(broker, self.shard_data, '.shards_') +
+            [deleted_shard_range])
+        return broker
+
+    def _assert_analyze_db_file(self, db_file):
+        for options in ([], ['--db']):
+            with self.subTest(db_file=db_file, options=options):
+                out = StringIO()
+                err = StringIO()
+                with mock.patch('sys.stdout', out), \
+                        mock.patch('sys.stderr', err):
+                    ret = main([db_file, 'analyze'] + options)
+                self.assertEqual(0, ret)
+                self.assertEqual(['Loaded db broker for a/c'],
+                                 err.getvalue().splitlines())
+                self.assertEqual(
+                    ['Found one complete sequence of %d shard ranges '
+                     'and no overlapping shard ranges.'
+                     % len(self.shard_data),
+                     'No repairs necessary.'],
+                    out.getvalue().splitlines())
+
+    def test_analyze_db_file_with_db_option(self):
+        broker = self._make_broker_with_shard_ranges()
+        self._assert_analyze_db_file(broker.db_file)
+
+    def test_analyze_sharding_db_files(self):
+        broker = self._make_broker_with_shard_ranges()
+        broker.enable_sharding(NormalTimestamp.now())
+        self.assertTrue(broker.set_sharding_state())
+        retiring_db_file, fresh_db_file = broker.db_files
+
+        self._assert_analyze_db_file(retiring_db_file)
+        self._assert_analyze_db_file(fresh_db_file)
+
+    def test_analyze_sharded_db_file_by_retired_path(self):
+        broker = self._make_broker_with_shard_ranges()
+        retired_db_file = broker.db_file
+        self._move_broker_to_sharded_state(broker)
+        self.assertFalse(os.path.exists(retired_db_file))
+        self.assertNotEqual(retired_db_file, broker.db_file)
+
+        self._assert_analyze_db_file(retired_db_file)
 
     def _assert_enabled(self, broker, epoch):
         own_sr = broker.get_own_shard_range()
@@ -2893,13 +3149,23 @@ class TestManageShardRanges(BaseUnitTestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            ret = main([shard_file, 'analyze'])
+            ret = main([shard_file, 'analyze', '--json'])
         self.assertEqual(0, ret)
         self.assertEqual('', err.getvalue())
         out_lines = out.getvalue().split('\n')
         self.assertEqual(
             ['Repairs necessary to remove overlapping shard ranges.'],
             out_lines[:1])
+
+        # analyze the db directly and expect the same output
+        out = StringIO()
+        err = StringIO()
+        with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
+            ret = main([broker.db_file, 'analyze'])
+        self.assertEqual(0, ret)
+        self.assertEqual(['Loaded db broker for a/c'],
+                         err.getvalue().splitlines())
+        self.assertEqual(out_lines, out.getvalue().split('\n'))
 
         # no changes made to broker
         updated_ranges = broker.get_shard_ranges()
@@ -2932,7 +3198,7 @@ class TestManageShardRanges(BaseUnitTestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            ret = main([shard_file, 'analyze'])
+            ret = main([shard_file, 'analyze', '--json'])
         self.assertEqual(0, ret)
         self.assertEqual('', err.getvalue())
         out_lines = out.getvalue().split('\n')
@@ -2947,7 +3213,7 @@ class TestManageShardRanges(BaseUnitTestCase):
         out = StringIO()
         err = StringIO()
         with mock.patch('sys.stdout', out), mock.patch('sys.stderr', err):
-            ret = main([shard_file, 'analyze'])
+            ret = main([shard_file, 'analyze', '--json'])
         self.assertEqual(0, ret)
         self.assertEqual('', err.getvalue())
         new_out_lines = out.getvalue().split('\n')
