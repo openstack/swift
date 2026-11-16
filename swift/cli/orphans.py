@@ -38,6 +38,25 @@ def parse_etime(etime):
     return seconds / 3600.0
 
 
+def parse_age(age):
+    """Convert bare hours or an h/m duration such as 2h30m to hours."""
+    try:
+        return float(age)
+    except ValueError:
+        pass
+
+    hours, separator, minutes = age.partition('h')
+    if not separator:
+        hours, minutes = '0', age
+    if separator and not minutes:
+        minutes = '0'
+    else:
+        if not minutes.endswith('m'):
+            raise ValueError('Expected an h/m duration')
+        minutes = minutes[:-1]
+    return (float(hours) * 3600 + float(minutes) * 60) / 3600.0
+
+
 def main(args=None):
     parser = optparse.OptionParser(usage='''%prog [options]
 
@@ -50,9 +69,9 @@ for full-speed audit scans and such.
 Example (sends SIGTERM to all orphaned Swift processes older than two hours):
 %prog -a 2 -k TERM
         '''.strip())
-    parser.add_option('-a', '--age', dest='hours', type='float', default=24,
-                      help="look for processes at least HOURS old; "
-                      "fractional hours are allowed; default: 24")
+    parser.add_option('-a', '--age', dest='hours', metavar='AGE', default=24,
+                      help="look for processes at least AGE old; bare numbers "
+                      "are hours; accepts 15m, 2h, or 2h30m; default: 24h")
     parser.add_option('-k', '--kill', dest='signal',
                       help='send SIGNAL to matched processes; default: just '
                       'list process information')
@@ -64,6 +83,11 @@ Example (sends SIGTERM to all orphaned Swift processes older than two hours):
                       help="alternative directory to store running pid files "
                       "default: %s" % RUN_DIR)
     (options, args) = parser.parse_args(args)
+    try:
+        options.hours = parse_age(options.hours)
+    except ValueError:
+        parser.error('option -a: invalid age value: %r '
+                     '(use hours, 15m, or 2h30m)' % options.hours)
 
     pids = []
 

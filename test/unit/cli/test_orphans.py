@@ -11,7 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import os
 import signal
@@ -50,6 +50,33 @@ class TestParseEtime(unittest.TestCase):
             with self.subTest(etime=etime):
                 with self.assertRaises(ValueError):
                     orphans.parse_etime(etime)
+
+
+class TestParseAge(unittest.TestCase):
+    def test_bare_numbers_are_hours(self):
+        for age, hours in (('0', 0), ('1', 1), ('2.5', 2.5), ('.25', 0.25),
+                           ('0.1', 0.1), ('1e-1', 0.1), ('-1', -1)):
+            with self.subTest(age=age):
+                self.assertEqual(orphans.parse_age(age), hours)
+
+    def test_hours_and_minutes_are_converted_to_hours(self):
+        for age, hours in (
+                ('0h', 0), ('0m', 0), ('0h0m', 0),
+                ('2h', 2), ('15m', 0.25), ('2h30m', 2.5),
+                ('6m', 0.1), ('1m', 1 / 60), ('7m', 7 / 60),
+                ('1h6m', 1.1), ('90m', 1.5), ('1h90m', 2.5),
+                ('.5h', 0.5), ('0.1h', 0.1), ('2.5h', 2.5),
+                ('1.5h30m', 2), ('2h30.5m', 9030 / 3600)):
+            with self.subTest(age=age):
+                self.assertEqual(orphans.parse_age(age), hours)
+
+    def test_invalid_age_raises_value_error(self):
+        for age in ('', 'h', 'm', 'hm', '2hm', '1h2', '1m2h', '1h2h',
+                    '1m2m', '2h30ms', '15s', '15M', '2H', 'oneh', '1:30',
+                    '1h30mjunk', '1d', '1h30m1h', '1h30m30m'):
+            with self.subTest(age=age):
+                with self.assertRaises(ValueError):
+                    orphans.parse_age(age)
 
 
 class TestOrphans(unittest.TestCase):
@@ -173,6 +200,43 @@ class TestOrphans(unittest.TestCase):
             orphans.main(['--run-dir', self.run_dir, '-a', '1'])
         self.assertEqual(caught.exception.code,
                          'Could not process etime value from %r' % line)
+
+    def test_minute_age_includes_processes_at_least_fifteen_minutes_old(self):
+        self.mock_popen.return_value.communicate.return_value = (
+            b'14:59 4162764 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'15:00 4162765 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'15:01 4162766 /usr/bin/python /usr/bin/swift-object-auditor\n',
+            None)
+        with redirect_stdout(StringIO()) as out:
+            orphans.main(['--run-dir', self.run_dir, '--age', '15m'])
+        self.assertEqual(out.getvalue().splitlines(), [
+            'Hours     PID Command',
+            ' 0.25 4162765 object-auditor',
+            ' 0.25 4162766 object-auditor',
+        ])
+        self.mock_kill.assert_not_called()
+
+    def test_compound_age_signals_only_processes_at_least_150_minutes_old(
+            self):
+        self.mock_popen.return_value.communicate.return_value = (
+            b'02:29:59 101 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'02:30:00 102 /usr/bin/python /usr/bin/swift-object-auditor\n',
+            None)
+        with redirect_stdout(StringIO()):
+            orphans.main(['--run-dir', self.run_dir, '-a', '2h30m',
+                          '-k', 'TERM'])
+        self.mock_kill.assert_called_once_with(102, signal.SIGTERM)
+
+    def test_invalid_age_is_reported_before_process_discovery(self):
+        for age in ('15s', '2h30', '1m2h'):
+            with self.subTest(age=age):
+                with redirect_stderr(StringIO()) as err:
+                    with self.assertRaises(SystemExit) as caught:
+                        orphans.main(['--run-dir', self.run_dir, '-a', age])
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn('invalid age value: %r' % age, err.getvalue())
+        self.mock_popen.assert_not_called()
+        self.mock_kill.assert_not_called()
 
 
 if __name__ == '__main__':

@@ -43,14 +43,20 @@ swift-orphans \-a 2 \-k TERM
 Example (lists orphaned Swift processes at least six minutes old):
 swift-orphans \-a 0.1
 
+Age thresholds may also use lowercase h and m suffixes for hours and minutes.
+For example, \-a 15m selects processes at least fifteen minutes old, and
+\-a 2h30m selects processes at least two and a half hours old. Hours precede
+minutes in a combined value. Both components may be fractional, as in
+1.5h or 2h30.5m. Bare numbers still mean hours, and the listing reports hours.
+
 The options are as follows:
 
 .RS 4
 .PD 0
-.IP "-a HOURS"
-.IP "--age=HOURS"
+.IP "-a AGE"
+.IP "--age=AGE"
 .RS 4
-.IP "Look for processes at least HOURS old; fractional hours are allowed; default: 24"
+.IP "Look for processes at least AGE old; bare numbers are hours; accepts 15m, 2h, or 2h30m; default: 24h"
 .RE
 .IP "-k SIGNAL"
 .IP "--kill=SIGNAL"
