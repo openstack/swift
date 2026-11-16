@@ -50,9 +50,9 @@ for full-speed audit scans and such.
 Example (sends SIGTERM to all orphaned Swift processes older than two hours):
 %prog -a 2 -k TERM
         '''.strip())
-    parser.add_option('-a', '--age', dest='hours', type='int', default=24,
+    parser.add_option('-a', '--age', dest='hours', type='float', default=24,
                       help="look for processes at least HOURS old; "
-                      "default: 24")
+                      "fractional hours are allowed; default: 24")
     parser.add_option('-k', '--kill', dest='signal',
                       help='send SIGNAL to matched processes; default: just '
                       'list process information')

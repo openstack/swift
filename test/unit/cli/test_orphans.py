@@ -65,6 +65,26 @@ class TestOrphans(unittest.TestCase):
         self.mock_kill = patcher.start()
         self.addCleanup(patcher.stop)
 
+    def test_fractional_age_includes_processes_at_least_six_minutes_old(
+            self):
+        self.mock_popen.return_value.communicate.return_value = (
+            b'05:59 101 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'06:00 102 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'06:01 103 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'01:06:00 104 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'1-00:06:00 105 /usr/bin/python /usr/bin/swift-object-auditor\n',
+            None)
+        with redirect_stdout(StringIO()) as out:
+            orphans.main(['--run-dir', self.run_dir, '-a', '0.1'])
+        rows = [line.split() for line in out.getvalue().splitlines()]
+        self.assertEqual(rows[0], ['Hours', 'PID', 'Command'])
+        self.assertEqual([row[1] for row in rows[1:]],
+                         ['102', '103', '104', '105'])
+        self.assertEqual(rows[1], ['0.10', '102', 'object-auditor'])
+        self.assertEqual(rows[3], ['1.10', '104', 'object-auditor'])
+        self.assertEqual(rows[4], ['24.10', '105', 'object-auditor'])
+        self.mock_kill.assert_not_called()
+
     def test_integer_age_includes_processes_at_least_one_hour_old(
             self):
         self.mock_popen.return_value.communicate.return_value = (
@@ -109,6 +129,17 @@ class TestOrphans(unittest.TestCase):
             'Hours PID Command',
             '24.00 102 object-auditor',
         ])
+
+    def test_fractional_age_signals_only_processes_at_least_six_minutes_old(
+            self):
+        self.mock_popen.return_value.communicate.return_value = (
+            b'05:59 101 /usr/bin/python /usr/bin/swift-object-auditor\n'
+            b'06:00 102 /usr/bin/python /usr/bin/swift-object-auditor\n',
+            None)
+        with redirect_stdout(StringIO()):
+            orphans.main(['--run-dir', self.run_dir, '-a', '0.1', '-k',
+                          'TERM'])
+        self.mock_kill.assert_called_once_with(102, signal.SIGTERM)
 
     def test_excludes_registered_process_and_its_child(
             self):

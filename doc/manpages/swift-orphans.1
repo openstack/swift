@@ -40,6 +40,9 @@ such.
 Example (sends SIGTERM to all orphaned Swift processes older than two hours):
 swift-orphans \-a 2 \-k TERM
 
+Example (lists orphaned Swift processes at least six minutes old):
+swift-orphans \-a 0.1
+
 The options are as follows:
 
 .RS 4
@@ -47,7 +50,7 @@ The options are as follows:
 .IP "-a HOURS"
 .IP "--age=HOURS"
 .RS 4
-.IP "Look for processes at least HOURS old; default: 24"
+.IP "Look for processes at least HOURS old; fractional hours are allowed; default: 24"
 .RE
 .IP "-k SIGNAL"
 .IP "--kill=SIGNAL"
