@@ -24,4 +24,11 @@ test/probe/.noseids
 RELEASENOTES.rst
 releasenotes/notes/reno.cache
 /tools/playbooks/**/*.retry
-.vscode/*
+
+.tmp/
+.pi/
+.cursor/
+.cursorrules
+.claude/
+.vscode/
+.codex/
