@@ -277,8 +277,8 @@ def _load_and_validate_shard_data(args, require_index=True):
                         shard[k]  # trigger KeyError for missing required key
                 return data
             except (TypeError, ValueError, KeyError) as err:
-                print('Failed to load valid shard range data: %r' % err,
-                      file=sys.stderr)
+                print('Failed to load valid shard range data: %s: %s'
+                      % (type(err).__name__, err), file=sys.stderr)
                 exit(2)
     except IOError as err:
         print('Failed to open file %s: %s' % (args.input, err),
@@ -882,8 +882,20 @@ def repair_shard_ranges(broker, args):
         return repair_overlaps(broker, args)
 
 
-def analyze_shard_ranges(args):
-    shard_data = _load_and_validate_shard_data(args, require_index=False)
+def analyze_shard_ranges(broker, args):
+    if args.json:
+        # With --json, analyze reads JSON shard data from file.
+        shard_data = _load_and_validate_shard_data(args, require_index=False)
+    else:
+        try:
+            shard_data = [dict(sr) for sr in broker.get_shard_ranges()]
+        except Exception as exc:
+            print('Error reading shard ranges from container DB %s: %s' %
+                  (args.path_to_file, exc), file=sys.stderr)
+            return EXIT_ERROR
+        if not shard_data:
+            print('No shards found, nothing to do.')
+            return EXIT_SUCCESS
     for data in shard_data:
         # allow for incomplete shard range data that may have been scraped from
         # swift-container-info output
@@ -987,7 +999,7 @@ def _make_parser():
     parser = argparse.ArgumentParser(description='Manage shard ranges')
     parser.add_argument('path_to_file',
                         help='Path to a container DB file or, for the analyze '
-                        'subcommand, a shard data file.')
+                        'subcommand with --json, a shard data file.')
     parser.add_argument('--config', dest='conf_file', required=False,
                         help='Path to config file with [container-sharder] '
                              'section. The following subcommand options will '
@@ -1148,8 +1160,18 @@ def _make_parser():
     # analyze
     analyze_parser = subparsers.add_parser(
         'analyze',
-        help='Analyze shard range json data read from file. Use -v to see '
+        help='Analyze shard range data from a container DB, or json data '
+             'read from file if --json is given. Use -v to see '
              'more detailed analysis.')
+    analyze_input = analyze_parser.add_mutually_exclusive_group()
+    analyze_input.add_argument(
+        '--db', action='store_true', default=False,
+        help='Read shard ranges from a container DB file. This is the '
+        'default.')
+    analyze_input.add_argument(
+        '--json', action='store_true', default=False,
+        help='Read shard range json data from a shard data file instead of '
+        'a container DB file.')
     analyze_parser.add_argument(
         '--min-shard-age', nargs='?',
         type=wrap_for_argparse(non_negative_int, 'must be >= 0'),
@@ -1202,15 +1224,24 @@ def main(cli_args=None):
         print('Invalid config: %s' % err, file=sys.stderr)
         return EXIT_INVALID_ARGS
 
-    if args.func in (analyze_shard_ranges,):
+    if args.func in (analyze_shard_ranges,) and args.json:
+        # special case: analyze doesn't require a broker if --json is given
         args.input = args.path_to_file
-        return args.func(args) or 0
+        return args.func(None, args)
 
     logger = get_logger({}, name='ContainerBroker', log_to_console=True)
-    broker = ContainerBroker(os.path.realpath(args.path_to_file),
-                             logger=logger,
+    db_path = os.path.realpath(args.path_to_file)
+    broker = ContainerBroker(db_path, logger=logger,
                              skip_commits=args.skip_commits,
                              quarantine_ok=False)
+    if (args.func in (analyze_shard_ranges,) and
+            os.path.exists(db_path) and db_path not in broker.db_files):
+        # The broker would open a different db file with the same hash name,
+        # or try to open a file that is not named as a db.
+        print('Error opening container DB %s: not recognized as a container '
+              'DB file. Use --json to analyze a shard data file.'
+              % args.path_to_file, file=sys.stderr)
+        return EXIT_ERROR
     try:
         broker.get_info()
     except Exception as exc:
