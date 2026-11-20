@@ -4994,6 +4994,7 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.status, '404 Not Found')
         # all 28 nodes tried with an optimistic get, none are durable and none
         # report having a durable timestamp
         self.assertEqual(28, len(log))
@@ -7314,6 +7315,7 @@ class TestECDuplicationObjController(
             resp = req.get_response(self.app)
 
         self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.status, '404 Not Found')
         # all 28 nodes tried with an optimistic get, none are durable and none
         # report having a durable timestamp
         self.assertEqual(self.replicas() * 2, len(log))
