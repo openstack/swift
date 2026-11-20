@@ -418,6 +418,17 @@ class TestContainerController(BaseTestContainerController):
         self.assertEqual(['Container GET returning 503 for []'],
                          self.logger.get_lines_for_level('error'))
 
+    def test_get_unsynced_container(self):
+        # x-put-timestamp is zero
+        n_reqs = 2 * self.app.container_ring.replicas
+        codes = [200] * n_reqs
+        headers = [{'x-put-timestamp': Timestamp.zero().internal}] * n_reqs
+        req = Request.blank('/v1/a/c')
+        with mocked_http_conn(*codes, headers=headers):
+            resp = req.get_response(self.app)
+        self.assertEqual(resp.status_int, 404)
+        self.assertEqual(resp.body, b'')
+
     def test_handoff_has_deleted_database(self):
         nodes = self.app.container_ring.replicas
         handoffs = self.app.request_node_count(nodes) - nodes
