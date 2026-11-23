@@ -1164,13 +1164,13 @@ class TestManageShardRanges(BaseUnitTestCase):
     def test_analyze_db_file(self):
         broker = self._make_broker()
         broker.set_sharding_sysmeta('Quoted-Root', 'a/c')
-        with mock_normal_timestamp_now(next(self.ts_iter)):  # t1
+        with mock_normal_timestamp_now(self.normal_ts()):  # t1
             shard_ranges = make_shard_ranges(
                 broker, self.shard_data, '.shards_')
-        with mock_normal_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_1 = make_shard_ranges(
                 broker, self.overlap_shard_data_1, '.shards_')
-        with mock_normal_timestamp_now(next(self.ts_iter)):
+        with mock_normal_timestamp_now(self.normal_ts()):
             overlap_shard_ranges_2 = make_shard_ranges(
                 broker, self.overlap_shard_data_2, '.shards_')
         broker.merge_shard_ranges(shard_ranges + overlap_shard_ranges_1 +
@@ -1350,7 +1350,7 @@ class TestManageShardRanges(BaseUnitTestCase):
         # analyze ignores the deleted shard range, which would otherwise
         # overlap all the others
         deleted_shard_range = ShardRange(
-            '.shards_a/c_deleted', next(self.ts_iter), deleted=True)
+            '.shards_a/c_deleted', self.normal_ts(), deleted=True)
         broker.merge_shard_ranges(
             make_shard_ranges(broker, self.shard_data, '.shards_') +
             [deleted_shard_range])
