@@ -1277,13 +1277,11 @@ class TestFuncs(BaseTest):
 
     def test_best_response_overrides(self):
         base = Controller(self.app)
-        responses = [
-            (302, 'Found', '', b'The resource has moved temporarily.'),
-            (100, 'Continue', '', b''),
-            (404, 'Not Found', '', b'Custom body'),
-        ]
+        statuses = [302, 100, 404]
+        reasons = ['Found', 'Continue', 'Not Found']
+        headers = [{}, {}, {}]
+        bodies = [b'The resource has moved temporarily.', b'', b'Custom body']
         req = Request.blank('/v1/a/c/o', method='DELETE')
-        statuses, reasons, headers, bodies = zip(*responses)
 
         # First test that you can't make a quorum with only overridden
         # responses
@@ -1291,7 +1289,7 @@ class TestFuncs(BaseTest):
         resp = base.best_response(req, statuses, reasons, bodies,
                                   headers=headers, overrides=overrides)
         self.assertEqual(resp.status, '503 Service Unavailable')
-        self.assertEqual(['Base DELETE returning 503 for (204, 204, 404)'],
+        self.assertEqual(['Base DELETE returning 503 for [204, 204, 404]'],
                          self.app.logger.get_lines_for_level('error'))
 
         # next make a 404 quorum and make sure the last delete (real) 404
@@ -1301,6 +1299,20 @@ class TestFuncs(BaseTest):
                                   headers=headers, overrides=overrides)
         self.assertEqual(resp.status, '404 Not Found')
         self.assertEqual(resp.body, b'Custom body')
+
+    def test_best_response_no_overrides_503(self):
+        base = Controller(self.app)
+        statuses = [404, 500, 503]
+        reasons = ['Not Found', 'Internal Error', 'Service Unavailable']
+        headers = [{}, {}, {}]
+        bodies = [b'', b'', b'']
+
+        req = Request.blank('/v1/a/c/o', method='HEAD')
+        resp = base.best_response(req, statuses, reasons, bodies,
+                                  headers=headers)
+        self.assertEqual(resp.status, '503 Service Unavailable')
+        self.assertEqual(['Base HEAD returning 503 for [404, 500, 503]'],
+                         self.app.logger.get_lines_for_level('error'))
 
     def test_transfer_headers_with_sysmeta(self):
         base = Controller(self.app)

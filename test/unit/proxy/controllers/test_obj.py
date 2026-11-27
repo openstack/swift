@@ -256,12 +256,12 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
 
     def test_POST_503_error_log(self):
         # _make_requests adds 503s until it has one status for each replica
-        statuses = (503,) * self.replicas()
+        statuses = [503] * self.replicas()
         self._test_503_error_log(
             'POST', 'Object POST returning 503 for %s' % (statuses,))
 
     def test_DELETE_503_error_log(self):
-        statuses = (503,) * self.replicas()
+        statuses = [503] * self.replicas()
         self._test_503_error_log(
             'DELETE', 'Object DELETE returning 503 for %s' % (statuses,))
 

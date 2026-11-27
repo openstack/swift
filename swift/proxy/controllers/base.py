@@ -2270,7 +2270,7 @@ class Controller(object):
             self.logger.error(
                 '%(type)s %(method)s returning 503 for %(statuses)s',
                 {'type': self.server_type, 'method': req.method,
-                 'statuses': statuses})
+                 'statuses': list(statuses)})
         return resp
 
     def _compute_quorum_response(self, req, statuses, reasons, bodies, etag,
