@@ -1583,7 +1583,7 @@ class GetOrHeadHandler(GetterBase):
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
                 self.statuses.append(HTTP_NOT_FOUND)
                 self.reasons.append('')
-                self.bodies.append('')
+                self.bodies.append(b'')
                 self.source_headers.append([])
                 close_swift_conn(possible_source)
             else:
@@ -1592,7 +1592,7 @@ class GetOrHeadHandler(GetterBase):
                             src_headers.get('etag', '')):
                     self.statuses.append(HTTP_NOT_FOUND)
                     self.reasons.append('')
-                    self.bodies.append('')
+                    self.bodies.append(b'')
                     self.source_headers.append([])
                     return False
 
@@ -1607,7 +1607,7 @@ class GetOrHeadHandler(GetterBase):
                 if ps_timestamp >= self.latest_404_timestamp:
                     self.statuses.append(possible_source.status)
                     self.reasons.append(possible_source.reason)
-                    self.bodies.append(None)
+                    self.bodies.append(b'')
                     self.source_headers.append(possible_source.getheaders())
                     self.sources.append(
                         GetterSource(self.app, possible_source, node))
@@ -2236,7 +2236,8 @@ class Controller(object):
         :param req: swob.Request object
         :param statuses: list of statuses returned
         :param reasons: list of reasons for each status
-        :param bodies: bodies of each response
+        :param bodies: bodies of each response; should be instances of
+            ``bytes``
         :param etag: etag
         :param headers: headers of each response
         :param overrides: overrides to apply when lacking quorum
@@ -2256,7 +2257,7 @@ class Controller(object):
                     statuses, reasons, headers, bodies)):
                 if status in overrides:
                     faked_up_status_indices.add(i)
-                    transformed.append((overrides[status], '', '', ''))
+                    transformed.append((overrides[status], '', {}, b''))
                 else:
                     transformed.append((status, reason, hdrs, body))
             statuses, reasons, headers, bodies = zip(*transformed)

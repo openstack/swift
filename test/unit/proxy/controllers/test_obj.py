@@ -2776,7 +2776,7 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 404)
 
-    def test_GET_x_newest_not_found_when_404_newer(self):
+    def test_GET_x_newest_not_found_when_newer_404_has_quorum(self):
         # if proxy receives a 404, it keeps waiting for other connections until
         # max number of nodes in hopes of finding an object, but if 404 is
         # more recent than a 200, then it should ignore 200 and return 404
@@ -2791,6 +2791,20 @@ class TestReplicatedObjController(CommonObjectControllerMixin,
         with set_http_connect(*codes, timestamps=ts_iter):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 404)
+
+    def test_GET_x_newest_success_when_newer_404_below_quorum(self):
+        req = swift.common.swob.Request.blank('/v1/a/c/o',
+                                              headers={'X-Newest': 'true'})
+        codes = ([200] * self.obj_ring.replicas +
+                 [404] +
+                 [200] * (self.obj_ring.max_more_nodes - 1))
+        ts_iter = iter([1] * self.obj_ring.replicas +
+                       [2] +
+                       [1] * (self.obj_ring.max_more_nodes - 1))
+        with set_http_connect(*codes, timestamps=ts_iter):
+            resp = req.get_response(self.app)
+        # XXX is 200 correct when we know there is a newer 404??
+        self.assertEqual(resp.status_int, 200)
 
     def test_PUT_delete_at(self):
         t = str(int(time.time() + 100))
