@@ -3132,7 +3132,7 @@ class ECObjectController(BaseObjectController):
                     not best_bucket.durable:
                 # pretend that non-durable bucket was 404s
                 statuses.append(404)
-                reasons.append('404 Not Found')
+                reasons.append('Not Found')
                 bodies.append(b'')
                 headers.append({})
 
