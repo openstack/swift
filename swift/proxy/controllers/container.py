@@ -103,8 +103,7 @@ class ContainerController(Controller):
             'container', self.app, self.app.container_ring, part,
             self.logger, req)
         resp = self.GETorHEAD_base(
-            req, 'Container', node_iter, part,
-            req.swift_entity_path, concurrency)
+            req, node_iter, part, req.swift_entity_path, concurrency)
         return resp
 
     def _filter_complete_listing(self, req, namespaces):

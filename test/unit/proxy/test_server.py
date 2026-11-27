@@ -5994,20 +5994,18 @@ class TestReplicatedObjectController(
             self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
         resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
-                                        'Object', headers=[{'X-Test': '1'},
-                                                           {'X-Test': '2'},
-                                                           {'X-Test': '3'}])
+                                        headers=[{'X-Test': '1'},
+                                                 {'X-Test': '2'},
+                                                 {'X-Test': '3'}])
         self.assertEqual(resp.headers['X-Test'], '1')
 
     def test_best_response_sets_etag(self):
         controller = ReplicatedObjectController(
             self.app, 'account', 'container', 'object')
         req = Request.blank('/v1/a/c/o', environ={'REQUEST_METHOD': 'GET'})
-        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
-                                        'Object')
+        resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3)
         self.assertIsNone(resp.etag)
         resp = controller.best_response(req, [200] * 3, ['OK'] * 3, [b''] * 3,
-                                        'Object',
                                         etag='68b329da9893e34099c7d8ad5cb9c940'
                                         )
         self.assertEqual(resp.etag, '68b329da9893e34099c7d8ad5cb9c940')

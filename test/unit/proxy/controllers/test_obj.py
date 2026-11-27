@@ -236,6 +236,35 @@ class CommonObjectControllerMixin(BaseObjectControllerMixin):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
 
+    def _test_503_error_log(self, method, expected_line):
+        # no node is usable, so best_response logs the only error line
+        part, nodes = self.obj_ring.get_nodes('a', 'c', 'o')
+        for node in nodes + list(self.obj_ring.get_more_nodes(part)):
+            self.app.error_limiter.limit(node)
+        req = swift.common.swob.Request.blank('/v1/a/c/o', method=method)
+        with mocked_http_conn():
+            resp = req.get_response(self.app)
+        self.assertEqual(503, resp.status_int)
+        self.assertEqual([expected_line],
+                         self.logger.get_lines_for_level('error'))
+
+    def test_GET_503_error_log(self):
+        self._test_503_error_log('GET', 'Object GET returning 503 for []')
+
+    def test_HEAD_503_error_log(self):
+        self._test_503_error_log('HEAD', 'Object HEAD returning 503 for []')
+
+    def test_POST_503_error_log(self):
+        # _make_requests adds 503s until it has one status for each replica
+        statuses = (503,) * self.replicas()
+        self._test_503_error_log(
+            'POST', 'Object POST returning 503 for %s' % (statuses,))
+
+    def test_DELETE_503_error_log(self):
+        statuses = (503,) * self.replicas()
+        self._test_503_error_log(
+            'DELETE', 'Object DELETE returning 503 for %s' % (statuses,))
+
     def test_iter_nodes_local_first_noops_when_no_affinity(self):
         # this test needs a stable node order - most don't
         self.app.sort_nodes = lambda l, *args, **kwargs: l
@@ -3853,6 +3882,8 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
         with set_http_connect(*([Timeout()] * num_responses)):
             resp = req.get_response(self.app)
         self.assertEqual(resp.status_int, 503)
+        lines = self.logger.get_lines_for_level('error')
+        self.assertIn('Object GET returning 503 for []', lines[-1])
 
     def test_feed_remaining_primaries(self):
         controller = self.controller_cls(
@@ -5292,7 +5323,7 @@ class TestECObjController(ECObjectControllerMixin, BaseUnitTestCase):
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(log_lines,
                          ['Problem with fragment response: ETag mismatch'] * 7
-                         + ['Object returning 503 for []'])
+                         + ['Object GET returning 503 for []'])
         # Note the empty list above -- that log line comes out of
         # best_response but we've already thrown out the "good" responses :-/
 
@@ -7391,7 +7422,7 @@ class TestECDuplicationObjController(
         log_lines = self.app.logger.get_lines_for_level('error')
         self.assertEqual(log_lines,
                          ['Problem with fragment response: ETag mismatch'] * 7
-                         + ['Object returning 503 for []'])
+                         + ['Object GET returning 503 for []'])
 
     def _test_determine_chunk_destinations_prioritize(
             self, missing_two, missing_one):
