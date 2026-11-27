@@ -34,7 +34,6 @@ import itertools
 import operator
 import random
 from copy import deepcopy
-from types import SimpleNamespace
 
 from swift.common.concurrency import Timeout
 
@@ -53,11 +52,11 @@ from swift.common.header_key_dict import HeaderKeyDict
 from swift.common.http import is_informational, is_success, is_redirection, \
     is_server_error, HTTP_OK, HTTP_PARTIAL_CONTENT, HTTP_MULTIPLE_CHOICES, \
     HTTP_BAD_REQUEST, HTTP_NOT_FOUND, HTTP_UNAUTHORIZED, HTTP_CONTINUE, \
-    HTTP_GONE, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE
+    HTTP_GONE, HTTP_REQUESTED_RANGE_NOT_SATISFIABLE, HTTP_SERVICE_UNAVAILABLE
 from swift.common.swob import Request, Response, Range, \
     HTTPException, HTTPRequestedRangeNotSatisfiable, HTTPServiceUnavailable, \
     status_map, wsgi_to_str, str_to_wsgi, wsgi_quote, wsgi_unquote, \
-    normalize_etag
+    normalize_etag, RESPONSE_REASONS
 from swift.common.request_helpers import strip_sys_meta_prefix, \
     strip_user_meta_prefix, is_user_meta, is_sys_meta, is_sys_or_user_meta, \
     http_response_to_document_iters, is_object_transient_sysmeta, \
@@ -1095,7 +1094,7 @@ def is_good_source(status, server_type):
     Indicates whether or not the request made to the backend found
     what it was looking for.
 
-    :param resp: the response from the backend.
+    :param status: (int) the response status code from the backend.
     :param server_type: the type of server: 'Account', 'Container' or 'Object'.
     :returns: True if the response status code is acceptable, False if not.
     """
@@ -1105,12 +1104,12 @@ def is_good_source(status, server_type):
     return is_success(status) or is_redirection(status)
 
 
-def is_useful_response(resp, node):
-    if not resp:
+def is_useful_response(backend_response):
+    if not backend_response or not backend_response.node:
         return False
-    if ('handoff_index' in node
-            and resp.status == 404
-            and resp.getheader('x-backend-timestamp') is None):
+    if ('handoff_index' in backend_response.node
+            and backend_response.status == 404
+            and backend_response.getheader('x-backend-timestamp') is None):
         # a 404 from a handoff are not considered authoritative unless they
         # have an x-backend-timestamp that indicates that there is a tombstone
         return False
@@ -1191,6 +1190,45 @@ class GetterSource(object):
     def close(self):
         # Close-out the connection as best as possible.
         close_swift_conn(self.resp)
+
+
+class BackendResponse:
+    """
+    Encapsulate backend response data and source node.
+
+    :param status: (int) the response status code from the backend.
+    :param reason: (str) the response reason from the backend. Optional,
+        defaults to ''.
+    :param headers: the response headers. The given value is cast to a
+        HeaderKeyDict. Optional, defaults to an empty HeaderKeyDict.
+    :param body: (bytes) the response body. Optional, defaults to ``b''``.
+    :param node: a dict describing the node from which the response came.
+        Optional, defaults to None.
+    """
+    __slots__ = ('status', 'reason', 'headers', 'body', 'node')
+
+    def __init__(self, status, reason='', headers=None, body=b'', node=None):
+        self.status = status
+        self.reason = reason
+        self.headers = HeaderKeyDict(headers)
+        self.body = body
+        self.node = node
+
+    @classmethod
+    def synthesize(cls, status):
+        """
+        Return an instance of ``BackendResponse`` with the given status code.
+        The ``reason`` will be populated with the corresponding string found in
+        swob.RESPONSE_REASONS.
+        """
+        try:
+            reason = RESPONSE_REASONS[status][0]
+        except KeyError:
+            reason = ''
+        return cls(status, reason=reason)
+
+    def getheader(self, key, default=None):
+        return self.headers.get(key, default)
 
 
 class GetterBase(object):
@@ -1420,10 +1458,7 @@ class GetOrHeadHandler(GetterBase):
             node_iter.num_primary_nodes - 1)
 
         # populated when finding source
-        self.statuses = []
-        self.reasons = []
-        self.bodies = []
-        self.source_headers = []
+        self.backend_responses = []
         self.sources = []
 
         # populated from response headers
@@ -1531,15 +1566,20 @@ class GetOrHeadHandler(GetterBase):
 
     @property
     def last_status(self):
-        if self.statuses:
-            return self.statuses[-1]
+        if self.backend_responses:
+            return self.backend_responses[-1].status
         else:
             return None
 
     @property
     def last_headers(self):
-        if self.source_headers:
-            return HeaderKeyDict(self.source_headers[-1])
+        """
+        Return a HeaderKeyDict of the headers from the last received response,
+        or None if there were no responses. The HeaderKeyDict is owned by the
+        getter; callers should not mutate the returned dict.
+        """
+        if self.backend_responses:
+            return self.backend_responses[-1].headers
         else:
             return None
 
@@ -1581,19 +1621,15 @@ class GetOrHeadHandler(GetterBase):
         if is_good_source(possible_source.status, self.server_type):
             # 404 if we know we don't have a synced copy
             if not float(possible_source.getheader('X-PUT-Timestamp', 1)):
-                self.statuses.append(HTTP_NOT_FOUND)
-                self.reasons.append('')
-                self.bodies.append(b'')
-                self.source_headers.append([])
+                self.backend_responses.append(
+                    BackendResponse.synthesize(HTTP_NOT_FOUND))
                 close_swift_conn(possible_source)
             else:
                 if self.used_source_etag and \
                         self.used_source_etag != normalize_etag(
                             src_headers.get('etag', '')):
-                    self.statuses.append(HTTP_NOT_FOUND)
-                    self.reasons.append('')
-                    self.bodies.append(b'')
-                    self.source_headers.append([])
+                    self.backend_responses.append(
+                        BackendResponse.synthesize(HTTP_NOT_FOUND))
                     return False
 
                 # a possible source should only be added as a valid source
@@ -1605,10 +1641,11 @@ class GetOrHeadHandler(GetterBase):
                     src_headers.get('x-timestamp') or
                     Timestamp.zero())
                 if ps_timestamp >= self.latest_404_timestamp:
-                    self.statuses.append(possible_source.status)
-                    self.reasons.append(possible_source.reason)
-                    self.bodies.append(b'')
-                    self.source_headers.append(possible_source.getheaders())
+                    self.backend_responses.append(
+                        BackendResponse(possible_source.status,
+                                        possible_source.reason,
+                                        possible_source.getheaders())
+                    )
                     self.sources.append(
                         GetterSource(self.app, possible_source, node))
                     if not self.newest:  # one good source is enough
@@ -1630,10 +1667,12 @@ class GetOrHeadHandler(GetterBase):
                 self.rebalance_missing_suppression_count -= 1
                 return False
 
-            self.statuses.append(possible_source.status)
-            self.reasons.append(possible_source.reason)
-            self.bodies.append(possible_source.read())
-            self.source_headers.append(possible_source.getheaders())
+            self.backend_responses.append(
+                BackendResponse(possible_source.status,
+                                possible_source.reason,
+                                possible_source.getheaders(),
+                                possible_source.read())
+            )
 
             # if 404, record the timestamp. If a good source shows up, its
             # timestamp will be compared to the latest 404.
@@ -1648,14 +1687,11 @@ class GetOrHeadHandler(GetterBase):
                     self.latest_404_timestamp = ts
             self.app.check_response(node, self.server_type, possible_source,
                                     self.req.method, self.path,
-                                    self.bodies[-1])
+                                    self.backend_responses[-1].body)
         return False
 
     def _find_source(self):
-        self.statuses = []
-        self.reasons = []
-        self.bodies = []
-        self.source_headers = []
+        self.backend_responses = []
         self.sources = []
 
         nodes = GreenthreadSafeIterator(self.node_iter)
@@ -2078,7 +2114,8 @@ class Controller(object):
         :param logger_thread_locals: The thread local values to be set on the
                                      self.logger to retain transaction
                                      logging information.
-        :returns: a swob.Response object, or None if no responses were received
+        :returns: a BackendResponse object, or None if no useful responses were
+            received.
         """
         self.logger.thread_locals = logger_thread_locals
         if body:
@@ -2103,14 +2140,16 @@ class Controller(object):
                     if (self.app.check_response(node, self.server_type, resp,
                                                 method, path)
                             and not is_informational(resp.status)):
-                        return resp, resp.read(), node
+                        return BackendResponse(
+                            resp.status, resp.reason, resp.getheaders(),
+                            resp.read(), node=node)
 
             except (Exception, Timeout):
                 self.app.exception_occurred(
                     node, self.server_type,
                     'Trying to %(method)s %(path)s' %
                     {'method': method, 'path': path})
-        return None, None, None
+        return None
 
     def _make_requests(self, req, ring, part, method, path, headers,
                        query_string='', node_count=None, node_iterator=None,
@@ -2130,7 +2169,7 @@ class Controller(object):
         :param node_count: optional number of nodes to send request to.
         :param node_iterator: optional node iterator.
         :param body: byte string to use as the request body.
-        :returns: list of tuples of (resp, body, node)
+        :returns: a list of BackendResponse.
         """
         nodes = GreenthreadSafeIterator(node_iterator or NodeIter(
             self.server_type.lower(), self.app, ring, part, self.logger, req))
@@ -2140,30 +2179,25 @@ class Controller(object):
         for head in headers:
             pile.spawn(self._make_request, nodes, part, method, path,
                        head, query_string, body, self.logger.thread_locals)
-        results = []
+        backend_responses = []
         statuses = []
-        for resp, body, node in pile:
-            if not is_useful_response(resp, node):
+        for backend_response in pile:
+            if not is_useful_response(backend_response):
                 continue
-            results.append((resp, body, node))
-            statuses.append(resp.status)
+            backend_responses.append(backend_response)
+            statuses.append(backend_response.status)
             if self.have_quorum(statuses, node_number):
                 break
         # give any pending requests *some* chance to finish
         finished_quickly = pile.waitall(self.app.post_quorum_timeout)
-        for resp, body, node in finished_quickly:
-            if not is_useful_response(resp, node):
+        for backend_response in finished_quickly:
+            if not is_useful_response(backend_response):
                 continue
-            results.append((resp, body, node))
-            statuses.append(resp.status)
-        while len(results) < node_number:
-            swob_resp = HTTPServiceUnavailable(request=req)
-            stub_http_client_resp = SimpleNamespace(
-                status=swob_resp.status_int,
-                reason=swob_resp.title,
-                getheaders=lambda: swob_resp.headers)
-            results.append((stub_http_client_resp, swob_resp.body, None))
-        return results
+            backend_responses.append(backend_response)
+        while len(backend_responses) < node_number:
+            backend_responses.append(
+                BackendResponse.synthesize(HTTP_SERVICE_UNAVAILABLE))
+        return backend_responses
 
     def make_requests(self, req, ring, part, method, path, headers,
                       query_string='', overrides=None, node_count=None,
@@ -2190,14 +2224,11 @@ class Controller(object):
                      Try to keep it small.
         :returns: a swob.Response object
         """
-        results = self._make_requests(
+        backend_responses = self._make_requests(
             req, ring, part, method, path, headers, query_string,
             node_count, node_iterator, body)
-        statuses, reasons, resp_headers, bodies = zip(*[(
-            resp.status, resp.reason, resp.getheaders(), body)
-            for resp, body, _ in results])
-        return self.best_response(req, statuses, reasons, bodies,
-                                  overrides=overrides, headers=resp_headers)
+        return self.best_response(req, backend_responses, overrides=overrides,
+                                  copy_headers=True)
 
     def _quorum_size(self, n):
         """
@@ -2226,43 +2257,40 @@ class Controller(object):
                     return True
         return False
 
-    def best_response(self, req, statuses, reasons, bodies,
-                      etag=None, headers=None, overrides=None,
-                      quorum_size=None):
+    def best_response(self, req, backend_responses, etag=None,
+                      copy_headers=False, overrides=None, quorum_size=None):
         """
         Given a list of responses from several servers, choose the best to
         return to the API.
 
         :param req: swob.Request object
-        :param statuses: list of statuses returned
-        :param reasons: list of reasons for each status
-        :param bodies: bodies of each response; should be instances of
-            ``bytes``
+        :param backend_responses: a list of BackendResponse.
         :param etag: etag
-        :param headers: headers of each response
+        :param copy_headers: if True then the backend headers are copied from
+            the chosen BackendResponse to the returned response.
         :param overrides: overrides to apply when lacking quorum
         :param quorum_size: quorum size to use
         :returns: swob.Response object with the correct status, body, etc. set
         """
         if quorum_size is None:
-            quorum_size = self._quorum_size(len(statuses))
+            quorum_size = self._quorum_size(len(backend_responses))
 
         resp = self._compute_quorum_response(
-            req, statuses, reasons, bodies, etag, headers,
+            req, backend_responses, etag, copy_headers,
             quorum_size=quorum_size)
         if overrides and not resp:
             faked_up_status_indices = set()
             transformed = []
-            for (i, (status, reason, hdrs, body)) in enumerate(zip(
-                    statuses, reasons, headers, bodies)):
-                if status in overrides:
+            for (i, backend_response) in enumerate(backend_responses):
+                if backend_response.status in overrides:
                     faked_up_status_indices.add(i)
-                    transformed.append((overrides[status], '', {}, b''))
+                    transformed.append(
+                        BackendResponse(overrides[backend_response.status]))
                 else:
-                    transformed.append((status, reason, hdrs, body))
-            statuses, reasons, headers, bodies = zip(*transformed)
+                    transformed.append(backend_response)
+            backend_responses = transformed
             resp = self._compute_quorum_response(
-                req, statuses, reasons, bodies, etag, headers,
+                req, backend_responses, etag, copy_headers,
                 indices_to_avoid=faked_up_status_indices,
                 quorum_size=quorum_size)
 
@@ -2271,17 +2299,25 @@ class Controller(object):
             self.logger.error(
                 '%(type)s %(method)s returning 503 for %(statuses)s',
                 {'type': self.server_type, 'method': req.method,
-                 'statuses': list(statuses)})
+                 'statuses': [resp_data.status
+                              for resp_data in backend_responses]})
+
         return resp
 
-    def _compute_quorum_response(self, req, statuses, reasons, bodies, etag,
-                                 headers, quorum_size, indices_to_avoid=()):
-        if not statuses:
+    def _compute_quorum_response(self, req, backend_responses, etag,
+                                 copy_headers, quorum_size,
+                                 indices_to_avoid=()):
+        """
+        Return a swob.Response for the best response status that meets or
+        exceeds quorum, or None if the quorum is not met.
+        """
+        if not backend_responses:
             return None
         for hundred in (HTTP_OK, HTTP_MULTIPLE_CHOICES, HTTP_BAD_REQUEST):
             hstatuses = \
-                [(i, s) for i, s in enumerate(statuses)
-                 if hundred <= s < hundred + 100]
+                [(i, backend_response.status)
+                 for i, backend_response in enumerate(backend_responses)
+                 if hundred <= backend_response.status < hundred + 100]
             if len(hstatuses) >= quorum_size:
                 try:
                     status_index, status = max(
@@ -2291,11 +2327,12 @@ class Controller(object):
                 except ValueError:
                     # All statuses were indices to avoid
                     continue
+                chosen_response = backend_responses[status_index]
                 resp = status_map[status](request=req)
-                resp.status = '%s %s' % (status, reasons[status_index])
-                resp.body = bodies[status_index]
-                if headers:
-                    update_headers(resp, headers[status_index])
+                resp.status = '%s %s' % (status, chosen_response.reason)
+                resp.body = chosen_response.body
+                if copy_headers:
+                    update_headers(resp, chosen_response.headers)
                 if etag:
                     resp.headers['etag'] = normalize_etag(etag)
                 return resp
@@ -2374,8 +2411,7 @@ class Controller(object):
 
         if not res:
             res = self.best_response(
-                req, handler.statuses, handler.reasons, handler.bodies,
-                headers=handler.source_headers)
+                req, handler.backend_responses, copy_headers=True)
 
         # if a backend policy index is present in resp headers, translate it
         # here with the friendly policy name

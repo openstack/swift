@@ -28,7 +28,7 @@ from swift.proxy.controllers.base import headers_to_container_info, \
     Controller, GetOrHeadHandler, bytes_to_skip, clear_info_cache, \
     set_info_cache, NodeIter, headers_from_container_info, \
     record_cache_op_metrics, GetterSource, get_namespaces_from_cache, \
-    set_namespaces_in_cache
+    set_namespaces_in_cache, BackendResponse
 from swift.common.swob import Request, HTTPException, RESPONSE_REASONS, \
     bytes_to_wsgi
 from swift.common import exceptions
@@ -1277,17 +1277,19 @@ class TestFuncs(BaseTest):
 
     def test_best_response_overrides(self):
         base = Controller(self.app)
-        statuses = [302, 100, 404]
-        reasons = ['Found', 'Continue', 'Not Found']
-        headers = [{}, {}, {}]
-        bodies = [b'The resource has moved temporarily.', b'', b'Custom body']
+        responses = [
+            BackendResponse(302, 'Found', {},
+                            b'The resource has moved temporarily.'),
+            BackendResponse(100, 'Continue', {}, b''),
+            BackendResponse(404, 'Not Found', {}, b'Custom body'),
+        ]
         req = Request.blank('/v1/a/c/o', method='DELETE')
 
         # First test that you can't make a quorum with only overridden
         # responses
         overrides = {302: 204, 100: 204}
-        resp = base.best_response(req, statuses, reasons, bodies,
-                                  headers=headers, overrides=overrides)
+        resp = base.best_response(req, responses, copy_headers=True,
+                                  overrides=overrides)
         self.assertEqual(resp.status, '503 Service Unavailable')
         self.assertEqual(['Base DELETE returning 503 for [204, 204, 404]'],
                          self.app.logger.get_lines_for_level('error'))
@@ -1295,21 +1297,21 @@ class TestFuncs(BaseTest):
         # next make a 404 quorum and make sure the last delete (real) 404
         # status is the one returned.
         overrides = {100: 404}
-        resp = base.best_response(req, statuses, reasons, bodies,
-                                  headers=headers, overrides=overrides)
+        resp = base.best_response(req, responses, copy_headers=True,
+                                  overrides=overrides)
         self.assertEqual(resp.status, '404 Not Found')
         self.assertEqual(resp.body, b'Custom body')
 
     def test_best_response_no_overrides_503(self):
         base = Controller(self.app)
-        statuses = [404, 500, 503]
-        reasons = ['Not Found', 'Internal Error', 'Service Unavailable']
-        headers = [{}, {}, {}]
-        bodies = [b'', b'', b'']
+        responses = [
+            BackendResponse(404, 'Not Found', {}, b''),
+            BackendResponse(500, 'Internal Error', {}, b''),
+            BackendResponse(503, 'Service Unavailable', {}, b'Custom body'),
+        ]
 
         req = Request.blank('/v1/a/c/o', method='HEAD')
-        resp = base.best_response(req, statuses, reasons, bodies,
-                                  headers=headers)
+        resp = base.best_response(req, responses, copy_headers=True)
         self.assertEqual(resp.status, '503 Service Unavailable')
         self.assertEqual(['Base HEAD returning 503 for [404, 500, 503]'],
                          self.app.logger.get_lines_for_level('error'))
@@ -1869,3 +1871,57 @@ class TestGetOrHeadHandler(BaseTest):
         handler.learn_size_from_content_range(900, 999, 1000)
         handler.fast_forward(0)
         self.assertEqual(handler.backend_headers['Range'], 'bytes=900-999')
+
+
+class TestBackendResponse(BaseUnitTestCase):
+    def test_init(self):
+        ts = self.ts()
+        headers = {'x-timestamp': ts.normal}
+        node = {'ip': '1.2.3.4', 'port': '1234'}
+        resp = BackendResponse(200, 'OK', headers, b'hello', node)
+        self.assertEqual(200, resp.status)
+        self.assertEqual('OK', resp.reason)
+        self.assertEqual({'X-Timestamp': ts.normal}, resp.headers)
+        self.assertEqual(b'hello', resp.body)
+        self.assertEqual(node, resp.node)
+
+    def test_synthesize(self):
+        resp = BackendResponse.synthesize(404)
+        self.assertEqual(404, resp.status)
+        self.assertEqual('Not Found', resp.reason)
+        self.assertEqual({}, resp.headers)
+        self.assertEqual(b'', resp.body)
+        self.assertIsNone(resp.node)
+
+    def test_synthesize_reason_key_error(self):
+        resp = BackendResponse.synthesize(747)
+        self.assertEqual(747, resp.status)
+        self.assertEqual('', resp.reason)
+        self.assertEqual({}, resp.headers)
+        self.assertEqual(b'', resp.body)
+        self.assertIsNone(resp.node)
+
+    def test_defaults(self):
+        resp = BackendResponse(404)
+        self.assertEqual(404, resp.status)
+        self.assertEqual('', resp.reason)
+        self.assertEqual({}, resp.headers)
+        self.assertEqual(b'', resp.body)
+        self.assertIsNone(resp.node)
+
+    def test_getheader(self):
+        ts = self.ts()
+        headers = {'x-timestamp': ts.normal}
+        resp = BackendResponse(200, 'OK', headers)
+        self.assertEqual(200, resp.status)
+        self.assertEqual({'X-Timestamp': ts.normal}, resp.headers)
+        self.assertEqual(ts.normal, resp.getheader('x-timestamp'))
+        self.assertEqual(ts.normal, resp.getheader('X-Timestamp'))
+
+    def test_getheader_default(self):
+        resp = BackendResponse(200, 'OK')
+        self.assertEqual(200, resp.status)
+        self.assertEqual('fallback', resp.getheader('x-whatever', 'fallback'))
+        self.assertEqual('fallback', resp.getheader('X-Whatever', 'fallback'))
+        resp = BackendResponse(200, 'OK', {'x-whatever': 'real'})
+        self.assertEqual('real', resp.getheader('X-Whatever', 'fallback'))
